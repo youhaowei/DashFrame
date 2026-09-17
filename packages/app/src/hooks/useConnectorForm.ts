@@ -91,11 +91,14 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
    * Returns the result if successful, null if validation fails or error occurs.
    *
    * @param action - Async function to execute with form data
+   * @param options.errorMessage - Returns user-facing copy for errors the
+   *   caller recognizes; anything else shows the generic message
    * @returns Result from action, or null if failed
    */
   const execute = useCallback(
     async <R>(
       action: (data: Record<string, unknown>) => Promise<R>,
+      options?: { errorMessage?: (error: unknown) => string | undefined },
     ): Promise<R | null> => {
       const values = form.state.values as Record<string, unknown>;
       const result = connector.validate(values);
@@ -125,8 +128,11 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
       try {
         const result = await action(values);
         return result;
-      } catch {
-        setSubmitError("Couldn't connect. Check your settings and try again.");
+      } catch (error) {
+        setSubmitError(
+          options?.errorMessage?.(error) ??
+            "Couldn't connect. Check your settings and try again.",
+        );
         return null;
       } finally {
         setIsSubmitting(false);

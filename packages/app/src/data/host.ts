@@ -11,6 +11,8 @@ export class HostOperationError extends Error {
     message: string,
     readonly operationId?: string,
     readonly code?: string,
+    /** True when `message` is the server's own error text, not a fallback. */
+    readonly serverMessage = false,
   ) {
     super(message);
     this.name = "HostOperationError";
@@ -76,16 +78,19 @@ function responseError(
   operationId?: string,
 ) {
   const details = body && typeof body === "object" ? body : {};
-  return new HostOperationError(
+  const serverMessage =
     "error" in details && typeof details.error === "string"
       ? details.error
-      : `Host operation ${operation} failed (${status})`,
+      : undefined;
+  return new HostOperationError(
+    serverMessage ?? `Host operation ${operation} failed (${status})`,
     "operationId" in details && typeof details.operationId === "string"
       ? details.operationId
       : operationId,
     "code" in details && typeof details.code === "string"
       ? details.code
       : undefined,
+    serverMessage !== undefined,
   );
 }
 

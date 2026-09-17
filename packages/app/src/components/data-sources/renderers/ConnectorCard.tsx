@@ -27,6 +27,8 @@ interface ConnectorCardProps {
   isLoading?: boolean;
   /** Error message to display */
   submitError?: string | null;
+  /** Why this server cannot start setup; disables the connect action. */
+  unavailableReason?: string;
   /** Form fields to render (passed as children from TanStack Form) */
   children?: React.ReactNode;
 }
@@ -60,6 +62,7 @@ export function ConnectorCard({
   onConnect,
   isLoading,
   submitError,
+  unavailableReason,
   children,
 }: ConnectorCardProps) {
   const isFileConnector = connector.sourceType === "file";
@@ -150,9 +153,21 @@ export function ConnectorCard({
             <Button
               label={connectButtonLabel}
               onClick={onConnect}
-              disabled={isLoading}
+              disabled={isLoading || Boolean(unavailableReason)}
+              aria-describedby={
+                unavailableReason ? `${connector.id}-unavailable` : undefined
+              }
               className="w-full"
             />
+          )}
+
+          {unavailableReason && (
+            <p
+              id={`${connector.id}-unavailable`}
+              className="text-xs text-neutral-fg-subtle"
+            >
+              {unavailableReason}
+            </p>
           )}
 
           {/* Submit-level error */}
