@@ -16,7 +16,11 @@ const { cardState, execute, mutate, openUrl } = vi.hoisted(() => ({
   openUrl: vi.fn(),
 }));
 
-vi.mock("@/data/host", () => ({ requestHost: mutate }));
+vi.mock("@/data/host", async (importOriginal) => ({
+  HostOperationError: (await importOriginal<typeof import("@/data/host")>())
+    .HostOperationError,
+  requestHost: mutate,
+}));
 vi.mock("@/hooks/useConnectorForm", () => ({
   useConnectorForm: () => ({
     form: { Field: () => null },
@@ -27,6 +31,7 @@ vi.mock("@/hooks/useConnectorForm", () => ({
   }),
 }));
 vi.mock("@/lib/oauth-authorization-target", () => ({
+  OAuthPopupBlockedError: class extends Error {},
   openOAuthAuthorizationUrl: openUrl,
 }));
 vi.mock("./ConnectorCard", () => ({
@@ -240,6 +245,49 @@ describe("ConnectorCardWithForm OAuth setup", () => {
     expect(onActivityChange).not.toHaveBeenCalled();
     expect(mutate).not.toHaveBeenCalled();
     expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  async function setupErrorMessage(cause: unknown) {
+    mutate.mockRejectedValue(cause);
+    let shown: string | undefined;
+    execute.mockImplementation(
+      async (
+        action: () => Promise<unknown>,
+        options?: { errorMessage?: (error: unknown) => string | undefined },
+      ) => {
+        try {
+          return await action();
+        } catch (error) {
+          shown = options?.errorMessage?.(error);
+          return null;
+        }
+      },
+    );
+    renderOAuthCard();
+    await act(async () => {
+      await cardState.onConnect?.();
+    });
+    return shown;
+  }
+
+  it("shows the server's reason when it rejects setup", async () => {
+    const { HostOperationError } = await import("@/data/host");
+    expect(
+      await setupErrorMessage(
+        new HostOperationError(
+          "Google Analytics OAuth is not configured",
+          undefined,
+          undefined,
+          true,
+        ),
+      ),
+    ).toBe("Google Analytics OAuth is not configured");
+  });
+
+  it("keeps generic copy for network failures", async () => {
+    expect(
+      await setupErrorMessage(new TypeError("Failed to fetch")),
+    ).toBeUndefined();
   });
 
   it("opens nothing when setup fails to start", async () => {

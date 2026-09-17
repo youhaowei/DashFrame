@@ -1,6 +1,9 @@
-import { requestHost } from "@/data/host";
+import { HostOperationError, requestHost } from "@/data/host";
 import { useConnectorForm } from "@/hooks/useConnectorForm";
-import { openOAuthAuthorizationUrl } from "@/lib/oauth-authorization-target";
+import {
+  OAuthPopupBlockedError,
+  openOAuthAuthorizationUrl,
+} from "@/lib/oauth-authorization-target";
 import {
   isFileConnector,
   isRemoteApiConnector,
@@ -87,8 +90,8 @@ async function settleOAuthPoll(
     return true;
   }
   if (current.state === "failed" || current.state === "expired") {
-    throw new Error(
-      current.failureMessage ?? "Google authorization did not complete",
+    throw new OAuthSetupError(
+      current.failureMessage ?? "Google sign-in didn't finish. Try again.",
     );
   }
   return false;
@@ -119,6 +122,36 @@ async function pollOAuthCompletion(
   throw new Error("Google authorization timed out");
 }
 
+/** An OAuth setup failure whose message is written for the person connecting. */
+class OAuthSetupError extends Error {}
+
+/**
+ * Only messages meant for people reach the card: the server's own setup
+ * rejection, a blocked popup, or the session's recorded failure. Network and
+ * parse failures keep the generic copy.
+ */
+function oauthSetupErrorMessage(error: unknown): string | undefined {
+  if (
+    error instanceof OAuthSetupError ||
+    error instanceof OAuthPopupBlockedError
+  )
+    return error.message;
+  return undefined;
+}
+
+async function startSetup(connector: RemoteApiConnector) {
+  try {
+    return await requestHost("startConnectorSetup", {
+      connectorId: connector.id,
+      requestedName: connector.name,
+    });
+  } catch (error) {
+    if (error instanceof HostOperationError && error.serverMessage)
+      throw new OAuthSetupError(error.message);
+    throw error;
+  }
+}
+
 async function cancelSetup(sessionId: string): Promise<void> {
   await requestHost("cancelConnectorSetup", { sessionId }).catch(() => {});
 }
@@ -130,13 +163,12 @@ async function runOAuthSetup(
 ): Promise<void> {
   // Nothing opens until the server has issued an authorization URL: a failed
   // start surfaces its own message instead of stranding a blank window.
-  const session = await requestHost("startConnectorSetup", {
-    connectorId: connector.id,
-    requestedName: connector.name,
-  });
+  const session = await startSetup(connector);
   if (!session.authorizeUrl) {
     await cancelSetup(session.sessionId);
-    throw new Error("Google authorization URL was not issued");
+    throw new OAuthSetupError(
+      "Couldn't start Google sign-in. Try again in a moment.",
+    );
   }
   try {
     await openOAuthAuthorizationUrl(session.authorizeUrl);
@@ -241,7 +273,7 @@ export function ConnectorCardWithForm({
       token.activityTransferred = false;
       const result = await execute(
         () => runOAuthSetup(connector, onOAuthConnect, token),
-        { reportErrorMessage: true },
+        { errorMessage: oauthSetupErrorMessage },
       );
       token.activityHeld = false;
       if (result === null && !token.activityTransferred) {

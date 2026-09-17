@@ -396,7 +396,25 @@ describe("useConnectorForm", () => {
       );
     });
 
-    it("shows the thrown message when the caller reports error messages", async () => {
+    it("keeps the generic message for errors the caller does not recognize", async () => {
+      const connector = createMockConnector({});
+      const { result } = renderHook(() => useConnectorForm(connector));
+
+      await act(async () => {
+        await result.current.execute(
+          async () => {
+            throw new TypeError("Failed to fetch");
+          },
+          { errorMessage: () => undefined },
+        );
+      });
+
+      expect(result.current.submitError).toBe(
+        "Couldn't connect. Check your settings and try again.",
+      );
+    });
+
+    it("shows the caller's message for errors it recognizes", async () => {
       const connector = createMockConnector({});
 
       const { result } = renderHook(() => useConnectorForm(connector));
@@ -406,7 +424,7 @@ describe("useConnectorForm", () => {
           async () => {
             throw new Error("Google Analytics OAuth is not configured");
           },
-          { reportErrorMessage: true },
+          { errorMessage: (error) => (error as Error).message },
         );
       });
 

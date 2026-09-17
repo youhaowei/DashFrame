@@ -37,8 +37,9 @@ export async function openOAuthAuthorizationUrl(url: string): Promise<void> {
     return;
   }
 
-  // `noopener` makes window.open return null even on success, so detach the
-  // opener by hand after checking the popup actually exists.
+  // `noopener`/`noreferrer` make window.open return null even on success,
+  // which would hide a blocked popup. Detach the opener by hand instead; the
+  // page's referrer policy governs what Google sees.
   const authWindow = window.open(url, "_blank");
   if (!authWindow) throw new OAuthPopupBlockedError();
   authWindow.opener = null;
