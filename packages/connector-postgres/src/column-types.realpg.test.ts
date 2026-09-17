@@ -16,6 +16,8 @@ import { makePostgresConnector } from "./connector.js";
 const DSN = process.env["PG_DSN"];
 const suite = DSN ? describe : describe.skip;
 const resolver: SecretResolver = (use) => use(DSN ?? "");
+// A schema of this run's own, so setup and cleanup never touch existing tables.
+const SCHEMA = `dashframe_realpg_${crypto.randomUUID().replaceAll("-", "")}`;
 
 async function admin(sql: string): Promise<void> {
   const { default: pg } = await import("pg");
@@ -39,13 +41,13 @@ function decode(result: ConnectorQueryResult) {
 
 async function previewAndStream(table: string) {
   const connector = makePostgresConnector(resolver, {
-    defaultSchema: "public",
+    defaultSchema: SCHEMA,
   });
   const tableId = crypto.randomUUID();
-  const preview = await connector.query(`public.${table}`, tableId);
+  const preview = await connector.query(`${SCHEMA}.${table}`, tableId);
   const batches: ConnectorQueryResult[] = [];
   for await (const batch of connector.queryBatches(
-    `public.${table}`,
+    `${SCHEMA}.${table}`,
     tableId,
   )) {
     batches.push(batch);
@@ -57,7 +59,8 @@ async function previewAndStream(table: string) {
 suite("REAL-PG: columns with unmapped OIDs import as text", () => {
   beforeAll(async () => {
     await admin(`
-      DROP TABLE IF EXISTS types_null_array, types_array, types_json;
+      CREATE SCHEMA ${SCHEMA};
+      SET search_path TO ${SCHEMA};
       CREATE TABLE types_null_array (id int, tags text[]);
       INSERT INTO types_null_array VALUES (1, NULL);
       CREATE TABLE types_array (id int, tags text[]);
@@ -68,9 +71,7 @@ suite("REAL-PG: columns with unmapped OIDs import as text", () => {
   });
 
   afterAll(async () => {
-    await admin(
-      "DROP TABLE IF EXISTS types_null_array, types_array, types_json",
-    );
+    await admin(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
   });
 
   it("types an all-NULL text[] column as string in both paths", async () => {
