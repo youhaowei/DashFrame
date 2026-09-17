@@ -1,9 +1,6 @@
 import { HostOperationError, requestHost } from "@/data/host";
 import { useConnectorForm } from "@/hooks/useConnectorForm";
-import {
-  OAuthPopupBlockedError,
-  openOAuthAuthorizationUrl,
-} from "@/lib/oauth-authorization-target";
+import { openOAuthAuthorizationUrl } from "@/lib/oauth-authorization-target";
 import {
   isFileConnector,
   isRemoteApiConnector,
@@ -11,7 +8,7 @@ import {
   type FileSourceConnector,
   type RemoteApiConnector,
 } from "@dashframe/engine";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ConnectorCard } from "./ConnectorCard";
 import { FormFieldRenderer } from "./FormFieldRenderer";
 
@@ -127,16 +124,11 @@ class OAuthSetupError extends Error {}
 
 /**
  * Only messages meant for people reach the card: the server's own setup
- * rejection, a blocked popup, or the session's recorded failure. Network and
- * parse failures keep the generic copy.
+ * rejection or the session's recorded failure. Network and parse failures keep
+ * the generic copy.
  */
 function oauthSetupErrorMessage(error: unknown): string | undefined {
-  if (
-    error instanceof OAuthSetupError ||
-    error instanceof OAuthPopupBlockedError
-  )
-    return error.message;
-  return undefined;
+  return error instanceof OAuthSetupError ? error.message : undefined;
 }
 
 async function startSetup(connector: RemoteApiConnector) {
@@ -160,6 +152,7 @@ async function runOAuthSetup(
   connector: RemoteApiConnector,
   onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
   token: PollToken,
+  onSignInUrl: (url: string) => void,
 ): Promise<void> {
   // Nothing opens until the server has issued an authorization URL: a failed
   // start surfaces its own message instead of stranding a blank window.
@@ -171,7 +164,11 @@ async function runOAuthSetup(
     );
   }
   try {
-    await openOAuthAuthorizationUrl(session.authorizeUrl);
+    // No window handle is not a failure: the sign-in may still have loaded,
+    // even in this tab. The session stays open so that sign-in can finish, and
+    // the card offers the URL as a link for when nothing opened at all.
+    if (!(await openOAuthAuthorizationUrl(session.authorizeUrl)))
+      onSignInUrl(session.authorizeUrl);
   } catch (error) {
     await cancelSetup(session.sessionId);
     throw error;
@@ -215,6 +212,7 @@ export function ConnectorCardWithForm({
   const { form, formFields, execute, isSubmitting, submitError } =
     useConnectorForm(connector);
 
+  const [signInUrl, setSignInUrl] = useState<string>();
   const pollToken = useRef<PollToken>({
     cancelled: false,
     activityHeld: false,
@@ -271,10 +269,12 @@ export function ConnectorCardWithForm({
       token.cancelled = false;
       token.activityHeld = true;
       token.activityTransferred = false;
+      setSignInUrl(undefined);
       const result = await execute(
-        () => runOAuthSetup(connector, onOAuthConnect, token),
+        () => runOAuthSetup(connector, onOAuthConnect, token, setSignInUrl),
         { errorMessage: oauthSetupErrorMessage },
       );
+      if (!token.cancelled) setSignInUrl(undefined);
       token.activityHeld = false;
       if (result === null && !token.activityTransferred) {
         onActivityChange?.(false);
@@ -303,6 +303,7 @@ export function ConnectorCardWithForm({
       isLoading={isSubmitting}
       submitError={submitError}
       unavailableReason={unavailableReason}
+      signInUrl={signInUrl}
     >
       {/* Render TanStack Form fields */}
       {formFields.map((fieldDef) => (

@@ -29,6 +29,8 @@ interface ConnectorCardProps {
   submitError?: string | null;
   /** Why this server cannot start setup; disables the connect action. */
   unavailableReason?: string;
+  /** The sign-in page, offered as a link when the browser opened no window for it. */
+  signInUrl?: string;
   /** Form fields to render (passed as children from TanStack Form) */
   children?: React.ReactNode;
 }
@@ -63,6 +65,7 @@ export function ConnectorCard({
   isLoading,
   submitError,
   unavailableReason,
+  signInUrl,
   children,
 }: ConnectorCardProps) {
   const isFileConnector = connector.sourceType === "file";
@@ -167,6 +170,20 @@ export function ConnectorCard({
               className="text-xs text-neutral-fg-subtle"
             >
               {unavailableReason}
+            </p>
+          )}
+
+          {signInUrl && (
+            <p className="text-xs text-neutral-fg-subtle">
+              The Google sign-in window didn't open.{" "}
+              <a
+                href={signInUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-neutral-fg underline underline-offset-2"
+              >
+                Open Google sign-in
+              </a>
             </p>
           )}
 
