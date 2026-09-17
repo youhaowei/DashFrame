@@ -51,6 +51,8 @@ export interface ExposedItemControl {
   changeable: boolean;
   /** Filters only: the saved predicate this control varies. */
   filter?: InsightFilter;
+  /** Filters only: emptying the knob widens the chart to all values. */
+  allowClear?: boolean;
   /** Filters only: the effective override for this predicate, if any. */
   override?: InsightFilterOverride;
   /** Sort only: the current effective sort, if any. */
@@ -199,6 +201,7 @@ function filterControls(
       label: control.label,
       valueText: describeFilter(saved, override),
       filter: saved,
+      allowClear: control.allowClear === true,
       override,
       ...shown,
     });

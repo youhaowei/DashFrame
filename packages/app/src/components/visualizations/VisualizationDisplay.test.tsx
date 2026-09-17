@@ -273,6 +273,15 @@ describe("VisualizationDisplay — declared runtime controls", () => {
 
 describe("VisualizationDisplay — report tile", () => {
   beforeEach(() => {
+    // jsdom has no ResizeObserver; a mounted tile measures its container.
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     vi.clearAllMocks();
     cleanup();
     setupCommonMocks();

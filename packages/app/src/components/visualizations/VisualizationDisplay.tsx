@@ -15,6 +15,7 @@ import {
 import { api } from "@dashframe/convex-backend/api";
 import {
   getMetricDisplayLabel,
+  metricIdToColumnAlias,
   resolveEncodingToResultFrame,
 } from "@dashframe/engine";
 import type {
@@ -242,6 +243,17 @@ export function VisualizationDisplay(props: VisualizationDisplayProps) {
       resetKey={`${props.visualizationId ?? ""}:${active?.updatedAt ?? ""}`}
       onError={
         props.onStateChange ? () => props.onStateChange!("broken") : undefined
+      }
+      // A reader is told the consequence, never the cause.
+      fallback={
+        props.audience === "reader" ? (
+          <div className="flex h-full w-full items-center justify-center px-6">
+            <ErrorState
+              title={READER_BROKEN_TITLE}
+              className="w-full max-w-lg"
+            />
+          </div>
+        ) : undefined
       }
     >
       <VisualizationDisplayContent {...props} />
@@ -977,6 +989,7 @@ function useTileControls({
         field?.name,
         metric?.name,
         metric?.columnName,
+        metric ? metricIdToColumnAlias(metric.id) : undefined,
       ].filter((alias): alias is string => Boolean(alias));
       return {
         value: id,

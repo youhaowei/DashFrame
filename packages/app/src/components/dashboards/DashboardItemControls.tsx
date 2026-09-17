@@ -530,40 +530,141 @@ function ControlEditor({
     );
   }
 
+  return (
+    <FilterEditor control={control} inputType={inputType} onChange={onChange} />
+  );
+}
+
+function coerce(raw: string, inputType: ControlInputType): unknown {
+  if (inputType !== "number") return raw;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : raw;
+}
+
+/**
+ * A filter knob. It always emits the predicate it varies, by id, so a second
+ * filter on the same field is left alone. Emptied, it widens the chart when
+ * the Insight allows clearing and otherwise changes nothing: an empty string
+ * or empty list is a predicate that matches no rows, never what a reader
+ * clearing a box means.
+ */
+function FilterEditor({
+  control,
+  inputType,
+  onChange,
+}: {
+  control: ExposedItemControl;
+  inputType: ControlInputType;
+  onChange: (patch: DashboardItemOverrides) => void;
+}) {
   const filter = control.filter!;
-  const currentValue = control.override?.cleared
+  const emit = (value: unknown) =>
+    onChange({
+      filters: [
+        {
+          id: filter.id,
+          field: filter.field,
+          operator: filter.operator,
+          value,
+        },
+      ],
+    });
+  const clear = () => {
+    if (control.allowClear)
+      onChange({ filters: [{ ...filter, cleared: true }] });
+  };
+  const current = control.override?.cleared
     ? ""
     : filterLiteral(control.override?.value ?? filter.value);
-  const display = displayValue(currentValue);
+
+  if (filter.operator === "between") {
+    return (
+      <RangeEditor
+        // Remount when the range changes from outside the boxes so the
+        // drafts never disagree with the tile.
+        key={JSON.stringify(current)}
+        label={control.label || filter.field}
+        range={current}
+        inputType={inputType}
+        onCommit={emit}
+        onClear={clear}
+      />
+    );
+  }
+
   return (
     <Input
       type={inputType}
-      value={display}
+      value={displayValue(current)}
       aria-label={control.label || control.valueText}
       className="h-7 w-full text-xs"
       onChange={(event: ChangeEvent<HTMLInputElement>) => {
         const raw = event.target.value;
-        let value: unknown = raw;
-        if (filter.operator === "in") {
-          value = raw
-            .split(",")
-            .map((part) => part.trim())
-            .filter(Boolean);
-        } else if (inputType === "number" && raw !== "") {
-          const n = Number(raw);
-          if (Number.isFinite(n)) value = n;
-        }
-        onChange({
-          filters: [
-            {
-              id: filter.id,
-              field: filter.field,
-              operator: filter.operator,
-              value,
-            },
-          ],
-        });
+        if (raw.trim() === "") return clear();
+        if (filter.operator !== "in") return emit(coerce(raw, inputType));
+        const values = raw
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+        return values.length > 0 ? emit(values) : clear();
       }}
     />
+  );
+}
+
+/**
+ * A `between` knob: a low and a high box. Committed on blur or Enter, and
+ * only as a whole range, because half a range is not a value the engine
+ * accepts.
+ */
+function RangeEditor({
+  label,
+  range,
+  inputType,
+  onCommit,
+  onClear,
+}: {
+  label: string;
+  range: unknown;
+  inputType: ControlInputType;
+  onCommit: (value: { low: unknown; high: unknown }) => void;
+  onClear: () => void;
+}) {
+  const saved =
+    range !== null && typeof range === "object"
+      ? (range as { low?: unknown; high?: unknown })
+      : {};
+  const [low, setLow] = useState(displayValue(filterLiteral(saved.low)));
+  const [high, setHigh] = useState(displayValue(filterLiteral(saved.high)));
+  const commit = () => {
+    if (low.trim() === "" && high.trim() === "") return onClear();
+    if (low.trim() === "" || high.trim() === "") return;
+    onCommit({ low: coerce(low, inputType), high: coerce(high, inputType) });
+  };
+  const box = (
+    value: string,
+    set: (next: string) => void,
+    bound: "from" | "to",
+  ) => (
+    <Input
+      type={inputType}
+      value={value}
+      aria-label={`${label} ${bound}`}
+      className="h-7 w-full min-w-0 text-xs"
+      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+        set(event.target.value)
+      }
+      onBlur={commit}
+      onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === "Enter") commit();
+      }}
+    />
+  );
+  return (
+    <div className="flex items-center gap-1.5">
+      {box(low, setLow, "from")}
+      <span className="text-xs text-neutral-fg-subtle">to</span>
+      {box(high, setHigh, "to")}
+    </div>
   );
 }

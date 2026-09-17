@@ -20,6 +20,8 @@ import { DashboardItem } from "./DashboardItem";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
+const NO_OVERRIDES: DashboardItemOverrides = {};
+
 interface DashboardGridProps {
   dashboard: Dashboard;
   isEditable: boolean;
@@ -217,7 +219,11 @@ export function DashboardGrid({
             item={item}
             dashboardId={dashboard.id}
             isEditable={isEditable}
-            effectiveOverrides={effectiveOverridesMap.get(item.id)}
+            // Resolved here for every item, so "nothing" is an answer: a
+            // reader who cleared a saved limit must not get it back.
+            effectiveOverrides={
+              effectiveOverridesMap.get(item.id) ?? NO_OVERRIDES
+            }
             controls={dashboard.controls ?? []}
             onReaderChange={onReaderChange}
             readerChanged={itemTransientOverrides?.has(item.id) ?? false}

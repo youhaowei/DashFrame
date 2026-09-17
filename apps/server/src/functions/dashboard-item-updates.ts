@@ -41,6 +41,7 @@ export function sanitizeDashboardItemUpdates(
     "y",
     "width",
     "height",
+    "controls",
     // Accepted for compatibility with untyped clients, but never applied: the
     // command target owns identity and item kind.
     "id",
@@ -57,5 +58,18 @@ export function sanitizeDashboardItemUpdates(
   copyTypedUpdate(next, updates, "y", "number");
   copyTypedUpdate(next, updates, "width", "number");
   copyTypedUpdate(next, updates, "height", "number");
+  // The disclosure map's contents are the dashboard codec's to validate; this
+  // boundary only keeps a non-map from reaching it.
+  if ("controls" in updates) {
+    const controls = updates.controls;
+    if (
+      controls === null ||
+      typeof controls !== "object" ||
+      Array.isArray(controls)
+    ) {
+      throw new Error("Dashboard item update controls must be an object");
+    }
+    Object.assign(next, { controls });
+  }
   return next;
 }
