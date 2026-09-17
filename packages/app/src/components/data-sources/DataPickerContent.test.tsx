@@ -11,7 +11,7 @@ import {
   type FormField,
   type ValidationResult,
 } from "@dashframe/engine";
-import type { DataSource, DataTable, UUID } from "@dashframe/types";
+import type { DataSource, DataTable, Insight, UUID } from "@dashframe/types";
 import {
   act,
   fireEvent,
@@ -50,6 +50,8 @@ const {
   queryData: {
     dataSources: [] as DataSource[],
     dataTables: [] as DataTable[],
+    insights: [] as Insight[],
+    dataFrames: [] as { id: UUID; insightId?: UUID; rowCount?: number }[],
     dataSourcesQueryState: {} as { isLoading?: boolean; isError?: boolean },
     dataTablesQueryState: {} as { isLoading?: boolean; isError?: boolean },
   },
@@ -76,8 +78,9 @@ vi.mock("convex/react", async (importOriginal) => ({
           ...queryData.dataTablesQueryState,
         };
       case "listInsights":
+        return { data: queryData.insights };
       case "listDataFrames":
-        return { data: [] };
+        return { data: queryData.dataFrames };
       default:
         throw new Error(`Unexpected query: ${ref._path}`);
     }
@@ -99,8 +102,9 @@ vi.mock("@/data/host", () => ({
           ...queryData.dataTablesQueryState,
         };
       case "listInsights":
+        return { data: queryData.insights };
       case "listDataFrames":
-        return { data: [] };
+        return { data: queryData.dataFrames };
       default:
         throw new Error(`Unexpected query: ${ref._path}`);
     }
@@ -137,9 +141,13 @@ vi.mock("./AddConnectionPanel", () => ({
   },
 }));
 
-vi.mock("./DataSourceList", () => ({ DataSourceList: () => null }));
+vi.mock("./DataSourceList", () => ({
+  DataSourceList: () => <div data-testid="data-source-list" />,
+}));
 vi.mock("./DataTableList", () => ({ DataTableList: () => null }));
-vi.mock("./InsightList", () => ({ InsightList: () => null }));
+vi.mock("./InsightList", () => ({
+  InsightList: () => <div data-testid="insight-list" />,
+}));
 vi.mock("@wystack/ui-react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wystack/ui-react")>();
   return {
@@ -156,6 +164,7 @@ vi.mock("@wystack/ui-react/icons", async (importOriginal) => {
 });
 
 import { ConfirmDialog } from "../confirm-dialog";
+import { AddDataSourceModal } from "./AddDataSourceModal";
 import { DataPickerContent, importRemoteResource } from "./DataPickerContent";
 import { DataPickerModal } from "./DataPickerModal";
 
@@ -246,6 +255,17 @@ function makeSource(id: UUID, name: string, type: string): DataSource {
   };
 }
 
+function makeInsight(id: UUID, name: string): Insight {
+  return {
+    id,
+    name,
+    source: { sourceType: "dataTable", sourceId: REMOTE_TABLE_ID },
+    selectedFields: [],
+    metrics: [],
+    createdAt: 0,
+  };
+}
+
 function makeTable(id: UUID, dataSourceId: UUID, name: string): DataTable {
   return {
     id,
@@ -275,6 +295,8 @@ describe("DataPickerContent file replacement", () => {
     handleActivityChange = undefined;
     queryData.dataSources = [];
     queryData.dataTables = [];
+    queryData.insights = [];
+    queryData.dataFrames = [];
     queryData.dataSourcesQueryState = {};
     queryData.dataTablesQueryState = {};
     mockGetConnectorById.mockImplementation((id: string) => {
@@ -847,5 +869,93 @@ describe("DataPickerContent file replacement", () => {
       PARSE_RESULT,
       { overrideTableId: FILE_TABLE_ID },
     );
+  });
+
+  describe("AddDataSourceModal", () => {
+    it("offers only new-data connectors, not existing insights or sources", () => {
+      queryData.dataSources = [
+        makeSource(REMOTE_SOURCE_ID, "Production Postgres", "postgres"),
+      ];
+      queryData.insights = [makeInsight("insight-1" as UUID, "Revenue")];
+      queryData.dataFrames = [
+        {
+          id: "frame-1" as UUID,
+          insightId: "insight-1" as UUID,
+          rowCount: 10,
+        },
+      ];
+
+      render(<AddDataSourceModal isOpen onClose={vi.fn()} />);
+
+      expect(
+        screen.getByRole("dialog", { name: "Add Data Source" }),
+      ).toBeTruthy();
+      expect(screen.getByTestId("add-connection-panel")).toBeTruthy();
+      expect(screen.queryByTestId("data-source-list")).toBeNull();
+      expect(screen.queryByTestId("insight-list")).toBeNull();
+    });
+
+    it("still lists existing sources in the default picker", () => {
+      queryData.dataSources = [
+        makeSource(REMOTE_SOURCE_ID, "Production Postgres", "postgres"),
+      ];
+
+      render(<DataPickerContent onTableSelect={vi.fn()} />);
+
+      expect(screen.getByTestId("data-source-list")).toBeTruthy();
+    });
+
+    it("closes once a file import lands, without creating a chart", async () => {
+      const onClose = vi.fn();
+      render(<AddDataSourceModal isOpen onClose={onClose} />);
+
+      await act(async () => {
+        await handleFileSelect?.(
+          fileConnector,
+          new File(["amount\n10"], "sales.csv"),
+        );
+      });
+
+      expect(mockHandleFileConnectorResult).toHaveBeenCalledWith(
+        "sales.csv",
+        PARSE_RESULT,
+        { overrideTableId: NEW_TABLE_ID },
+      );
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(mockNativeCommit).not.toHaveBeenCalled();
+    });
+
+    it("imports the chosen remote resource and closes", async () => {
+      mockHostRequest.mockResolvedValue({
+        commands: [{ path: "createDataSource", args: {} }],
+        results: [{ value: { id: REMOTE_SOURCE_ID } }],
+      });
+      mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
+      mockNativeCommit.mockResolvedValue(undefined);
+      const onClose = vi.fn();
+      render(<AddDataSourceModal isOpen onClose={onClose} />);
+
+      await act(async () => {
+        await handleConnect?.(
+          { id: "notion", name: "Notion" } as RemoteApiConnector,
+          { apiKey: "secret-for-host-vault" },
+        );
+      });
+
+      expect(screen.queryByTestId("add-connection-panel")).toBeNull();
+      fireEvent.click(await screen.findByRole("button", { name: "Roadmap" }));
+
+      await waitFor(() => {
+        expect(onClose).toHaveBeenCalledOnce();
+      });
+      expect(mockNativeCommit).toHaveBeenCalledWith({
+        commands: [
+          expect.objectContaining({
+            path: "createDataTable",
+            args: expect.objectContaining({ dataSourceId: REMOTE_SOURCE_ID }),
+          }),
+        ],
+      });
+    });
   });
 });

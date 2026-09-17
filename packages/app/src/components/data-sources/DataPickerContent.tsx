@@ -88,6 +88,12 @@ export interface DataPickerContentProps {
    * @default true
    */
   showInsights?: boolean;
+  /**
+   * Whether to show existing data sources (the "Start from Raw Data" section
+   * and its table drill-down). Set false for a connect-only dialog.
+   * @default true
+   */
+  showSources?: boolean;
   /** Keep parent onboarding mounted through connection and follow-up selection. */
   onActivityChange?: (active: boolean) => void;
 }
@@ -162,6 +168,7 @@ export function DataPickerContent({
   excludeTableIds = [],
   onCancel,
   showInsights = true,
+  showSources = true,
   onActivityChange,
 }: DataPickerContentProps) {
   const dataSourcesQuery = queryStatus(
@@ -608,8 +615,8 @@ export function DataPickerContent({
   const hasDataSources = dataSourcesInfo.length > 0;
 
   return (
-    <div className="flex h-full flex-col gap-6">
-      <div className="space-y-6 overflow-y-auto pr-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-2">
         {/* Section: Existing Insights (only if they have DataFrames) */}
         {hasInsights && !selectedSourceId && (
           <SectionList title="Use Existing Insight">
@@ -621,7 +628,7 @@ export function DataPickerContent({
         )}
 
         {/* Section: Data Sources (Level 1) */}
-        {!selectedSourceId && hasDataSources && (
+        {!selectedSourceId && showSources && hasDataSources && (
           <SectionList title="Start from Raw Data">
             <DataSourceList
               sources={dataSourcesInfo}

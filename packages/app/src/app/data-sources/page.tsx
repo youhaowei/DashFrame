@@ -8,7 +8,7 @@ import {
   ArtifactEmptyState,
   ArtifactCard,
 } from "@/components/artifacts/ArtifactCollection";
-import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
+import { AddDataSourceModal } from "@/components/data-sources/AddDataSourceModal";
 import {
   getConnectorById,
   useRegistryVersion,
@@ -70,7 +70,7 @@ export default function DataSourcesPage() {
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isAddSourceOpen, setIsAddSourceOpen] = useState(false);
 
   const handleRetry = useCallback(() => globalThis.location.reload(), []);
 
@@ -223,7 +223,7 @@ export default function DataSourcesPage() {
         <Button
           icon={PlusIcon}
           label="Add Source"
-          onClick={() => setIsCreateModalOpen(true)}
+          onClick={() => setIsAddSourceOpen(true)}
         />
       }
       searchLabel="Search data sources"
@@ -255,18 +255,17 @@ export default function DataSourcesPage() {
               <Button
                 icon={PlusIcon}
                 label="Add Source"
-                onClick={() => setIsCreateModalOpen(true)}
+                onClick={() => setIsAddSourceOpen(true)}
               />
             )
           }
         />
       )}
 
-      {/* Create Modal */}
-      <CreateVisualizationModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        title="Add Data Source"
+      {/* Add Source dialog */}
+      <AddDataSourceModal
+        isOpen={isAddSourceOpen}
+        onClose={() => setIsAddSourceOpen(false)}
       />
     </ArtifactCollection>
   );
