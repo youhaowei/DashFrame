@@ -807,58 +807,71 @@ export class NativeDuckDBEngine implements QueryEngine {
     await this.initialize();
     await this.withConnection(
       async (conn, operationSignal) => {
-        const reader = await RecordBatchReader.from(
-          abortableBytes(rawIPCStream, operationSignal),
-        );
-        await reader.open();
-        const fields = reader.schema.fields;
-        if (fields.length === 0) {
-          throw new Error(`Arrow stream for table "${name}" has no columns`);
-        }
-        const stagingName = `__staging_${name}_${nextStagingId()}`;
-        const columnDefs = fields
-          .map(
-            (field) =>
-              `${quoteIdentifier(field.name)} ${arrowFieldToDuckDBType(field)}`,
-          )
-          .join(", ");
-        await conn.run(
-          `CREATE OR REPLACE TEMP TABLE ${quoteIdentifier(stagingName)} (${columnDefs})`,
-        );
-        let appender: DuckDBAppender | undefined;
+        const bytes = abortableBytes(rawIPCStream, operationSignal);
         try {
-          appender = await conn.createAppender(stagingName);
-          for await (const batch of reader) {
-            throwIfAborted(operationSignal);
-            if (!sameArrowFields(fields, batch.schema.fields)) {
-              throw new Error(
-                "Arrow batch schema does not match the first batch",
-              );
-            }
-
-            appendArrowBatch(appender, fields, batch, operationSignal);
-            appender!.flushSync();
-          }
-          throwIfAborted(operationSignal);
-          appender.closeSync();
-          appender = undefined;
-          await conn.run(
-            `CREATE OR REPLACE TABLE ${quoteIdentifier(name)} AS SELECT * FROM ${quoteIdentifier(stagingName)}`,
-          );
-          this._registeredTables.set(tableKey(name), name);
+          await this.appendArrowStream(conn, name, bytes, operationSignal);
         } finally {
-          if (appender) {
-            try {
-              appender.closeSync();
-            } catch {
-              // The lease disconnects this operation's connection on release,
-              // discarding it and its TEMP state.
-            }
-          }
+          // The Arrow reader only closes its source once it starts yielding
+          // batches. A registration that fails earlier would otherwise leave a
+          // file-backed source suspended with its handle open.
+          await bytes.return();
         }
       },
       { signal, lockTable: name },
     );
+  }
+
+  private async appendArrowStream(
+    conn: Connection,
+    name: string,
+    bytes: AsyncIterable<Uint8Array>,
+    operationSignal: AbortSignal,
+  ): Promise<void> {
+    const reader = await RecordBatchReader.from(bytes);
+    await reader.open();
+    const fields = reader.schema.fields;
+    if (fields.length === 0) {
+      throw new Error(`Arrow stream for table "${name}" has no columns`);
+    }
+    const stagingName = `__staging_${name}_${nextStagingId()}`;
+    const columnDefs = fields
+      .map(
+        (field) =>
+          `${quoteIdentifier(field.name)} ${arrowFieldToDuckDBType(field)}`,
+      )
+      .join(", ");
+    await conn.run(
+      `CREATE OR REPLACE TEMP TABLE ${quoteIdentifier(stagingName)} (${columnDefs})`,
+    );
+    let appender: DuckDBAppender | undefined;
+    try {
+      appender = await conn.createAppender(stagingName);
+      for await (const batch of reader) {
+        throwIfAborted(operationSignal);
+        if (!sameArrowFields(fields, batch.schema.fields)) {
+          throw new Error("Arrow batch schema does not match the first batch");
+        }
+
+        appendArrowBatch(appender, fields, batch, operationSignal);
+        appender!.flushSync();
+      }
+      throwIfAborted(operationSignal);
+      appender.closeSync();
+      appender = undefined;
+      await conn.run(
+        `CREATE OR REPLACE TABLE ${quoteIdentifier(name)} AS SELECT * FROM ${quoteIdentifier(stagingName)}`,
+      );
+      this._registeredTables.set(tableKey(name), name);
+    } finally {
+      if (appender) {
+        try {
+          appender.closeSync();
+        } catch {
+          // The lease disconnects this operation's connection on release,
+          // discarding it and its TEMP state.
+        }
+      }
+    }
   }
 
   async unregisterTable(name: string): Promise<void> {
@@ -1005,7 +1018,7 @@ function throwIfAborted(signal?: AbortSignal): void {
 async function* abortableBytes(
   source: AsyncIterable<Uint8Array>,
   signal: AbortSignal,
-): AsyncIterable<Uint8Array> {
+): AsyncGenerator<Uint8Array, void, undefined> {
   const iterator = source[Symbol.asyncIterator]();
   try {
     while (true) {
