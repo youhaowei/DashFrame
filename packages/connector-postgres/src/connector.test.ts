@@ -18,6 +18,7 @@ import {
   TestBackend,
 } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
+import pg from "pg";
 import { createServer, type Socket } from "node:net";
 import {
   afterEach,
@@ -34,6 +35,7 @@ import {
   listTablesInSchema,
   makePostgresConnector,
   pgOidToColumnType,
+  textForUnmappedOids,
 } from "./connector.js";
 import type { PostgresConnectorConfig } from "./types.js";
 
@@ -570,10 +572,10 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
     expect(byName["score"]).toBe("number");
   });
 
-  it("unmapped OID on zero-row result falls back to 'unknown' without throwing", async () => {
+  it("unmapped OID on zero-row result is typed string without throwing", async () => {
     // When pgFields lists a column with an OID that pgOidToColumnType doesn't map
-    // (e.g. jsonb OID 3802, uuid OID 2950), and there are no rows to run value
-    // inference, inferColumnType must return "unknown" cleanly without throwing.
+    // (e.g. jsonb OID 3802), the client delivers Postgres text, so the column
+    // is a string even with no rows to inspect.
     // The Arrow buffer must still be valid (empty column, schema preserved).
     const pgFields: PgFieldDef[] = [
       { name: "payload", dataTypeID: 3802 }, // jsonb — not in OID map
@@ -589,7 +591,7 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
     expect(result.rowCount).toBe(0);
     expect(result.fields).toHaveLength(1);
     const field = result.fields.find((f) => f.name === "payload");
-    expect(field?.type).toBe("unknown");
+    expect(field?.type).toBe("string");
     // Arrow buffer must still be valid with 1 column (schema preserved)
     const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
     const table = tableFromIPC(bytes);
@@ -969,7 +971,7 @@ describe("queryBatches PostgreSQL cursor", () => {
     ]);
   });
 
-  it("keeps legacy query inference and enum serialization unchanged", async () => {
+  it("types unmapped-OID columns as text in preview, even when values look boolean", async () => {
     const enumFields: PgFieldDef[] = [{ name: "status", dataTypeID: 16_384 }];
     const client = makeSpyClient(
       [{ status: "true" }, { status: "pending" }],
@@ -979,7 +981,7 @@ describe("queryBatches PostgreSQL cursor", () => {
 
     const result = await connector.query("public.jobs", crypto.randomUUID());
 
-    expect(result.fields[0]?.type).toBe("boolean");
+    expect(result.fields[0]?.type).toBe("string");
     const arrow = tableFromIPC(Buffer.from(result.arrowBuffer, "base64"));
     expect([0, 1].map((index) => arrow.getChild("status")?.get(index))).toEqual(
       ["true", "pending"],
@@ -1547,6 +1549,66 @@ describe("read-only guard: allowlisted queries pass through to pg", () => {
 // ---------------------------------------------------------------------------
 // pgOidToColumnType — OID → ColumnType mapping
 // ---------------------------------------------------------------------------
+
+describe("unmapped OIDs: preview and stream agree", () => {
+  it("keeps pg's parsers for mapped OIDs and returns raw text for the rest", () => {
+    const types = textForUnmappedOids(pg.types);
+    const parse = (oid: number, text: string) =>
+      (types.getTypeParser(oid, "text") as (value: string) => unknown)(text);
+
+    expect(parse(23, "42")).toBe(42);
+    expect(parse(16, "t")).toBe(true);
+    expect(parse(1009, "{a,NULL}")).toBe("{a,NULL}"); // text[]
+    expect(parse(3802, '{"a": 1}')).toBe('{"a": 1}'); // jsonb
+  });
+
+  it("produces identical fields and Arrow types for text[] and jsonb columns", async () => {
+    const pgFields: PgFieldDef[] = [
+      { name: "tags", dataTypeID: 1009 },
+      { name: "doc", dataTypeID: 3802 },
+    ];
+    const rows = [
+      { tags: null, doc: '{"ok": true}' },
+      { tags: null, doc: null },
+    ];
+    const spy = vi.fn((arg: string | PgQueryConfig) =>
+      Promise.resolve(
+        /^(FETCH|SELECT)/u.test(callText(arg).trim().toUpperCase())
+          ? { rows, fields: pgFields }
+          : { rows: [], fields: [] },
+      ),
+    );
+    const client: PgClientLike = {
+      query: spy as unknown as PgClientLike["query"],
+      end: vi.fn().mockResolvedValue(undefined),
+    };
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
+    const tableId = crypto.randomUUID();
+    const shape = (result: {
+      fields: { type: string }[];
+      arrowBuffer: string;
+    }) => ({
+      fieldTypes: result.fields.map((field) => field.type),
+      arrowTypes: tableFromIPC(
+        Buffer.from(result.arrowBuffer, "base64"),
+      ).schema.fields.map((field) => String(field.type)),
+    });
+
+    const preview = await connector.query("public.events", tableId);
+    const batches = [];
+    for await (const batch of connector.queryBatches("public.events", tableId, {
+      batchRows: 10,
+    })) {
+      batches.push(batch);
+    }
+
+    expect(shape(preview)).toEqual({
+      fieldTypes: ["string", "string"],
+      arrowTypes: ["Utf8", "Utf8"],
+    });
+    expect(batches.map(shape)).toEqual([shape(preview)]);
+  });
+});
 
 describe("pgOidToColumnType", () => {
   it("maps BIGINT (OID 20) to 'string' — preserves precision for values > 2^53", () => {
