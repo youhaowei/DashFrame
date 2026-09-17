@@ -1,5 +1,8 @@
 import { useMutation } from "convex/react";
-import { VisualizationDisplay } from "@/components/visualizations/VisualizationDisplay";
+import {
+  VisualizationDisplay,
+  type VisualizationTileState,
+} from "@/components/visualizations/VisualizationDisplay";
 import { api } from "@dashframe/convex-backend/api";
 import {
   type DashboardControl,
@@ -12,8 +15,12 @@ import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 
 import { Button, cn, Surface } from "@wystack/ui-react";
 import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-react/icons";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  recedeWhileTileControlsOpen,
+  stayLitWhileOwnControlsOpen,
+} from "./DashboardItemControls";
 import { MarkdownWidget } from "./MarkdownWidget";
 import { OverridePopover } from "./OverridePopover";
 
@@ -33,6 +40,12 @@ interface DashboardItemProps {
    * OverridePopover to derive field-bound state and offer bind/unbind affordances.
    */
   controls?: DashboardControl[];
+  /** A reader turned one of this item's disclosed knobs. View-local. */
+  onReaderChange?: (itemId: UUID, patch: DashboardItemOverrides) => void;
+  /** What the reader has turned on this tile during this visit. */
+  readerPatch?: DashboardItemOverrides;
+  /** This tile's state, for the report-level roll-up. */
+  onStateChange?: (itemId: UUID, state: VisualizationTileState) => void;
   className?: string;
   // Props passed by react-grid-layout
   style?: React.CSSProperties;
@@ -47,6 +60,9 @@ export function DashboardItem({
   isEditable,
   effectiveOverrides,
   controls = [],
+  onReaderChange,
+  readerPatch,
+  onStateChange,
   className,
   style,
   onMouseDown,
@@ -56,6 +72,21 @@ export function DashboardItem({
 }: DashboardItemProps) {
   const [isEditingContent, setIsEditingContent] = useState(false);
   const commitBatch = useMutation(api.app.commitBatch);
+  const itemContext = useMemo(
+    () => ({
+      item,
+      dashboardControls: controls,
+      onReaderChange: onReaderChange
+        ? (patch: DashboardItemOverrides) => onReaderChange(item.id, patch)
+        : undefined,
+      readerPatch,
+    }),
+    [item, controls, onReaderChange, readerPatch],
+  );
+  const handleStateChange = useCallback(
+    (state: VisualizationTileState) => onStateChange?.(item.id, state),
+    [item.id, onStateChange],
+  );
   const [isSavingContent, setIsSavingContent] = useState(false);
 
   const handleRemove = async () => {
@@ -98,7 +129,12 @@ export function DashboardItem({
   return (
     <div
       data-dashframe-widget-id={item.id}
-      className={cn("group relative h-full w-full", className)}
+      className={cn(
+        "group relative h-full w-full",
+        recedeWhileTileControlsOpen,
+        stayLitWhileOwnControlsOpen,
+        className,
+      )}
       style={style}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
@@ -166,6 +202,9 @@ export function DashboardItem({
                 visualizationId={item.visualizationId}
                 overrides={effectiveOverrides ?? item.overrides}
                 reportId={dashboardId}
+                audience={isEditable ? "author" : "reader"}
+                itemContext={itemContext}
+                onStateChange={handleStateChange}
               />
             </div>
           )}

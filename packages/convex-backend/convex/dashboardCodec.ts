@@ -35,6 +35,20 @@ const storedDashboardItemOverridesSchema = z
   })
   .passthrough();
 
+// A report tightens an Insight's ceiling, never loosens it: `changeable` is
+// either absent or exactly `false`.
+const storedDashboardItemControlSchema = z
+  .object({
+    visibility: z.enum(["hidden", "visible", "pinned"]),
+    changeable: z
+      .boolean()
+      .optional()
+      .refine((value) => value !== true, {
+        message: "a report cannot loosen an Insight's changeable ceiling",
+      }),
+  })
+  .strict();
+
 const storedDashboardItemSchema = z
   .object({
     id: z.string(),
@@ -46,6 +60,23 @@ const storedDashboardItemSchema = z
     width: z.number(),
     height: z.number(),
     overrides: storedDashboardItemOverridesSchema.optional(),
+    // An empty map means nothing is disclosed, which is also what absence
+    // means, so it is stored as absence on every write path.
+    controls: z
+      .record(z.string().min(1), storedDashboardItemControlSchema)
+      .optional()
+      // Only a filter pins to the tile face. A sort or limit has no value to
+      // put in a pill, so the reserved keys are hidden or visible, never
+      // pinned.
+      .refine(
+        (value) =>
+          value?.sort?.visibility !== "pinned" &&
+          value?.limit?.visibility !== "pinned",
+        { message: "a sort or limit cannot be pinned to the tile" },
+      )
+      .transform((value) =>
+        value && Object.keys(value).length > 0 ? value : undefined,
+      ),
   })
   .passthrough();
 

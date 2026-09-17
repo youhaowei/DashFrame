@@ -214,7 +214,8 @@ function prune(def: ObjectValue) {
         array(def.selectedFields, "selectedFields").includes(v) ||
         objects(def.metrics, "metrics").some((m) => m.id === v),
     );
-    if (allowedFieldIds.length) next.sort = { allowedFieldIds, maxKeys: 1 };
+    if (allowedFieldIds.length)
+      next.sort = { ...sort, allowedFieldIds, maxKeys: 1 };
   }
   if (controls.limit) next.limit = controls.limit;
   if (Object.keys(next).length) def.runtimeControls = next;
@@ -809,7 +810,15 @@ async function dashboardCommand(
     const i = itemAt(),
       old = items[i]!,
       updates = record(a.updates);
-    const allowed = ["visualizationId", "content", "x", "y", "width", "height"];
+    const allowed = [
+      "visualizationId",
+      "content",
+      "x",
+      "y",
+      "width",
+      "height",
+      "controls",
+    ];
     if (
       Object.keys(updates).some(
         (k) => !allowed.includes(k) && k !== "id" && k !== "type",

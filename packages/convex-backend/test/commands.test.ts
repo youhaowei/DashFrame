@@ -2311,10 +2311,16 @@ describe("existing command behavior on native Convex", () => {
           key: "region",
           filterId: "region-filter",
           label: "Region",
+          changeable: false,
         },
       ],
-      sort: { allowedFieldIds: [fieldId], maxKeys: 1 as const },
-      limit: { min: 1, max: 100 },
+      sort: {
+        label: "Ranked by",
+        allowedFieldIds: [fieldId],
+        maxKeys: 1 as const,
+        changeable: false,
+      },
+      limit: { label: "Show", min: 1, max: 100, changeable: true },
     };
     await commit(
       cmd("SetInsightRuntimeControls", { id: insightId, runtimeControls }),
@@ -3415,6 +3421,171 @@ describe("existing command behavior on native Convex", () => {
       y: 6,
       width: 4,
       height: 2,
+    });
+  });
+  it("stores reader disclosure per declared control and replaces it whole", async () => {
+    const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+
+    await commit(
+      cmd("UpdateDashboardItem", {
+        dashboardId: dashId,
+        itemId,
+        updates: {
+          controls: {
+            region: { visibility: "pinned" },
+            limit: { visibility: "visible", changeable: false },
+          },
+        },
+      }),
+    );
+    let item = (
+      (await dashboardsById(dashId))[0]!.layout as Record<string, unknown>[]
+    )[0]!;
+    expect(item.controls).toEqual({
+      region: { visibility: "pinned" },
+      limit: { visibility: "visible", changeable: false },
+    });
+
+    // Whole-map replacement: a key left out is back to hidden.
+    await commit(
+      cmd("UpdateDashboardItem", {
+        dashboardId: dashId,
+        itemId,
+        updates: { controls: { sort: { visibility: "visible" } } },
+      }),
+    );
+    item = (
+      (await dashboardsById(dashId))[0]!.layout as Record<string, unknown>[]
+    )[0]!;
+    expect(item.controls).toEqual({ sort: { visibility: "visible" } });
+
+    // An empty map is "nothing disclosed", stored as absence.
+    await commit(
+      cmd("UpdateDashboardItem", {
+        dashboardId: dashId,
+        itemId,
+        updates: { controls: {} },
+      }),
+    );
+    item = (
+      (await dashboardsById(dashId))[0]!.layout as Record<string, unknown>[]
+    )[0]!;
+    expect(item.controls).toBeUndefined();
+  });
+  it("reserves the sort and limit keys for the sort and limit controls", async () => {
+    const { tableId } = await makeTable();
+    const insightId = id();
+    await commit(
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Reserved",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+      cmd("SetInsightFilter", {
+        id: insightId,
+        filters: [
+          {
+            id: "region-filter",
+            field: "region",
+            operator: "eq",
+            value: { kind: "value", v: "EMEA" },
+          },
+        ],
+      }),
+    );
+    await expect(
+      commit(
+        cmd("SetInsightRuntimeControls", {
+          id: insightId,
+          runtimeControls: {
+            filters: [
+              { key: "limit", filterId: "region-filter", label: "Region" },
+            ],
+          },
+        }),
+      ),
+    ).rejects.toThrow(/reserved/);
+  });
+  it("rejects pinning a sort or limit, which have no value to put on the tile face", async () => {
+    const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+
+    for (const key of ["sort", "limit"]) {
+      await expect(
+        commit(
+          cmd("UpdateDashboardItem", {
+            dashboardId: dashId,
+            itemId,
+            updates: { controls: { [key]: { visibility: "pinned" } } },
+          }),
+        ),
+      ).rejects.toThrow(/cannot be pinned/);
+    }
+  });
+  it("rejects a report loosening an Insight's changeable ceiling", async () => {
+    const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+
+    await expect(
+      commit(
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          updates: {
+            controls: { region: { visibility: "pinned", changeable: true } },
+          } as never,
+        }),
+      ),
+    ).rejects.toThrow(/cannot loosen/);
+    await expect(
+      commit(
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          updates: { controls: { region: { visibility: "shown" } } } as never,
+        }),
+      ),
+    ).rejects.toThrow();
+
+    const item = (
+      (await dashboardsById(dashId))[0]!.layout as Record<string, unknown>[]
+    )[0]!;
+    expect(item.controls).toBeUndefined();
+  });
+  it("accepts disclosure on AddDashboardItem and carries it through FanOutDashboardItems", async () => {
+    const { dashId, vizId } = await makeDashWithVizItem();
+    const itemId = id();
+    await commit(
+      cmd("AddDashboardItem", {
+        dashboardId: dashId,
+        item: {
+          id: itemId,
+          type: "visualization",
+          visualizationId: vizId,
+          x: 0,
+          y: 10,
+          width: 6,
+          height: 4,
+          controls: { region: { visibility: "visible" } },
+        },
+      }),
+    );
+    const cloneId = id();
+    await commit(
+      cmd("FanOutDashboardItems", {
+        dashboardId: dashId,
+        sourceItemId: itemId,
+        field: "region",
+        placements: [{ id: cloneId, value: "EMEA", x: 6, y: 10 }],
+      }),
+    );
+    const layout = (await dashboardsById(dashId))[0]!.layout as {
+      id: string;
+      controls?: unknown;
+    }[];
+    expect(layout.find((x) => x.id === itemId)?.controls).toEqual({
+      region: { visibility: "visible" },
+    });
+    expect(layout.find((x) => x.id === cloneId)?.controls).toEqual({
+      region: { visibility: "visible" },
     });
   });
   it("rejects whole override-bag replacement through UpdateDashboardItem", async () => {

@@ -125,12 +125,43 @@ describe("SortSection", () => {
       />,
     );
     fireEvent.click(
-      screen.getByRole("switch", { name: "Viewers can change sort" }),
+      screen.getByRole("switch", { name: "Offer the sort to viewers" }),
     );
     expect(onRuntimeChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox", { name: "Created at" }));
     expect(onRuntimeChange).toHaveBeenCalledWith({
       sort: { allowedFieldIds: [field.id], maxKeys: 1 },
+    });
+  });
+
+  it("writes the reader-facing words and the changeable ceiling on a declared sort", () => {
+    const onRuntimeChange = vi.fn();
+    render(
+      <SortSection
+        sorts={[]}
+        fields={[field]}
+        metrics={[]}
+        runtimeControls={{ sort: { allowedFieldIds: [field.id], maxKeys: 1 } }}
+        onChange={vi.fn()}
+        onRuntimeChange={onRuntimeChange}
+      />,
+    );
+    const label = screen.getByLabelText("Shown to viewers as");
+    fireEvent.change(label, { target: { value: "Ranked by" } });
+    fireEvent.blur(label);
+    expect(onRuntimeChange).toHaveBeenLastCalledWith({
+      sort: { allowedFieldIds: [field.id], maxKeys: 1, label: "Ranked by" },
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Viewers can change the value" }),
+    );
+    expect(onRuntimeChange).toHaveBeenLastCalledWith({
+      sort: {
+        allowedFieldIds: [field.id],
+        maxKeys: 1,
+        label: "Ranked by",
+        changeable: false,
+      },
     });
   });
 
@@ -168,7 +199,7 @@ describe("SortSection", () => {
     expect(
       (
         screen.getByRole("switch", {
-          name: "Viewers can change sort",
+          name: "Offer the sort to viewers",
         }) as HTMLButtonElement
       ).getAttribute("aria-checked"),
     ).toBe("true");
@@ -223,11 +254,11 @@ describe("SortSection", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("switch", { name: "Viewers can change sort" }),
+      screen.getByRole("switch", { name: "Offer the sort to viewers" }),
     );
     fireEvent.click(screen.getByRole("checkbox", { name: "Created at" }));
     fireEvent.click(
-      screen.getByRole("switch", { name: "Viewers can set a limit" }),
+      screen.getByRole("switch", { name: "Offer the row limit to viewers" }),
     );
 
     expect(onRuntimeChange).toHaveBeenNthCalledWith(2, {
@@ -253,7 +284,7 @@ describe("SortSection", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("switch", { name: "Viewers can set a limit" }),
+      screen.getByRole("switch", { name: "Offer the row limit to viewers" }),
     );
     view.rerender(
       <SortSection
@@ -283,7 +314,7 @@ describe("SortSection", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("switch", { name: "Viewers can change sort" }),
+      screen.getByRole("switch", { name: "Offer the sort to viewers" }),
     );
     fireEvent.click(screen.getByRole("checkbox", { name: "Created at" }));
     expect(onRuntimeChange).toHaveBeenLastCalledWith({
@@ -312,7 +343,7 @@ describe("SortSection", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("switch", { name: "Viewers can set a limit" }),
+      screen.getByRole("switch", { name: "Offer the row limit to viewers" }),
     );
     // Convex drops the undefined `limit` key from the stored document.
     view.rerender(renderWith({ filters: [region] }));
@@ -321,7 +352,7 @@ describe("SortSection", () => {
     view.rerender(renderWith({ filters: [region, period] }));
 
     fireEvent.click(
-      screen.getByRole("switch", { name: "Viewers can change sort" }),
+      screen.getByRole("switch", { name: "Offer the sort to viewers" }),
     );
     fireEvent.click(screen.getByRole("checkbox", { name: "Created at" }));
     expect(onRuntimeChange).toHaveBeenLastCalledWith({

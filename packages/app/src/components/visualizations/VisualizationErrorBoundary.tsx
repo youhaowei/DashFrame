@@ -29,6 +29,8 @@ interface VisualizationErrorBoundaryProps {
    * page reload.
    */
   resetKey?: string;
+  /** Called once per caught render error, for callers that track tile state. */
+  onError?: (error: Error) => void;
 }
 
 interface VisualizationErrorBoundaryState {
@@ -82,6 +84,7 @@ export class VisualizationErrorBoundary extends Component<
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo): void {
+    this.props.onError?.(error);
     // The boundary swallows the throw for the user; the operator still needs
     // it. Nothing else logs this — React's own logging stops at the boundary.
     console.error("Visualization failed to render", error, info.componentStack);

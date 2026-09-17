@@ -6,9 +6,10 @@ import {
 } from "@/test/native-query-fixture";
 /** VisualizationDisplay saved execution and declared runtime-control coverage. */
 import type { Insight, Visualization } from "@dashframe/types";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
+  formatUpdatedAgo,
   resolveDashboardRuntime,
   VisualizationDisplay,
 } from "./VisualizationDisplay";
@@ -71,7 +72,8 @@ vi.mock("@/data/host", () => ({
   useHostMutation: hostMutationMock(() => ({ mutateAsync: vi.fn() })),
 }));
 
-vi.mock("@dashframe/engine", () => ({
+vi.mock("@dashframe/engine", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dashframe/engine")>()),
   resolveEncodingToResultFrame: vi.fn().mockReturnValue({}),
   getMetricDisplayLabel: vi.fn().mockReturnValue(""),
 }));
@@ -91,7 +93,8 @@ vi.mock("@dashframe/visualization", () => ({
   useVisualization: vi.fn().mockReturnValue({ error: null }),
 }));
 
-vi.mock("@wystack/ui-react", () => ({
+vi.mock("@wystack/ui-react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@wystack/ui-react")>()),
   ErrorState: () => null,
   Spinner: () => null,
   Surface: ({ children }: { children: React.ReactNode }) => children,
@@ -117,12 +120,6 @@ vi.mock("@tanstack/react-router", () => ({
       {children}
     </a>
   ),
-}));
-
-vi.mock("@wystack/ui-react/icons", () => ({
-  ChartIcon: () => null,
-  LayersIcon: () => null,
-  TableIcon: () => null,
 }));
 
 vi.mock("./EngineUnavailableState", () => ({
@@ -264,10 +261,48 @@ describe("VisualizationDisplay — declared runtime controls", () => {
       error: "This dashboard filter is not declared by the Insight.",
     });
   });
+
+  it("varies one declared predicate by id and leaves its same-field sibling alone", () => {
+    const floor = { id: "f-min", field: "qty", operator: "gte", value: 2 };
+    const ceiling = { id: "f-max", field: "qty", operator: "lte", value: 9 };
+    const ranged = {
+      ...insight,
+      filters: [floor, ceiling],
+      runtimeControls: {
+        filters: [{ key: "min", filterId: "f-min", label: "Min" }],
+      },
+    } as unknown as Insight;
+
+    // The reader turns the floor. Only its key reaches the host, which keeps
+    // the undeclared ceiling as saved.
+    expect(
+      resolveDashboardRuntime(ranged, [dataTable], {
+        filters: [{ ...floor, value: 5 }],
+      }),
+    ).toEqual({ runtime: { filters: { min: 5 } } });
+
+    // Sending the sibling along to "complete" the field is refused outright.
+    expect(
+      resolveDashboardRuntime(ranged, [dataTable], {
+        filters: [{ ...floor, value: 5 }, ceiling],
+      }),
+    ).toEqual({
+      error: "This dashboard filter is not declared by the Insight.",
+    });
+  });
 });
 
 describe("VisualizationDisplay — report tile", () => {
   beforeEach(() => {
+    // jsdom has no ResizeObserver; a mounted tile measures its container.
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     vi.clearAllMocks();
     cleanup();
     setupCommonMocks();
@@ -295,5 +330,74 @@ describe("VisualizationDisplay — report tile", () => {
     const source = await screen.findByRole("link", { name: insight.name });
     expect(source.getAttribute("href")).toBe(`/insights/${insight.id}`);
     expect(source.getAttribute("data-report-id")).toBe("report-a");
+  });
+});
+
+describe("VisualizationDisplay — tile controls", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.clearAllMocks();
+    cleanup();
+    setupCommonMocks();
+  });
+
+  it("keeps an open control popover through the reload its own change causes", async () => {
+    const itemContext = {
+      item: {
+        id: "item-1",
+        controls: { status: { visibility: "visible" } },
+      },
+      dashboardControls: [],
+      onReaderChange: vi.fn(),
+    } as never;
+    // Fresh props each time: the display is memoized and would skip the render.
+    const tile = () => (
+      <VisualizationDisplay
+        visualizationId="viz-1"
+        reportId="report-a"
+        itemContext={{ ...(itemContext as object) } as never}
+      />
+    );
+    const { rerender } = render(tile());
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Chart controls" }),
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    mockUseInsightPagination.mockReturnValue({
+      fetchData: vi.fn(),
+      totalCount: 0,
+      columns: [],
+      resolvedFields: [],
+      isReady: false,
+      columnDisplayNames: {},
+    });
+    rerender(tile());
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    mockUseChartEngine.mockReturnValue({ engineError: new Error("down") });
+    rerender(tile());
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+});
+
+describe("formatUpdatedAgo", () => {
+  it("reads as a relative time in the tile foot", () => {
+    const now = Date.UTC(2026, 8, 15, 12, 0, 0);
+    expect(formatUpdatedAgo(now - 20_000, now)).toBe("Updated just now");
+    expect(formatUpdatedAgo(now - 5 * 60_000, now)).toMatch(/^Updated .*5 min/);
+    expect(formatUpdatedAgo(now - 3 * 3_600_000, now)).toMatch(
+      /^Updated .*3 h/,
+    );
+    expect(formatUpdatedAgo(now - 2 * 86_400_000, now)).toMatch(
+      /^Updated .*2 days/,
+    );
   });
 });

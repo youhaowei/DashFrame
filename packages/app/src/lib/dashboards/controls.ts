@@ -191,3 +191,79 @@ export function resolveControlValue(
     ? transientValues.get(control.id)
     : control.defaultValue;
 }
+
+// ---------------------------------------------------------------------------
+// Reader-local item overrides
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether one of `incoming` takes the place of `existing`. An entry with an
+ * id replaces that predicate alone; an id-less entry speaks for its field.
+ */
+function replaces(
+  incoming: readonly InsightFilterOverride[],
+  existing: InsightFilterOverride,
+): boolean {
+  return incoming.some((next) =>
+    next.id !== undefined && existing.id !== undefined
+      ? next.id === existing.id
+      : next.field === existing.field,
+  );
+}
+
+/**
+ * Fold one knob turn into the reader's accumulated view-local overrides for
+ * an item. Unlike `mergeTransientItemOverrides`, this keeps every slot the
+ * reader has touched as an own key — including a slot cleared to `undefined`
+ * — because that own key is what later tells the render merge to drop the
+ * base value instead of inheriting it.
+ */
+export function applyReaderPatch(
+  current: DashboardItemOverrides | undefined,
+  patch: DashboardItemOverrides,
+): DashboardItemOverrides {
+  const next: DashboardItemOverrides = { ...current };
+  if (patch.filters) {
+    next.filters = [
+      ...(current?.filters ?? []).filter(
+        (filter) => !replaces(patch.filters!, filter),
+      ),
+      ...patch.filters,
+    ];
+  }
+  if (Object.hasOwn(patch, "sorts")) next.sorts = patch.sorts;
+  if (Object.hasOwn(patch, "limit")) next.limit = patch.limit;
+  return next;
+}
+
+/**
+ * Layer a reader's view-local changes for one item on top of its effective
+ * overrides. The reader's value wins per key: a filter replaces the entry for
+ * its field, and a sort or limit replaces the whole slot. A slot the reader
+ * set to `undefined` (an own key) clears it; an absent key inherits. Nothing
+ * here is written back to the dashboard.
+ */
+export function mergeTransientItemOverrides(
+  base: DashboardItemOverrides | undefined,
+  transient: DashboardItemOverrides | undefined,
+): DashboardItemOverrides | undefined {
+  if (!transient) return base;
+  const filters = [
+    ...(base?.filters ?? []).filter(
+      (filter) => !replaces(transient.filters ?? [], filter),
+    ),
+    ...(transient.filters ?? []),
+  ];
+  const merged: DashboardItemOverrides = {
+    filters: filters.length > 0 ? filters : undefined,
+    sorts: Object.hasOwn(transient, "sorts") ? transient.sorts : base?.sorts,
+    limit: Object.hasOwn(transient, "limit") ? transient.limit : base?.limit,
+  };
+  if (
+    merged.filters === undefined &&
+    merged.sorts === undefined &&
+    merged.limit === undefined
+  )
+    return undefined;
+  return merged;
+}

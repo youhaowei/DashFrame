@@ -8,6 +8,7 @@
  */
 import type {
   DashboardControl,
+  DashboardItemControl,
   DashboardItemOverridePatch,
 } from "./dashboards";
 import type { Field, SourceSchema } from "./field";
@@ -140,6 +141,8 @@ export interface DashboardItemInput {
   width: number;
   height: number;
   overrides?: DashboardItemOverridesInput;
+  /** Reader disclosure per declared runtime control; see `DashboardItem.controls`. */
+  controls?: Record<string, DashboardItemControl>;
 }
 
 // ---------------------------------------------------------------------------

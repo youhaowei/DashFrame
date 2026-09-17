@@ -7,6 +7,9 @@ import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
+import { recedeWhileTileControlsOpen } from "@/components/dashboards/DashboardItemControls";
+import type { VisualizationTileState } from "@/components/visualizations/VisualizationDisplay";
+import { applyReaderPatch } from "@/lib/dashboards/controls";
 import {
   resolveInsightAvailableFields,
   type CombinedField,
@@ -19,6 +22,7 @@ import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
+  type DashboardItemOverrides,
   type DashboardItemType,
   type InsightFilter,
   type UUID,
@@ -26,6 +30,7 @@ import {
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Button,
+  cn,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -44,11 +49,30 @@ import {
   FileIcon,
   PlusIcon,
 } from "@wystack/ui-react/icons";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 interface DashboardDetailContentProps {
   dashboardId: string;
+}
+
+const EMPTY_OVERRIDES: Map<UUID, DashboardItemOverrides> = new Map();
+const EMPTY_TILES: Map<UUID, VisualizationTileState> = new Map();
+
+/**
+ * The one report-level line about tile health. It appears only when a tile
+ * cannot be shown at all; a tile showing earlier data says so on its own foot.
+ * It never asserts a report-wide freshness. A reader gets the count; the
+ * author also gets which tiles.
+ */
+export function formatBrokenTilesLine(
+  brokenNames: readonly string[],
+  audience: "author" | "reader",
+): string | null {
+  if (brokenNames.length === 0) return null;
+  const count = brokenNames.length;
+  const line = `${count} chart${count === 1 ? "" : "s"} can't be shown right now`;
+  return audience === "author" ? `${line}: ${brokenNames.join(", ")}` : line;
 }
 
 export function formatReportContentsCount(
@@ -121,6 +145,51 @@ export default function DashboardDetailContent({
   const [controlTransientValues, setControlTransientValues] = useState<
     Map<string, InsightFilter["value"]>
   >(new Map());
+  // A reader's changes through a tile's own knobs, per item. Same rule as the
+  // control bar: view-local, never written back. Tagged with the dashboard id
+  // so navigating to another report starts clean without an effect.
+  const [readerState, setReaderState] = useState<{
+    dashboardId: string;
+    overrides: Map<UUID, DashboardItemOverrides>;
+    tiles: Map<UUID, VisualizationTileState>;
+  }>(() => ({ dashboardId, overrides: new Map(), tiles: new Map() }));
+  const itemTransientOverrides =
+    readerState.dashboardId === dashboardId
+      ? readerState.overrides
+      : EMPTY_OVERRIDES;
+  const tileStates =
+    readerState.dashboardId === dashboardId ? readerState.tiles : EMPTY_TILES;
+  const handleReaderChange = useCallback(
+    (itemId: UUID, patch: DashboardItemOverrides) => {
+      setReaderState((current) => {
+        const same = current.dashboardId === dashboardId;
+        const overrides = new Map(same ? current.overrides : undefined);
+        overrides.set(itemId, applyReaderPatch(overrides.get(itemId), patch));
+        return {
+          dashboardId,
+          overrides,
+          tiles: same ? current.tiles : new Map(),
+        };
+      });
+    },
+    [dashboardId],
+  );
+  const handleTileStateChange = useCallback(
+    (itemId: UUID, state: VisualizationTileState) => {
+      setReaderState((current) => {
+        const same = current.dashboardId === dashboardId;
+        if (same && current.tiles.get(itemId) === state) return current;
+        const tiles = new Map(same ? current.tiles : undefined);
+        tiles.set(itemId, state);
+        return {
+          dashboardId,
+          overrides: same ? current.overrides : new Map(),
+          tiles,
+        };
+      });
+    },
+    [dashboardId],
+  );
   const setWebMCPDashboard = useWebMCPPageStore((state) => state.setDashboard);
   useEffect(() => {
     setWebMCPDashboard({
@@ -206,6 +275,17 @@ export default function DashboardDetailContent({
     );
   }
 
+  const brokenTilesLine = formatBrokenTilesLine(
+    dashboard.items
+      .filter((item) => tileStates.get(item.id) === "broken")
+      .map(
+        (item) =>
+          visualizations.find((viz) => viz.id === item.visualizationId)?.name ??
+          "Untitled chart",
+      ),
+    isEditable ? "author" : "reader",
+  );
+
   const handleAddItem = async () => {
     // Compute the bottom of the current layout so the new widget is appended
     // below all existing items. Using Infinity here would serialize to null in
@@ -255,61 +335,72 @@ export default function DashboardDetailContent({
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <ArtifactPageHeader
-        title={dashboard.name}
-        description={
-          dashboard.items.length === 0
-            ? "Nothing on it yet"
-            : formatReportContentsCount(
-                reportContents.questionIds.length,
-                reportContents.savedViews.length,
-              )
-        }
-        navigation={
-          <Breadcrumb
-            LinkComponent={Link}
-            items={[
-              { label: "Reports", to: "/dashboards" },
-              { label: dashboard.name },
-            ]}
-          />
-        }
-        actions={
-          <>
-            {isEditable ? (
-              <Button
-                icon={CheckIcon}
-                label="Done editing"
-                onClick={() => setIsEditable(false)}
-              />
-            ) : (
-              <Button
-                variant="outline"
-                icon={EditIcon}
-                label="Edit report"
-                onClick={() => setIsEditable(true)}
-              />
-            )}
-            <Button
-              color="secondary"
-              icon={PlusIcon}
-              label="Add item"
-              onClick={() => setIsAddOpen(true)}
+    <div className="group/report flex h-full flex-col">
+      <div className={cn("shrink-0", recedeWhileTileControlsOpen)}>
+        <ArtifactPageHeader
+          title={dashboard.name}
+          description={
+            dashboard.items.length === 0
+              ? "Nothing on it yet"
+              : formatReportContentsCount(
+                  reportContents.questionIds.length,
+                  reportContents.savedViews.length,
+                )
+          }
+          navigation={
+            <Breadcrumb
+              LinkComponent={Link}
+              items={[
+                { label: "Reports", to: "/dashboards" },
+                { label: dashboard.name },
+              ]}
             />
-          </>
-        }
-      />
-
-      {/* Control Bar — only rendered when the dashboard has controls */}
-      {questionMetadataAvailable && (dashboard.controls ?? []).length > 0 && (
-        <DashboardControlBar
-          controls={dashboard.controls!}
-          fieldsByName={fieldsByName}
-          transientValues={controlTransientValues}
-          onTransientChange={setControlTransientValues}
+          }
+          actions={
+            <>
+              {isEditable ? (
+                <Button
+                  icon={CheckIcon}
+                  label="Done editing"
+                  onClick={() => setIsEditable(false)}
+                />
+              ) : (
+                <Button
+                  variant="outline"
+                  icon={EditIcon}
+                  label="Edit report"
+                  onClick={() => setIsEditable(true)}
+                />
+              )}
+              <Button
+                color="secondary"
+                icon={PlusIcon}
+                label="Add item"
+                onClick={() => setIsAddOpen(true)}
+              />
+            </>
+          }
         />
-      )}
+
+        {/* Control Bar — only rendered when the dashboard has controls */}
+        {questionMetadataAvailable && (dashboard.controls ?? []).length > 0 && (
+          <DashboardControlBar
+            controls={dashboard.controls!}
+            fieldsByName={fieldsByName}
+            transientValues={controlTransientValues}
+            onTransientChange={setControlTransientValues}
+          />
+        )}
+
+        {brokenTilesLine && (
+          <div
+            role="status"
+            className="flex items-center gap-2 border-b border-neutral-border/60 bg-neutral-bg px-6 py-2 text-xs text-palette-danger"
+          >
+            {brokenTilesLine}
+          </div>
+        )}
+      </div>
 
       {/* The report is the grid. An empty report is one invitation, not a
           set of zero counts. */}
@@ -340,6 +431,9 @@ export default function DashboardDetailContent({
             dashboard={dashboard}
             isEditable={isEditable}
             controlTransientValues={controlTransientValues}
+            itemTransientOverrides={itemTransientOverrides}
+            onReaderChange={handleReaderChange}
+            onTileStateChange={handleTileStateChange}
           />
         )}
       </div>

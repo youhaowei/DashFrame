@@ -107,6 +107,36 @@ export interface DashboardControl {
 }
 
 /**
+ * How one runtime control is disclosed to a reader of the report.
+ *
+ * - `hidden`  — the reader is not told the control exists: no value, no count.
+ * - `visible` — disclosed behind the tile's control button.
+ * - `pinned`  — disclosed on the tile face.
+ */
+export type DashboardItemControlVisibility = "hidden" | "visible" | "pinned";
+
+/**
+ * A report item's decision about one declared runtime control of its Insight.
+ *
+ * Keyed by the declaration `key` for filters, and by the reserved keys `sort`
+ * and `limit`. An absent entry means hidden, and changeable as the Insight
+ * declared. `changeable` may only be `false`: a report tightens the Insight's
+ * ceiling, never loosens it, so the report never hands a reader a knob the
+ * Insight's author withheld. This governs what the report draws; the host
+ * cannot tell a reader's value from a report author's saved override, so it
+ * checks declaration, type, and range, not `changeable`. A key bound by a report-level `DashboardControl` is not drawn
+ * on the tile at all — its knob lives on the report bar.
+ *
+ * `pinned` puts a filter on the tile face; `visible` puts a control behind
+ * the tile's control button. Only a filter pins: `sort` and `limit` are
+ * `hidden` or `visible`.
+ */
+export interface DashboardItemControl {
+  visibility: DashboardItemControlVisibility;
+  changeable?: false;
+}
+
+/**
  * Dashboard item - A positioned widget on a dashboard.
  */
 export interface DashboardItem {
@@ -126,6 +156,12 @@ export interface DashboardItem {
    * Only filters, sorts, and limit are overrideable; fields and metrics are not.
    */
   overrides?: DashboardItemOverrides;
+  /**
+   * What the reader is told about, and may change of, the Insight's declared
+   * runtime controls on this item. Orthogonal to `overrides`, which sets the
+   * value; this sets who sees and moves it.
+   */
+  controls?: Record<string, DashboardItemControl>;
 }
 
 /**
