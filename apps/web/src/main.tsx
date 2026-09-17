@@ -2,13 +2,12 @@ import "@dashframe/app/globals.css";
 
 import { HostedAccessScreen } from "@/components/hosted-access/HostedAccessScreen";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Button } from "@wystack/ui-react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 
 import { createBrowserApp } from "./bootstrap/browser-app";
-import { startHostSession } from "@dashframe/app";
+import { SignOutProvider, startHostSession } from "@dashframe/app";
 
 const container = document.getElementById("root");
 if (!container) throw new Error("Root container #root not found");
@@ -22,16 +21,9 @@ const session = startHostSession({
     let content;
     if (view.status === "admitted") {
       content = (
-        <>
+        <SignOutProvider onSignOut={view.onSignOut}>
           {view.runtime.element}
-          <Button
-            className="fixed top-2 left-12 z-30 bg-neutral-bg/90 shadow-sm backdrop-blur"
-            label="Sign out"
-            size="sm"
-            variant="outline"
-            onClick={view.onSignOut}
-          />
-        </>
+        </SignOutProvider>
       );
     } else if (view.status === "local-ready") {
       content = view.runtime.element;
