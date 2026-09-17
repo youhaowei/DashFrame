@@ -348,6 +348,14 @@ beside a chart already means the tile's own menu — edit, duplicate, remove —
 using it for the reader's knobs makes one glyph mean two different things
 depending on who is looking.
 
+**Popover headings are a glyph and a name in sentence case — never all caps.**
+The glyph is the same one the category button used, so a kind has one mark
+wherever it appears. Sort and Rows hold exactly one control each, so their
+heading _is_ the row — glyph, name, control on one line — rather than a heading
+with a second label repeating the word under it. Filter keeps a heading over
+its rows, since those name different fields. No label in these prototypes is
+upper-cased: the bar and section labels dropped it too.
+
 What this trades away is advertisement. `▽ 4` at least said filters exist and
 are yours to move; one unlabelled glyph says only that something is behind it.
 The counter-argument is that pinning is exactly the author's tool for surfacing

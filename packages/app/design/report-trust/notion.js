@@ -362,10 +362,18 @@ function buildLine(rerender, model = MODEL) {
         }
         const pop = h(`<div class="pop cat-pop"></div>`);
         for (const [kind, members] of behind) {
-          pop.append(h(`<div class="pop-title">${kind}</div>`));
+          // A heading is its glyph and its name, in sentence case. Sort and
+          // Rows hold exactly one control, so the heading is the row: a
+          // second label under it would only repeat the word.
+          const solo = kind !== "Filter";
+          const title = h(
+            `<div class="pop-title${solo ? " solo" : ""}"><span class="name">${GLYPH[kind]}${kind}</span></div>`,
+          );
+          pop.append(title);
           for (const member of members) {
-            const row = h(`<div class="row"></div>`);
-            row.append(h(`<span class="field">${member.label}</span>`));
+            const row = solo ? title : h(`<div class="row"></div>`);
+            if (!solo)
+              row.append(h(`<span class="field">${member.label}</span>`));
             row.append(
               member.changeable
                 ? well(
@@ -384,7 +392,7 @@ function buildLine(rerender, model = MODEL) {
                     `<span class="chip"><span class="value">${turned.get(member.label) ?? member.value}</span></span>`,
                   ),
             );
-            pop.append(row);
+            if (!solo) pop.append(row);
           }
         }
         pop.append(
