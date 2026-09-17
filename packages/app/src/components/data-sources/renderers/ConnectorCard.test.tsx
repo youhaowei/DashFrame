@@ -61,6 +61,7 @@ describe("ConnectorCard sign-in link", () => {
       <ConnectorCard
         connector={connector}
         expanded
+        isLoading
         signInUrl="https://accounts.google.com/auth"
       />,
     );

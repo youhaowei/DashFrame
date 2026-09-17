@@ -58,7 +58,7 @@ export async function handleConnectorOAuthCallback(
         sourcePath && result.dataSourceId
           ? {
               href: sourcePath(result.dataSourceId),
-              label: "Open the new source in DashFrame",
+              label: "Open the new data source in DashFrame",
             }
           : undefined,
       );

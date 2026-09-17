@@ -175,7 +175,7 @@ export function ConnectorCard({
 
           {signInUrl && (
             <p className="text-xs text-neutral-fg-subtle">
-              The Google sign-in window didn't open.{" "}
+              Google sign-in page didn't open?{" "}
               <a
                 href={signInUrl}
                 target="_blank"
