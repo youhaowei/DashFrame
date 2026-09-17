@@ -58,7 +58,7 @@ import {
   cn,
 } from "@wystack/ui-react";
 import { SettingsIcon } from "@wystack/ui-react/icons";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   computeNewOverridesOnClear,
@@ -284,6 +284,11 @@ const VISIBILITY_OPTIONS: {
   { value: "visible", label: "Visible" },
   { value: "pinned", label: "Pinned" },
 ];
+// Only a filter pins to the tile face: a sort or limit has no value to put
+// in a pill, so it is hidden or behind the tile's control button.
+const UNPINNABLE_OPTIONS = VISIBILITY_OPTIONS.filter(
+  (option) => option.value !== "pinned",
+);
 
 /**
  * One declared control of the item's Insight, as the author decides what a
@@ -296,12 +301,14 @@ function DisclosureRow({
   name,
   entry,
   ceilingChangeable,
+  pinnable,
   boundByReport,
   onChange,
 }: {
   name: string;
   entry: DashboardItemControl | undefined;
   ceilingChangeable: boolean;
+  pinnable: boolean;
   boundByReport: boolean;
   onChange: (patch: Partial<DashboardItemControl>) => void;
 }) {
@@ -320,7 +327,7 @@ function DisclosureRow({
             variant="outline"
             value={visibility}
             onValueChange={(next) => onChange({ visibility: next })}
-            options={VISIBILITY_OPTIONS}
+            options={pinnable ? VISIBILITY_OPTIONS : UNPINNABLE_OPTIONS}
           />
           {ceilingChangeable && visibility !== "hidden" && (
             <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-fg-subtle">
@@ -553,22 +560,42 @@ export function OverridePopover({
     }
   }
 
+  // Each save replaces the whole disclosure map, so two quick edits must
+  // build on each other rather than on the prop, which only catches up once
+  // the subscription returns. The prop is trusted again when nothing is in
+  // flight.
+  const [pendingDisclosure, setPendingDisclosure] = useState<
+    { map: DashboardItem["controls"] } | undefined
+  >(undefined);
+  const disclosuresInFlight = useRef(0);
+  const disclosureMap = pendingDisclosure
+    ? pendingDisclosure.map
+    : item.controls;
+
   function handleDisclosure(key: string, patch: Partial<DashboardItemControl>) {
+    const next = withItemControl(disclosureMap, key, patch);
+    setPendingDisclosure({ map: next });
+    disclosuresInFlight.current += 1;
     commitBatch({
       commands: [
         cmd("UpdateDashboardItem", {
           dashboardId: dashboardId as UUID,
           itemId: item.id,
-          updates: { controls: withItemControl(item.controls, key, patch) },
+          updates: { controls: next },
         }),
       ],
-    }).catch((error: unknown) => {
-      console.error("Failed to save what readers see:", error);
-      toast.error("Couldn't save what readers see");
-    });
+    })
+      .catch((error: unknown) => {
+        console.error("Failed to save what readers see:", error);
+        toast.error("Couldn't save what readers see");
+      })
+      .finally(() => {
+        disclosuresInFlight.current -= 1;
+        if (disclosuresInFlight.current === 0) setPendingDisclosure(undefined);
+      });
   }
 
-  // Declared runtime controls, in tile order: sort, limit, then filters.
+  // Declared runtime controls, in tile order: filters, then sort, then limit.
   const declared = useMemo(() => {
     const declaration = insight?.runtimeControls;
     if (!declaration) return [];
@@ -578,18 +605,6 @@ export function OverridePopover({
       ceilingChangeable: boolean;
       field?: string;
     }[] = [];
-    if (declaration.sort)
-      rows.push({
-        key: SORT_CONTROL_KEY,
-        name: declaration.sort.label || "Sort",
-        ceilingChangeable: declaration.sort.changeable !== false,
-      });
-    if (declaration.limit)
-      rows.push({
-        key: LIMIT_CONTROL_KEY,
-        name: declaration.limit.label || "Limit",
-        ceilingChangeable: declaration.limit.changeable !== false,
-      });
     for (const control of declaration.filters ?? []) {
       const saved = insight?.filters?.find((f) => f.id === control.filterId);
       rows.push({
@@ -599,6 +614,18 @@ export function OverridePopover({
         field: saved?.field,
       });
     }
+    if (declaration.sort)
+      rows.push({
+        key: SORT_CONTROL_KEY,
+        name: declaration.sort.label || "Sort",
+        ceilingChangeable: declaration.sort.changeable !== false,
+      });
+    if (declaration.limit)
+      rows.push({
+        key: LIMIT_CONTROL_KEY,
+        name: declaration.limit.label || "Rows",
+        ceilingChangeable: declaration.limit.changeable !== false,
+      });
     return rows;
   }, [insight?.runtimeControls, insight?.filters]);
 
@@ -656,7 +683,7 @@ export function OverridePopover({
             {/* Filter rows */}
             {fieldNames.length > 0 && (
               <>
-                <p className="mb-1 text-xs font-medium text-neutral-fg-subtle uppercase tracking-wide">
+                <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
                   Filters
                 </p>
                 {fieldNames.map((fieldName) => {
@@ -696,15 +723,19 @@ export function OverridePopover({
 
             {declared.length > 0 && (
               <>
-                <p className="mb-1 text-xs font-medium text-neutral-fg-subtle uppercase tracking-wide">
+                <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
                   Readers see
                 </p>
                 {declared.map((row) => (
                   <DisclosureRow
                     key={row.key}
                     name={row.name}
-                    entry={item.controls?.[row.key]}
+                    entry={disclosureMap?.[row.key]}
                     ceilingChangeable={row.ceilingChangeable}
+                    pinnable={
+                      row.key !== SORT_CONTROL_KEY &&
+                      row.key !== LIMIT_CONTROL_KEY
+                    }
                     boundByReport={
                       row.field !== undefined &&
                       boundControls.some((c) => c.field === row.field)
@@ -717,7 +748,7 @@ export function OverridePopover({
             )}
 
             {/* Sort row */}
-            <p className="mb-1 text-xs font-medium text-neutral-fg-subtle uppercase tracking-wide">
+            <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
               Sort
             </p>
             <SortOverrideRow
@@ -730,7 +761,7 @@ export function OverridePopover({
             <Separator className="my-2" />
 
             {/* Limit row */}
-            <p className="mb-1 text-xs font-medium text-neutral-fg-subtle uppercase tracking-wide">
+            <p className="mb-1 text-xs font-medium text-neutral-fg-subtle">
               Limit
             </p>
             {/* insightLimit: the Insight type has no row-limit field (v0.3).

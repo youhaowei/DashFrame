@@ -3506,6 +3506,21 @@ describe("existing command behavior on native Convex", () => {
       ),
     ).rejects.toThrow(/reserved/);
   });
+  it("rejects pinning a sort or limit, which have no value to put on the tile face", async () => {
+    const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+
+    for (const key of ["sort", "limit"]) {
+      await expect(
+        commit(
+          cmd("UpdateDashboardItem", {
+            dashboardId: dashId,
+            itemId,
+            updates: { controls: { [key]: { visibility: "pinned" } } },
+          }),
+        ),
+      ).rejects.toThrow(/cannot be pinned/);
+    }
+  });
   it("rejects a report loosening an Insight's changeable ceiling", async () => {
     const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
 

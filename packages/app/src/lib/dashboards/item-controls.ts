@@ -13,8 +13,11 @@
  *   item is not drawn on the tile; its knob lives on the report bar.
  * - `changeable` is the Insight's ceiling AND the item's tightening; the item
  *   can only ever remove the knob.
- * - Sort and limit come first, then filters in declaration order. They are
- *   different kinds of statement and never pool in one group.
+ * - Filters come first in declaration order, then sort, then limit: the
+ *   order the chart is built in (which rows, how ordered, how many kept).
+ * - Only a filter can be pinned to the tile face. A sort or limit has no
+ *   value to put in a pill, so it is only ever behind the tile's control
+ *   button, whatever the stored visibility says.
  */
 
 import type {
@@ -42,7 +45,7 @@ export interface ExposedItemControl {
   label: string;
   /** What the reader sees as the current value. */
   valueText: string;
-  /** On the tile face (true) or collapsed behind the "more" chip (false). */
+  /** On the tile face (true) or behind the tile's control button (false). */
   pinned: boolean;
   /** Whether the reader gets a knob. */
   changeable: boolean;
@@ -107,7 +110,10 @@ function exposureFor(
   const entry = disclosure[key];
   if (!entry || entry.visibility === "hidden") return null;
   return {
-    pinned: entry.visibility === "pinned",
+    pinned:
+      entry.visibility === "pinned" &&
+      key !== SORT_CONTROL_KEY &&
+      key !== LIMIT_CONTROL_KEY,
     changeable: ceiling !== false && entry.changeable !== false,
   };
 }
@@ -186,9 +192,7 @@ function filterControls(
       control.changeable,
     );
     if (!shown) continue;
-    const override = effectiveOverrides?.filters?.find(
-      (f) => f.id === control.filterId || f.field === saved.field,
-    );
+    const override = overrideFor(effectiveOverrides?.filters, saved);
     out.push({
       key: control.key,
       kind: "filter",
@@ -200,6 +204,44 @@ function filterControls(
     });
   }
   return out;
+}
+
+/**
+ * The override that varies `saved`. An override carrying an id belongs to
+ * that predicate alone, so two declared filters on one field stay apart; only
+ * an id-less override (a report control, a saved cell pin) speaks for the
+ * whole field.
+ */
+function overrideFor(
+  overrides: readonly InsightFilterOverride[] | undefined,
+  saved: InsightFilter,
+): InsightFilterOverride | undefined {
+  return (
+    overrides?.find((f) => f.id !== undefined && f.id === saved.id) ??
+    overrides?.find((f) => f.id === undefined && f.field === saved.field)
+  );
+}
+
+/**
+ * A reader's filter patch, completed to its whole field. The engine replaces
+ * every saved predicate on a field once any override names that field, so a
+ * patch for one of two filters on `quantity` must carry the other as it
+ * currently stands, or turning one knob would silently drop its sibling.
+ */
+export function completeFieldGroups(
+  patch: DashboardItemOverrides,
+  insightFilters: readonly InsightFilter[] | undefined,
+  effectiveOverrides: DashboardItemOverrides | undefined,
+): DashboardItemOverrides {
+  if (!patch.filters?.length) return patch;
+  const patchedIds = new Set(patch.filters.map((f) => f.id));
+  const fields = new Set(patch.filters.map((f) => f.field));
+  const siblings = (insightFilters ?? [])
+    .filter((saved) => fields.has(saved.field) && !patchedIds.has(saved.id))
+    .map((saved) => overrideFor(effectiveOverrides?.filters, saved) ?? saved);
+  return siblings.length === 0
+    ? patch
+    : { ...patch, filters: [...siblings, ...patch.filters] };
 }
 
 /**
@@ -215,7 +257,7 @@ export function resolveItemControls(
     ...input,
     sortFieldLabel: input.sortFieldLabel ?? ((f: string) => f),
   };
-  const out: ExposedItemControl[] = [];
+  const out = filterControls(full, declaration.filters ?? []);
   if (declaration.sort) {
     const sort = sortControl(full, declaration.sort);
     if (sort) out.push(sort);
@@ -224,7 +266,6 @@ export function resolveItemControls(
     const limit = limitControl(full, declaration.limit);
     if (limit) out.push(limit);
   }
-  out.push(...filterControls(full, declaration.filters ?? []));
   return out;
 }
 

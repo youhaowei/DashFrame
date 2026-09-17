@@ -5,13 +5,19 @@
  * - Absent item entry = hidden; the control is not in the result at all.
  * - Report-bound filter = not drawn on the tile.
  * - changeable = Insight ceiling AND item tightening; the item never loosens.
- * - Order: sort, limit, then filters in declaration order.
+ * - Order: filters in declaration order, then sort, then limit.
+ * - Only a filter pins; a sort or limit is never on the tile face.
+ * - An id-carrying override varies its own predicate, not its whole field.
  * - valueText reads the effective override before the saved default.
  */
 
 import type { DashboardControl, Insight, UUID } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
-import { resolveItemControls, withItemControl } from "./item-controls";
+import {
+  completeFieldGroups,
+  resolveItemControls,
+  withItemControl,
+} from "./item-controls";
 
 const insight: Pick<Insight, "filters" | "sorts" | "runtimeControls"> = {
   filters: [
@@ -48,7 +54,7 @@ describe("resolveItemControls", () => {
     ).toEqual([]);
   });
 
-  it("orders sort and limit before filters and reads the authored label", () => {
+  it("orders filters, then sort, then limit, and never pins a sort or limit", () => {
     const controls = resolveItemControls({
       insight,
       item: {
@@ -64,11 +70,11 @@ describe("resolveItemControls", () => {
       sortFieldLabel: (field) => (field === "revenue" ? "Revenue" : field),
     });
     expect(controls.map((c) => [c.key, c.kind, c.label, c.valueText])).toEqual([
+      ["region", "filter", "Region", "EMEA"],
       ["sort", "sort", "Ranked by", "Revenue, high to low"],
       ["limit", "limit", "", "Top 10"],
-      ["region", "filter", "Region", "EMEA"],
     ]);
-    expect(controls.map((c) => c.pinned)).toEqual([false, true, true]);
+    expect(controls.map((c) => c.pinned)).toEqual([true, false, false]);
   });
 
   it("never loosens the Insight's ceiling and lets the item tighten it", () => {
@@ -207,5 +213,79 @@ describe("withItemControl", () => {
         },
       ),
     ).toEqual({ region: { visibility: "pinned" } });
+  });
+});
+
+describe("two declared filters on one field", () => {
+  const range: Pick<Insight, "filters" | "sorts" | "runtimeControls"> = {
+    filters: [
+      { id: "f-min", field: "quantity", operator: "gte", value: 2 },
+      { id: "f-max", field: "quantity", operator: "lte", value: 10 },
+    ],
+    runtimeControls: {
+      filters: [
+        { key: "min", filterId: "f-min", label: "Min quantity" },
+        { key: "max", filterId: "f-max", label: "Max quantity" },
+      ],
+    },
+  };
+
+  it("reads each control's own override, never its sibling's", () => {
+    const controls = resolveItemControls({
+      insight: range,
+      item: {
+        id: itemId,
+        controls: {
+          min: { visibility: "pinned" },
+          max: { visibility: "pinned" },
+        },
+      },
+      dashboardControls: [],
+      effectiveOverrides: {
+        filters: [
+          { id: "f-max", field: "quantity", operator: "lte", value: 5 },
+        ],
+      },
+    });
+    expect(controls.map((c) => [c.key, c.override?.value])).toEqual([
+      ["min", undefined],
+      ["max", 5],
+    ]);
+  });
+
+  it("carries the untouched sibling so the engine keeps both predicates", () => {
+    const patch = completeFieldGroups(
+      {
+        filters: [
+          { id: "f-max", field: "quantity", operator: "lte", value: 5 },
+        ],
+      },
+      range.filters,
+      undefined,
+    );
+    expect(patch.filters?.map((f) => [f.id, f.value])).toEqual([
+      ["f-min", 2],
+      ["f-max", 5],
+    ]);
+  });
+
+  it("carries the sibling as the reader last left it", () => {
+    const patch = completeFieldGroups(
+      {
+        filters: [
+          { id: "f-max", field: "quantity", operator: "lte", value: 5 },
+        ],
+      },
+      range.filters,
+      {
+        filters: [
+          { id: "f-min", field: "quantity", operator: "gte", value: 4 },
+        ],
+      },
+    );
+    expect(patch.filters?.map((f) => [f.id, f.value])).toEqual([
+      ["f-min", 4],
+      ["f-max", 5],
+    ]);
   });
 });

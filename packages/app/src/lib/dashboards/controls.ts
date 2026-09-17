@@ -197,6 +197,21 @@ export function resolveControlValue(
 // ---------------------------------------------------------------------------
 
 /**
+ * Whether one of `incoming` takes the place of `existing`. An entry with an
+ * id replaces that predicate alone; an id-less entry speaks for its field.
+ */
+function replaces(
+  incoming: readonly InsightFilterOverride[],
+  existing: InsightFilterOverride,
+): boolean {
+  return incoming.some((next) =>
+    next.id !== undefined && existing.id !== undefined
+      ? next.id === existing.id
+      : next.field === existing.field,
+  );
+}
+
+/**
  * Fold one knob turn into the reader's accumulated view-local overrides for
  * an item. Unlike `mergeTransientItemOverrides`, this keeps every slot the
  * reader has touched as an own key — including a slot cleared to `undefined`
@@ -209,10 +224,9 @@ export function applyReaderPatch(
 ): DashboardItemOverrides {
   const next: DashboardItemOverrides = { ...current };
   if (patch.filters) {
-    const patched = new Set(patch.filters.map((filter) => filter.field));
     next.filters = [
       ...(current?.filters ?? []).filter(
-        (filter) => !patched.has(filter.field),
+        (filter) => !replaces(patch.filters!, filter),
       ),
       ...patch.filters,
     ];
@@ -234,12 +248,9 @@ export function mergeTransientItemOverrides(
   transient: DashboardItemOverrides | undefined,
 ): DashboardItemOverrides | undefined {
   if (!transient) return base;
-  const transientFields = new Set(
-    (transient.filters ?? []).map((filter) => filter.field),
-  );
   const filters = [
     ...(base?.filters ?? []).filter(
-      (filter) => !transientFields.has(filter.field),
+      (filter) => !replaces(transient.filters ?? [], filter),
     ),
     ...(transient.filters ?? []),
   ];

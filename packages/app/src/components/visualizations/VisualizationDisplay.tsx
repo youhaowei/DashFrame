@@ -8,6 +8,7 @@ import {
 import { useInsightView } from "@/hooks/useInsightView";
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
 import {
+  completeFieldGroups,
   resolveItemControls,
   type ExposedItemControl,
 } from "@/lib/dashboards/item-controls";
@@ -35,11 +36,14 @@ import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui-react";
 import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-react/icons";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  DashboardItemControls,
+  TileControlLine,
+  TileControlsDoor,
   type ControlInputType,
 } from "@/components/dashboards/DashboardItemControls";
 import { EngineUnavailableState } from "./EngineUnavailableState";
 import { VisualizationErrorBoundary } from "./VisualizationErrorBoundary";
+
+const HEADER_CLASS = "border-b border-neutral-border/60 px-4 py-2";
 
 // Minimum visible rows needed to enable "Show Both" mode
 const MIN_VISIBLE_ROWS_FOR_BOTH = 5;
@@ -251,6 +255,8 @@ export interface VisualizationItemContext {
   dashboardControls: readonly DashboardControl[];
   /** A reader turned a knob. View-local; never persisted. */
   onReaderChange?: (patch: DashboardItemOverrides) => void;
+  /** The reader has turned something on this tile during this visit. */
+  readerChanged?: boolean;
 }
 
 interface VisualizationDisplayProps {
@@ -373,58 +379,13 @@ function VisualizationDisplayContent({
     runtime: dashboardRuntime.runtime,
   });
 
-  // ── Disclosed runtime controls (report tiles only) ─────────────────────
-  const availableFields = useMemo(
-    () =>
-      insight && itemContext
-        ? resolveInsightAvailableFields(insight, dataTables, insights)
-        : [],
-    [insight, itemContext, dataTables, insights],
-  );
-  const sortOptions = useMemo(() => {
-    if (!insight?.runtimeControls?.sort) return [];
-    return insight.runtimeControls.sort.allowedFieldIds.map((id) => {
-      const field = availableFields.find((candidate) => candidate.id === id);
-      const metric = insight.metrics.find((candidate) => candidate.id === id);
-      const aliases = [
-        field?.columnName,
-        field?.name,
-        metric?.name,
-        metric?.columnName,
-      ].filter((alias): alias is string => Boolean(alias));
-      return {
-        value: id,
-        label: field?.displayName ?? metric?.name ?? id,
-        aliases,
-      };
-    });
-  }, [insight, availableFields]);
-  const exposedControls = useMemo<ExposedItemControl[]>(() => {
-    if (!insight || !itemContext) return [];
-    const labelFor = (name: string) => {
-      const byId = sortOptions.find(
-        (option) => option.value === name || option.aliases.includes(name),
-      );
-      if (byId) return byId.label;
-      const field = availableFields.find(
-        (candidate) => (candidate.columnName ?? candidate.name) === name,
-      );
-      if (field) return field.displayName;
-      const metric = insight.metrics.find(
-        (candidate) => candidate.name === name || candidate.columnName === name,
-      );
-      return metric?.name ?? name;
-    };
-    return resolveItemControls({
-      insight,
-      item: itemContext.item,
-      dashboardControls: itemContext.dashboardControls,
-      effectiveOverrides: overrides,
-      sortFieldLabel: labelFor,
-    });
-  }, [insight, itemContext, overrides, sortOptions, availableFields]);
-  const inputTypeFor = (control: ExposedItemControl) =>
-    inputTypeForControl(control, availableFields);
+  const tileControls = useTileControls({
+    insight,
+    itemContext,
+    overrides,
+    dataTables,
+    insights,
+  });
 
   // Helper to calculate visible rows from container dimensions
   const calculateVisibleRows = () => {
@@ -632,6 +593,26 @@ function VisualizationDisplayContent({
   const isTile = reportId !== undefined;
   // A tile is its chart; the table is a workbench view.
   const view = isTile ? "chart" : activeTab;
+  // A tile keeps its heading through loading and failure, so a control
+  // popover the reader has open survives the reload its own change causes.
+  const tileHeader = tileChrome({
+    visualization: isTile ? activeViz : null,
+    insight,
+    reportId,
+    controls: tileControls,
+    readerChanged: itemContext?.readerChanged,
+  });
+  const framed = (body: React.ReactNode) =>
+    tileHeader ? (
+      <div ref={containerRef} className="flex h-full flex-col">
+        <div ref={headerRef} className={HEADER_CLASS}>
+          {tileHeader}
+        </div>
+        <div className="min-h-0 flex-1">{body}</div>
+      </div>
+    ) : (
+      body
+    );
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
   const bothTooltip = canShowBoth
     ? "Show chart and table simultaneously"
@@ -687,7 +668,7 @@ function VisualizationDisplayContent({
   }
 
   if (isMounted && dashboardRuntime.error) {
-    return (
+    return framed(
       <div className="flex h-full w-full items-center justify-center px-6">
         <ErrorState
           {...failureCopy(
@@ -697,7 +678,7 @@ function VisualizationDisplayContent({
           )}
           className="w-full max-w-lg"
         />
-      </div>
+      </div>,
     );
   }
 
@@ -707,7 +688,7 @@ function VisualizationDisplayContent({
   // flips `isReady` — without this branch isWaitingForData stays true and the
   // user sees an indefinite spinner. Show the error so the failure is visible.
   if (isMounted && insightViewError) {
-    return (
+    return framed(
       <div className="flex h-full w-full items-center justify-center px-6">
         <ErrorState
           {...failureCopy(
@@ -717,12 +698,12 @@ function VisualizationDisplayContent({
           )}
           className="w-full max-w-lg"
         />
-      </div>
+      </div>,
     );
   }
 
   if (!isMounted || isWaitingForData) {
-    return (
+    return framed(
       <div className="flex h-full w-full items-center justify-center px-6">
         <Surface
           elevation="inset"
@@ -738,7 +719,7 @@ function VisualizationDisplayContent({
             Please wait while the data is being loaded.
           </p>
         </Surface>
-      </div>
+      </div>,
     );
   }
 
@@ -768,17 +749,8 @@ function VisualizationDisplayContent({
   // Unified toggle view with Chart, Table, and Both options
   return (
     <div ref={containerRef} className="flex h-full flex-col">
-      <div
-        ref={headerRef}
-        className="border-b border-neutral-border/60 px-4 py-2"
-      >
-        {isTile ? (
-          <TileHeader
-            name={activeViz.name}
-            insight={insight}
-            reportId={reportId}
-          />
-        ) : (
+      <div ref={headerRef} className={HEADER_CLASS}>
+        {tileHeader ?? (
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-xl font-semibold text-neutral-fg">
@@ -824,16 +796,6 @@ function VisualizationDisplayContent({
               />
             </div>
           </div>
-        )}
-        {exposedControls.length > 0 && (
-          <DashboardItemControls
-            className="mt-2"
-            controls={exposedControls}
-            inputTypeFor={inputTypeFor}
-            sortOptions={sortOptions}
-            limitBounds={insight?.runtimeControls?.limit}
-            onChange={itemContext?.onReaderChange}
-          />
         )}
       </div>
 
@@ -894,11 +856,12 @@ function VisualizationDisplayContent({
         </div>
       )}
 
-      {fetchedAt !== null && (
+      {typeof fetchedAt === "number" && (
         <TileFreshness
           fetchedAt={fetchedAt}
           isStale={isStale}
-          staleReason={audience === "author" ? staleReason : null}
+          staleReason={staleReason}
+          audience={audience}
         />
       )}
     </div>
@@ -914,11 +877,14 @@ function TileFreshness({
   fetchedAt,
   isStale,
   staleReason,
+  audience,
 }: {
   fetchedAt: number;
   isStale: boolean;
   staleReason: string | null;
+  audience: VisualizationAudience;
 }) {
+  const shownReason = audience === "author" ? staleReason : null;
   const now = useNow(60_000);
   const text = isStale
     ? `Showing earlier data · ${formatUpdatedAgo(fetchedAt, now).replace("Updated ", "")}`
@@ -933,8 +899,8 @@ function TileFreshness({
       data-tile-freshness={isStale ? "stale" : "fresh"}
     >
       {text}
-      {staleReason ? (
-        <span className="text-neutral-fg-subtle"> · {staleReason}</span>
+      {shownReason ? (
+        <span className="text-neutral-fg-subtle"> · {shownReason}</span>
       ) : null}
     </div>
   );
@@ -945,27 +911,150 @@ function TileHeader({
   name,
   insight,
   reportId,
+  door,
 }: {
   name: string;
   insight: Insight | null | undefined;
   reportId: string | undefined;
+  /** The tile's own controls sit on the title line; facts go under it. */
+  door?: React.ReactNode;
 }) {
   return (
-    <div className="min-w-0">
-      <p className="truncate text-sm font-semibold text-neutral-fg">{name}</p>
-      {insight && (
-        <p className="truncate text-xs text-neutral-fg-subtle">
-          from{" "}
-          <Link
-            to="/insights/$insightId"
-            params={{ insightId: insight.id }}
-            search={{ reportId, visualize: false }}
-            className="text-neutral-fg-subtle underline-offset-2 transition-colors duration-150 hover:text-neutral-fg hover:underline motion-reduce:transition-none"
-          >
-            {insight.name}
-          </Link>
-        </p>
-      )}
+    <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-neutral-fg">{name}</p>
+        {insight && (
+          <p className="truncate text-xs text-neutral-fg-subtle">
+            from{" "}
+            <Link
+              to="/insights/$insightId"
+              params={{ insightId: insight.id }}
+              search={{ reportId, visualize: false }}
+              className="text-neutral-fg-subtle underline-offset-2 transition-colors duration-150 hover:text-neutral-fg hover:underline motion-reduce:transition-none"
+            >
+              {insight.name}
+            </Link>
+          </p>
+        )}
+      </div>
+      {door}
     </div>
+  );
+}
+
+/**
+ * What a report tile draws of its Insight's runtime controls, and where a
+ * reader's change goes. Empty off a report: only a tile has an item to
+ * disclose for.
+ */
+function useTileControls({
+  insight,
+  itemContext,
+  overrides,
+  dataTables,
+  insights,
+}: {
+  insight: Insight | null | undefined;
+  itemContext: VisualizationItemContext | undefined;
+  overrides: DashboardItemOverrides | undefined;
+  dataTables: DataTable[];
+  insights: Insight[];
+}) {
+  const availableFields = useMemo(
+    () =>
+      insight && itemContext
+        ? resolveInsightAvailableFields(insight, dataTables, insights)
+        : [],
+    [insight, itemContext, dataTables, insights],
+  );
+  const sortOptions = useMemo(() => {
+    if (!insight?.runtimeControls?.sort) return [];
+    return insight.runtimeControls.sort.allowedFieldIds.map((id) => {
+      const field = availableFields.find((candidate) => candidate.id === id);
+      const metric = insight.metrics.find((candidate) => candidate.id === id);
+      const aliases = [
+        field?.columnName,
+        field?.name,
+        metric?.name,
+        metric?.columnName,
+      ].filter((alias): alias is string => Boolean(alias));
+      return {
+        value: id,
+        label: field?.displayName ?? metric?.name ?? id,
+        aliases,
+      };
+    });
+  }, [insight, availableFields]);
+  const exposedControls = useMemo<ExposedItemControl[]>(() => {
+    if (!insight || !itemContext) return [];
+    const labelFor = (name: string) => {
+      const byId = sortOptions.find(
+        (option) => option.value === name || option.aliases.includes(name),
+      );
+      if (byId) return byId.label;
+      const field = availableFields.find(
+        (candidate) => (candidate.columnName ?? candidate.name) === name,
+      );
+      if (field) return field.displayName;
+      const metric = insight.metrics.find(
+        (candidate) => candidate.name === name || candidate.columnName === name,
+      );
+      return metric?.name ?? name;
+    };
+    return resolveItemControls({
+      insight,
+      item: itemContext.item,
+      dashboardControls: itemContext.dashboardControls,
+      effectiveOverrides: overrides,
+      sortFieldLabel: labelFor,
+    });
+  }, [insight, itemContext, overrides, sortOptions, availableFields]);
+  const onReaderChange = itemContext?.onReaderChange;
+  return {
+    controls: exposedControls,
+    inputTypeFor: (control: ExposedItemControl) =>
+      inputTypeForControl(control, availableFields),
+    sortOptions,
+    limitBounds: insight?.runtimeControls?.limit,
+    // A filter patch carries its same-field siblings, or the engine would
+    // drop them the moment one of them is turned.
+    onChange: onReaderChange
+      ? (patch: DashboardItemOverrides) =>
+          onReaderChange(
+            completeFieldGroups(patch, insight?.filters, overrides),
+          )
+      : undefined,
+  };
+}
+
+/**
+ * A tile's heading block, or null off a report. A plain function rather than
+ * a component so the block sits at the same place in the tree whichever
+ * state the tile is in, and React keeps it mounted across them.
+ */
+function tileChrome({
+  visualization,
+  insight,
+  reportId,
+  controls,
+  readerChanged,
+}: {
+  visualization: Visualization | null;
+  insight: Insight | null | undefined;
+  reportId: string | undefined;
+  controls: ReturnType<typeof useTileControls>;
+  readerChanged: boolean | undefined;
+}) {
+  if (!visualization) return null;
+  return (
+    <>
+      <TileHeader
+        name={visualization.name}
+        insight={insight}
+        reportId={reportId}
+        door={<TileControlsDoor {...controls} isSet={readerChanged} />}
+      />
+      <TileControlLine className="mt-2" {...controls} />
+    </>
   );
 }

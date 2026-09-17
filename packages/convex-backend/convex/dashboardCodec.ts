@@ -65,6 +65,15 @@ const storedDashboardItemSchema = z
     controls: z
       .record(z.string().min(1), storedDashboardItemControlSchema)
       .optional()
+      // Only a filter pins to the tile face. A sort or limit has no value to
+      // put in a pill, so the reserved keys are hidden or visible, never
+      // pinned.
+      .refine(
+        (value) =>
+          value?.sort?.visibility !== "pinned" &&
+          value?.limit?.visibility !== "pinned",
+        { message: "a sort or limit cannot be pinned to the tile" },
+      )
       .transform((value) =>
         value && Object.keys(value).length > 0 ? value : undefined,
       ),

@@ -121,7 +121,11 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("@wystack/ui-react/icons", () => ({
+  ArrowUpDownIcon: () => null,
   ChartIcon: () => null,
+  ControlsIcon: () => null,
+  FilterIcon: () => null,
+  ListIcon: () => null,
   LayersIcon: () => null,
   TableIcon: () => null,
 }));

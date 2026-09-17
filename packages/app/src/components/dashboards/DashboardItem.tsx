@@ -17,6 +17,10 @@ import { Button, cn, Surface } from "@wystack/ui-react";
 import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  recedeWhileTileControlsOpen,
+  stayLitWhileOwnControlsOpen,
+} from "./DashboardItemControls";
 import { MarkdownWidget } from "./MarkdownWidget";
 import { OverridePopover } from "./OverridePopover";
 
@@ -38,6 +42,8 @@ interface DashboardItemProps {
   controls?: DashboardControl[];
   /** A reader turned one of this item's disclosed knobs. View-local. */
   onReaderChange?: (itemId: UUID, patch: DashboardItemOverrides) => void;
+  /** The reader has turned something on this tile during this visit. */
+  readerChanged?: boolean;
   /** This tile's state, for the report-level roll-up. */
   onStateChange?: (itemId: UUID, state: VisualizationTileState) => void;
   className?: string;
@@ -55,6 +61,7 @@ export function DashboardItem({
   effectiveOverrides,
   controls = [],
   onReaderChange,
+  readerChanged = false,
   onStateChange,
   className,
   style,
@@ -72,8 +79,9 @@ export function DashboardItem({
       onReaderChange: onReaderChange
         ? (patch: DashboardItemOverrides) => onReaderChange(item.id, patch)
         : undefined,
+      readerChanged,
     }),
-    [item, controls, onReaderChange],
+    [item, controls, onReaderChange, readerChanged],
   );
   const handleStateChange = useCallback(
     (state: VisualizationTileState) => onStateChange?.(item.id, state),
@@ -121,7 +129,12 @@ export function DashboardItem({
   return (
     <div
       data-dashframe-widget-id={item.id}
-      className={cn("group relative h-full w-full", className)}
+      className={cn(
+        "group relative h-full w-full",
+        recedeWhileTileControlsOpen,
+        stayLitWhileOwnControlsOpen,
+        className,
+      )}
       style={style}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}

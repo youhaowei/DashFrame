@@ -7,6 +7,7 @@ import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
+import { recedeWhileTileControlsOpen } from "@/components/dashboards/DashboardItemControls";
 import type { VisualizationTileState } from "@/components/visualizations/VisualizationDisplay";
 import { applyReaderPatch } from "@/lib/dashboards/controls";
 import {
@@ -29,6 +30,7 @@ import {
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Button,
+  cn,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -333,70 +335,72 @@ export default function DashboardDetailContent({
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <ArtifactPageHeader
-        title={dashboard.name}
-        description={
-          dashboard.items.length === 0
-            ? "Nothing on it yet"
-            : formatReportContentsCount(
-                reportContents.questionIds.length,
-                reportContents.savedViews.length,
-              )
-        }
-        navigation={
-          <Breadcrumb
-            LinkComponent={Link}
-            items={[
-              { label: "Reports", to: "/dashboards" },
-              { label: dashboard.name },
-            ]}
-          />
-        }
-        actions={
-          <>
-            {isEditable ? (
-              <Button
-                icon={CheckIcon}
-                label="Done editing"
-                onClick={() => setIsEditable(false)}
-              />
-            ) : (
-              <Button
-                variant="outline"
-                icon={EditIcon}
-                label="Edit report"
-                onClick={() => setIsEditable(true)}
-              />
-            )}
-            <Button
-              color="secondary"
-              icon={PlusIcon}
-              label="Add item"
-              onClick={() => setIsAddOpen(true)}
+    <div className="group/report flex h-full flex-col">
+      <div className={cn("shrink-0", recedeWhileTileControlsOpen)}>
+        <ArtifactPageHeader
+          title={dashboard.name}
+          description={
+            dashboard.items.length === 0
+              ? "Nothing on it yet"
+              : formatReportContentsCount(
+                  reportContents.questionIds.length,
+                  reportContents.savedViews.length,
+                )
+          }
+          navigation={
+            <Breadcrumb
+              LinkComponent={Link}
+              items={[
+                { label: "Reports", to: "/dashboards" },
+                { label: dashboard.name },
+              ]}
             />
-          </>
-        }
-      />
-
-      {/* Control Bar — only rendered when the dashboard has controls */}
-      {questionMetadataAvailable && (dashboard.controls ?? []).length > 0 && (
-        <DashboardControlBar
-          controls={dashboard.controls!}
-          fieldsByName={fieldsByName}
-          transientValues={controlTransientValues}
-          onTransientChange={setControlTransientValues}
+          }
+          actions={
+            <>
+              {isEditable ? (
+                <Button
+                  icon={CheckIcon}
+                  label="Done editing"
+                  onClick={() => setIsEditable(false)}
+                />
+              ) : (
+                <Button
+                  variant="outline"
+                  icon={EditIcon}
+                  label="Edit report"
+                  onClick={() => setIsEditable(true)}
+                />
+              )}
+              <Button
+                color="secondary"
+                icon={PlusIcon}
+                label="Add item"
+                onClick={() => setIsAddOpen(true)}
+              />
+            </>
+          }
         />
-      )}
 
-      {brokenTilesLine && (
-        <div
-          role="status"
-          className="flex items-center gap-2 border-b border-neutral-border/60 bg-neutral-bg px-6 py-2 text-xs text-palette-danger"
-        >
-          {brokenTilesLine}
-        </div>
-      )}
+        {/* Control Bar — only rendered when the dashboard has controls */}
+        {questionMetadataAvailable && (dashboard.controls ?? []).length > 0 && (
+          <DashboardControlBar
+            controls={dashboard.controls!}
+            fieldsByName={fieldsByName}
+            transientValues={controlTransientValues}
+            onTransientChange={setControlTransientValues}
+          />
+        )}
+
+        {brokenTilesLine && (
+          <div
+            role="status"
+            className="flex items-center gap-2 border-b border-neutral-border/60 bg-neutral-bg px-6 py-2 text-xs text-palette-danger"
+          >
+            {brokenTilesLine}
+          </div>
+        )}
+      </div>
 
       {/* The report is the grid. An empty report is one invitation, not a
           set of zero counts. */}

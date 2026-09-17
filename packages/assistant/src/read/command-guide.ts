@@ -374,7 +374,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     notes:
       "Rejects a duplicate item id. " +
       "overrides is optional — omit for a plain panel; supply to pin filters/sorts/limit at the item level. " +
-      "controls decides what a reader is told about the Insight's declared runtime controls, keyed by the declaration key or 'sort' / 'limit'; absent = hidden. changeable: false tightens the Insight's ceiling; true is rejected. " +
+      "controls decides what a reader is told about the Insight's declared runtime controls, keyed by the declaration key or 'sort' / 'limit'; absent = hidden. 'pinned' puts a filter on the tile face and 'visible' puts a control behind the tile's control button; 'sort' and 'limit' cannot be pinned. changeable: false tightens the Insight's ceiling; true is rejected. " +
       "Use FanOutDashboardItems to batch-create N items with distinct field-value pins.",
   },
   {

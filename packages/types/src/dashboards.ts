@@ -124,6 +124,10 @@ export type DashboardItemControlVisibility = "hidden" | "visible" | "pinned";
  * ceiling, never loosens it, so a reader can never change what the Insight's
  * author fixed. A key bound by a report-level `DashboardControl` is not drawn
  * on the tile at all — its knob lives on the report bar.
+ *
+ * `pinned` puts a filter on the tile face; `visible` puts a control behind
+ * the tile's control button. Only a filter pins: `sort` and `limit` are
+ * `hidden` or `visible`.
  */
 export interface DashboardItemControl {
   visibility: DashboardItemControlVisibility;
