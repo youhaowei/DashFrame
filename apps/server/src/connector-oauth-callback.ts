@@ -7,22 +7,37 @@ import type {
 } from "./host/connector-setup";
 import { connectorSetupGateCode } from "./host/connector-setup";
 
-function secureHtml(c: Context, title: string, message: string, status = 200) {
+function secureHtml(
+  c: Context,
+  title: string,
+  message: string,
+  status = 200,
+  link?: { href: string; label: string },
+) {
   c.header("Cache-Control", "no-store");
   c.header("Referrer-Policy", "no-referrer");
   c.header(
     "Content-Security-Policy",
     "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
   );
+  const linkHtml = link
+    ? `<p><a href="${link.href}">${link.label}</a></p>`
+    : "";
   return c.html(
-    `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>${title}</title><style>body{font:16px system-ui;max-width:36rem;margin:12vh auto;padding:0 1.5rem;color:#171717}h1{font-size:1.5rem}</style></head><body><h1>${title}</h1><p>${message}</p></body></html>`,
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>${title}</title><style>body{font:16px system-ui;max-width:36rem;margin:12vh auto;padding:0 1.5rem;color:#171717}h1{font-size:1.5rem}</style></head><body><h1>${title}</h1><p>${message}</p>${linkHtml}</body></html>`,
     status as 200,
   );
 }
 
+/**
+ * `sourcePath` names where this server's own web app shows a data source. A
+ * sign-in that ran in the app's own tab has no window to close, so the success
+ * page links back; a server that doesn't serve the app leaves it unset.
+ */
 export async function handleConnectorOAuthCallback(
   c: Context,
   app: ApplicationOperations,
+  sourcePath?: (dataSourceId: string) => string,
 ) {
   const state = c.req.query("state") ?? "";
   const code = c.req.query("code");
@@ -39,6 +54,13 @@ export async function handleConnectorOAuthCallback(
         c,
         "Google Analytics connected",
         "You can close this window and return to DashFrame.",
+        200,
+        sourcePath && result.dataSourceId
+          ? {
+              href: sourcePath(result.dataSourceId),
+              label: "Open the new data source in DashFrame",
+            }
+          : undefined,
       );
     }
     if (result.state === "awaiting-user-auth") {
