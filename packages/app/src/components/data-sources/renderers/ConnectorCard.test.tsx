@@ -89,3 +89,31 @@ describe("ConnectorCard disclosure", () => {
     expect(screen.getByLabelText("Select CSV file")).not.toBeNull();
   });
 });
+
+describe("ConnectorCard unavailable setup", () => {
+  it("disables connecting and says why", () => {
+    const oauthConnector = {
+      id: "googleAnalytics",
+      name: "Google Analytics",
+      description: "",
+      sourceType: "remote-api",
+      icon: "",
+      authKind: "oauth",
+    } as unknown as FileSourceConnector;
+
+    render(
+      <ConnectorCard
+        connector={oauthConnector}
+        expanded
+        onConnect={vi.fn()}
+        unavailableReason="Google sign-in isn't set up on this server."
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Sign in with Google" });
+    expect(button).toHaveProperty("disabled", true);
+    expect(
+      screen.getByText("Google sign-in isn't set up on this server."),
+    ).not.toBeNull();
+  });
+});

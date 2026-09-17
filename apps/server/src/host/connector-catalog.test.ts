@@ -1,7 +1,9 @@
 import { localFileConnector } from "@dashframe/connector-local";
+import type { ConnectorCatalogEntry } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  getConnectorCatalog,
   getConnectorCatalogEntries,
   LOCAL_CATALOG_ENTRY,
 } from "./connector-catalog";
@@ -36,5 +38,28 @@ describe("connector catalog OAuth metadata", () => {
       authKind: "oauth",
       formFields: [],
     });
+  });
+});
+
+describe("connector catalog OAuth availability", () => {
+  const googleAnalytics = (entries: ConnectorCatalogEntry[]) =>
+    entries.find(({ id }) => id === "googleAnalytics");
+
+  it("marks Google Analytics unavailable when no OAuth client is configured", async () => {
+    const entries = await getConnectorCatalog({});
+
+    expect(googleAnalytics(entries)?.unavailableReason).toMatch(
+      /Google sign-in isn't set up on this server/,
+    );
+    for (const entry of entries.filter(({ authKind }) => authKind !== "oauth"))
+      expect(entry).not.toHaveProperty("unavailableReason");
+  });
+
+  it("leaves Google Analytics available when an OAuth client is configured", async () => {
+    const entries = await getConnectorCatalog({
+      googleOAuth: { clientId: "client", clientSecret: "secret" },
+    });
+
+    expect(googleAnalytics(entries)).not.toHaveProperty("unavailableReason");
   });
 });

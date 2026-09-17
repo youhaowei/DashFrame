@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { createOAuthAuthorizationTarget } from "./oauth-authorization-target";
+import {
+  OAuthPopupBlockedError,
+  openOAuthAuthorizationUrl,
+} from "./oauth-authorization-target";
+
+const AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 
 afterEach(() => {
   Reflect.deleteProperty(window, "dashframe");
   vi.restoreAllMocks();
 });
 
-describe("createOAuthAuthorizationTarget", () => {
+describe("openOAuthAuthorizationUrl", () => {
   it("uses the Electron bridge without opening an embedded window", async () => {
     const openAuthorizationUrl = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window, "dashframe", {
@@ -16,14 +21,10 @@ describe("createOAuthAuthorizationTarget", () => {
     });
     const windowOpen = vi.spyOn(window, "open");
 
-    const target = createOAuthAuthorizationTarget();
-    await target?.open("https://accounts.google.com/o/oauth2/v2/auth");
+    await openOAuthAuthorizationUrl(AUTHORIZE_URL);
 
-    expect(target?.kind).toBe("system-browser");
     expect(windowOpen).not.toHaveBeenCalled();
-    expect(openAuthorizationUrl).toHaveBeenCalledExactlyOnceWith(
-      "https://accounts.google.com/o/oauth2/v2/auth",
-    );
+    expect(openAuthorizationUrl).toHaveBeenCalledExactlyOnceWith(AUTHORIZE_URL);
   });
 
   it("fails closed instead of falling back to an embedded desktop window", async () => {
@@ -33,46 +34,27 @@ describe("createOAuthAuthorizationTarget", () => {
     });
     const windowOpen = vi.spyOn(window, "open");
 
-    const target = createOAuthAuthorizationTarget();
-
-    await expect(target?.open("https://accounts.google.com")).rejects.toThrow(
+    await expect(openOAuthAuthorizationUrl(AUTHORIZE_URL)).rejects.toThrow(
       "Desktop browser authorization is unavailable",
     );
     expect(windowOpen).not.toHaveBeenCalled();
   });
 
-  it("reserves and navigates a popup for the web host", async () => {
-    const replace = vi.fn();
-    const close = vi.fn();
-    const popup = {
-      opener: window,
-      document: {
-        head: { innerHTML: "" },
-        body: { textContent: "" },
-      },
-      location: { replace },
-      close,
-    } as unknown as Window;
-    vi.spyOn(window, "open").mockReturnValue(popup);
+  it("opens the issued URL directly in a detached web popup", async () => {
+    const popup = { opener: window } as unknown as Window;
+    const windowOpen = vi.spyOn(window, "open").mockReturnValue(popup);
 
-    const target = createOAuthAuthorizationTarget();
-    await target?.open("https://accounts.google.com/o/oauth2/v2/auth");
-    target?.close();
+    await openOAuthAuthorizationUrl(AUTHORIZE_URL);
 
-    expect(target?.kind).toBe("popup");
+    expect(windowOpen).toHaveBeenCalledExactlyOnceWith(AUTHORIZE_URL, "_blank");
     expect(popup.opener).toBeNull();
-    expect(popup.document.body.textContent).toBe(
-      "Preparing Google authorization…",
-    );
-    expect(replace).toHaveBeenCalledExactlyOnceWith(
-      "https://accounts.google.com/o/oauth2/v2/auth",
-    );
-    expect(close).toHaveBeenCalledOnce();
   });
 
-  it("returns null when the web popup is blocked", () => {
+  it("reports a blocked web popup", async () => {
     vi.spyOn(window, "open").mockReturnValue(null);
 
-    expect(createOAuthAuthorizationTarget()).toBeNull();
+    await expect(openOAuthAuthorizationUrl(AUTHORIZE_URL)).rejects.toThrow(
+      OAuthPopupBlockedError,
+    );
   });
 });

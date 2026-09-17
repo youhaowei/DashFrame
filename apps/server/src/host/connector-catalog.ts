@@ -1,6 +1,7 @@
 import { makeGa4Connector } from "@dashframe/connector-ga4";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import { makePostgresConnector } from "@dashframe/connector-postgres";
+import type { HostContext } from "./context";
 import type { AnyConnector } from "@dashframe/engine";
 import { isFileConnector } from "@dashframe/engine";
 import type {
@@ -110,6 +111,24 @@ export function getConnectorCatalogEntries(): ConnectorCatalogEntry[] {
   return cachedCatalog;
 }
 
-export async function getConnectorCatalog() {
-  return getConnectorCatalogEntries();
+export const GOOGLE_OAUTH_UNAVAILABLE_REASON =
+  "Google sign-in isn't set up on this server. Whoever runs this DashFrame server needs to add a Google OAuth client.";
+
+/**
+ * The catalog as this server can serve it: OAuth connectors carry an
+ * `unavailableReason` when the host has no OAuth client to start setup with.
+ */
+export async function getConnectorCatalog(
+  ctx: Pick<HostContext, "googleOAuth">,
+) {
+  const entries = getConnectorCatalogEntries();
+  if (ctx.googleOAuth) return entries;
+  return entries.map((entry) =>
+    entry.authKind === "oauth"
+      ? Object.freeze({
+          ...entry,
+          unavailableReason: GOOGLE_OAUTH_UNAVAILABLE_REASON,
+        })
+      : entry,
+  );
 }

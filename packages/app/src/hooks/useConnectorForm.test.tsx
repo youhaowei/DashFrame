@@ -396,6 +396,25 @@ describe("useConnectorForm", () => {
       );
     });
 
+    it("shows the thrown message when the caller reports error messages", async () => {
+      const connector = createMockConnector({});
+
+      const { result } = renderHook(() => useConnectorForm(connector));
+
+      await act(async () => {
+        await result.current.execute(
+          async () => {
+            throw new Error("Google Analytics OAuth is not configured");
+          },
+          { reportErrorMessage: true },
+        );
+      });
+
+      expect(result.current.submitError).toBe(
+        "Google Analytics OAuth is not configured",
+      );
+    });
+
     it("should return null when action throws", async () => {
       const connector = createMockConnector({});
 

@@ -44,6 +44,8 @@ export interface ConnectorCatalogEntry {
   icon: string;
   authKind: ConnectorAuthKind;
   formFields: ConnectorFormField[];
+  /** Present when this server cannot start setup for the connector. */
+  unavailableReason?: string;
   /** File connectors only. */
   accept?: string;
   /** File connectors only. */

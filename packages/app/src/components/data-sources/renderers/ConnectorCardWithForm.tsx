@@ -1,6 +1,6 @@
 import { requestHost } from "@/data/host";
 import { useConnectorForm } from "@/hooks/useConnectorForm";
-import { createOAuthAuthorizationTarget } from "@/lib/oauth-authorization-target";
+import { openOAuthAuthorizationUrl } from "@/lib/oauth-authorization-target";
 import {
   isFileConnector,
   isRemoteApiConnector,
@@ -40,6 +40,8 @@ interface ConnectorCardWithFormProps {
   expanded?: boolean;
   /** Toggle handler for the disclosure header. */
   onToggle?: () => void;
+  /** Why this server cannot start setup for the connector, if it cannot. */
+  unavailableReason?: string;
 }
 
 const POLL_INTERVAL_MS = 2_000;
@@ -117,13 +119,8 @@ async function pollOAuthCompletion(
   throw new Error("Google authorization timed out");
 }
 
-export async function rejectOAuthSetupWithoutAuthorizationUrl(
-  sessionId: string,
-  authorizationTarget: ReturnType<typeof createOAuthAuthorizationTarget>,
-): Promise<never> {
+async function cancelSetup(sessionId: string): Promise<void> {
   await requestHost("cancelConnectorSetup", { sessionId }).catch(() => {});
-  authorizationTarget?.close();
-  throw new Error("Google authorization URL was not issued");
 }
 
 async function runOAuthSetup(
@@ -131,38 +128,20 @@ async function runOAuthSetup(
   onOAuthConnect: ConnectorCardWithFormProps["onOAuthConnect"],
   token: PollToken,
 ): Promise<void> {
-  const authorizationTarget = createOAuthAuthorizationTarget();
-  let session: { sessionId: string; authorizeUrl?: string };
-  try {
-    session = await requestHost("startConnectorSetup", {
-      connectorId: connector.id,
-      requestedName: connector.name,
-    });
-  } catch (error) {
-    authorizationTarget?.close();
-    throw error;
-  }
+  // Nothing opens until the server has issued an authorization URL: a failed
+  // start surfaces its own message instead of stranding a blank window.
+  const session = await requestHost("startConnectorSetup", {
+    connectorId: connector.id,
+    requestedName: connector.name,
+  });
   if (!session.authorizeUrl) {
-    return rejectOAuthSetupWithoutAuthorizationUrl(
-      session.sessionId,
-      authorizationTarget,
-    );
-  }
-  if (!authorizationTarget) {
-    await requestHost("cancelConnectorSetup", {
-      sessionId: session.sessionId,
-    });
-    throw new Error(
-      "Google sign-in was blocked. Allow popups for DashFrame and try again.",
-    );
+    await cancelSetup(session.sessionId);
+    throw new Error("Google authorization URL was not issued");
   }
   try {
-    await authorizationTarget.open(session.authorizeUrl);
+    await openOAuthAuthorizationUrl(session.authorizeUrl);
   } catch (error) {
-    await requestHost("cancelConnectorSetup", {
-      sessionId: session.sessionId,
-    }).catch(() => {});
-    authorizationTarget.close();
+    await cancelSetup(session.sessionId);
     throw error;
   }
   await pollOAuthCompletion(
@@ -198,6 +177,7 @@ export function ConnectorCardWithForm({
   onActivityChange,
   expanded,
   onToggle,
+  unavailableReason,
 }: ConnectorCardWithFormProps) {
   // Hook called at component top level - safe!
   const { form, formFields, execute, isSubmitting, submitError } =
@@ -252,14 +232,16 @@ export function ConnectorCardWithForm({
       );
       return;
     }
+    if (unavailableReason) return;
     if (onActivityChange?.(true) === false) return;
     if (connector.authKind === "oauth") {
       const token = pollToken.current;
       token.cancelled = false;
       token.activityHeld = true;
       token.activityTransferred = false;
-      const result = await execute(() =>
-        runOAuthSetup(connector, onOAuthConnect, token),
+      const result = await execute(
+        () => runOAuthSetup(connector, onOAuthConnect, token),
+        { reportErrorMessage: true },
       );
       token.activityHeld = false;
       if (result === null && !token.activityTransferred) {
@@ -288,6 +270,7 @@ export function ConnectorCardWithForm({
       onConnect={handleConnect}
       isLoading={isSubmitting}
       submitError={submitError}
+      unavailableReason={unavailableReason}
     >
       {/* Render TanStack Form fields */}
       {formFields.map((fieldDef) => (

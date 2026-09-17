@@ -119,6 +119,9 @@ export function AddConnectionPanel({
       connector={connector}
       expanded={selectedConnector?.id === connector.id}
       onToggle={onToggle}
+      unavailableReason={
+        catalog?.find((entry) => entry.id === connector.id)?.unavailableReason
+      }
       onFileSelect={onFileSelect}
       onConnect={onConnect}
       onOAuthConnect={async (...args) => {
