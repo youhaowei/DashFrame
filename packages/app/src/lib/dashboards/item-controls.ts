@@ -210,10 +210,12 @@ function filterControls(
 }
 
 /**
- * The override that varies `saved`. An override carrying an id belongs to
- * that predicate alone, so two declared filters on one field stay apart; only
- * an id-less override (a report control, a saved cell pin) speaks for the
- * whole field.
+ * The override that varies `saved`. `resolveDashboardRuntime` maps an override
+ * to the declared key its id names, and the host applies that value to the one
+ * predicate behind the key and leaves every other predicate alone, so an
+ * override carrying an id belongs to that predicate only and two declared
+ * filters on one field stay apart. Only an id-less override (a report
+ * control, a saved cell pin) speaks for the whole field.
  */
 function overrideFor(
   overrides: readonly InsightFilterOverride[] | undefined,
@@ -223,28 +225,6 @@ function overrideFor(
     overrides?.find((f) => f.id !== undefined && f.id === saved.id) ??
     overrides?.find((f) => f.id === undefined && f.field === saved.field)
   );
-}
-
-/**
- * A reader's filter patch, completed to its whole field. The engine replaces
- * every saved predicate on a field once any override names that field, so a
- * patch for one of two filters on `quantity` must carry the other as it
- * currently stands, or turning one knob would silently drop its sibling.
- */
-export function completeFieldGroups(
-  patch: DashboardItemOverrides,
-  insightFilters: readonly InsightFilter[] | undefined,
-  effectiveOverrides: DashboardItemOverrides | undefined,
-): DashboardItemOverrides {
-  if (!patch.filters?.length) return patch;
-  const patchedIds = new Set(patch.filters.map((f) => f.id));
-  const fields = new Set(patch.filters.map((f) => f.field));
-  const siblings = (insightFilters ?? [])
-    .filter((saved) => fields.has(saved.field) && !patchedIds.has(saved.id))
-    .map((saved) => overrideFor(effectiveOverrides?.filters, saved) ?? saved);
-  return siblings.length === 0
-    ? patch
-    : { ...patch, filters: [...siblings, ...patch.filters] };
 }
 
 /**
@@ -295,9 +275,4 @@ export function withItemControl(
     next[key] = merged;
   }
   return next;
-}
-
-/** Whether the reader has anything at all to see for this item. */
-export function hasExposedControls(controls: readonly ExposedItemControl[]) {
-  return controls.length > 0;
 }

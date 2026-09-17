@@ -269,6 +269,35 @@ describe("VisualizationDisplay — declared runtime controls", () => {
       error: "This dashboard filter is not declared by the Insight.",
     });
   });
+
+  it("varies one declared predicate by id and leaves its same-field sibling alone", () => {
+    const floor = { id: "f-min", field: "qty", operator: "gte", value: 2 };
+    const ceiling = { id: "f-max", field: "qty", operator: "lte", value: 9 };
+    const ranged = {
+      ...insight,
+      filters: [floor, ceiling],
+      runtimeControls: {
+        filters: [{ key: "min", filterId: "f-min", label: "Min" }],
+      },
+    } as unknown as Insight;
+
+    // The reader turns the floor. Only its key reaches the host, which keeps
+    // the undeclared ceiling as saved.
+    expect(
+      resolveDashboardRuntime(ranged, [dataTable], {
+        filters: [{ ...floor, value: 5 }],
+      }),
+    ).toEqual({ runtime: { filters: { min: 5 } } });
+
+    // Sending the sibling along to "complete" the field is refused outright.
+    expect(
+      resolveDashboardRuntime(ranged, [dataTable], {
+        filters: [{ ...floor, value: 5 }, ceiling],
+      }),
+    ).toEqual({
+      error: "This dashboard filter is not declared by the Insight.",
+    });
+  });
 });
 
 describe("VisualizationDisplay — report tile", () => {

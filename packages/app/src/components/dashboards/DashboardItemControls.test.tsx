@@ -144,4 +144,38 @@ describe("TileControlsDoor", () => {
     fireEvent.change(knob(), { target: { value: "" } });
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("lets a reader type a list, comma and all, and coerces it on commit", () => {
+    const onChange = vi.fn();
+    const quantities: ExposedItemControl = {
+      key: "sizes",
+      kind: "filter",
+      label: "Sizes",
+      valueText: "2",
+      pinned: false,
+      changeable: true,
+      filter: { id: "f-in", field: "quantity", operator: "in", value: [2] },
+    };
+    render(
+      <TileControlsDoor
+        {...context}
+        controls={[quantities]}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Chart controls" }));
+    const knob = screen.getByLabelText("Sizes") as HTMLInputElement;
+
+    fireEvent.change(knob, { target: { value: "2," } });
+    expect(knob.value).toBe("2,");
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.change(knob, { target: { value: "2, 5" } });
+    fireEvent.blur(knob);
+    expect(onChange).toHaveBeenLastCalledWith({
+      filters: [
+        { id: "f-in", field: "quantity", operator: "in", value: [2, 5] },
+      ],
+    });
+  });
 });

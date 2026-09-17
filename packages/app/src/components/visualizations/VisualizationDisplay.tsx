@@ -8,7 +8,6 @@ import {
 import { useInsightView } from "@/hooks/useInsightView";
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
 import {
-  completeFieldGroups,
   resolveItemControls,
   type ExposedItemControl,
 } from "@/lib/dashboards/item-controls";
@@ -1022,21 +1021,13 @@ function useTileControls({
       sortFieldLabel: labelFor,
     });
   }, [insight, itemContext, overrides, sortOptions, availableFields]);
-  const onReaderChange = itemContext?.onReaderChange;
   return {
     controls: exposedControls,
     inputTypeFor: (control: ExposedItemControl) =>
       inputTypeForControl(control, availableFields),
     sortOptions,
     limitBounds: insight?.runtimeControls?.limit,
-    // A filter patch carries its same-field siblings, or the engine would
-    // drop them the moment one of them is turned.
-    onChange: onReaderChange
-      ? (patch: DashboardItemOverrides) =>
-          onReaderChange(
-            completeFieldGroups(patch, insight?.filters, overrides),
-          )
-      : undefined,
+    onChange: itemContext?.onReaderChange,
   };
 }
 

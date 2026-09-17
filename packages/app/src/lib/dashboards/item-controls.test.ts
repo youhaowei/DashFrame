@@ -13,11 +13,7 @@
 
 import type { DashboardControl, Insight, UUID } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
-import {
-  completeFieldGroups,
-  resolveItemControls,
-  withItemControl,
-} from "./item-controls";
+import { resolveItemControls, withItemControl } from "./item-controls";
 
 const insight: Pick<Insight, "filters" | "sorts" | "runtimeControls"> = {
   filters: [
@@ -250,42 +246,6 @@ describe("two declared filters on one field", () => {
     expect(controls.map((c) => [c.key, c.override?.value])).toEqual([
       ["min", undefined],
       ["max", 5],
-    ]);
-  });
-
-  it("carries the untouched sibling so the engine keeps both predicates", () => {
-    const patch = completeFieldGroups(
-      {
-        filters: [
-          { id: "f-max", field: "quantity", operator: "lte", value: 5 },
-        ],
-      },
-      range.filters,
-      undefined,
-    );
-    expect(patch.filters?.map((f) => [f.id, f.value])).toEqual([
-      ["f-min", 2],
-      ["f-max", 5],
-    ]);
-  });
-
-  it("carries the sibling as the reader last left it", () => {
-    const patch = completeFieldGroups(
-      {
-        filters: [
-          { id: "f-max", field: "quantity", operator: "lte", value: 5 },
-        ],
-      },
-      range.filters,
-      {
-        filters: [
-          { id: "f-min", field: "quantity", operator: "gte", value: 4 },
-        ],
-      },
-    );
-    expect(patch.filters?.map((f) => [f.id, f.value])).toEqual([
-      ["f-min", 4],
-      ["f-max", 5],
     ]);
   });
 });

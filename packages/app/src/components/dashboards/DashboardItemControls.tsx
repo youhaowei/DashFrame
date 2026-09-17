@@ -145,7 +145,7 @@ const DOOR_ROOM = 344;
 
 /**
  * Beside the tile, so the chart stays in view while it changes: right when
- * there is room, otherwise left, and under the button when the tile spans
+ * there is room, otherwise left, and below the tile, right-aligned, when it spans
  * the page.
  */
 function doorPlacement(tile: Element): DoorPlacement {
@@ -592,6 +592,19 @@ function FilterEditor({
     );
   }
 
+  if (filter.operator === "in") {
+    return (
+      <ListEditor
+        key={JSON.stringify(current)}
+        label={control.label || filter.field}
+        values={Array.isArray(current) ? current : []}
+        inputType={inputType}
+        onCommit={emit}
+        onClear={clear}
+      />
+    );
+  }
+
   return (
     <Input
       type={inputType}
@@ -600,13 +613,54 @@ function FilterEditor({
       className="h-7 w-full text-xs"
       onChange={(event: ChangeEvent<HTMLInputElement>) => {
         const raw = event.target.value;
-        if (raw.trim() === "") return clear();
-        if (filter.operator !== "in") return emit(coerce(raw, inputType));
-        const values = raw
-          .split(",")
-          .map((part) => part.trim())
-          .filter(Boolean);
-        return values.length > 0 ? emit(values) : clear();
+        if (raw.trim() === "") clear();
+        else emit(coerce(raw, inputType));
+      }}
+    />
+  );
+}
+
+/**
+ * An `in` knob: comma-separated values in a text box, whatever the column's
+ * type, since a number box cannot hold a comma. Kept as a draft and parsed on
+ * blur or Enter, because parsing per keystroke eats the comma the reader just
+ * typed. Each value is coerced to the column's type.
+ */
+function ListEditor({
+  label,
+  values,
+  inputType,
+  onCommit,
+  onClear,
+}: {
+  label: string;
+  values: readonly unknown[];
+  inputType: ControlInputType;
+  onCommit: (value: unknown[]) => void;
+  onClear: () => void;
+}) {
+  const [draft, setDraft] = useState(values.join(", "));
+  const commit = () => {
+    const parsed = draft
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => coerce(part, inputType));
+    if (parsed.length === 0) onClear();
+    else onCommit(parsed);
+  };
+  return (
+    <Input
+      type="text"
+      value={draft}
+      aria-label={label}
+      className="h-7 w-full text-xs"
+      onChange={(event: ChangeEvent<HTMLInputElement>) =>
+        setDraft(event.target.value)
+      }
+      onBlur={commit}
+      onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === "Enter") commit();
       }}
     />
   );
