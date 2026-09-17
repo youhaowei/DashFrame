@@ -1,7 +1,7 @@
 import { makeGa4Connector } from "@dashframe/connector-ga4";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import { makePostgresConnector } from "@dashframe/connector-postgres";
-import { resolveOAuthRedirectUri } from "../connector-setup/oauth-provider";
+import { resolveOAuthRedirectUri } from "../connector-setup/oauth-redirect";
 import type { HostContext } from "./context";
 import type { AnyConnector } from "@dashframe/engine";
 import { isFileConnector } from "@dashframe/engine";
