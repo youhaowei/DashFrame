@@ -56,23 +56,12 @@ export function DataSourceSelector({
   onSelect,
   onCreateClick,
 }: DataSourceSelectorProps) {
-  const {
-    data: dataSources,
-    isPending: sourcesPending,
-    isLoadingError: sourcesLoadError,
-  } = queryStatus(useQuery({ query: api.app.listDataSources, args: {} }));
-  const {
-    data: allTables,
-    isPending: tablesPending,
-    isLoadingError: tablesLoadError,
-  } = queryStatus(useQuery({ query: api.app.listDataTables, args: {} }));
-
-  // Both subscriptions gate the list. The per-source counts come from
-  // `listDataTables`; before its first successful load it defaults to `[]`, so
-  // every source would read "0 tables". An error in either subscription shows
-  // the error state.
-  const isLoading = sourcesPending || tablesPending;
-  const hasLoadError = sourcesLoadError || tablesLoadError;
+  const { data: dataSources, isLoading } = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
+  const { data: allTables } = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
 
   // Subscribed so `items` below recomputes once the connector registry
   // hydrates from the server catalog (getConnectorById reads a module-scope
@@ -146,30 +135,6 @@ export function DataSourceSelector({
         <p className="text-sm text-neutral-fg-subtle">
           Preparing data sources…
         </p>
-      </Surface>
-    );
-  }
-
-  if (hasLoadError) {
-    return (
-      <Surface elevation="raised" className="p-8 text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-neutral-bg-muted text-neutral-fg-subtle">
-          <DatabaseIcon className="h-6 w-6" />
-        </div>
-        <h2 className="text-lg font-semibold text-neutral-fg">
-          Couldn&apos;t load data sources
-        </h2>
-        <p className="mt-2 text-sm text-neutral-fg-subtle">
-          Something went wrong. Check your connection and try again.
-        </p>
-        <div className="mt-6 flex items-center justify-center">
-          <Button
-            variant="outline"
-            size="sm"
-            label="Try again"
-            onClick={() => globalThis.location.reload()}
-          />
-        </div>
       </Surface>
     );
   }
