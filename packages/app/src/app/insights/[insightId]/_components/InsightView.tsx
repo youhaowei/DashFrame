@@ -76,6 +76,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  ErrorState,
 } from "@wystack/ui-react";
 import {
   DashboardIcon,
@@ -710,6 +711,27 @@ function getVisualizationEncodingSignature(
 
 type InsightPaginationResult = ReturnType<typeof useInsightPagination>;
 
+/** Shared error element so the workbench's table and chart halves agree. */
+export function InsightResultErrorState({
+  error,
+  onRetry,
+  className,
+}: {
+  error: string;
+  onRetry?: () => void;
+  className?: string;
+}) {
+  return (
+    <ErrorState
+      title="Couldn't load data"
+      description={error}
+      size="sm"
+      className={className}
+      retryAction={onRetry ? { label: "Retry", onClick: onRetry } : undefined}
+    />
+  );
+}
+
 export function InsightResultTable({
   result,
   collapsed = false,
@@ -726,6 +748,8 @@ export function InsightResultTable({
     totalCount,
     fieldCount,
     isReady,
+    error,
+    retry,
     columnDisplayNames,
     columnTypeMap,
   } = result;
@@ -744,9 +768,41 @@ export function InsightResultTable({
     });
   }, [columnDisplayNames, columnTypeMap]);
 
-  const summary = isReady
-    ? `${(totalCount || 0).toLocaleString()} rows • ${(fieldCount || 0).toLocaleString()} fields`
-    : "Loading data...";
+  // A failed materialization stays `!isReady` forever: show its message rather
+  // than "Loading data..." so this half agrees with the chart's error state.
+  let summary = "Loading data...";
+  if (isReady) {
+    summary = `${(totalCount || 0).toLocaleString()} rows • ${(fieldCount || 0).toLocaleString()} fields`;
+  } else if (error) {
+    summary = "Couldn't load data";
+  }
+
+  // Mount the table only when the pagination hook is ready (per its contract):
+  // mounting earlier lets the initial fetch race the hook's own init-driven
+  // fetchData identity changes.
+  let tableBody: ReactNode = null;
+  if (isReady) {
+    tableBody = (
+      <div className="absolute inset-0">
+        <VirtualTable
+          onFetchData={fetchData}
+          columnConfigs={columnConfigs}
+          height="100%"
+          compact
+        />
+      </div>
+    );
+  } else if (error) {
+    tableBody = (
+      <div className="absolute inset-0 overflow-auto">
+        <InsightResultErrorState
+          error={error}
+          onRetry={retry}
+          className="min-h-full"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
@@ -772,19 +828,7 @@ export function InsightResultTable({
         inert={collapsed}
         aria-hidden={collapsed}
       >
-        {/* Mount only when the pagination hook is ready (per its contract):
-              mounting earlier lets the initial fetch race the hook's own
-              init-driven fetchData identity changes. */}
-        {isReady && (
-          <div className="absolute inset-0">
-            <VirtualTable
-              onFetchData={fetchData}
-              columnConfigs={columnConfigs}
-              height="100%"
-              compact
-            />
-          </div>
-        )}
+        {tableBody}
       </div>
     </div>
   );
@@ -889,13 +933,29 @@ function EphemeralChartCanvas({
   tableName,
   suggestion,
   isLoading,
+  error,
+  onRetry,
   onRegenerate,
 }: {
   tableName?: string;
   suggestion?: ChartSuggestion;
   isLoading: boolean;
+  error?: string | null;
+  onRetry?: () => void;
   onRegenerate: () => void;
 }) {
+  // A failed suggestion materialization never becomes ready — show the error
+  // so this half agrees with the result table below instead of loading forever.
+  if (error) {
+    return (
+      <InsightResultErrorState
+        error={error}
+        onRetry={onRetry}
+        className="h-full"
+      />
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-neutral-fg-subtle">
@@ -2101,6 +2161,8 @@ export function InsightView({
                 tableName={chartSuggestionFrameId ?? undefined}
                 suggestion={activeChartSuggestion}
                 isLoading={!areChartSuggestionsReady}
+                error={chartSuggestionResult.error}
+                onRetry={chartSuggestionResult.retry}
                 onRegenerate={handleRegenerate}
               />
             )}
@@ -2108,6 +2170,18 @@ export function InsightView({
               <VisualizationPreview
                 visualization={activeVisualization}
                 height="container"
+                // Same primitive and host message as the result table below, so
+                // both halves of the workbench agree. Only set on error — the
+                // encoding-missing case keeps the preview's own terminal text.
+                fallback={
+                  savedInsightResult.error ? (
+                    <InsightResultErrorState
+                      error={savedInsightResult.error}
+                      onRetry={savedInsightResult.retry}
+                      className="h-full"
+                    />
+                  ) : undefined
+                }
                 materialization={{
                   insight,
                   dataTable: authoringTable,
