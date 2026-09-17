@@ -29,6 +29,7 @@ export {
 } from "./bootstrap/host-bootstrap-controller";
 
 export { startHostSession } from "./bootstrap/host-session";
+export { SignOutProvider } from "./bootstrap/sign-out";
 
 export {
   lookupHostRuntime,

@@ -121,6 +121,7 @@ vi.mock("@wystack/ui-react", () => ({
       {children}
     </button>
   ),
+  DropdownMenuSeparator: () => <hr />,
   DropdownMenuTrigger: ({ render: trigger }: { render: React.ReactNode }) => (
     <>{trigger}</>
   ),
@@ -138,8 +139,10 @@ vi.mock("@wystack/ui-react/icons", () => ({
   MenuIcon: () => null,
   SettingsIcon: () => null,
   SparklesIcon: () => null,
+  UserIcon: () => null,
 }));
 
+import { SignOutProvider } from "@/bootstrap/sign-out";
 import { Navigation } from "./navigation";
 
 describe("Navigation", () => {
@@ -204,5 +207,28 @@ describe("Navigation", () => {
 
     await waitFor(() => expect(mockClearAllData).toHaveBeenCalledOnce());
     expect(mockReloadRoot).toHaveBeenCalledOnce();
+  });
+
+  it("offers sign out in the settings menu only when the host has accounts", () => {
+    const onSignOut = vi.fn();
+    const { unmount } = render(<Navigation />);
+    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
+    unmount();
+
+    render(
+      <SignOutProvider onSignOut={onSignOut}>
+        <Navigation />
+      </SignOutProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(onSignOut).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    fireEvent.click(
+      within(screen.getByTestId("mobile-drawer")).getByRole("button", {
+        name: "Sign out",
+      }),
+    );
+    expect(onSignOut).toHaveBeenCalledTimes(2);
   });
 });
