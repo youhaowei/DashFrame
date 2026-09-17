@@ -31,7 +31,7 @@ interface DataPickerModalProps extends Omit<
  * Modal wrapper for DataPickerContent.
  *
  * Provides a dialog container with configurable title for the data picker.
- * Used for both "Create Visualization" and "Join" flows with different titles.
+ * Each flow passes its own title; find the consumers by its call sites.
  *
  * @example Create Visualization
  * ```tsx

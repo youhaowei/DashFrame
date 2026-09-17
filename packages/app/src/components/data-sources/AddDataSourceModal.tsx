@@ -12,8 +12,8 @@ interface AddDataSourceModalProps {
  *
  * Shares the data picker's connector onboarding — the connector list, card
  * forms, file ingest, and the remote "choose data to import" step — but not
- * its pick-existing sections: adding a source only ever creates the source
- * and its first table, so a finished setup just closes the dialog and the
+ * its pick-existing sections: adding a source creates the source and,
+ * when it has importable data, its first table, so a finished setup just closes the dialog and the
  * new source appears on the page the user started from.
  */
 export function AddDataSourceModal({

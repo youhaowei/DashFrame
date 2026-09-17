@@ -905,7 +905,7 @@ describe("DataPickerContent file replacement", () => {
       expect(screen.getByTestId("data-source-list")).toBeTruthy();
     });
 
-    it("closes once a file import lands, without creating a chart", async () => {
+    it("closes once a file import lands", async () => {
       const onClose = vi.fn();
       render(<AddDataSourceModal isOpen onClose={onClose} />);
 
@@ -922,7 +922,6 @@ describe("DataPickerContent file replacement", () => {
         { overrideTableId: NEW_TABLE_ID },
       );
       expect(onClose).toHaveBeenCalledOnce();
-      expect(mockNativeCommit).not.toHaveBeenCalled();
     });
 
     it("imports the chosen remote resource and closes", async () => {

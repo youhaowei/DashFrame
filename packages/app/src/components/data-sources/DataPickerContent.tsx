@@ -159,7 +159,7 @@ export async function importRemoteResource(args: {
  * 2. Raw Tables - from data sources (two-level hierarchy)
  * 3. New data upload - via connector pattern (CSV, Notion, etc.)
  *
- * Used by both CreateVisualizationModal and JoinFlowModal.
+ * Shared by several flows; find the consumers by its call sites.
  */
 export function DataPickerContent({
   onInsightSelect,
