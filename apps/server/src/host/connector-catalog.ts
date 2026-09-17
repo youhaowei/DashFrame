@@ -1,6 +1,7 @@
 import { makeGa4Connector } from "@dashframe/connector-ga4";
 import { makeNotionConnector } from "@dashframe/connector-notion";
 import { makePostgresConnector } from "@dashframe/connector-postgres";
+import { resolveOAuthRedirectUri } from "../connector-setup/oauth-provider";
 import type { HostContext } from "./context";
 import type { AnyConnector } from "@dashframe/engine";
 import { isFileConnector } from "@dashframe/engine";
@@ -114,21 +115,38 @@ export function getConnectorCatalogEntries(): ConnectorCatalogEntry[] {
 export const GOOGLE_OAUTH_UNAVAILABLE_REASON =
   "Google sign-in isn't set up on this server. Whoever runs this DashFrame server needs to add a Google OAuth client.";
 
+export const GOOGLE_OAUTH_REDIRECT_UNAVAILABLE_REASON =
+  "Google sign-in isn't set up on this server. Whoever runs this DashFrame server needs to set its OAuth redirect base.";
+
+function oauthUnavailableReason(
+  ctx: Pick<HostContext, "googleOAuth" | "getServerEndpoint">,
+): string | undefined {
+  if (!ctx.googleOAuth) return GOOGLE_OAUTH_UNAVAILABLE_REASON;
+  try {
+    resolveOAuthRedirectUri(
+      ctx.getServerEndpoint(),
+      ctx.googleOAuth.redirectBase,
+    );
+    return undefined;
+  } catch {
+    return GOOGLE_OAUTH_REDIRECT_UNAVAILABLE_REASON;
+  }
+}
+
 /**
  * The catalog as this server can serve it: OAuth connectors carry an
- * `unavailableReason` when the host has no OAuth client to start setup with.
+ * `unavailableReason` when the host cannot start setup, because it has no
+ * OAuth client or cannot name the callback Google would return to.
  */
 export async function getConnectorCatalog(
-  ctx: Pick<HostContext, "googleOAuth">,
+  ctx: Pick<HostContext, "googleOAuth" | "getServerEndpoint">,
 ) {
   const entries = getConnectorCatalogEntries();
-  if (ctx.googleOAuth) return entries;
+  const unavailableReason = oauthUnavailableReason(ctx);
+  if (!unavailableReason) return entries;
   return entries.map((entry) =>
     entry.authKind === "oauth"
-      ? Object.freeze({
-          ...entry,
-          unavailableReason: GOOGLE_OAUTH_UNAVAILABLE_REASON,
-        })
+      ? Object.freeze({ ...entry, unavailableReason })
       : entry,
   );
 }

@@ -46,7 +46,9 @@ describe("connector catalog OAuth availability", () => {
     entries.find(({ id }) => id === "googleAnalytics");
 
   it("marks Google Analytics unavailable when no OAuth client is configured", async () => {
-    const entries = await getConnectorCatalog({});
+    const entries = await getConnectorCatalog({
+      getServerEndpoint: () => "http://127.0.0.1:4000",
+    });
 
     expect(googleAnalytics(entries)?.unavailableReason).toMatch(
       /Google sign-in isn't set up on this server/,
@@ -58,8 +60,31 @@ describe("connector catalog OAuth availability", () => {
   it("leaves Google Analytics available when an OAuth client is configured", async () => {
     const entries = await getConnectorCatalog({
       googleOAuth: { clientId: "client", clientSecret: "secret" },
+      getServerEndpoint: () => "http://127.0.0.1:4000",
     });
 
     expect(googleAnalytics(entries)).not.toHaveProperty("unavailableReason");
+  });
+
+  it("marks Google Analytics unavailable on a public host with no redirect base", async () => {
+    const googleOAuth = { clientId: "client", clientSecret: "secret" };
+    const getServerEndpoint = () => "https://dashframe.example";
+
+    expect(
+      googleAnalytics(
+        await getConnectorCatalog({ googleOAuth, getServerEndpoint }),
+      )?.unavailableReason,
+    ).toMatch(/OAuth redirect base/);
+    expect(
+      googleAnalytics(
+        await getConnectorCatalog({
+          googleOAuth: {
+            ...googleOAuth,
+            redirectBase: "https://dashframe.example",
+          },
+          getServerEndpoint,
+        }),
+      ),
+    ).not.toHaveProperty("unavailableReason");
   });
 });
