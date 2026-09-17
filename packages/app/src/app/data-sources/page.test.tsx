@@ -78,8 +78,9 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({
-  CreateVisualizationModal: () => null,
+vi.mock("@/components/data-sources/AddDataSourceModal", () => ({
+  AddDataSourceModal: ({ isOpen }: { isOpen: boolean }) =>
+    isOpen ? <div data-testid="add-data-source-modal" /> : null,
 }));
 
 vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
@@ -150,6 +151,19 @@ describe("DataSourcesPage query states", () => {
     expect(screen.getByText("No data sources yet")).not.toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  it.each(["header", "empty state"] as const)(
+    "opens the add-source dialog from the %s action",
+    async (placement) => {
+      const user = userEvent.setup();
+      render(<DataSourcesPage />);
+
+      const addButtons = screen.getAllByRole("button", { name: "Add Source" });
+      await user.click(addButtons[placement === "header" ? 0 : 1]);
+
+      expect(screen.getByTestId("add-data-source-modal")).not.toBeNull();
+    },
+  );
 
   it.each(["pointer", "Enter", "Space"] as const)(
     "opens a card menu with %s without navigating the card",

@@ -31,7 +31,7 @@ interface DataPickerModalProps extends Omit<
  * Modal wrapper for DataPickerContent.
  *
  * Provides a dialog container with configurable title for the data picker.
- * Used for both "Create Visualization" and "Join" flows with different titles.
+ * Each flow passes its own title; find the consumers by its call sites.
  *
  * @example Create Visualization
  * ```tsx
@@ -63,7 +63,7 @@ export function DataPickerModal({
 }: DataPickerModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
