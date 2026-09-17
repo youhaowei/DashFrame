@@ -531,7 +531,9 @@ function render(page) {
   page.append(
     h(`<div class="section">Reader's tile</div>`),
     note(
-      `Pinned controls are on the face. Everything else exposed sits behind its category button — <b>open Filter</b>. Turn something and the button carries that it is set.`,
+      state.door === "one"
+        ? `Pinned filters are on the face. Everything else exposed sits behind the one button on the title line — <b>open it</b>. Turn something and the button carries that it is set.`
+        : `Pinned controls are on the face. Everything else exposed sits behind its category button — <b>open Filter</b>. Turn something and the button carries that it is set.`,
     ),
   );
   const grid = h(`<div class="grid"></div>`);
@@ -539,9 +541,13 @@ function render(page) {
   page.append(grid);
 
   page.append(
-    h(`<div class="section">Nothing pinned — all three categories</div>`),
+    h(
+      `<div class="section">${state.door === "one" ? "Nothing pinned — no control line" : "Nothing pinned — all three categories"}</div>`,
+    ),
     note(
-      `The same chart with every exposed control behind its category. Three buttons, and the count tag only appears on <b>Filter</b>: a declaration carries exactly one sort and one limit, so a tag on those would read "1" forever.`,
+      state.door === "one"
+        ? `The same chart with nothing pinned. The control line is gone entirely: a title, its button, and the chart.`
+        : `The same chart with every exposed control behind its category. Three buttons, and the count tag only appears on <b>Filter</b>: a declaration carries exactly one sort and one limit, so a tag on those would read "1" forever.`,
     ),
   );
   const grid2 = h(`<div class="grid"></div>`);
