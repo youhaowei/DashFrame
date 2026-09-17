@@ -116,7 +116,7 @@ export const GOOGLE_OAUTH_UNAVAILABLE_REASON =
   "Google sign-in isn't set up on this server. Whoever runs this DashFrame server needs to add a Google OAuth client.";
 
 export const GOOGLE_OAUTH_REDIRECT_UNAVAILABLE_REASON =
-  "Google sign-in isn't set up on this server. Whoever runs this DashFrame server needs to set its OAuth redirect base.";
+  "Google sign-in isn't set up on this server. Whoever runs this DashFrame server needs to set a valid DASHFRAME_OAUTH_REDIRECT_BASE.";
 
 function oauthUnavailableReason(
   ctx: Pick<HostContext, "googleOAuth" | "getServerEndpoint">,

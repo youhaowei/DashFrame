@@ -74,7 +74,7 @@ describe("connector catalog OAuth availability", () => {
       googleAnalytics(
         await getConnectorCatalog({ googleOAuth, getServerEndpoint }),
       )?.unavailableReason,
-    ).toMatch(/OAuth redirect base/);
+    ).toMatch(/DASHFRAME_OAUTH_REDIRECT_BASE/);
     expect(
       googleAnalytics(
         await getConnectorCatalog({
