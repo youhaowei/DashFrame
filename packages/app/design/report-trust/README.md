@@ -324,7 +324,12 @@ settle:
 
 ## 5 · One door instead of three (`notion.html`, DISCLOSURE)
 
-A second disclosure shape, switchable against the category buttons.
+**Decided: one door.** The three category buttons of section 4 are rejected and
+stay switchable on the page only as the comparison that produced the call. They
+put ways-in on the line that carries the chart's facts, and left a tile with
+nothing pinned holding a control row of buttons alone. The side popover with the
+rest of the page dimmed already does what three buttons were for: every knob in
+one panel, the chart lit while it changes.
 
 **Pills on the face are pinned filters only.** Nothing mechanical is pinnable:
 a pinned sort has no value to put in a pill — an order is a mechanism the bars
@@ -364,23 +369,20 @@ decision.
 
 ## Still open
 
-- **Group order** — sort before limit, or limit before sort.
-- **Group separation** — what divides one category from the next: a gap, a rule,
-  or a quieter treatment on one of them. Nothing is drawn for this yet; the
-  prototype still pairs sort and limit as one group.
+- **Group order in the popover** — sort before limit, or limit before sort.
+  Filter leads either way.
+- **Group separation in the popover** — what divides one category from the
+  next: a gap, a rule, or nothing beyond the glyph headings.
 - **Over-pinning** — what the item pane tells an author who pins more filters
   than fit. The face can no longer overflow on its own, so this is the only
   remaining overflow case, and it is an authoring-time warning rather than a
   layout rule.
-- **The filter button's form** — glyph, word, or glyph plus a count of exposed
-  filters. A funnel would be the obvious glyph; lucide ships `funnel` and
-  `list-filter`, so it is an allowlist addition in `libs/stdui` rather than new
-  icon design (see section 2) — and now for a single button rather than every
-  chip.
-- **Visible-but-unpinned sort and limit** — a filter button is the filter
-  group's affordance. Whether a sort or limit set to visible rather than pinned
-  goes behind the same button, gets its own, or is simply not a legal
-  combination is not yet decided.
+
+Closed by the one-door call: a **visible-but-unpinned sort or limit** goes
+behind the door, and since nothing mechanical is pinnable that is the only
+place a sort or limit is ever exposed. **The filter button's form** no longer
+applies — there is no filter button, and the category glyphs survive only as
+popover headings.
 
 ## Prototype-only choices
 

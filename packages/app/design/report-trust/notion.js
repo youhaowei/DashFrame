@@ -18,7 +18,7 @@ const state = {
   filterAt: "right",
   button: "glyph",
   affordance: "caret",
-  door: "categories",
+  door: "one",
   doorGlyph: "sliders",
   scope: "all",
   narrow: false,
