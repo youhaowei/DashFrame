@@ -6,7 +6,7 @@ import {
 } from "@/test/native-query-fixture";
 /** VisualizationDisplay saved execution and declared runtime-control coverage. */
 import type { Insight, Visualization } from "@dashframe/types";
-import { render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   resolveDashboardRuntime,
@@ -95,7 +95,28 @@ vi.mock("@wystack/ui-react", () => ({
   ErrorState: () => null,
   Spinner: () => null,
   Surface: ({ children }: { children: React.ReactNode }) => children,
-  Toggle: () => null,
+  Toggle: () => <div data-testid="view-toggle" />,
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    params,
+    search,
+    children,
+  }: {
+    to: string;
+    params: Record<string, string>;
+    search: Record<string, unknown>;
+    children: React.ReactNode;
+  }) => (
+    <a
+      href={to.replace("$insightId", params.insightId ?? "")}
+      data-report-id={String(search.reportId)}
+    >
+      {children}
+    </a>
+  ),
 }));
 
 vi.mock("@wystack/ui-react/icons", () => ({
@@ -242,5 +263,37 @@ describe("VisualizationDisplay — declared runtime controls", () => {
     ).toEqual({
       error: "This dashboard filter is not declared by the Insight.",
     });
+  });
+});
+
+describe("VisualizationDisplay — report tile", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cleanup();
+    setupCommonMocks();
+  });
+
+  it("keeps the workbench's row count and chart/table switch off a tile", async () => {
+    const { rerender } = render(
+      <VisualizationDisplay visualizationId="viz-1" />,
+    );
+    expect(await screen.findByTestId("view-toggle")).toBeTruthy();
+    expect(screen.getByText(/rows •/)).toBeTruthy();
+
+    rerender(
+      <VisualizationDisplay visualizationId="viz-1" reportId="report-a" />,
+    );
+    expect(screen.queryByTestId("view-toggle")).toBeNull();
+    expect(screen.queryByText(/rows •/)).toBeNull();
+  });
+
+  it("names the question a tile came from, scoped to the report", async () => {
+    render(
+      <VisualizationDisplay visualizationId="viz-1" reportId="report-a" />,
+    );
+
+    const source = await screen.findByRole("link", { name: insight.name });
+    expect(source.getAttribute("href")).toBe(`/insights/${insight.id}`);
+    expect(source.getAttribute("data-report-id")).toBe("report-a");
   });
 });
