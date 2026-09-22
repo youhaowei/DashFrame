@@ -135,7 +135,7 @@ export function DashboardItem({
           <div
             inert={!isSelected}
             className={cn(
-              "absolute top-1.5 right-1.5 z-30 flex items-center gap-0.5 rounded-md bg-neutral-bg p-0.5 shadow-[var(--shadow-md)] transition-opacity duration-150 motion-reduce:transition-none",
+              "absolute top-1.5 right-1.5 z-30 flex origin-top-right items-center gap-0.5 rounded-md bg-neutral-bg p-0.5 shadow-[var(--shadow-md)] transition-opacity duration-150 [scale:calc(1/var(--report-zoom,1))] motion-reduce:transition-none",
               isSelected ? "opacity-100" : "pointer-events-none opacity-0",
             )}
           >
@@ -143,9 +143,9 @@ export function DashboardItem({
               role="img"
               aria-label="Drag to move"
               title="Drag to move"
-              className="grid-drag-handle flex h-6 w-6 cursor-move items-center justify-center rounded-md text-neutral-fg-subtle hover:bg-neutral-bg-subtle hover:text-neutral-fg"
+              className="grid-drag-handle flex h-7 w-7 cursor-move items-center justify-center rounded-md text-neutral-fg-subtle hover:bg-neutral-bg-subtle hover:text-neutral-fg"
             >
-              <DragHandleIcon className="h-3.5 w-3.5" aria-hidden />
+              <DragHandleIcon className="h-4 w-4" aria-hidden />
             </span>
             <div
               className="flex items-center gap-0.5"
@@ -164,10 +164,10 @@ export function DashboardItem({
                 size="icon"
                 aria-label="Remove item"
                 title="Remove item"
-                className="h-6 w-6 text-palette-danger hover:bg-palette-danger/10 hover:text-palette-danger"
+                className="h-7 w-7 text-palette-danger hover:bg-palette-danger/10 hover:text-palette-danger"
                 onClick={handleRemove}
               >
-                <DeleteIcon className="h-3.5 w-3.5" aria-hidden />
+                <DeleteIcon className="h-4 w-4" aria-hidden />
               </ButtonPrimitive>
             </div>
           </div>

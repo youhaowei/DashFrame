@@ -148,7 +148,7 @@ export function DashboardGrid({
         isEditable ? (
           // react-grid-layout marks items that can't resize; the stock rule
           // that hides their handle expects its own class name, not ours.
-          <div className="absolute right-0 bottom-0 z-50 flex h-5 w-5 cursor-se-resize items-center justify-center text-palette-primary [.react-resizable-hide>&]:hidden">
+          <div className="absolute right-0 bottom-0 z-50 flex h-6 w-6 origin-bottom-right cursor-se-resize items-center justify-center text-palette-primary [scale:calc(1/var(--report-zoom,1))] [.react-resizable-hide>&]:hidden">
             <svg
               width="14"
               height="14"

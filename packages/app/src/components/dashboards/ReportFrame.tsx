@@ -160,10 +160,15 @@ export function ReportFrame({
         <div
           ref={setContent}
           className="origin-top-left"
-          style={{
-            width: width > 0 ? width : undefined,
-            transform: scale === 1 ? undefined : `scale(${scale})`,
-          }}
+          style={
+            {
+              width: width > 0 ? width : undefined,
+              transform: scale === 1 ? undefined : `scale(${scale})`,
+              // Editor chrome inside the frame reads this to stay at screen
+              // size; charts zoom, the tools to edit them don't.
+              "--report-zoom": scale,
+            } as React.CSSProperties
+          }
         >
           {children}
         </div>

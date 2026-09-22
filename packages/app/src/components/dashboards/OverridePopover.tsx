@@ -493,11 +493,11 @@ export function OverridePopover({
             type="button"
             aria-label="Customize cell overrides"
             className={cn(
-              "relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md p-0 text-neutral-fg-subtle transition-colors hover:bg-neutral-bg hover:text-neutral-fg",
+              "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md p-0 text-neutral-fg-subtle transition-colors hover:bg-neutral-bg hover:text-neutral-fg",
               overridePresent && "text-palette-primary",
             )}
           >
-            <SettingsIcon className="h-3.5 w-3.5" />
+            <SettingsIcon className="h-4 w-4" />
             {overridePresent && (
               <span
                 aria-label="This cell has overrides"
