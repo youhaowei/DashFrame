@@ -132,9 +132,34 @@ describe("buildInsightUpdateCommands", () => {
     expect(commands.map((c) => c.path)).toEqual([
       "renameNode",
       "selectFields",
-      "setInsightSort",
       "addMetric",
+      "setInsightSort",
       "setInsightRuntimeControls",
+    ]);
+  });
+
+  it("adds metrics before reporting selects or ranks them, then applies sorts", () => {
+    const addedMetric = metric(midA, "Sum");
+    const commands = buildInsightUpdateCommands(id, baseInsight, {
+      metrics: [addedMetric],
+      reporting: {
+        measureIds: [addedMetric.id],
+        topN: {
+          fieldId: midB,
+          measureId: addedMetric.id,
+          count: 5,
+          direction: "desc",
+        },
+      },
+      sorts: [
+        { field: `metric_${midA.replaceAll("-", "_")}`, direction: "desc" },
+      ],
+    });
+
+    expect(commands.map((command) => command.path)).toEqual([
+      "addMetric",
+      "setInsightReporting",
+      "setInsightSort",
     ]);
   });
 

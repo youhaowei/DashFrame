@@ -1742,7 +1742,7 @@ describe("existing command behavior on native Convex", () => {
       metrics: [{ columnName: "root_only" }],
     });
   });
-  it("preserves valid derived pass-through sorts and blocks field edits that strand them", async () => {
+  it("blocks stranded field sorts and prunes sorts for removed metrics", async () => {
     const { tableId } = await makeTable();
     const firstFieldId = id();
     const secondFieldId = id();
@@ -1828,9 +1828,10 @@ describe("existing command behavior on native Convex", () => {
         sorts: [{ field: metricIdToColumnAlias(metricId), direction: "desc" }],
       }),
     );
-    await expect(
-      commit(cmd("RemoveMetric", { nodeId: derivedId, metricId })),
-    ).rejects.toThrow();
+    await commit(cmd("RemoveMetric", { nodeId: derivedId, metricId }));
+    expect(
+      (await client.query(api.app.getInsight, { id: derivedId }))?.sorts,
+    ).toEqual([]);
   });
   it("accepts current derived joins and blocks removing a referenced join", async () => {
     const { tableId } = await makeTable();
@@ -2351,6 +2352,94 @@ describe("existing command behavior on native Convex", () => {
     });
     expect(afterFieldRemoval?.sorts).toEqual([]);
     expect(afterFieldRemoval?.reporting?.pivotFields).toEqual([channelId]);
+  });
+
+  it("prunes aggregate filters and plain sorts when their metric is removed", async () => {
+    const { tableId, insightId, metricId } = await makeInsightWithMetric();
+    await commit(
+      cmd("AddField", {
+        nodeId: tableId,
+        field: {
+          id: id(),
+          tableId,
+          name: "Revenue",
+          columnName: "revenue",
+          type: "number",
+        },
+      }),
+    );
+    const metricAlias = metricIdToColumnAlias(metricId);
+    await commit(
+      cmd("SetInsightFilter", {
+        id: insightId,
+        filters: [{ field: metricAlias, operator: "gt", value: 100 }],
+      }),
+      cmd("SetInsightSort", {
+        id: insightId,
+        sorts: [{ field: metricAlias, direction: "desc" }],
+      }),
+    );
+
+    await commit(cmd("RemoveMetric", { nodeId: insightId, metricId }));
+
+    const reopened = await client.query(api.app.getInsight, { id: insightId });
+    expect(reopened?.metrics).toEqual([]);
+    expect(reopened?.filters).toEqual([]);
+    expect(reopened?.sorts).toEqual([]);
+  });
+
+  it("preserves source filter and sort columns whose names start with metric_", async () => {
+    const { tableId } = await makeTable();
+    const insightId = id();
+    const scoreId = id();
+    const filter = { field: "metric_score", operator: "gt" as const, value: 1 };
+    const sort = { field: "metric_score", direction: "desc" as const };
+    await commit(
+      cmd("AddField", {
+        nodeId: tableId,
+        field: {
+          id: scoreId,
+          tableId,
+          name: "Metric score",
+          columnName: "metric_score",
+          type: "number",
+        },
+      }),
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Metric-prefixed source column",
+        source: { sourceType: "dataTable", sourceId: tableId },
+        selectedFields: [scoreId],
+      }),
+      cmd("SetInsightFilter", { id: insightId, filters: [filter] }),
+      cmd("SetInsightSort", { id: insightId, sorts: [sort] }),
+      cmd("SelectFields", { id: insightId, fieldIds: [scoreId] }),
+    );
+
+    const reopened = await client.query(api.app.getInsight, { id: insightId });
+    expect(reopened?.filters).toEqual([{ ...filter, id: expect.any(String) }]);
+    expect(reopened?.sorts).toEqual([sort]);
+  });
+
+  it("preserves unresolved source references until a data table schema loads", async () => {
+    const { tableId } = await makeTable();
+    const insightId = id();
+    const filter = { field: "metric_score", operator: "gt" as const, value: 1 };
+    const sort = { field: "metric_score", direction: "desc" as const };
+    await commit(
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "Pending schema",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+      cmd("SetInsightFilter", { id: insightId, filters: [filter] }),
+      cmd("SetInsightSort", { id: insightId, sorts: [sort] }),
+      cmd("SelectFields", { id: insightId, fieldIds: [] }),
+    );
+
+    const reopened = await client.query(api.app.getInsight, { id: insightId });
+    expect(reopened?.filters).toEqual([{ ...filter, id: expect.any(String) }]);
+    expect(reopened?.sorts).toEqual([sort]);
   });
 
   it("rejects pivot sorts without an exact selected pivot tuple and metric", async () => {
@@ -5127,6 +5216,66 @@ it("saves and reopens report date grouping, pivot settings, and calculated measu
       }),
     ),
   ).rejects.toThrow("Reporting dimension must be selected");
+});
+
+it("applies added metrics before reporting selects and ranks them", async () => {
+  const { tableId, insightId, metricId } = await makeInsightWithMetric();
+  const categoryId = id();
+  await commit(
+    cmd("AddField", {
+      nodeId: tableId,
+      field: {
+        id: id(),
+        tableId,
+        name: "Revenue",
+        columnName: "revenue",
+        type: "number",
+      },
+    }),
+    cmd("AddField", {
+      nodeId: tableId,
+      field: {
+        id: categoryId,
+        tableId,
+        name: "Category",
+        columnName: "category",
+        type: "string",
+      },
+    }),
+    cmd("SelectFields", { id: insightId, fieldIds: [categoryId] }),
+  );
+  const current = await client.query(api.app.getInsight, { id: insightId });
+  expect(current).toBeDefined();
+  const addedMetricId = id();
+  const addedMetric = {
+    id: addedMetricId,
+    name: "Order count",
+    sourceTable: tableId,
+    aggregation: "count" as const,
+  };
+  const reporting = {
+    measureIds: [metricId, addedMetricId],
+    topN: {
+      fieldId: categoryId,
+      measureId: addedMetricId,
+      count: 5,
+      direction: "desc" as const,
+    },
+  };
+
+  await commit(
+    ...buildInsightUpdateCommands(insightId, current!, {
+      metrics: [...current!.metrics, addedMetric],
+      reporting,
+    }),
+  );
+
+  const reopened = await client.query(api.app.getInsight, { id: insightId });
+  expect(reopened?.metrics.map((metric) => metric.id)).toEqual([
+    metricId,
+    addedMetricId,
+  ]);
+  expect(reopened?.reporting).toEqual(reporting);
 });
 
 it("persists reusable calculated measures with their filtered dependencies and format", async () => {

@@ -276,7 +276,7 @@ async function validateDerived(graph: Graph, def: ObjectValue) {
       );
   }
 }
-function prune(def: ObjectValue) {
+async function prune(graph: Graph, def: ObjectValue) {
   if (def.reporting) {
     const reporting = record(def.reporting);
     const selected = new Set(array(def.selectedFields, "selectedFields"));
@@ -315,17 +315,39 @@ function prune(def: ObjectValue) {
   const metricColumns = new Set(
     objects(def.metrics, "metrics").map(metricColumnAlias),
   );
+  const sourceFields = await availableFields(graph, def);
+  const sourceColumns = new Set(sourceFields.flatMap(fieldReferences));
+  const sourceFieldsUnavailable =
+    record(def.source).sourceType === "dataTable" && sourceFields.length === 0;
+  if (def.filters)
+    def.filters = objects(def.filters, "filters").filter((filter) => {
+      const field = str(filter.field, "filter field");
+      return (
+        sourceFieldsUnavailable ||
+        sourceColumns.has(field) ||
+        !field.startsWith("metric_") ||
+        metricColumns.has(field)
+      );
+    });
   const pivotFields = def.reporting
     ? array(record(def.reporting).pivotFields ?? [], "pivotFields")
     : [];
   if (def.sorts)
-    def.sorts = objects(def.sorts, "sorts").filter(
-      (sort) =>
-        sort.pivotValues === undefined ||
-        (metricColumns.has(str(sort.field, "sort field")) &&
-          pivotFields.every((fieldId) => selected.has(fieldId)) &&
-          exactPivotTuple(sort, pivotFields)),
-    );
+    def.sorts = objects(def.sorts, "sorts").filter((sort) => {
+      const field = str(sort.field, "sort field");
+      if (sort.pivotValues === undefined)
+        return (
+          sourceFieldsUnavailable ||
+          sourceColumns.has(field) ||
+          !field.startsWith("metric_") ||
+          metricColumns.has(field)
+        );
+      return (
+        metricColumns.has(field) &&
+        pivotFields.every((fieldId) => selected.has(fieldId)) &&
+        exactPivotTuple(sort, pivotFields)
+      );
+    });
   if (!def.runtimeControls) return;
   const controls = record(def.runtimeControls),
     next: ObjectValue = {};
@@ -658,14 +680,14 @@ async function run(
       if (fields.some((v) => typeof v !== "string"))
         throw new Error("Invalid fieldIds");
       def.selectedFields = fields;
-      prune(def);
+      await prune(graph, def);
     }
     if (p === "setInsightFilter") {
       def.filters = objects(a.filters, "filters").map((f, i) => ({
         ...f,
         id: typeof f.id === "string" ? f.id : `${row.id}:filter:${i}`,
       }));
-      prune(def);
+      await prune(graph, def);
     }
     if (p === "setInsightSort") {
       def.sorts = objects(a.sorts, "sorts");
@@ -708,7 +730,7 @@ async function run(
           );
         def.reporting = a.reporting;
       }
-      prune(def);
+      await prune(graph, def);
     }
     if (p === "setInsightRuntimeControls") {
       if (a.runtimeControls === undefined) delete def.runtimeControls;
@@ -798,7 +820,6 @@ async function run(
         if (at === -1) throw new Error("Field not found");
         selected.splice(at, 1);
       }
-      prune(def);
     } else {
       const list = def
         ? objects(def.metrics, "metrics")
@@ -832,7 +853,7 @@ async function run(
       }
     }
     if (def) {
-      prune(def);
+      await prune(graph, def);
       await validateDerived(graph, def);
       row.definition = def;
     }

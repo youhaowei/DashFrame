@@ -529,6 +529,11 @@ export function buildInsightUpdateCommands(
       cmd("SelectFields", { id, fieldIds: updates.selectedFields }),
     );
   }
+  if (updates.metrics !== undefined) {
+    commands.push(
+      ...buildMetricDiffCommands(id, current.metrics ?? [], updates.metrics),
+    );
+  }
   if (updates.filters !== undefined) {
     commands.push(cmd("SetInsightFilter", { id, filters: updates.filters }));
   }
@@ -539,11 +544,6 @@ export function buildInsightUpdateCommands(
   }
   if (updates.sorts !== undefined) {
     commands.push(cmd("SetInsightSort", { id, sorts: updates.sorts }));
-  }
-  if (updates.metrics !== undefined) {
-    commands.push(
-      ...buildMetricDiffCommands(id, current.metrics ?? [], updates.metrics),
-    );
   }
   if ("runtimeControls" in updates) {
     commands.push(
