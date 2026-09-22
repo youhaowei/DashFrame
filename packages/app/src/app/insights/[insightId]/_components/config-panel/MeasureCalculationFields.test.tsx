@@ -2,6 +2,11 @@ import type { DataTable, InsightMetric } from "@dashframe/types";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { useState } from "react";
+import {
+  MeasureCalculationFields,
+  type MeasureOptions,
+} from "./MeasureCalculationFields";
 import { MetricsSection } from "./MetricsSection";
 
 function table(type: "number" | "boolean"): DataTable {
@@ -133,6 +138,57 @@ describe("measure filter values", () => {
     ).toBeTruthy();
     expect(onEdit).not.toHaveBeenCalled();
   });
+});
+
+it("shows measure names instead of UUIDs in selected calculation choices", async () => {
+  const user = userEvent.setup({ delay: null });
+  const ordersId = "10000000-0000-4000-8000-000000000001";
+  const visitsId = "10000000-0000-4000-8000-000000000002";
+  const metrics: InsightMetric[] = [
+    {
+      id: ordersId,
+      name: "Orders",
+      sourceTable: "orders",
+      aggregation: "count",
+    },
+    {
+      id: visitsId,
+      name: "Visits",
+      sourceTable: "orders",
+      aggregation: "count",
+    },
+  ];
+  function Harness() {
+    const [value, setValue] = useState<MeasureOptions>({
+      expression: {
+        kind: "binary",
+        operator: "divide",
+        left: { kind: "measure", measureId: ordersId },
+        right: { kind: "measure", measureId: visitsId },
+      },
+    });
+    return (
+      <MeasureCalculationFields
+        value={value}
+        onChange={setValue}
+        metrics={metrics}
+        dataTable={table("number")}
+      />
+    );
+  }
+  render(<Harness />);
+
+  const first = screen.getByRole("combobox", { name: "First measure" });
+  const second = screen.getByRole("combobox", { name: "Second measure" });
+  expect(first.textContent).toContain("Orders");
+  expect(second.textContent).toContain("Visits");
+  expect(first.textContent).not.toContain(ordersId);
+  expect(second.textContent).not.toContain(visitsId);
+
+  await user.click(first);
+  await user.click(await screen.findByRole("option", { name: "Visits" }));
+  expect(first.textContent).toContain("Visits");
+  expect(first.textContent).not.toContain(visitsId);
 });
 
 it("discards stale filter drafts when calculation mode replaces the filter list", async () => {

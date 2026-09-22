@@ -16,7 +16,9 @@ vi.mock("@dashframe/ui", () => ({
       <thead>
         <tr>
           {columnConfigs.map((column) => (
-            <th key={column.id}>{column.label}</th>
+            <th key={column.id} data-column-width={column.width}>
+              {column.label}
+            </th>
           ))}
         </tr>
       </thead>
@@ -206,6 +208,13 @@ it("keeps pivot table and KPI comparisons on the same weighted grand total", asy
   expect(within(kpis).getByText("Change: 2.0 pp · 25.0%")).toBeTruthy();
   for (const value of ["10.0%", "8.0%", "2.0 pp", "25.0%"])
     expect(within(table).getByText(value)).toBeTruthy();
+  const headers = within(table).getAllByRole("columnheader");
+  expect(headers[0]?.getAttribute("data-column-width")).toBe("140");
+  expect(
+    headers
+      .slice(1)
+      .every((header) => header.getAttribute("data-column-width") === "180"),
+  ).toBe(true);
   expect(screen.queryByText("Visits dependency")).toBeNull();
   expect(screen.queryByText("27.5%")).toBeNull();
 });

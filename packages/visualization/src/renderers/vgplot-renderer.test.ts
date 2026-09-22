@@ -77,8 +77,8 @@ function createMockApi(options?: {
     yLabel: passthrough("yLabel"),
     colorLabel: passthrough("colorLabel"),
     colorLegend: passthrough("colorLegend"),
-    xScale: passthrough("xScale"),
-    yScale: passthrough("yScale"),
+    xScale: vi.fn(passthrough("xScale")),
+    yScale: vi.fn(passthrough("yScale")),
     colorRange: vi.fn((colors: string[]) => ({
       __directive: "colorRange",
       colors,
@@ -312,6 +312,49 @@ describe("createVgplotRenderer color domain", () => {
     expect(percentage(null)).toBe("—");
     cleanup();
   });
+
+  it.each([
+    ["barY", "xScale"],
+    ["barX", "yScale"],
+  ] as const)(
+    "declares the %s category axis as band without retained transform metadata",
+    (type, scaleMethod) => {
+      const api = createMockApi();
+      const renderer = createVgplotRenderer(api as never);
+      const cleanup = renderer.render(document.createElement("div"), type, {
+        tableName: "monthly_report",
+        encoding:
+          type === "barY"
+            ? { x: "month", y: "metric_conversion_rate" }
+            : { x: "metric_conversion_rate", y: "month" },
+      });
+
+      expect(api[scaleMethod]).toHaveBeenCalledWith("band");
+      cleanup();
+    },
+  );
+
+  it.each([
+    ["barY", "xScale"],
+    ["barX", "yScale"],
+  ] as const)(
+    "keeps the %s preview category axis on the same band scale",
+    (type, scaleMethod) => {
+      const api = createMockApi();
+      const renderer = createVgplotRenderer(api as never);
+      const cleanup = renderer.render(document.createElement("div"), type, {
+        tableName: "monthly_report",
+        preview: true,
+        encoding:
+          type === "barY"
+            ? { x: "month", y: "metric_conversion_rate" }
+            : { x: "metric_conversion_rate", y: "month" },
+      });
+
+      expect(api[scaleMethod]).toHaveBeenCalledWith("band");
+      cleanup();
+    },
+  );
 
   it("formats a horizontal revenue axis without changing category labels", () => {
     const api = createMockApi();

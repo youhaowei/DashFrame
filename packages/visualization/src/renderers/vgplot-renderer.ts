@@ -450,14 +450,13 @@ function buildSizingOptions(
 function buildPreviewAxisOptions(
   api: VgplotAPI,
   chartType: VisualizationType,
-  encoding?: ChartEncoding,
 ): unknown[] {
   const previewOptions: unknown[] = [api.axis(null), api.margin(4)];
 
-  if (chartType === "barY" && encoding?.xTransform) {
+  if (chartType === "barY") {
     previewOptions.push(api.xScale("band"));
   }
-  if (chartType === "barX" && encoding?.yTransform) {
+  if (chartType === "barX") {
     previewOptions.push(api.yScale("band"));
   }
 
@@ -513,21 +512,21 @@ function buildMeasureFormatOptions(
 }
 
 /**
- * Build scale options for temporal bar charts
+ * Build categorical scale options for bar charts.
  */
 function buildScaleOptions(
   api: VgplotAPI,
   chartType: VisualizationType,
-  encoding?: ChartEncoding,
 ): unknown[] {
   const options: unknown[] = [];
-  // For bar charts with pre-aggregated temporal data, explicitly use band scale
-  // This suppresses vgplot warning about dates with bar marks and treats
-  // date_trunc'd values (e.g., "2020-01-01") as discrete categories
-  if (chartType === "barY" && encoding?.xTransform) {
+  // A report can apply its date grain in SQL, so the rendered encoding no
+  // longer carries xTransform/yTransform. Bar category axes are discrete in
+  // either case; declare the band scale instead of asking Plot to infer time
+  // from date-valued result columns.
+  if (chartType === "barY") {
     options.push(api.xScale("band"));
   }
-  if (chartType === "barX" && encoding?.yTransform) {
+  if (chartType === "barX") {
     options.push(api.yScale("band"));
   }
   return options;
@@ -568,7 +567,7 @@ function buildAxisOptions(
 ): unknown[] {
   const encoding = config.encoding;
   if (isPreview) {
-    return buildPreviewAxisOptions(api, chartType, encoding);
+    return buildPreviewAxisOptions(api, chartType);
   }
 
   const options: unknown[] = [
@@ -582,7 +581,7 @@ function buildAxisOptions(
     api.yTickSize(0),
     ...buildMetricAxisOptions(api, chartType, config),
     ...buildMeasureFormatOptions(api, config),
-    ...buildScaleOptions(api, chartType, encoding),
+    ...buildScaleOptions(api, chartType),
     ...buildLabelOptions(api, encoding),
   ];
 

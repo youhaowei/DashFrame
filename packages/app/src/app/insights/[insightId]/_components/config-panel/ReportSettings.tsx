@@ -30,6 +30,7 @@ function Choice({
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
 }) {
+  const selectedLabel = options.find((option) => option.value === value)?.label;
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
@@ -40,7 +41,7 @@ function Choice({
         }}
       >
         <SelectTrigger aria-label={label}>
-          <SelectValue />
+          <SelectValue>{selectedLabel}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((option) => (

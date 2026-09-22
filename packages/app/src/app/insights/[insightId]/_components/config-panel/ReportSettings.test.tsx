@@ -51,6 +51,18 @@ describe("report setting editors", () => {
     await user.click(
       await screen.findByRole("option", { name: "Previous year", exact: true }),
     );
+    expect(
+      screen.getByRole("combobox", { name: "Date range" }).textContent,
+    ).toContain("Previous month");
+    expect(
+      screen.getByRole("combobox", { name: "Date range" }).textContent,
+    ).not.toContain("previous_month");
+    expect(
+      screen.getByRole("combobox", { name: "Compare with" }).textContent,
+    ).toContain("Previous year");
+    expect(
+      screen.getByRole("combobox", { name: "Compare with" }).textContent,
+    ).not.toContain("previous_year");
     await user.click(screen.getByRole("button", { name: "Save", exact: true }));
     await waitFor(() =>
       expect(onChange).toHaveBeenCalledWith({

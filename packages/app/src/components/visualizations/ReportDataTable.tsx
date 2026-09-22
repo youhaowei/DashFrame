@@ -21,6 +21,9 @@ interface ReportDataTableProps {
   columnDisplayNames: Record<string, string>;
 }
 
+const REPORT_DIMENSION_COLUMN_WIDTH = 140;
+const REPORT_MEASURE_COLUMN_WIDTH = 180;
+
 function dimensionLabel(value: unknown, grain?: DateGrain): string {
   if (value === null || value === undefined) return "(empty)";
   if (
@@ -66,6 +69,7 @@ export function ReportDataTable({
     const dimensionColumns = grid.rowDimensions.map((id) => ({
       id: fieldIdToColumnAlias(id),
       label: columnDisplayNames[fieldIdToColumnAlias(id)] ?? id,
+      width: REPORT_DIMENSION_COLUMN_WIDTH,
       format: (value: unknown) =>
         dimensionLabel(value, insight.reporting?.dateGrains?.[id]),
     }));
@@ -73,6 +77,7 @@ export function ReportDataTable({
       dimensionColumns.push({
         id: "report_label",
         label: "Report",
+        width: REPORT_DIMENSION_COLUMN_WIDTH,
         format: dimensionLabel,
       });
     const pivotDimensions = insight.selectedFields.filter((id) =>
@@ -91,6 +96,7 @@ export function ReportDataTable({
             )),
         column.label,
       ].join(" · "),
+      width: REPORT_MEASURE_COLUMN_WIDTH,
       align: "right" as const,
       format: (value: unknown) => formatReportValue(value, column),
     }));
@@ -131,9 +137,9 @@ export function ReportDataTable({
       </div>
     );
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
       <ReportKpis insight={insight} rows={state?.rows ?? []} />
-      <div className="min-h-0 flex-1">
+      <div className="min-h-40 flex-1 shrink-0">
         <VirtualTable
           rows={table.rows}
           columns={table.columns}
