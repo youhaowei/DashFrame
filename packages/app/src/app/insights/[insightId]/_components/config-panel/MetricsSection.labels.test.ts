@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { metricFieldLabel } from "./MetricsSection";
+import type { InsightMetric } from "@dashframe/types";
+import { metricDescription, metricFieldLabel } from "./MetricsSection";
 
 const baseFields = [{ id: "qty", columnName: "quantity", name: "Quantity" }];
 
@@ -27,5 +28,34 @@ describe("metricFieldLabel", () => {
     expect(
       metricFieldLabel("field_ab12", baseFields, { field_ab12: "field_ab12" }),
     ).toBeUndefined();
+  });
+});
+
+describe("metricDescription", () => {
+  const calculated = {
+    id: "conversion-rate",
+    name: "Conversion rate",
+    sourceTable: "source",
+    aggregation: "count",
+    expression: {
+      kind: "binary",
+      operator: "divide",
+      left: { kind: "measure", measureId: "orders" },
+      right: { kind: "measure", measureId: "visits" },
+    },
+  } as InsightMetric;
+
+  it("describes calculated ratios instead of their fallback aggregation", () => {
+    expect(metricDescription(calculated, baseFields, {})).toBe("ratio");
+    expect(
+      metricDescription(
+        {
+          ...calculated,
+          expression: { ...calculated.expression!, operator: "add" },
+        } as InsightMetric,
+        baseFields,
+        {},
+      ),
+    ).toBe("formula");
   });
 });

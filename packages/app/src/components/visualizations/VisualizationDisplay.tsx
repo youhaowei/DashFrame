@@ -69,7 +69,7 @@ function resolveVisualizationDataFailure(input: {
 
 function resolveRuntimeFilters(
   insight: Insight,
-  dataTables: readonly DataTable[],
+  availableFields: ReturnType<typeof resolveInsightAvailableFields>,
   overrides: NonNullable<DashboardItemOverrides["filters"]>,
 ): DashboardRuntimeResolution {
   const values: Record<string, unknown> = {};
@@ -83,9 +83,9 @@ function resolveRuntimeFilters(
         const filter = (insight.filters ?? []).find(
           (saved) => saved.id === candidate.filterId,
         );
-        const aliasedField = dataTables
-          .flatMap((table) => table.fields ?? [])
-          .find((field) => fieldIdToColumnAlias(field.id) === filter?.field);
+        const aliasedField = availableFields.find(
+          (field) => fieldIdToColumnAlias(field.id) === filter?.field,
+        );
         return (
           (filter?.field === override.field ||
             (aliasedField?.columnName ?? aliasedField?.name) ===
@@ -144,15 +144,21 @@ export function resolveDashboardRuntime(
   insight: Insight,
   dataTables: readonly DataTable[],
   overrides: DashboardItemOverrides | undefined,
+  insights: readonly Insight[] = [],
 ): DashboardRuntimeResolution {
   if (!overrides) return {};
   const controls = insight.runtimeControls;
   const runtime: InsightRuntimeInput = {};
 
   if (overrides.filters !== undefined) {
+    const availableFields = resolveInsightAvailableFields(
+      insight,
+      [...dataTables],
+      [...insights],
+    );
     const resolution = resolveRuntimeFilters(
       insight,
-      dataTables,
+      availableFields,
       overrides.filters,
     );
     if (resolution.error) return resolution;
@@ -329,9 +335,9 @@ function VisualizationDisplayContent({
   const dashboardRuntime = useMemo(
     () =>
       insight
-        ? resolveDashboardRuntime(insight, dataTables, overrides)
+        ? resolveDashboardRuntime(insight, dataTables, overrides, insights)
         : ({} satisfies DashboardRuntimeResolution),
-    [dataTables, insight, overrides],
+    [dataTables, insight, insights, overrides],
   );
 
   const { runtime: viewerRuntime, onChange: setViewerRuntime } =

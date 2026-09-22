@@ -82,11 +82,17 @@ export function metricFieldLabel(
   return label && !isGeneratedColumnLabel(label) ? label : undefined;
 }
 
-function metricDescription(
+export function metricDescription(
   metric: InsightMetric,
   fields: readonly MetricField[],
   columnDisplayNames: ColumnDisplayNames,
 ): string {
+  if (metric.expression) {
+    return metric.expression.kind === "binary" &&
+      metric.expression.operator === "divide"
+      ? "ratio"
+      : "formula";
+  }
   if (metric.aggregation === "count" && !metric.columnName) return "count";
   const resolved = metricFieldLabel(
     metric.columnName,

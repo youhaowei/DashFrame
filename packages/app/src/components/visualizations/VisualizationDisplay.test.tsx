@@ -6,7 +6,7 @@ import {
 } from "@/test/native-query-fixture";
 /** VisualizationDisplay saved execution and declared runtime-control coverage. */
 import type { Insight, Visualization } from "@dashframe/types";
-import { fieldIdToColumnAlias } from "@dashframe/engine";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -396,6 +396,65 @@ describe("VisualizationDisplay — declared runtime controls", () => {
         filters: [{ field: "created_at", operator: "eq", value: "paused" }],
       }),
     ).toEqual({ runtime: { filters: { status: "paused" } } });
+  });
+
+  it("resolves an insight-sourced synthesized field with the authoring catalog", () => {
+    const metricId = "metric-revenue";
+    const upstream = {
+      ...insight,
+      id: "upstream",
+      filters: [],
+      metrics: [
+        {
+          id: metricId,
+          name: "Revenue",
+          sourceTable: "t1",
+          aggregation: "sum",
+          columnName: "created_at",
+        },
+      ],
+      runtimeControls: undefined,
+    } as Insight;
+    const derived = {
+      ...insight,
+      id: "derived",
+      source: { sourceType: "insight", sourceId: upstream.id },
+      filters: [
+        {
+          id: "revenue-filter",
+          field: fieldIdToColumnAlias(metricId),
+          operator: "eq",
+          value: 100,
+        },
+      ],
+      runtimeControls: {
+        filters: [
+          {
+            key: "revenue",
+            filterId: "revenue-filter",
+            label: "Revenue",
+            allowClear: true,
+          },
+        ],
+      },
+    } as Insight;
+
+    expect(
+      resolveDashboardRuntime(
+        derived,
+        [dataTable],
+        {
+          filters: [
+            {
+              field: metricIdToColumnAlias(metricId),
+              operator: "eq",
+              value: 250,
+            },
+          ],
+        },
+        [upstream, derived],
+      ),
+    ).toEqual({ runtime: { filters: { revenue: 250 } } });
   });
 
   it("rejects ambiguous shared fields and incompatible predicate operators", () => {
