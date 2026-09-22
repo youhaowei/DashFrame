@@ -29,7 +29,7 @@
 
 import type { RenderFunction } from "@observablehq/plot";
 import "./chart-styles.css";
-import { quoteIdentifier } from "@dashframe/engine";
+import { quoteIdentifier, formatMeasureValue } from "@dashframe/engine";
 import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 import type {
   ChartCleanup,
@@ -493,6 +493,25 @@ function buildMetricAxisOptions(
   return options;
 }
 
+function buildMeasureFormatOptions(
+  api: VgplotAPI,
+  config: ChartConfig,
+): unknown[] {
+  const options: unknown[] = [];
+  for (const channel of ["x", "y"] as const) {
+    const column = config.encoding[channel];
+    const format = column ? config.measureFormats?.[column] : undefined;
+    if (!format) continue;
+    const tickFormat = (value: unknown) => formatMeasureValue(value, format);
+    options.push(
+      channel === "x"
+        ? api.xTickFormat(tickFormat)
+        : api.yTickFormat(tickFormat),
+    );
+  }
+  return options;
+}
+
 /**
  * Build scale options for temporal bar charts
  */
@@ -562,6 +581,7 @@ function buildAxisOptions(
     api.xTickSize(0),
     api.yTickSize(0),
     ...buildMetricAxisOptions(api, chartType, config),
+    ...buildMeasureFormatOptions(api, config),
     ...buildScaleOptions(api, chartType, encoding),
     ...buildLabelOptions(api, encoding),
   ];
@@ -606,6 +626,7 @@ export async function setupColorDomain(
   api: VgplotAPIExtended,
   colorColumn: string,
   tableName: string,
+  detailRowsOnly = false,
 ): Promise<unknown | undefined> {
   // Aggregation/expression-bound color: skip domain query entirely.
   if (isExpressionBoundColor(colorColumn)) {
@@ -619,7 +640,7 @@ export async function setupColorDomain(
     // Single-identifier quoting for tableName (see function doc): schema-qualified
     // names are quoted as one identifier, not split into schema.table.
     const result = await coordinator.query(
-      `SELECT DISTINCT ${quoteIdentifier(colorColumn)} as val FROM ${quoteIdentifier(tableName)} ORDER BY ${quoteIdentifier(colorColumn)}`,
+      `SELECT DISTINCT ${quoteIdentifier(colorColumn)} as val FROM ${quoteIdentifier(tableName)}${detailRowsOnly ? ' WHERE "__report_grouping" = 0' : ""} ORDER BY ${quoteIdentifier(colorColumn)}`,
       { type: "json" },
     );
 
@@ -774,14 +795,30 @@ function renderIncompleteEncoding(
  * treats these as categorical values with band scale. This is simpler and
  * avoids the complexity of rectY+interval which expects raw unaggregated dates.
  */
+function reportMarkSource(
+  api: VgplotAPI,
+  tableName: string,
+  detailRowsOnly: boolean,
+) {
+  if (!detailRowsOnly) return api.from(tableName);
+  const selection = api.Selection.intersect();
+  selection.update({
+    source: {},
+    value: 0,
+    predicate: api.eq(api.column("__report_grouping"), api.literal(0)),
+  });
+  return api.from(tableName, { filterBy: selection });
+}
+
 function buildMark(
   api: VgplotAPI,
   type: VisualizationType,
   tableName: string,
   encoding: ChartEncoding,
   theme?: ChartConfig["theme"],
+  detailRowsOnly = false,
 ) {
-  const source = api.from(tableName);
+  const source = reportMarkSource(api, tableName, detailRowsOnly);
   const options = buildEncodingOptions(api, encoding, type, theme);
 
   switch (type) {
@@ -930,6 +967,7 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
           config.tableName,
           config.encoding,
           config.theme,
+          config.detailRowsOnly,
         );
         const chartColors = getChartColors(container);
         const legend = hasColorLegend(type, config);
@@ -985,6 +1023,7 @@ export function createVgplotRenderer(api: VgplotAPI): ChartRenderer {
                 extendedApi,
                 colorColumn,
                 config.tableName,
+                config.detailRowsOnly,
               );
               if (cancelled) return;
               if (colorDomainDirective !== undefined) {

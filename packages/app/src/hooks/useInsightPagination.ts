@@ -71,6 +71,7 @@ function toFetchDefinition(insight: Insight): InsightFetchDefinition {
     filters: insight.filters,
     sorts: insight.sorts,
     joins: insight.joins,
+    reporting: insight.reporting,
   };
 }
 
@@ -469,12 +470,16 @@ export function useInsightPagination({
             setIsReady(false);
             return;
           }
-          const effectiveCount = stableRuntime?.limit
-            ? Math.min(page.totalCount, stableRuntime.limit)
-            : page.totalCount;
-          const nextColumns: VirtualTableColumn[] = page.schema.map(
-            ({ id, type }) => ({ name: id, type: type as ColumnType }),
+          const hasTotals = page.schema.some(
+            (column) => column.id === "__report_grouping",
           );
+          const effectiveCount =
+            stableRuntime?.limit && !hasTotals
+              ? Math.min(page.totalCount, stableRuntime.limit)
+              : page.totalCount;
+          const nextColumns: VirtualTableColumn[] = page.schema
+            .filter((column) => column.id !== "__report_grouping")
+            .map(({ id, type }) => ({ name: id, type: type as ColumnType }));
           setDataFrameId(resultFrame.dataFrameId);
           validResult.current = {
             requestIdentity,
@@ -483,7 +488,9 @@ export function useInsightPagination({
           setTotalCount(effectiveCount);
           setColumns(nextColumns);
           setSchema(page.schema);
-          setSampleRows(page.rows);
+          setSampleRows(
+            page.rows.filter((row) => Number(row.__report_grouping ?? 0) === 0),
+          );
           setFieldCount(nextColumns.length);
           setError(null);
           setIsReady(true);
@@ -582,9 +589,11 @@ export function useInsightPagination({
       if (!dataFrameId) return { rows: [], totalCount: 0 };
       const current = generation.current;
       const requestedDataFrameId = dataFrameId;
-      const remaining = stableRuntime?.limit
-        ? Math.max(0, stableRuntime.limit - params.offset)
-        : params.limit;
+      const remaining =
+        stableRuntime?.limit &&
+        !schema.some((column) => column.id === "__report_grouping")
+          ? Math.max(0, stableRuntime.limit - params.offset)
+          : params.limit;
       if (remaining === 0) return { rows: [], totalCount };
       let page;
       try {
@@ -614,7 +623,7 @@ export function useInsightPagination({
         ? { rows: page.rows, totalCount }
         : { rows: [], totalCount: 0 };
     },
-    [dataFrameId, stableRuntime, totalCount],
+    [dataFrameId, stableRuntime, totalCount, schema],
   );
 
   const { fields: resolvedFields, displayNames: columnDisplayNames } = useMemo(

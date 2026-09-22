@@ -165,3 +165,16 @@ export {
   getMetricDisplayLabel,
   isGeneratedColumnLabel,
 } from "./visualization-labels";
+
+export {
+  buildReportGrid,
+  formatMeasureValue,
+  reportMeasureFormats,
+  formatReportValue,
+  type ReportGrid,
+} from "./report-grid";
+
+export {
+  saveReusableMeasure,
+  importReusableMeasure,
+} from "./reporting/reusable-measures";

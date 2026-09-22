@@ -210,6 +210,24 @@ describe("resolveSuggestionDimensionFieldIds", () => {
 });
 
 describe("buildChartSuggestionInsight", () => {
+  it("clears report shaping when requesting raw chart-suggestion rows", () => {
+    const report: Insight = {
+      id: "report",
+      name: "Report",
+      source: { sourceType: "dataTable", sourceId: "t" },
+      selectedFields: [],
+      metrics: [],
+      createdAt: 0,
+      reporting: {
+        comparison: "previous_period",
+        totals: true,
+        pivotFields: ["channel"],
+      },
+    };
+    expect(buildChartSuggestionInsight(report).reporting).toBeUndefined();
+    expect(report.reporting?.comparison).toBe("previous_period");
+  });
+
   it("preserves an Insight-backed source for composed detail views", () => {
     const source = {
       sourceType: "insight" as const,

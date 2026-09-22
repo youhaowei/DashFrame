@@ -154,6 +154,25 @@ describe("comparison periods", () => {
     );
   });
 
+  test("compares complete multi-month ranges with the same number of calendar months", () => {
+    const current = resolveRelativeDateRange(
+      { type: "last_complete_months", count: 2 },
+      new Date("2026-03-15T00:00:00Z"),
+    );
+    expectRange(
+      previousPeriod(current),
+      "2025-11-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    expectRange(
+      previousPeriod(
+        absoluteDateRange(new Date("2024-01-01"), new Date("2026-01-01")),
+      ),
+      "2022-01-01T00:00:00.000Z",
+      "2024-01-01T00:00:00.000Z",
+    );
+  });
+
   test("uses equal elapsed duration for an arbitrary range", () => {
     expectRange(
       previousPeriod(

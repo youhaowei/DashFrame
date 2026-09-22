@@ -3,7 +3,10 @@ import { queryStatus } from "@/data/query-status";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@dashframe/convex-backend/api";
-import { resolveEncodingToResultFrame } from "@dashframe/engine";
+import {
+  resolveEncodingToResultFrame,
+  reportMeasureFormats,
+} from "@dashframe/engine";
 import type {
   ChartEncoding,
   DataTable,
@@ -257,9 +260,15 @@ function ResolvedVisualizationPreview({
       style={{ height: height === "container" ? "100%" : height }}
     >
       <Chart
+        detailRowsOnly={Boolean(
+          insight?.reporting?.totals &&
+          insight.selectedFields.length &&
+          insight.metrics.length,
+        )}
         tableName={viewName}
         visualizationType={visualization.visualizationType}
         encoding={resolvedEncoding}
+        measureFormats={reportMeasureFormats(insight)}
         width="container"
         height="container"
         preview

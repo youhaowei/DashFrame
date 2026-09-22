@@ -227,6 +227,48 @@ describe("VisualizationDisplay — declared runtime controls", () => {
     });
   });
 
+  it("maps a shared field control and its cleared value to the declared filter", () => {
+    for (const cleared of [false, true]) {
+      expect(
+        resolveDashboardRuntime(insight, [dataTable], {
+          filters: [
+            { field: "status", operator: "eq", value: "paused", cleared },
+          ],
+        }),
+      ).toEqual({
+        runtime: { filters: { status: cleared ? null : "paused" } },
+      });
+    }
+  });
+
+  it("rejects ambiguous shared fields and incompatible predicate operators", () => {
+    const ambiguous: Insight = {
+      ...insight,
+      filters: [
+        ...(insight.filters ?? []),
+        { ...savedFilter, id: "second-status" },
+      ],
+      runtimeControls: {
+        filters: [
+          ...insight.runtimeControls!.filters!,
+          { key: "second", filterId: "second-status", label: "Second status" },
+        ],
+      },
+    };
+    for (const [target, operator] of [
+      [ambiguous, "eq"],
+      [insight, "ne"],
+    ] as const) {
+      expect(
+        resolveDashboardRuntime(target, [dataTable], {
+          filters: [{ field: "status", operator, value: "paused" }],
+        }),
+      ).toEqual({
+        error: "This dashboard filter is not declared by the Insight.",
+      });
+    }
+  });
+
   it("fails closed when a dashboard filter was not author-declared", () => {
     expect(
       resolveDashboardRuntime(insight, [dataTable], {

@@ -24,7 +24,13 @@ export {
   isFieldRestricted,
 } from "./field";
 
-export type { AggregationType, InsightMetric, Metric } from "./metric";
+export type {
+  AggregationType,
+  InsightMetric,
+  Metric,
+  MeasureExpression,
+  MeasureFormat,
+} from "./metric";
 
 export {
   mergeReplacementFields,
@@ -257,3 +263,13 @@ export {
   cmd,
   resultValueByCommandPath,
 } from "./commands";
+
+export { isMeasureExpression } from "./metric";
+
+export type {
+  InsightReporting,
+  DateGrain,
+  RelativeDateRange,
+} from "./insights";
+
+export type { MeasureFilter } from "./metric";

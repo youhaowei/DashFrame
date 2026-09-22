@@ -4873,3 +4873,128 @@ describe("existing command behavior on native Convex", () => {
     ).rejects.toThrow();
   });
 });
+
+it("saves and reopens report date grouping, pivot settings, and calculated measures", async () => {
+  const { tableId, insightId, metricId } = await makeInsightWithMetric();
+  const dateId = id();
+  await commit(
+    cmd("AddField", {
+      nodeId: tableId,
+      field: {
+        id: id(),
+        tableId,
+        name: "Revenue",
+        columnName: "revenue",
+        type: "number",
+      },
+    }),
+  );
+  await commit(
+    cmd("AddField", {
+      nodeId: tableId,
+      field: {
+        id: dateId,
+        tableId,
+        name: "Date",
+        columnName: "date",
+        type: "date",
+      },
+    }),
+    cmd("SelectFields", { id: insightId, fieldIds: [dateId] }),
+  );
+  const reporting = {
+    comparison: "previous_period" as const,
+    dateRange: { fieldId: dateId, range: { type: "previous_month" as const } },
+    dateGrains: { [dateId]: "month" as const },
+    pivotFields: [dateId],
+    totals: true,
+    limit: 10,
+  };
+  const ratioId = id();
+  const expression = {
+    kind: "binary" as const,
+    operator: "divide" as const,
+    left: { kind: "measure" as const, measureId: metricId },
+    right: { kind: "constant" as const, value: 100 },
+  };
+  await commit(
+    cmd("SetInsightReporting", { id: insightId, reporting }),
+    cmd("AddMetric", {
+      nodeId: insightId,
+      metric: {
+        id: ratioId,
+        name: "Revenue ratio",
+        sourceTable: tableId,
+        aggregation: "count",
+        expression,
+        format: { style: "percent", decimals: 1 },
+      },
+    }),
+  );
+  const runtimeControls = {
+    dimensions: { allowedIds: [dateId], maxSelected: 1 },
+    measures: { allowedIds: [metricId, ratioId], maxSelected: 1 },
+  };
+  await commit(
+    cmd("SetInsightRuntimeControls", { id: insightId, runtimeControls }),
+  );
+  const reopened = await client.query(api.app.getInsight, { id: insightId });
+  expect(reopened?.runtimeControls).toEqual(runtimeControls);
+  expect(reopened?.reporting).toEqual(reporting);
+  expect(
+    reopened?.metrics.find((metric) => metric.id === ratioId)?.expression,
+  ).toEqual(expression);
+  const preview = await draftCommit(
+    cmd("SetInsightReporting", { id: insightId, reporting }),
+  );
+  expect(preview).toBeDefined();
+  await commit(cmd("SelectFields", { id: insightId, fieldIds: [] }));
+  const afterRemoval = await client.query(api.app.getInsight, {
+    id: insightId,
+  });
+  expect(afterRemoval?.reporting?.dateGrains).toEqual({});
+  expect(afterRemoval?.reporting?.pivotFields).toEqual([]);
+  await expect(
+    commit(
+      cmd("SetInsightReporting", {
+        id: insightId,
+        reporting: { pivotFields: ["missing"] },
+      }),
+    ),
+  ).rejects.toThrow("Reporting dimension must be selected");
+});
+
+it("persists reusable calculated measures with their filtered dependencies and format", async () => {
+  const { tableId } = await makeTable();
+  const visitsId = id(),
+    ordersId = id(),
+    rateId = id();
+  const metrics: import("@dashframe/types").Metric[] = [
+    { id: visitsId, name: "Visits", tableId, aggregation: "count" },
+    {
+      id: ordersId,
+      name: "Orders",
+      tableId,
+      aggregation: "count",
+      filters: [{ field: "revenue", operator: "gt", value: 0 }],
+    },
+    {
+      id: rateId,
+      name: "Conversion",
+      tableId,
+      aggregation: "count",
+      expression: {
+        kind: "binary",
+        operator: "divide",
+        left: { kind: "measure", measureId: ordersId },
+        right: { kind: "measure", measureId: visitsId },
+      },
+      format: { style: "percent", decimals: 2 },
+    },
+  ];
+  await commit(
+    ...metrics.map((metric) => cmd("AddMetric", { nodeId: tableId, metric })),
+  );
+  const [reopened] = await tablesById(tableId);
+  expect(reopened!.metrics).toEqual(metrics);
+});

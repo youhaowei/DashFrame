@@ -1,3 +1,12 @@
+import { ReportSwitchers } from "@/components/visualizations/ReportSwitchers";
+import {
+  reportPresentation,
+  reportEncoding,
+} from "@/lib/insights/report-runtime";
+import {
+  ReportDataTable,
+  hasReportTable,
+} from "@/components/visualizations/ReportDataTable";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { AppLayout } from "@/components/layouts/AppLayout";
@@ -44,6 +53,7 @@ import type {
   Field,
   Insight,
   InsightMetric,
+  InsightRuntimeInput,
   UUID,
   VegaLiteSpec,
   Visualization,
@@ -139,6 +149,7 @@ export function buildChartSuggestionInsight(insight: Insight): Insight {
     metrics: [],
     filters: undefined,
     sorts: undefined,
+    reporting: undefined,
   };
 }
 
@@ -200,11 +211,16 @@ export function buildInsightModelMetadata(
 export const MAX_DOT_ROW_COUNT = 10_000;
 
 /** One rendered result supplies every saved-chart encoding input. */
-export function useInsightEncodingMetadata(insight: Insight, enabled: boolean) {
+export function useInsightEncodingMetadata(
+  insight: Insight,
+  enabled: boolean,
+  runtime?: InsightRuntimeInput,
+) {
   return useInsightPagination({
     insight,
     showModelPreview: false,
     enabled,
+    ...(runtime ? { runtime } : {}),
   });
 }
 
@@ -733,11 +749,13 @@ export function InsightResultErrorState({
 }
 
 export function InsightResultTable({
+  insight,
   result,
   collapsed = false,
   onToggleCollapsed,
   className,
 }: {
+  insight?: Insight;
   result: InsightPaginationResult;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
@@ -784,12 +802,21 @@ export function InsightResultTable({
   if (isReady) {
     tableBody = (
       <div className="absolute inset-0">
-        <VirtualTable
-          onFetchData={fetchData}
-          columnConfigs={columnConfigs}
-          height="100%"
-          compact
-        />
+        {hasReportTable(insight) ? (
+          <ReportDataTable
+            insight={insight}
+            fetchData={fetchData}
+            totalCount={totalCount}
+            columnDisplayNames={columnDisplayNames}
+          />
+        ) : (
+          <VirtualTable
+            onFetchData={fetchData}
+            columnConfigs={columnConfigs}
+            height="100%"
+            compact
+          />
+        )}
       </div>
     );
   } else if (error) {
@@ -879,10 +906,12 @@ function InsightMoreActionsMenu({
  * card above the result table; the data view shows the table alone.
  */
 function InsightCanvasWell({
+  insight,
   result,
   showChart,
   children,
 }: {
+  insight?: Insight;
   result: InsightPaginationResult;
   showChart: boolean;
   children: ReactNode;
@@ -901,6 +930,7 @@ function InsightCanvasWell({
             {children}
           </div>
           <InsightResultTable
+            insight={insight}
             result={result}
             collapsed={resultCollapsed}
             onToggleCollapsed={() =>
@@ -914,13 +944,18 @@ function InsightCanvasWell({
           />
         </>
       ) : (
-        <InsightResultTable result={result} className="flex-1" />
+        <InsightResultTable
+          insight={insight}
+          result={result}
+          className="flex-1"
+        />
       )}
     </div>
   );
 }
 
 function EphemeralChartCanvas({
+  detailRowsOnly,
   tableName,
   suggestion,
   isLoading,
@@ -929,6 +964,7 @@ function EphemeralChartCanvas({
   onRegenerate,
 }: {
   tableName?: string;
+  detailRowsOnly?: boolean;
   suggestion?: ChartSuggestion;
   isLoading: boolean;
   error?: string | null;
@@ -972,6 +1008,7 @@ function EphemeralChartCanvas({
 
   return (
     <Chart
+      detailRowsOnly={detailRowsOnly}
       tableName={tableName}
       visualizationType={suggestion.chartType}
       encoding={suggestion.encoding}
@@ -1001,6 +1038,16 @@ export function InsightView({
   reportId,
 }: InsightViewProps) {
   const insightId = insight.id;
+  const [viewerState, setViewerState] = useState<{
+    id: string;
+    runtime?: InsightRuntimeInput;
+  }>({ id: insightId });
+  const viewerRuntime =
+    viewerState.id === insightId ? viewerState.runtime : undefined;
+  const displayInsight = useMemo(
+    () => reportPresentation(insight, viewerRuntime),
+    [insight, viewerRuntime],
+  );
   const navigate = useNavigate();
 
   // Local state for insight name (prevents re-renders on typing)
@@ -1227,6 +1274,7 @@ export function InsightView({
   const savedInsightResult = useInsightEncodingMetadata(
     insight,
     activeView.kind !== "chart",
+    viewerRuntime,
   );
   const {
     columns: encodingColumns,
@@ -2136,7 +2184,16 @@ export function InsightView({
             className="shrink-0 px-1"
           />
 
+          {activeView.kind !== "chart" && (
+            <ReportSwitchers
+              insight={insight}
+              fields={modelResolvedFields}
+              runtime={viewerRuntime}
+              onChange={(runtime) => setViewerState({ id: insightId, runtime })}
+            />
+          )}
           <InsightCanvasWell
+            insight={activeView.kind === "chart" ? undefined : displayInsight}
             result={
               activeView.kind === "chart"
                 ? chartSuggestionResult
@@ -2146,6 +2203,9 @@ export function InsightView({
           >
             {activeView.kind === "chart" && (
               <EphemeralChartCanvas
+                detailRowsOnly={chartSuggestionResult.schema.some(
+                  (column) => column.id === "__report_grouping",
+                )}
                 tableName={chartSuggestionFrameId ?? undefined}
                 suggestion={activeChartSuggestion}
                 isLoading={!areChartSuggestionsReady}
@@ -2156,7 +2216,15 @@ export function InsightView({
             )}
             {activeView.kind === "visualization" && activeVisualization && (
               <VisualizationPreview
-                visualization={activeVisualization}
+                visualization={{
+                  ...activeVisualization,
+                  encoding: reportEncoding(
+                    activeVisualization.encoding ?? {},
+                    insight,
+                    viewerRuntime,
+                    modelResolvedFields,
+                  ),
+                }}
                 height="container"
                 // Same primitive and host message as the result table below, so
                 // both halves of the workbench agree. Only set on error — the
@@ -2171,7 +2239,7 @@ export function InsightView({
                   ) : undefined
                 }
                 materialization={{
-                  insight,
+                  insight: displayInsight,
                   dataTable: authoringTable,
                   dataFrameId: savedInsightResult.dataFrameId,
                   isReady: savedInsightResult.isReady,

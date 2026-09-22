@@ -1,3 +1,9 @@
+import { ReportSwitchers } from "./ReportSwitchers";
+import {
+  reportPresentation,
+  reportEncoding,
+} from "@/lib/insights/report-runtime";
+import { ReportDataTable, hasReportTable } from "./ReportDataTable";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { useChartEngine } from "@/components/providers/ChartEngineProvider";
@@ -9,6 +15,7 @@ import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@dashframe/convex-backend/api";
 import {
   getMetricDisplayLabel,
+  reportMeasureFormats,
   resolveEncodingToResultFrame,
 } from "@dashframe/engine";
 import type {
@@ -43,10 +50,23 @@ function resolveRuntimeFilters(
 ): DashboardRuntimeResolution {
   const values: Record<string, unknown> = {};
   for (const override of overrides) {
-    const declaration = insight.runtimeControls?.filters?.find(
-      (candidate) => candidate.filterId === override.id,
+    // Shared controls target a field across Insights, whose saved filter IDs
+    // differ. Resolve only a unique declared predicate with the same semantics.
+    const declarations = (insight.runtimeControls?.filters ?? []).filter(
+      (candidate) => {
+        if (override.id !== undefined)
+          return candidate.filterId === override.id;
+        const filter = (insight.filters ?? []).find(
+          (saved) => saved.id === candidate.filterId,
+        );
+        return (
+          filter?.field === override.field &&
+          (override.cleared || filter.operator === override.operator)
+        );
+      },
     );
-    if (!declaration) {
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || !declaration) {
       return { error: "This dashboard filter is not declared by the Insight." };
     }
     values[declaration.key] = override.cleared ? null : override.value;
@@ -165,6 +185,51 @@ interface VisualizationDisplayProps {
   overrides?: DashboardItemOverrides;
 }
 
+function SavedResultTable({
+  insight,
+  fetchData,
+  totalCount,
+  columns,
+  columnDisplayNames,
+  columnConfigs,
+}: {
+  insight?: Insight;
+  columnConfigs: VirtualTableColumnConfig[];
+} & Pick<
+  ReturnType<typeof useInsightPagination>,
+  "fetchData" | "totalCount" | "columns" | "columnDisplayNames"
+>) {
+  if (hasReportTable(insight))
+    return (
+      <ReportDataTable
+        insight={insight}
+        fetchData={fetchData}
+        totalCount={totalCount}
+        columnDisplayNames={columnDisplayNames}
+      />
+    );
+  return (
+    <VirtualTable
+      columns={columns}
+      onFetchData={fetchData}
+      columnConfigs={columnConfigs}
+      height="100%"
+      className="flex-1"
+    />
+  );
+}
+
+function useViewerRuntime(visualizationId?: string) {
+  const [state, setState] = useState<{
+    id?: string;
+    runtime?: InsightRuntimeInput;
+  }>({ id: visualizationId });
+  const runtime = state.id === visualizationId ? state.runtime : undefined;
+  const onChange = (next: InsightRuntimeInput | undefined) =>
+    setState({ id: visualizationId, runtime: next });
+  return { runtime, onChange };
+}
+
 function VisualizationDisplayContent({
   visualizationId,
   overrides,
@@ -225,6 +290,20 @@ function VisualizationDisplayContent({
     [dataTables, insight, overrides],
   );
 
+  const { runtime: viewerRuntime, onChange: setViewerRuntime } =
+    useViewerRuntime(visualizationId);
+  const effectiveRuntime = useMemo(
+    () =>
+      viewerRuntime
+        ? { ...dashboardRuntime.runtime, ...viewerRuntime }
+        : dashboardRuntime.runtime,
+    [dashboardRuntime.runtime, viewerRuntime],
+  );
+  const displayInsight = useMemo(
+    () => (insight ? reportPresentation(insight, effectiveRuntime) : undefined),
+    [insight, effectiveRuntime],
+  );
+
   // Use insight view hook to get the proper table name (handles joins).
   // `error` surfaces a post-bootstrap failure (e.g. native upload failed because
   // the loopback server stopped or returned 500). Without consuming it here the
@@ -235,7 +314,7 @@ function VisualizationDisplayContent({
     isReady: isInsightViewReady,
     error: insightViewError,
   } = useInsightView(dashboardRuntime.error ? null : insight, {
-    runtime: dashboardRuntime.runtime,
+    runtime: effectiveRuntime,
   });
 
   // The table reads the same saved execution generation and declared runtime
@@ -251,7 +330,7 @@ function VisualizationDisplayContent({
     insight,
     showModelPreview: false,
     enabled: Boolean(insight && !dashboardRuntime.error),
-    runtime: dashboardRuntime.runtime,
+    runtime: effectiveRuntime,
   });
 
   // Helper to calculate visible rows from container dimensions
@@ -343,7 +422,13 @@ function VisualizationDisplayContent({
     };
 
     // Resolve prefixed IDs to SQL expressions
-    const resolved = resolveEncodingToResultFrame(activeViz.encoding, context);
+    const storageEncoding = reportEncoding(
+      activeViz.encoding,
+      insight,
+      effectiveRuntime,
+      resolutionFields,
+    );
+    const resolved = resolveEncodingToResultFrame(storageEncoding, context);
     const resolveColumnReference = (value: string | undefined) => {
       if (!value) return undefined;
       if (columns.some((column) => column.name === value)) return value;
@@ -398,17 +483,17 @@ function VisualizationDisplayContent({
       y,
       color,
       size,
-      xType: activeViz.encoding.xType,
-      yType: activeViz.encoding.yType,
+      xType: storageEncoding.xType,
+      yType: storageEncoding.yType,
       // Pass through date transforms for temporal bar charts
       // These tell the renderer to use band scale (suppresses vgplot warning)
-      xTransform: activeViz.encoding.xTransform,
-      yTransform: activeViz.encoding.yTransform,
+      xTransform: storageEncoding.xTransform,
+      yTransform: storageEncoding.yTransform,
       // Include human-readable axis labels for chart display
-      xLabel: getEncodingDisplayLabel(activeViz.encoding.x, x),
-      yLabel: getEncodingDisplayLabel(activeViz.encoding.y, y),
-      colorLabel: getEncodingDisplayLabel(activeViz.encoding.color, color),
-      sizeLabel: getEncodingDisplayLabel(activeViz.encoding.size, size),
+      xLabel: getEncodingDisplayLabel(storageEncoding.x, x),
+      yLabel: getEncodingDisplayLabel(storageEncoding.y, y),
+      colorLabel: getEncodingDisplayLabel(storageEncoding.color, color),
+      sizeLabel: getEncodingDisplayLabel(storageEncoding.size, size),
     };
   }, [
     activeViz,
@@ -417,6 +502,7 @@ function VisualizationDisplayContent({
     columns,
     columnDisplayNames,
     instanceAwareFields,
+    effectiveRuntime,
   ]);
 
   // Build column configs for VirtualTable to show human-readable headers
@@ -427,34 +513,9 @@ function VisualizationDisplayContent({
     }));
   }, [columns, columnDisplayNames]);
 
-  // Get human-readable display name for color encoding
-  const colorDisplayName = useMemo(() => {
-    const colorEncoding = activeViz?.encoding?.color;
-    const parsed = parseEncoding(colorEncoding);
-    if (parsed?.type === "field") {
-      const effectiveFields =
-        instanceAwareFields.length > 0
-          ? instanceAwareFields
-          : (dataTable?.fields ?? []);
-      const field = effectiveFields.find((f) => f.id === parsed.id);
-      return field?.name ?? columnDisplayNames[resolvedEncoding.color ?? ""];
-    }
-    if (parsed?.type === "metric") {
-      const metric = insight?.metrics?.find((m) => m.id === parsed.id);
-      return metric
-        ? getMetricDisplayLabel(metric, dataTable?.fields)
-        : undefined;
-    }
-    if (!resolvedEncoding.color) return null;
-    return columnDisplayNames[resolvedEncoding.color] ?? resolvedEncoding.color;
-  }, [
-    activeViz?.encoding?.color,
-    dataTable?.fields,
-    insight?.metrics,
-    resolvedEncoding.color,
-    columnDisplayNames,
-    instanceAwareFields,
-  ]);
+  const colorDisplayName =
+    resolvedEncoding.colorLabel ??
+    columnDisplayNames[resolvedEncoding.color ?? ""];
 
   // Check if there's enough space to show both views
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
@@ -575,6 +636,12 @@ function VisualizationDisplayContent({
         ref={headerRef}
         className="border-b border-neutral-border/60 px-4 py-2"
       >
+        <ReportSwitchers
+          insight={insight}
+          fields={instanceAwareFields}
+          runtime={viewerRuntime}
+          onChange={(runtime) => setViewerRuntime(runtime)}
+        />
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xl font-semibold text-neutral-fg">
@@ -625,9 +692,15 @@ function VisualizationDisplayContent({
       {activeTab === "chart" && tableName && (
         <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4 pb-8">
           <Chart
+            detailRowsOnly={Boolean(
+              displayInsight?.reporting?.totals &&
+              displayInsight.selectedFields.length &&
+              displayInsight.metrics.length,
+            )}
             tableName={tableName}
             visualizationType={activeViz.visualizationType}
             encoding={resolvedEncoding}
+            measureFormats={reportMeasureFormats(displayInsight)}
             className="h-full w-full"
           />
         </div>
@@ -639,12 +712,13 @@ function VisualizationDisplayContent({
             elevation="inset"
             className="flex min-h-0 flex-1 flex-col p-4"
           >
-            <VirtualTable
+            <SavedResultTable
+              insight={displayInsight}
+              fetchData={fetchData}
+              totalCount={totalCount}
               columns={columns}
-              onFetchData={fetchData}
+              columnDisplayNames={columnDisplayNames}
               columnConfigs={columnConfigs}
-              height="100%"
-              className="flex-1"
             />
           </Surface>
         </div>
@@ -655,9 +729,15 @@ function VisualizationDisplayContent({
           {/* Chart takes 60% of space */}
           <div className="h-[60%] min-h-[200px] overflow-hidden px-4 pb-4">
             <Chart
+              detailRowsOnly={Boolean(
+                displayInsight?.reporting?.totals &&
+                displayInsight.selectedFields.length &&
+                displayInsight.metrics.length,
+              )}
               tableName={tableName}
               visualizationType={activeViz.visualizationType}
               encoding={resolvedEncoding}
+              measureFormats={reportMeasureFormats(displayInsight)}
               className="h-full w-full"
             />
           </div>
@@ -667,12 +747,13 @@ function VisualizationDisplayContent({
               elevation="inset"
               className="flex min-h-0 flex-1 flex-col p-4"
             >
-              <VirtualTable
+              <SavedResultTable
+                insight={displayInsight}
+                fetchData={fetchData}
+                totalCount={totalCount}
                 columns={columns}
-                onFetchData={fetchData}
+                columnDisplayNames={columnDisplayNames}
                 columnConfigs={columnConfigs}
-                height="100%"
-                className="flex-1"
               />
             </Surface>
           </div>

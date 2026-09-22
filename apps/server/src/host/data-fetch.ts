@@ -5,8 +5,11 @@ import type {
   InsightFetchDefinition,
   InsightFetchResult,
   InsightRuntimeInput,
+  MeasureExpression,
   UUID,
 } from "@dashframe/types";
+import { reportingSchema } from "@dashframe/convex-backend/codecs";
+import { isMeasureExpression } from "@dashframe/types";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
@@ -40,6 +43,7 @@ export function compatibleInsightFingerprints(
 }
 
 const RUNTIME_FAILURE_CODES = new Set([
+  "RUNTIME_SELECTION_NOT_ALLOWED",
   "RUNTIME_FILTER_NOT_DECLARED",
   "RUNTIME_FILTER_KEY_DUPLICATE",
   "RUNTIME_FILTER_DECLARATION_INVALID",
@@ -72,12 +76,48 @@ const definitionSchema = z
   .object({
     baseTableId: z.string().min(1),
     selectedFields: z.array(z.string().min(1)),
+    reporting: reportingSchema.optional(),
     metrics: z.array(
       z.object({
         id: z.string(),
         name: z.string(),
         sourceTable: z.string(),
         columnName: z.string().optional(),
+        expression: z.custom<MeasureExpression>(isMeasureExpression).optional(),
+        filters: z
+          .array(
+            filterSchema.extend({
+              value: z.union([
+                z.string(),
+                z.number().finite(),
+                z.boolean(),
+                z.null(),
+                z.array(
+                  z.union([
+                    z.string(),
+                    z.number().finite(),
+                    z.boolean(),
+                    z.null(),
+                  ]),
+                ),
+                z.object({
+                  low: z.union([z.string(), z.number().finite()]),
+                  high: z.union([z.string(), z.number().finite()]),
+                }),
+              ]),
+            }),
+          )
+          .optional(),
+        format: z
+          .object({
+            style: z.enum(["number", "currency", "percent"]),
+            decimals: z.number().int().min(0).max(20).optional(),
+            currency: z
+              .string()
+              .regex(/^[A-Z]{3}$/)
+              .optional(),
+          })
+          .optional(),
         aggregation: z.enum([
           "sum",
           "avg",
@@ -108,6 +148,8 @@ const definitionSchema = z
   .strict();
 const runtimeSchema = z
   .object({
+    dimensions: z.array(z.string().min(1)).max(16).optional(),
+    measures: z.array(z.string().min(1)).min(1).max(16).optional(),
     filters: z.record(z.string(), z.unknown()).optional(),
     sort: z
       .array(
@@ -315,6 +357,40 @@ function applyRuntimeLimit(
   definition.limit = runtime.limit;
 }
 
+function applyRuntimeSelections(
+  definition: EffectiveInsightDefinition,
+  saved: Insight,
+  runtime: InsightRuntimeInput | undefined,
+): void {
+  for (const kind of ["dimensions", "measures"] as const) {
+    const ids = runtime?.[kind];
+    if (ids === undefined) continue;
+    const control = saved.runtimeControls?.[kind];
+    if (
+      !control ||
+      ids.length > control.maxSelected ||
+      new Set(ids).size !== ids.length ||
+      ids.some((id) => !control.allowedIds.includes(id)) ||
+      (kind === "measures" &&
+        (ids.length === 0 ||
+          ids.some((id) => !saved.metrics.some((metric) => metric.id === id))))
+    )
+      throw new Error("RUNTIME_SELECTION_NOT_ALLOWED");
+    if (kind === "measures") {
+      definition.reporting = { ...definition.reporting, measureIds: [...ids] };
+    } else {
+      definition.selectedFields = [...ids];
+      const reporting = { ...definition.reporting };
+      reporting.pivotFields = reporting.pivotFields?.filter((id) =>
+        ids.includes(id),
+      );
+      if (reporting.topN && !ids.includes(reporting.topN.fieldId))
+        delete reporting.topN;
+      definition.reporting = reporting;
+    }
+  }
+}
+
 export function applyInsightRuntime(
   saved: Insight,
   runtime: InsightRuntimeInput | undefined,
@@ -327,7 +403,10 @@ export function applyInsightRuntime(
     sorts: saved.sorts,
     joins: saved.joins,
     source: saved.source,
+    reporting: saved.reporting,
+    limit: saved.reporting?.limit,
   };
+  applyRuntimeSelections(definition, saved, runtime);
   applyRuntimeFilters(definition, saved, runtime);
   applyRuntimeSort(definition, saved, runtime);
   applyRuntimeLimit(definition, saved, runtime);

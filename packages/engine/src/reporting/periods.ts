@@ -8,18 +8,8 @@ export interface AbsoluteDateRange {
   readonly end: Date;
 }
 
-export type RelativeDateRange =
-  | { readonly type: "this_month" }
-  | { readonly type: "previous_month" }
-  | { readonly type: "this_quarter" }
-  | { readonly type: "previous_quarter" }
-  | { readonly type: "this_year" }
-  | { readonly type: "previous_year" }
-  | { readonly type: "last_complete_days"; readonly count: number }
-  | { readonly type: "last_complete_weeks"; readonly count: number }
-  | { readonly type: "last_complete_months"; readonly count: number }
-  | { readonly type: "month_to_date" }
-  | { readonly type: "year_to_date" };
+import type { RelativeDateRange } from "@dashframe/types";
+export type { RelativeDateRange } from "@dashframe/types";
 
 export interface Change {
   /** Current value minus baseline, or `null` when either value is absent. */
@@ -172,45 +162,26 @@ export const resolveRelativeDateRange = (
 const isSameInstant = (left: Date, right: Date): boolean =>
   left.getTime() === right.getTime();
 
-const isWholeUtcMonth = (range: AbsoluteDateRange): boolean =>
-  isSameInstant(range.start, startOfUtcMonth(range.start)) &&
-  isSameInstant(range.end, addUtcMonths(range.start, 1));
-
-const isWholeUtcQuarter = (range: AbsoluteDateRange): boolean =>
-  isSameInstant(range.start, startOfUtcQuarter(range.start)) &&
-  isSameInstant(range.end, addUtcMonths(range.start, 3));
-
-const isWholeUtcYear = (range: AbsoluteDateRange): boolean =>
-  isSameInstant(range.start, startOfUtcYear(range.start)) &&
-  isSameInstant(range.end, utcDate(range.start.getUTCFullYear() + 1, 0));
-
 /**
- * Returns the immediately preceding comparison period. Exact whole UTC
- * months, quarters, and years move by one calendar unit, preserving calendar
- * boundaries even when durations differ. Every other range moves backward by
- * its exact elapsed duration.
+ * Whole calendar-month spans move by the same number of months, including
+ * multi-month, quarter, and year ranges. Other spans use equal elapsed time.
  */
 export const previousPeriod = (range: AbsoluteDateRange): AbsoluteDateRange => {
   const validated = absoluteDateRange(range.start, range.end);
-  if (isWholeUtcYear(validated)) {
+  const months =
+    (validated.end.getUTCFullYear() - validated.start.getUTCFullYear()) * 12 +
+    validated.end.getUTCMonth() -
+    validated.start.getUTCMonth();
+  if (
+    months > 0 &&
+    isSameInstant(validated.start, startOfUtcMonth(validated.start)) &&
+    isSameInstant(validated.end, startOfUtcMonth(validated.end))
+  ) {
     return absoluteDateRange(
-      utcDate(validated.start.getUTCFullYear() - 1, 0),
+      addUtcMonths(validated.start, -months),
       validated.start,
     );
   }
-  if (isWholeUtcQuarter(validated)) {
-    return absoluteDateRange(
-      addUtcMonths(validated.start, -3),
-      validated.start,
-    );
-  }
-  if (isWholeUtcMonth(validated)) {
-    return absoluteDateRange(
-      addUtcMonths(validated.start, -1),
-      validated.start,
-    );
-  }
-
   const duration = validated.end.getTime() - validated.start.getTime();
   return absoluteDateRange(
     new Date(validated.start.getTime() - duration),

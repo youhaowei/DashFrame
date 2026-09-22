@@ -69,6 +69,48 @@ export type InsightSource =
   | { sourceType: "dataTable"; sourceId: UUID }
   | { sourceType: "insight"; sourceId: UUID };
 
+export type DateGrain = "day" | "week" | "month" | "quarter" | "year";
+
+export type RelativeDateRange =
+  | { readonly type: "this_month" }
+  | { readonly type: "previous_month" }
+  | { readonly type: "this_quarter" }
+  | { readonly type: "previous_quarter" }
+  | { readonly type: "this_year" }
+  | { readonly type: "previous_year" }
+  | { readonly type: "last_complete_days"; readonly count: number }
+  | { readonly type: "last_complete_weeks"; readonly count: number }
+  | { readonly type: "last_complete_months"; readonly count: number }
+  | { readonly type: "month_to_date" }
+  | { readonly type: "year_to_date" };
+
+/** Query shaping shared by every presentation of a saved Insight. */
+export interface InsightReporting {
+  comparison?: "previous_period" | "previous_year";
+  /** Measures emitted in results; omitted emits all. Dependencies remain available. */
+  measureIds?: UUID[];
+  /** Source date field and a UTC range, resolved once per report execution. */
+  dateRange?: {
+    fieldId: UUID;
+    range: RelativeDateRange | { type: "absolute"; start: string; end: string };
+  };
+  /** Calendar grouping in UTC; weeks begin Monday. Keys are selected field IDs. */
+  dateGrains?: Record<UUID, DateGrain>;
+  /** Selected dimensions presented as pivot columns rather than rows. */
+  pivotFields?: UUID[];
+  /** Recompute row, column, and grand totals from contributing source rows. */
+  totals?: boolean;
+  /** Rank a dimension over the filtered source before splitting by other dimensions. */
+  topN?: {
+    fieldId: UUID;
+    measureId: UUID;
+    count: number;
+    direction: "asc" | "desc";
+  };
+  /** Maximum groups displayed after aggregate filtering and sorting. */
+  limit?: number;
+}
+
 /**
  * Insight - A configured data view/query.
  *
@@ -98,6 +140,7 @@ export interface Insight {
   joins?: InsightJoinConfig[];
   /** Explicit, saved runtime surface. Omitted means the Insight is immutable at run time. */
   runtimeControls?: InsightRuntimeDeclaration;
+  reporting?: InsightReporting;
   createdAt: number;
   updatedAt?: number;
 }
@@ -105,7 +148,7 @@ export interface Insight {
 /** A client-safe, unsaved definition accepted by the live fetch surface. */
 export type InsightFetchDefinition = Pick<
   Insight,
-  "selectedFields" | "metrics" | "filters" | "sorts" | "joins"
+  "selectedFields" | "metrics" | "filters" | "sorts" | "joins" | "reporting"
 > & {
   /**
    * Execution source id: a DataTable id for table sources or an Insight id for
@@ -120,6 +163,8 @@ export type InsightFetchDefinition = Pick<
  * the authority for field, operator, default, and type.
  */
 export interface InsightRuntimeDeclaration {
+  dimensions?: { allowedIds: UUID[]; maxSelected: number };
+  measures?: { allowedIds: UUID[]; maxSelected: number };
   filters?: Array<{
     key: string;
     filterId: string;
@@ -133,6 +178,8 @@ export interface InsightRuntimeDeclaration {
 
 /** Values that an invocation may supply for a saved runtime declaration. */
 export interface InsightRuntimeInput {
+  dimensions?: UUID[];
+  measures?: UUID[];
   /** A null value requests an explicit clear when the saved declaration allows it. */
   filters?: Record<string, unknown>;
   sort?: Array<{ fieldId: UUID; direction: "asc" | "desc" }>;

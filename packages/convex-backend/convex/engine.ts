@@ -10,6 +10,7 @@ import {
   COMMAND_PATHS,
   ENCODING_VALUE_CHANNELS,
   isUnmodifiedDraft,
+  isMeasureExpression,
   validateVisualizationEncoding,
   type VisualizationEncoding,
 } from "@dashframe/types";
@@ -24,6 +25,7 @@ import { parseStoredDashboardState } from "./dashboardCodec";
 import {
   storedInsightDefinitionSchema,
   runtimeControlsSchema,
+  reportingSchema,
 } from "./insightCodec";
 import type { Graph } from "./graph";
 function str(value: Json | undefined, label: string): string {
@@ -148,6 +150,24 @@ function fieldReferences(field: ObjectValue): string[] {
     `field_${fieldId.replaceAll("-", "_")}`,
   ];
 }
+async function validateRuntimeSelections(graph: Graph, def: ObjectValue) {
+  const controls = record(def.runtimeControls);
+  const fields = await availableFields(graph, def);
+  const metrics = objects(def.metrics, "metrics");
+  for (const kind of ["dimensions", "measures"]) {
+    if (!controls[kind]) continue;
+    const allowed = array(record(controls[kind]).allowedIds, "allowedIds");
+    const available = kind === "dimensions" ? fields : metrics;
+    if (
+      new Set(allowed).size !== allowed.length ||
+      allowed.some((id) => !available.some((item) => item.id === id))
+    )
+      throw new Error(
+        "Runtime selection references unavailable field or measure",
+      );
+  }
+}
+
 async function validateDerived(graph: Graph, def: ObjectValue) {
   const sourceType = record(def.source).sourceType;
   const fields = await availableFields(graph, def);
@@ -194,6 +214,40 @@ async function validateDerived(graph: Graph, def: ObjectValue) {
       );
 }
 function prune(def: ObjectValue) {
+  if (def.reporting) {
+    const reporting = record(def.reporting);
+    const selected = new Set(array(def.selectedFields, "selectedFields"));
+    if (reporting.dateGrains)
+      reporting.dateGrains = Object.fromEntries(
+        Object.entries(record(reporting.dateGrains)).filter(([id]) =>
+          selected.has(id),
+        ),
+      );
+    if (reporting.pivotFields)
+      reporting.pivotFields = array(
+        reporting.pivotFields,
+        "pivotFields",
+      ).filter((id) => selected.has(id));
+    if (reporting.measureIds) {
+      const measures = array(reporting.measureIds, "measureIds").filter((id) =>
+        objects(def.metrics, "metrics").some((metric) => metric.id === id),
+      );
+      if (measures.length) reporting.measureIds = measures;
+      else delete reporting.measureIds;
+    }
+    if (reporting.topN) {
+      const top = record(reporting.topN);
+      if (
+        !top.fieldId ||
+        !selected.has(top.fieldId) ||
+        !objects(def.metrics, "metrics").some(
+          (metric) => metric.id === top.measureId,
+        )
+      )
+        delete reporting.topN;
+    }
+    def.reporting = reporting;
+  }
   if (!def.runtimeControls) return;
   const controls = record(def.runtimeControls),
     next: ObjectValue = {};
@@ -217,6 +271,14 @@ function prune(def: ObjectValue) {
     if (allowedFieldIds.length) next.sort = { allowedFieldIds, maxKeys: 1 };
   }
   if (controls.limit) next.limit = controls.limit;
+  if (controls.dimensions) next.dimensions = controls.dimensions;
+  if (controls.measures) {
+    const selection = record(controls.measures);
+    const allowedIds = array(selection.allowedIds, "allowedIds").filter((id) =>
+      objects(def.metrics, "metrics").some((metric) => metric.id === id),
+    );
+    if (allowedIds.length) next.measures = { ...selection, allowedIds };
+  }
   if (Object.keys(next).length) def.runtimeControls = next;
   else delete def.runtimeControls;
 }
@@ -230,7 +292,15 @@ function validateMetric(metric: ObjectValue, derived: boolean) {
     )
   )
     throw new Error("Invalid aggregation");
-  if (metric.aggregation !== "count" || metric.columnName !== undefined)
+  if (
+    metric.expression !== undefined &&
+    !isMeasureExpression(metric.expression)
+  )
+    throw new Error("Invalid measure expression");
+  if (
+    !metric.expression &&
+    (metric.aggregation !== "count" || metric.columnName !== undefined)
+  )
     str(metric.columnName, "columnName");
 }
 async function validateJoin(graph: Graph, join: ObjectValue) {
@@ -492,6 +562,7 @@ async function run(
       "selectFields",
       "setInsightFilter",
       "setInsightSort",
+      "setInsightReporting",
       "setInsightRuntimeControls",
       "addJoin",
       "updateJoin",
@@ -526,11 +597,45 @@ async function run(
           throw new Error("Invalid sort direction");
       }
     }
+    if (p === "setInsightReporting") {
+      if (a.reporting === undefined) delete def.reporting;
+      else {
+        const reporting = reportingSchema.parse(a.reporting);
+        const selected = new Set(array(def.selectedFields, "selectedFields"));
+        const dimensions = [
+          ...Object.keys(reporting.dateGrains ?? {}),
+          ...(reporting.pivotFields ?? []),
+        ];
+        if (
+          reporting.measureIds?.some(
+            (id) =>
+              !objects(def.metrics, "metrics").some(
+                (metric) => metric.id === id,
+              ),
+          )
+        )
+          throw new Error("Selected measure is unavailable");
+        if (dimensions.some((field) => !selected.has(field)))
+          throw new Error("Reporting dimension must be selected");
+        if (
+          reporting.topN &&
+          (!selected.has(reporting.topN.fieldId) ||
+            !objects(def.metrics, "metrics").some(
+              (metric) => metric.id === reporting.topN!.measureId,
+            ))
+        )
+          throw new Error(
+            "Top N references an unavailable dimension or measure",
+          );
+        def.reporting = a.reporting;
+      }
+    }
     if (p === "setInsightRuntimeControls") {
       if (a.runtimeControls === undefined) delete def.runtimeControls;
       else {
         runtimeControlsSchema.parse(a.runtimeControls);
         def.runtimeControls = a.runtimeControls;
+        await validateRuntimeSelections(graph, def);
         const controls = record(a.runtimeControls);
         const filters = objects(def.filters ?? [], "filters");
         if (controls.sort) {

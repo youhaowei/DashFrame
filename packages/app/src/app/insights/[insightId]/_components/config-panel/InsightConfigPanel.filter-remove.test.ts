@@ -7,9 +7,20 @@ describe("InsightConfigPanel filter removal mutation", () => {
     const insight = {
       id: "10000000-0000-4000-8000-000000000001" as UUID,
       name: "Revenue",
-      baseTableId: "10000000-0000-4000-8000-000000000002" as UUID,
+      source: {
+        sourceType: "dataTable",
+        sourceId: "10000000-0000-4000-8000-000000000002" as UUID,
+      },
       selectedFields: ["10000000-0000-4000-8000-000000000003" as UUID],
-      metrics: [],
+      metrics: [
+        {
+          id: "revenue",
+          name: "Revenue",
+          sourceTable: "10000000-0000-4000-8000-000000000002",
+          aggregation: "sum",
+          columnName: "amount",
+        },
+      ],
       filters: [
         { id: "region", field: "region", operator: "eq", value: "EMEA" },
         {
@@ -25,6 +36,8 @@ describe("InsightConfigPanel filter removal mutation", () => {
           { key: "period", filterId: "period", label: "Period" },
         ],
         limit: { min: 1, max: 100 },
+        dimensions: { allowedIds: ["country"], maxSelected: 1 },
+        measures: { allowedIds: ["revenue"], maxSelected: 1 },
       },
       createdAt: 0,
     } satisfies Insight;
@@ -56,6 +69,8 @@ describe("InsightConfigPanel filter removal mutation", () => {
             runtimeControls: {
               filters: [{ key: "period", filterId: "period", label: "Period" }],
               limit: { min: 1, max: 100 },
+              dimensions: { allowedIds: ["country"], maxSelected: 1 },
+              measures: { allowedIds: ["revenue"], maxSelected: 1 },
               sort: undefined,
             },
           },

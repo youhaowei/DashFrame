@@ -31,6 +31,58 @@ const insight: Insight = {
 };
 
 describe("applyInsightRuntime", () => {
+  it("switches declared dimensions and measures without dropping calculation dependencies or mutating the report", () => {
+    const saved: Insight = {
+      ...insight,
+      metrics: [
+        {
+          id: "orders",
+          name: "Orders",
+          sourceTable: "table-1",
+          aggregation: "count",
+        },
+        {
+          id: "rate",
+          name: "Rate",
+          sourceTable: "table-1",
+          aggregation: "count",
+          expression: {
+            kind: "binary",
+            operator: "divide",
+            left: { kind: "measure", measureId: "orders" },
+            right: { kind: "constant", value: 10 },
+          },
+        },
+      ],
+      runtimeControls: {
+        dimensions: { allowedIds: ["region", "date"], maxSelected: 1 },
+        measures: { allowedIds: ["orders", "rate"], maxSelected: 1 },
+      },
+    };
+    const original = JSON.stringify(saved);
+    const result = applyInsightRuntime(saved, {
+      dimensions: ["region"],
+      measures: ["rate"],
+    });
+    expect(result.selectedFields).toEqual(["region"]);
+    expect(result.reporting?.measureIds).toEqual(["rate"]);
+    expect(result.metrics).toHaveLength(2);
+    expect(JSON.stringify(saved)).toBe(original);
+    for (const runtime of [
+      { dimensions: ["unknown"] },
+      { dimensions: ["region", "date"] },
+      { measures: [] },
+      { measures: ["orders", "orders"] },
+      { measures: ["unknown"] },
+    ])
+      expect(() => applyInsightRuntime(saved, runtime)).toThrow(
+        "RUNTIME_SELECTION_NOT_ALLOWED",
+      );
+    expect(() =>
+      applyInsightRuntime(insight, { dimensions: ["region"] }),
+    ).toThrow("RUNTIME_SELECTION_NOT_ALLOWED");
+  });
+
   it("uses only declared keys while retaining saved field and operator", () => {
     expect(
       applyInsightRuntime(insight, { filters: { region: "CA" } }).filters,

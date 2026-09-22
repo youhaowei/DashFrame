@@ -30,3 +30,47 @@ describe("pruneRuntimeControls", () => {
     });
   });
 });
+
+it("keeps unselected dimension choices and surviving measures after removing a filter", () => {
+  const declaration = {
+    filters: [{ key: "region", filterId: "removed", label: "Region" }],
+    dimensions: { allowedIds: ["month", "channel", "country"], maxSelected: 2 },
+    measures: { allowedIds: ["revenue", "orders", "rate"], maxSelected: 3 },
+  };
+  const pruned = pruneRuntimeControls(
+    declaration,
+    [],
+    ["month", "channel", "revenue", "rate"],
+  );
+  expect(pruned?.filters).toBeUndefined();
+  expect(pruned?.dimensions).toEqual(declaration.dimensions);
+  expect(pruned?.measures).toEqual({
+    allowedIds: ["revenue", "rate"],
+    maxSelected: 3,
+  });
+  expect(declaration.measures.allowedIds).toEqual([
+    "revenue",
+    "orders",
+    "rate",
+  ]);
+});
+
+it("retains a dimension-only declaration and removes empty measure choices", () => {
+  expect(
+    pruneRuntimeControls(
+      {
+        dimensions: { allowedIds: ["country"], maxSelected: 1 },
+        measures: { allowedIds: ["removed"], maxSelected: 1 },
+      },
+      [],
+      [],
+    ),
+  ).toEqual({ dimensions: { allowedIds: ["country"], maxSelected: 1 } });
+  expect(
+    pruneRuntimeControls(
+      { measures: { allowedIds: ["removed"], maxSelected: 1 } },
+      [],
+      [],
+    ),
+  ).toBeUndefined();
+});

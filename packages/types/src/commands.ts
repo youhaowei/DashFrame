@@ -17,6 +17,7 @@ import type {
   InsightJoinConfig,
   InsightRuntimeDeclaration,
   InsightSort,
+  InsightReporting,
 } from "./insights";
 import type { InsightMetric, Metric } from "./metric";
 import type { UUID } from "./uuid";
@@ -211,6 +212,7 @@ export interface CommandPayloads {
     filters: Array<InsightFilter | TypedInsightFilter>;
   };
   SetInsightSort: { id: UUID; sorts: InsightSort[] };
+  SetInsightReporting: { id: UUID; reporting?: InsightReporting };
   SetInsightRuntimeControls: {
     id: UUID;
     runtimeControls?: InsightRuntimeDeclaration;
@@ -299,6 +301,7 @@ export const COMMAND_PATHS = {
   SelectFields: "selectFields",
   SetInsightFilter: "setInsightFilter",
   SetInsightSort: "setInsightSort",
+  SetInsightReporting: "setInsightReporting",
   SetInsightRuntimeControls: "setInsightRuntimeControls",
   AddJoin: "addJoin",
   UpdateJoin: "updateJoin",
@@ -445,6 +448,7 @@ export function buildInsightUpdateCommands(
     | "sorts"
     | "joins"
     | "runtimeControls"
+    | "reporting"
   >,
   updates: Partial<Omit<Insight, "id" | "createdAt">>,
 ): Command[] {
@@ -458,6 +462,8 @@ export function buildInsightUpdateCommands(
     }
 
     const commands: Command[] = [];
+    if (current.reporting !== undefined)
+      commands.push(cmd("SetInsightReporting", { id, reporting: undefined }));
     if (updates.name !== undefined) {
       commands.push(cmd("RenameNode", { id, name: updates.name }));
     }
@@ -506,6 +512,10 @@ export function buildInsightUpdateCommands(
     if (runtimeControls !== undefined) {
       commands.push(cmd("SetInsightRuntimeControls", { id, runtimeControls }));
     }
+    const reporting =
+      "reporting" in updates ? updates.reporting : current.reporting;
+    if (reporting !== undefined)
+      commands.push(cmd("SetInsightReporting", { id, reporting }));
     return commands;
   }
 
@@ -521,6 +531,11 @@ export function buildInsightUpdateCommands(
   }
   if (updates.filters !== undefined) {
     commands.push(cmd("SetInsightFilter", { id, filters: updates.filters }));
+  }
+  if ("reporting" in updates) {
+    commands.push(
+      cmd("SetInsightReporting", { id, reporting: updates.reporting }),
+    );
   }
   if (updates.sorts !== undefined) {
     commands.push(cmd("SetInsightSort", { id, sorts: updates.sorts }));
