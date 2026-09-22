@@ -69,16 +69,16 @@ function createMockApi(options?: {
     marginTop: passthrough("marginTop"),
     margin: passthrough("margin"),
     axis: passthrough("axis"),
-    yTickFormat: passthrough("yTickFormat"),
+    yTickFormat: vi.fn(passthrough("yTickFormat")),
     yGrid: passthrough("yGrid"),
-    xTickFormat: passthrough("xTickFormat"),
+    xTickFormat: vi.fn(passthrough("xTickFormat")),
     xGrid: passthrough("xGrid"),
     xLabel: passthrough("xLabel"),
     yLabel: passthrough("yLabel"),
     colorLabel: passthrough("colorLabel"),
     colorLegend: passthrough("colorLegend"),
-    xScale: passthrough("xScale"),
-    yScale: passthrough("yScale"),
+    xScale: vi.fn(passthrough("xScale")),
+    yScale: vi.fn(passthrough("yScale")),
     colorRange: vi.fn((colors: string[]) => ({
       __directive: "colorRange",
       colors,
@@ -290,6 +290,88 @@ describe("createVgplotRenderer color domain", () => {
   afterEach(() => {
     clearChartColorCssVars();
     vi.restoreAllMocks();
+  });
+
+  it("formats both measure axes with the same currency and percent rules as report tables", () => {
+    const api = createMockApi();
+    const renderer = createVgplotRenderer(api as never);
+    const cleanup = renderer.render(document.createElement("div"), "dot", {
+      tableName: "report",
+      encoding: { x: "metric_revenue", y: "metric_rate" },
+      measureFormats: {
+        metric_revenue: { style: "currency", currency: "EUR", decimals: 2 },
+        metric_rate: { style: "percent", decimals: 1 },
+      },
+    });
+    const currency = api.xTickFormat.mock.calls.at(-1)?.[0];
+    const percentage = api.yTickFormat.mock.calls.at(-1)?.[0];
+    if (typeof currency !== "function" || typeof percentage !== "function")
+      throw new Error("Missing saved measure axis format");
+    expect(currency(1234.5)).toBe("€1,234.50");
+    expect(percentage(0.25)).toBe("25.0%");
+    expect(percentage(null)).toBe("—");
+    cleanup();
+  });
+
+  it.each([
+    ["barY", "xScale"],
+    ["barX", "yScale"],
+  ] as const)(
+    "declares the %s category axis as band without retained transform metadata",
+    (type, scaleMethod) => {
+      const api = createMockApi();
+      const renderer = createVgplotRenderer(api as never);
+      const cleanup = renderer.render(document.createElement("div"), type, {
+        tableName: "monthly_report",
+        encoding:
+          type === "barY"
+            ? { x: "month", y: "metric_conversion_rate" }
+            : { x: "metric_conversion_rate", y: "month" },
+      });
+
+      expect(api[scaleMethod]).toHaveBeenCalledWith("band");
+      cleanup();
+    },
+  );
+
+  it.each([
+    ["barY", "xScale"],
+    ["barX", "yScale"],
+  ] as const)(
+    "keeps the %s preview category axis on the same band scale",
+    (type, scaleMethod) => {
+      const api = createMockApi();
+      const renderer = createVgplotRenderer(api as never);
+      const cleanup = renderer.render(document.createElement("div"), type, {
+        tableName: "monthly_report",
+        preview: true,
+        encoding:
+          type === "barY"
+            ? { x: "month", y: "metric_conversion_rate" }
+            : { x: "metric_conversion_rate", y: "month" },
+      });
+
+      expect(api[scaleMethod]).toHaveBeenCalledWith("band");
+      cleanup();
+    },
+  );
+
+  it("formats a horizontal revenue axis without changing category labels", () => {
+    const api = createMockApi();
+    const renderer = createVgplotRenderer(api as never);
+    const cleanup = renderer.render(document.createElement("div"), "barX", {
+      tableName: "report",
+      encoding: { x: "metric_revenue", y: "country" },
+      measureFormats: {
+        metric_revenue: { style: "currency", currency: "USD", decimals: 0 },
+      },
+    });
+    const currency = api.xTickFormat.mock.calls.at(-1)?.[0];
+    if (typeof currency !== "function")
+      throw new Error("Missing currency format");
+    expect(currency(1234)).toBe("$1,234");
+    expect(api.yTickFormat).not.toHaveBeenCalled();
+    cleanup();
   });
 
   it("groups colored line charts by the color column", () => {

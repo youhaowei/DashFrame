@@ -1,3 +1,7 @@
+import {
+  reportSortKey,
+  type PivotSortOption,
+} from "@/lib/insights/pivot-sort-options";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import { metricIdToColumnAlias } from "@dashframe/engine";
 import type {
@@ -49,6 +53,7 @@ interface SortOption {
   label: string;
   id: UUID;
   group: "Fields" | "Metrics";
+  pivotValues?: InsightSort["pivotValues"];
   icon: ReactNode;
 }
 
@@ -117,10 +122,16 @@ export function SortSection({
   fields,
   metrics,
   runtimeControls,
+  pivotOptions = [],
+  pivotError,
+  onPivotRetry,
   onChange,
   onRuntimeChange,
 }: {
   sorts: InsightSort[];
+  pivotOptions?: PivotSortOption[];
+  pivotError?: string;
+  onPivotRetry?: () => void;
   fields: CombinedField[];
   metrics: InsightMetric[];
   runtimeControls?: InsightRuntimeDeclaration;
@@ -139,24 +150,45 @@ export function SortSection({
         group: "Fields" as const,
         icon: <FieldTypeIcon type={field.type} />,
       })),
-      ...metrics.map((metric) => ({
-        value: metricIdToColumnAlias(metric.id),
-        label: metric.name,
-        id: metric.id,
-        group: "Metrics" as const,
-        icon: <Sigma className="h-3.5 w-3.5" />,
-      })),
+      ...metrics.flatMap((metric) => [
+        {
+          value: metricIdToColumnAlias(metric.id),
+          label: metric.name,
+          id: metric.id,
+          group: "Metrics" as const,
+          icon: <Sigma className="h-3.5 w-3.5" />,
+        },
+        ...pivotOptions
+          .filter((option) => option.measureId === metric.id)
+          .map((option) => ({
+            value: option.field,
+            label: option.label,
+            id: metric.id,
+            group: "Metrics" as const,
+            pivotValues: option.pivotValues,
+            icon: <Sigma className="h-3.5 w-3.5" />,
+          })),
+      ]),
     ],
-    [fields, metrics],
+    [fields, metrics, pivotOptions],
   );
   const unusedOptions = options.filter(
-    (option) => !sorts.some((sort) => sort.field === option.value),
+    (option) =>
+      !sorts.some(
+        (sort) =>
+          reportSortKey(sort) ===
+          reportSortKey({
+            field: option.value,
+            pivotValues: option.pivotValues,
+          }),
+      ),
   );
   const sortOccurrences = new Map<string, number>();
   const sortableItems: SortableSort[] = sorts.map((sort) => {
-    const occurrence = sortOccurrences.get(sort.field) ?? 0;
-    sortOccurrences.set(sort.field, occurrence + 1);
-    return { id: JSON.stringify([sort.field, occurrence]), sort };
+    const key = reportSortKey(sort);
+    const occurrence = sortOccurrences.get(key) ?? 0;
+    sortOccurrences.set(key, occurrence + 1);
+    return { id: JSON.stringify([key, occurrence]), sort };
   });
   const handleReorder = useCallback(
     (items: SortableSort[]) => onChange(items.map((item) => item.sort)),
@@ -191,7 +223,11 @@ export function SortSection({
   ) => {
     const candidate = update(runtimeControlsRef.current);
     const next =
-      candidate.filters || candidate.sort || candidate.limit
+      candidate.filters ||
+      candidate.sort ||
+      candidate.limit ||
+      candidate.dimensions ||
+      candidate.measures
         ? candidate
         : undefined;
     const nextSignature = stableValueSignature(next ?? null);
@@ -245,7 +281,16 @@ export function SortSection({
     });
   };
   const optionByValue = useMemo(
-    () => new Map(options.map((option) => [option.value, option])),
+    () =>
+      new Map(
+        options.map((option) => [
+          reportSortKey({
+            field: option.value,
+            pivotValues: option.pivotValues,
+          }),
+          option,
+        ]),
+      ),
     [options],
   );
   const sortEnabled = viewerSortEnabled || Boolean(runtimeDraft?.sort);
@@ -259,13 +304,24 @@ export function SortSection({
           gap={3}
           unstyledItems
           renderItem={(item, index, { dragHandle }) => {
-            const option = optionByValue.get(item.sort.field);
+            const option = optionByValue.get(reportSortKey(item.sort));
+            const label =
+              option?.label ??
+              [
+                metrics.find(
+                  (metric) =>
+                    metricIdToColumnAlias(metric.id) === item.sort.field,
+                )?.name ?? item.sort.field,
+                ...(item.sort.pivotValues ?? []).map(({ value }) =>
+                  value === null ? "(empty)" : String(value),
+                ),
+              ].join(" · ");
             const ascending = item.sort.direction === "asc";
             return (
               <WorkbenchChip
                 dragHandle={dragHandle}
                 icon={option?.icon ?? <Sigma className="h-3.5 w-3.5" />}
-                title={option?.label ?? item.sort.field}
+                title={label}
                 trailing={
                   <button
                     type="button"
@@ -295,7 +351,7 @@ export function SortSection({
                     )}
                   </button>
                 }
-                removeLabel={`Remove sort ${option?.label ?? item.sort.field}`}
+                removeLabel={`Remove sort ${label}`}
                 onRemove={() =>
                   onChange(sorts.filter((_, sortIndex) => sortIndex !== index))
                 }
@@ -324,6 +380,23 @@ export function SortSection({
             />
             <CommandList>
               <CommandEmpty>No result columns available.</CommandEmpty>
+              {pivotError && (
+                <p
+                  role="alert"
+                  className="px-3 py-2 text-xs text-palette-danger"
+                >
+                  {pivotError}
+                  {onPivotRetry && (
+                    <button
+                      type="button"
+                      className="ml-2 underline"
+                      onClick={onPivotRetry}
+                    >
+                      Retry pivot columns
+                    </button>
+                  )}
+                </p>
+              )}
               {(["Fields", "Metrics"] as const).map((group) => {
                 const groupOptions = unusedOptions.filter(
                   (option) => option.group === group,
@@ -332,13 +405,25 @@ export function SortSection({
                   <CommandGroup key={group} heading={group}>
                     {groupOptions.map((option) => (
                       <CommandItem
-                        key={option.value}
-                        value={option.value}
+                        key={reportSortKey({
+                          field: option.value,
+                          pivotValues: option.pivotValues,
+                        })}
+                        value={reportSortKey({
+                          field: option.value,
+                          pivotValues: option.pivotValues,
+                        })}
                         keywords={[option.label]}
                         onSelect={() => {
                           onChange([
                             ...sorts,
-                            { field: option.value, direction: "asc" },
+                            {
+                              field: option.value,
+                              direction: "asc",
+                              ...(option.pivotValues
+                                ? { pivotValues: option.pivotValues }
+                                : {}),
+                            },
                           ]);
                           setAddOpen(false);
                         }}

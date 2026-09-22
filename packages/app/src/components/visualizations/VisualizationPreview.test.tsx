@@ -13,24 +13,42 @@ import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
  * Scope: VisualizationPreview.tsx only.
  */
 import { render, screen } from "@testing-library/react";
+import type { UseInsightPaginationOptions } from "@/hooks/useInsightPagination";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { VisualizationPreview } from "./VisualizationPreview";
 
+type PaginationMockResult = {
+  dataFrameId?: string | null;
+  isReady?: boolean;
+  error?: string | null;
+  resolvedFields: import("@dashframe/types").Field[];
+};
+
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const { mockUseInsightView, mockUseInsightPagination, mockResolveEncoding } =
-  vi.hoisted(() => ({
-    mockUseInsightView: vi.fn(),
-    mockUseInsightPagination: vi.fn(() => ({ resolvedFields: [] })),
-    mockResolveEncoding: vi.fn().mockReturnValue({}),
-  }));
+const {
+  mockUseInsightView,
+  mockUseInsightPagination,
+  mockResolveEncoding,
+  mockChart,
+} = vi.hoisted(() => ({
+  mockUseInsightView: vi.fn(),
+  mockUseInsightPagination: vi.fn(
+    (_options?: UseInsightPaginationOptions): PaginationMockResult => ({
+      resolvedFields: [],
+    }),
+  ),
+  mockResolveEncoding: vi.fn().mockReturnValue({}),
+  mockChart: vi.fn(),
+}));
 
 vi.mock("@/hooks/useInsightView", () => ({
   useInsightView: () => mockUseInsightView(),
 }));
 
 vi.mock("@/hooks/useInsightPagination", () => ({
-  useInsightPagination: () => mockUseInsightPagination(),
+  useInsightPagination: (options: UseInsightPaginationOptions) =>
+    mockUseInsightPagination(options),
 }));
 
 const { mockUseInsight, mockUseDataTables } = vi.hoisted(() => ({
@@ -64,7 +82,10 @@ vi.mock("@dashframe/engine", async (importOriginal) => {
 
 // Chart is a heavy dependency — stub it out so tests focus on guard logic.
 vi.mock("@dashframe/visualization", () => ({
-  Chart: () => <div data-testid="chart" />,
+  Chart: (props: { tableName: string; detailRowsOnly: boolean }) => {
+    mockChart(props);
+    return <div data-testid="chart" />;
+  },
 }));
 
 // ── Shared fixture ───────────────────────────────────────────────────────────
@@ -128,6 +149,81 @@ it("renders from a supplied materialization without starting preview hooks", () 
   expect(mockUseDataTables).not.toHaveBeenCalled();
   expect(mockUseInsightView).not.toHaveBeenCalled();
   expect(mockUseInsightPagination).not.toHaveBeenCalled();
+  expect(screen.getByTestId("chart")).toBeTruthy();
+});
+
+it("requests and renders a presentation frame for a supplied metric materialization", () => {
+  const fieldId = "10000000-0000-4000-8000-000000000001";
+  const metricId = "20000000-0000-4000-8000-000000000001";
+  const metricInsight = {
+    ...insight,
+    selectedFields: [fieldId],
+    metrics: [
+      {
+        id: metricId,
+        name: "Revenue",
+        sourceTable: "t1",
+        columnName: "revenue",
+        aggregation: "sum",
+      },
+    ],
+    reporting: { totals: true },
+  } as import("@dashframe/types").Insight;
+  const metricVisualization = {
+    ...visualization,
+    encoding: { x: `field:${fieldId}`, y: `metric:${metricId}` },
+  } as import("@dashframe/types").Visualization;
+  const metricTable = {
+    ...dataTable,
+    fields: [
+      {
+        id: fieldId,
+        tableId: "t1",
+        name: "Product",
+        columnName: "product",
+        type: "string",
+      },
+    ],
+  } as import("@dashframe/types").DataTable;
+  mockResolveEncoding.mockReturnValueOnce({
+    x: `field_${fieldId.replaceAll("-", "_")}`,
+    y: `metric_${metricId.replaceAll("-", "_")}`,
+  });
+  mockUseInsightPagination.mockReturnValueOnce({
+    dataFrameId: "frame-presentation",
+    isReady: true,
+    error: null,
+    resolvedFields: metricTable.fields,
+  });
+
+  render(
+    <VisualizationPreview
+      visualization={metricVisualization}
+      materialization={{
+        insight: metricInsight,
+        dataTable: metricTable,
+        dataFrameId: "frame-canonical",
+        isReady: true,
+        error: null,
+        resolvedFields: metricTable.fields,
+        runtime: { limit: 1 },
+      }}
+    />,
+  );
+
+  expect(mockUseInsightPagination).toHaveBeenCalledWith({
+    insight: metricInsight,
+    showModelPreview: false,
+    enabled: true,
+    runtime: { limit: 1 },
+    presentation: { dimensions: [fieldId] },
+  });
+  expect(mockChart).toHaveBeenCalledWith(
+    expect.objectContaining({
+      tableName: "frame-presentation",
+      detailRowsOnly: false,
+    }),
+  );
   expect(screen.getByTestId("chart")).toBeTruthy();
 });
 

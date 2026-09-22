@@ -6,6 +6,7 @@ import { Breadcrumb } from "@dashframe/ui";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
+import { DashboardControlsManager } from "@/components/dashboards/DashboardControlsManager";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
 import {
   resolveInsightAvailableFields,
@@ -254,6 +255,19 @@ export default function DashboardDetailContent({
     setSelectedVizId("");
   };
 
+  const handleSaveControls = async (
+    controls: NonNullable<typeof dashboard.controls>,
+  ) => {
+    await commitBatch({
+      commands: [
+        cmd("SetDashboardControls", {
+          dashboardId: dashboardId as UUID,
+          controls,
+        }),
+      ],
+    });
+  };
+
   return (
     <div className="flex h-full flex-col">
       <ArtifactPageHeader
@@ -289,6 +303,16 @@ export default function DashboardDetailContent({
                 icon={EditIcon}
                 label="Edit report"
                 onClick={() => setIsEditable(true)}
+              />
+            )}
+            {isEditable && questionMetadataAvailable && (
+              <DashboardControlsManager
+                controls={dashboard.controls ?? []}
+                items={dashboard.items}
+                visualizations={visualizations}
+                insights={insights}
+                dataTables={dataTables}
+                onSave={handleSaveControls}
               />
             )}
             <Button

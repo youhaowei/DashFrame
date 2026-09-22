@@ -11,12 +11,22 @@ import type {
 } from "@dashframe/types";
 import { cmd } from "@dashframe/types";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  beforeEach,
+  afterEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
-const { commitBatch, metricEditError } = vi.hoisted(() => ({
+const { commitBatch, metricEditError, removalError } = vi.hoisted(() => ({
   commitBatch: vi.fn(),
   metricEditError: vi.fn(),
+  removalError: vi.fn(),
 }));
+
+vi.mock("sonner", () => ({ toast: { error: removalError, success: vi.fn() } }));
 
 const tableId = "10000000-0000-4000-8000-000000000002" as UUID;
 const revenue: InsightMetric = {
@@ -121,7 +131,19 @@ vi.mock("./MetricsSection", () => ({
 
 import { InsightConfigPanel } from "./InsightConfigPanel";
 
-const table = { id: tableId, name: "Orders", fields: [] } as DataTable;
+const savedMetric = {
+  id: "saved-orders",
+  name: "Saved orders",
+  tableId,
+  aggregation: "count" as const,
+  format: { style: "number" as const, decimals: 0 },
+};
+const table = {
+  id: tableId,
+  name: "Orders",
+  fields: [],
+  metrics: [savedMetric],
+} as DataTable;
 const insight = {
   id: "10000000-0000-4000-8000-000000000001" as UUID,
   name: "Revenue",
@@ -153,8 +175,66 @@ function deferred() {
 
 describe("InsightConfigPanel metric saves", () => {
   beforeEach(() => {
+    vi.stubGlobal("PointerEvent", MouseEvent);
     commitBatch.mockReset();
     metricEditError.mockReset();
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("imports a library measure and updates an explicit output selection atomically", async () => {
+    commitBatch.mockResolvedValue({});
+    renderPanel({
+      ...insight,
+      reporting: { measureIds: [revenue.id], totals: true },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reuse measure · 0" }));
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Saved orders" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply", exact: true }));
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
+    const commands = commitBatch.mock.calls[0][0].commands;
+    expect(commands).toHaveLength(2);
+    const imported = commands[0].args.metric;
+    expect(imported).toMatchObject({
+      name: savedMetric.name,
+      sourceTable: tableId,
+      format: savedMetric.format,
+    });
+    expect(imported.id).not.toBe(savedMetric.id);
+    expect(commands[1]).toEqual(
+      cmd("SetInsightReporting", {
+        id: insight.id,
+        reporting: { measureIds: [revenue.id, imported.id], totals: true },
+      }),
+    );
+  });
+
+  it("saves a reusable source definition without mutating the report", async () => {
+    commitBatch.mockResolvedValue({});
+    renderPanel();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save measure to source · 0" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Revenue", exact: true }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply", exact: true }));
+    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
+    const commands = commitBatch.mock.calls[0][0].commands;
+    expect(commands).toHaveLength(1);
+    expect(commands[0].args).toMatchObject({
+      nodeId: tableId,
+      metric: {
+        name: "Revenue",
+        tableId,
+        columnName: "amount",
+        aggregation: "sum",
+      },
+    });
+    expect(commands[0].args.metric.id).not.toBe(revenue.id);
+    expect(commands[0].args.metric.sourceTable).toBeUndefined();
   });
 
   it("keeps an earlier metric edit when another metric rebuilds the list", async () => {
@@ -170,12 +250,15 @@ describe("InsightConfigPanel metric saves", () => {
     first.resolve();
 
     await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
-    expect(commitBatch.mock.calls[1][0].commands).toContainEqual(
-      cmd("AddMetric", {
-        nodeId: insight.id,
-        metric: { ...revenue, name: "Net revenue" },
+    expect(commitBatch.mock.calls[1][0].commands).toEqual([
+      cmd("SetInsightMetrics", {
+        id: insight.id,
+        metrics: [
+          { ...revenue, name: "Net revenue" },
+          { ...orders, aggregation: "count", columnName: undefined },
+        ],
       }),
-    );
+    ]);
   });
 
   it("does not resend an earlier metric add with the next save", async () => {
@@ -238,9 +321,16 @@ describe("InsightConfigPanel metric saves", () => {
     first.resolve();
 
     await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(3));
-    expect(commitBatch.mock.calls[1][0].commands).toContainEqual(
-      cmd("AddMetric", { nodeId: insight.id, metric: margin }),
-    );
+    expect(commitBatch.mock.calls[1][0].commands).toEqual([
+      cmd("SetInsightMetrics", {
+        id: insight.id,
+        metrics: [
+          { ...revenue, name: "Net revenue" },
+          { ...orders, aggregation: "count", columnName: undefined },
+          margin,
+        ],
+      }),
+    ]);
     expect(commitBatch.mock.calls[2][0].commands).toEqual([
       cmd("RemoveMetric", { nodeId: insight.id, metricId: margin.id }),
     ]);
@@ -292,6 +382,9 @@ describe("InsightConfigPanel metric saves", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove margin" }));
     await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
     first.reject(new Error("write failed"));
+    await waitFor(() =>
+      expect(removalError).toHaveBeenCalledWith("write failed"),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Rename revenue" }));
 
     await waitFor(() => expect(commitBatch).toHaveBeenCalledTimes(2));
@@ -326,5 +419,22 @@ describe("InsightConfigPanel metric saves", () => {
       new Error("Metric no longer exists"),
     );
     expect(commitBatch).toHaveBeenCalledOnce();
+  });
+  it("explains dependent calculations before submitting a rejected removal", async () => {
+    renderPanel({
+      ...insight,
+      metrics: [
+        { ...revenue, expression: { kind: "measure", measureId: margin.id } },
+        orders,
+        margin,
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Remove margin" }));
+    await waitFor(() =>
+      expect(removalError).toHaveBeenCalledWith(
+        'Cannot remove "Margin" because "Revenue" depends on it. Remove or update "Revenue" first.',
+      ),
+    );
+    expect(commitBatch).not.toHaveBeenCalled();
   });
 });

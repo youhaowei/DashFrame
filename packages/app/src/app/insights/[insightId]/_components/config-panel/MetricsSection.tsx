@@ -31,6 +31,10 @@ import {
 } from "@dashframe/engine";
 import { Sigma } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  MeasureCalculationFields,
+  type MeasureOptions,
+} from "./MeasureCalculationFields";
 import { metricColumnNameForSave } from "./metric-formula";
 import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
@@ -78,11 +82,17 @@ export function metricFieldLabel(
   return label && !isGeneratedColumnLabel(label) ? label : undefined;
 }
 
-function metricDescription(
+export function metricDescription(
   metric: InsightMetric,
   fields: readonly MetricField[],
   columnDisplayNames: ColumnDisplayNames,
 ): string {
+  if (metric.expression) {
+    return metric.expression.kind === "binary" &&
+      metric.expression.operator === "divide"
+      ? "ratio"
+      : "formula";
+  }
   if (metric.aggregation === "count" && !metric.columnName) return "count";
   const resolved = metricFieldLabel(
     metric.columnName,
@@ -121,6 +131,7 @@ function autoMetricName(
 }
 
 function MetricEditor({
+  metrics,
   metric,
   dataTable,
   columnDisplayNames = {},
@@ -128,6 +139,7 @@ function MetricEditor({
   onSave,
   onRemove,
 }: {
+  metrics: InsightMetric[];
   metric?: InsightMetric;
   dataTable: DataTable;
   /** Result column labels, used only to name a metric's column. */
@@ -136,6 +148,11 @@ function MetricEditor({
   onSave: (metric: InsightMetric) => Promise<void> | void;
   onRemove?: () => void;
 }) {
+  const [options, setOptions] = useState<MeasureOptions>({
+    expression: metric?.expression,
+    filters: metric?.filters,
+    format: metric?.format,
+  });
   const [open, setOpen] = useState(false);
   const [aggregation, setAggregation] = useState<AggregationType>(
     metric?.aggregation ?? "count",
@@ -144,6 +161,9 @@ function MetricEditor({
   const [nameDraft, setNameDraft] = useState(metric?.name ?? "");
   const [nameEdited, setNameEdited] = useState(Boolean(metric));
   const [error, setError] = useState<string | null>(null);
+  const [measureValidationError, setMeasureValidationError] = useState<
+    string | null
+  >(null);
   const { setPending, isPending } = useSaveDismissGuard();
   const [isSaving, setIsSaving] = useSavingFlag(setPending);
   const fields = useMemo(
@@ -160,14 +180,20 @@ function MetricEditor({
   const name = nameEdited
     ? nameDraft
     : autoMetricName(aggregation, columnName, dataTable);
-  const needsField = aggregation !== "count";
+  const needsField = !options.expression && aggregation !== "count";
 
   const reset = () => {
+    setOptions({
+      expression: metric?.expression,
+      filters: metric?.filters,
+      format: metric?.format,
+    });
     setAggregation(metric?.aggregation ?? "count");
     setColumnName(metric?.columnName ?? "");
     setNameDraft(metric?.name ?? "");
     setNameEdited(Boolean(metric));
     setError(null);
+    setMeasureValidationError(null);
   };
   const close = () => {
     if (isPending()) return;
@@ -176,6 +202,10 @@ function MetricEditor({
   };
   const save = async () => {
     if (!name.trim() || (needsField && !columnName)) return;
+    if (measureValidationError) {
+      setError(measureValidationError);
+      return;
+    }
     setIsSaving(true);
     setError(null);
     try {
@@ -185,6 +215,7 @@ function MetricEditor({
         sourceTable: metric?.sourceTable ?? dataTable.id,
         columnName: metricColumnNameForSave(aggregation, columnName),
         aggregation,
+        ...options,
       });
       setOpen(false);
     } catch (cause) {
@@ -245,62 +276,74 @@ function MetricEditor({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <div className="flex gap-2">
-          <Select
-            value={aggregation}
-            onValueChange={(value) => {
-              const next = value as AggregationType;
-              setAggregation(next);
-              const nextFields =
-                next === "sum" || next === "avg"
-                  ? fields.filter(isNumericMetricField)
-                  : fields;
-              if (
-                next === "count" ||
-                !nextFields.some((field) => field.columnName === columnName)
-              ) {
-                setColumnName("");
-              }
-            }}
-          >
-            <SelectTrigger aria-label="Aggregation" className="w-32">
-              <SelectValue>
-                {AGGREGATIONS.find((item) => item.value === aggregation)
-                  ?.label ?? aggregation}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {AGGREGATIONS.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={columnName}
-            onValueChange={(value) => {
-              setColumnName(value ?? "");
-            }}
-            disabled={!needsField}
-          >
-            <SelectTrigger aria-label="Column" className="min-w-0 flex-1">
-              <SelectValue placeholder={needsField ? "Column" : "All rows"}>
-                {columnName
-                  ? (metricFieldLabel(columnName, fields, columnDisplayNames) ??
-                    columnName)
-                  : undefined}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {filteredFields.map((field) => (
-                <SelectItem key={field.id} value={field.columnName!}>
-                  {field.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <MeasureCalculationFields
+          value={options}
+          onChange={setOptions}
+          metrics={metrics.filter((candidate) => candidate.id !== metric?.id)}
+          dataTable={dataTable}
+          onValidationErrorChange={setMeasureValidationError}
+        />
+        {!options.expression && (
+          <div className="flex gap-2">
+            <Select
+              value={aggregation}
+              onValueChange={(value) => {
+                const next = value as AggregationType;
+                setAggregation(next);
+                const nextFields =
+                  next === "sum" || next === "avg"
+                    ? fields.filter(isNumericMetricField)
+                    : fields;
+                if (
+                  next === "count" ||
+                  !nextFields.some((field) => field.columnName === columnName)
+                ) {
+                  setColumnName("");
+                }
+              }}
+            >
+              <SelectTrigger aria-label="Aggregation" className="w-32">
+                <SelectValue>
+                  {AGGREGATIONS.find((item) => item.value === aggregation)
+                    ?.label ?? aggregation}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {AGGREGATIONS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={columnName}
+              onValueChange={(value) => {
+                setColumnName(value ?? "");
+              }}
+              disabled={!needsField}
+            >
+              <SelectTrigger aria-label="Column" className="min-w-0 flex-1">
+                <SelectValue placeholder={needsField ? "Column" : "All rows"}>
+                  {columnName
+                    ? (metricFieldLabel(
+                        columnName,
+                        fields,
+                        columnDisplayNames,
+                      ) ?? columnName)
+                    : undefined}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {filteredFields.map((field) => (
+                  <SelectItem key={field.id} value={field.columnName!}>
+                    {field.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor={`metric-name-${metric?.id ?? "new"}`}>Name</Label>
           <Input
@@ -328,6 +371,12 @@ function MetricEditor({
               !name.trim() ||
               (needsField && !columnName) ||
               (metric !== undefined &&
+                JSON.stringify(options) ===
+                  JSON.stringify({
+                    expression: metric.expression,
+                    filters: metric.filters,
+                    format: metric.format,
+                  }) &&
                 name.trim() === metric.name &&
                 aggregation === metric.aggregation &&
                 metricColumnNameForSave(aggregation, columnName) ===
@@ -376,6 +425,7 @@ export function MetricsSection({
           unstyledItems
           renderItem={(item, _index, { dragHandle }) => (
             <MetricEditor
+              metrics={metrics}
               metric={item.metric}
               dataTable={dataTable}
               columnDisplayNames={columnDisplayNames}
@@ -387,6 +437,7 @@ export function MetricsSection({
         />
       )}
       <MetricEditor
+        metrics={metrics}
         dataTable={dataTable}
         columnDisplayNames={columnDisplayNames}
         onSave={onAdd}

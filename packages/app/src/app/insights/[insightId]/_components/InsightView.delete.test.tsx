@@ -25,10 +25,51 @@ import {
   resolveNewChartTarget,
   resolvePendingNewChartTarget,
   shouldMaterializeChartSuggestion,
+  shouldMaterializeReportResult,
   shouldClearSavedDraft,
 } from "./InsightView";
 
 describe("buildInsightModelMetadata", () => {
+  it("keeps unselected declared dimensions in the workbench switcher catalog", () => {
+    const tableId = "10000000-0000-4000-8000-000000000010" as UUID;
+    const dateId = "10000000-0000-4000-8000-000000000011" as UUID;
+    const channelId = "10000000-0000-4000-8000-000000000012" as UUID;
+    const countryId = "10000000-0000-4000-8000-000000000013" as UUID;
+    const table = {
+      id: tableId,
+      name: "Orders",
+      dataFrameId: "orders-frame",
+      fields: [
+        { id: dateId, tableId, name: "Date", type: "date" },
+        { id: channelId, tableId, name: "Channel", type: "string" },
+        { id: countryId, tableId, name: "Country", type: "string" },
+      ],
+    } as DataTable;
+    const report = {
+      id: "10000000-0000-4000-8000-000000000014",
+      name: "Orders report",
+      source: { sourceType: "dataTable", sourceId: tableId },
+      selectedFields: [dateId, channelId],
+      metrics: [],
+      joins: [],
+      runtimeControls: {
+        dimensions: {
+          allowedIds: [dateId, channelId, countryId],
+          maxSelected: 2,
+        },
+      },
+      createdAt: 0,
+    } as Insight;
+
+    const metadata = buildInsightModelMetadata(report, table, [table]);
+
+    expect(metadata.fields.map((field) => field.id)).toEqual([
+      dateId,
+      channelId,
+      countryId,
+    ]);
+  });
+
   it("labels an unselected repeat-join metric source without materializing rows", () => {
     const ordersId = "10000000-0000-4000-8000-000000000001" as UUID;
     const usersId = "10000000-0000-4000-8000-000000000002" as UUID;
@@ -210,6 +251,24 @@ describe("resolveSuggestionDimensionFieldIds", () => {
 });
 
 describe("buildChartSuggestionInsight", () => {
+  it("clears report shaping when requesting raw chart-suggestion rows", () => {
+    const report: Insight = {
+      id: "report",
+      name: "Report",
+      source: { sourceType: "dataTable", sourceId: "t" },
+      selectedFields: [],
+      metrics: [],
+      createdAt: 0,
+      reporting: {
+        comparison: "previous_period",
+        totals: true,
+        pivotFields: ["channel"],
+      },
+    };
+    expect(buildChartSuggestionInsight(report).reporting).toBeUndefined();
+    expect(report.reporting?.comparison).toBe("previous_period");
+  });
+
   it("preserves an Insight-backed source for composed detail views", () => {
     const source = {
       sourceType: "insight" as const,
@@ -442,4 +501,18 @@ describe("InsightView saved-visualization delete confirmation", () => {
       );
     });
   });
+});
+
+it("keeps canonical pivot results enabled while authoring a new chart", () => {
+  const report = { reporting: { pivotFields: ["channel"] } } as Insight;
+  expect(
+    shouldMaterializeReportResult({ kind: "chart", chartType: "barY" }, report),
+  ).toBe(true);
+  expect(
+    shouldMaterializeReportResult(
+      { kind: "chart", chartType: "barY" },
+      { ...report, reporting: undefined },
+    ),
+  ).toBe(false);
+  expect(shouldMaterializeReportResult({ kind: "table" }, report)).toBe(true);
 });

@@ -1,3 +1,13 @@
+import { usePivotSortOptions } from "@/hooks/usePivotSortOptions";
+import { ReportSwitchers } from "@/components/visualizations/ReportSwitchers";
+import {
+  reportPresentation,
+  reportEncoding,
+} from "@/lib/insights/report-runtime";
+import {
+  ReportDataTable,
+  hasReportTable,
+} from "@/components/visualizations/ReportDataTable";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { AppLayout } from "@/components/layouts/AppLayout";
@@ -44,6 +54,7 @@ import type {
   Field,
   Insight,
   InsightMetric,
+  InsightRuntimeInput,
   UUID,
   VegaLiteSpec,
   Visualization,
@@ -76,6 +87,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  ErrorState,
 } from "@wystack/ui-react";
 import {
   DashboardIcon,
@@ -125,6 +137,16 @@ export function requestSavedVisualizationDeletion(
   });
 }
 
+export function shouldMaterializeReportResult(
+  activeView: InsightCanvasView,
+  insight: Insight,
+): boolean {
+  return (
+    activeView.kind !== "chart" ||
+    Boolean(insight.reporting?.pivotFields?.length)
+  );
+}
+
 /**
  * Chart suggestions inspect the complete joined result shape, independently of
  * the fields selected by the currently saved visualization. The definition is
@@ -138,6 +160,7 @@ export function buildChartSuggestionInsight(insight: Insight): Insight {
     metrics: [],
     filters: undefined,
     sorts: undefined,
+    reporting: undefined,
   };
 }
 
@@ -199,11 +222,16 @@ export function buildInsightModelMetadata(
 export const MAX_DOT_ROW_COUNT = 10_000;
 
 /** One rendered result supplies every saved-chart encoding input. */
-export function useInsightEncodingMetadata(insight: Insight, enabled: boolean) {
+export function useInsightEncodingMetadata(
+  insight: Insight,
+  enabled: boolean,
+  runtime?: InsightRuntimeInput,
+) {
   return useInsightPagination({
     insight,
     showModelPreview: false,
     enabled,
+    ...(runtime ? { runtime } : {}),
   });
 }
 
@@ -710,12 +738,35 @@ function getVisualizationEncodingSignature(
 
 type InsightPaginationResult = ReturnType<typeof useInsightPagination>;
 
+/** Shared error element so the workbench's table and chart halves agree. */
+export function InsightResultErrorState({
+  error,
+  onRetry,
+  className,
+}: {
+  error: string;
+  onRetry?: () => void;
+  className?: string;
+}) {
+  return (
+    <ErrorState
+      title="Couldn't load data"
+      description={error}
+      size="sm"
+      className={className}
+      retryAction={onRetry ? { label: "Retry", onClick: onRetry } : undefined}
+    />
+  );
+}
+
 export function InsightResultTable({
+  insight,
   result,
   collapsed = false,
   onToggleCollapsed,
   className,
 }: {
+  insight?: Insight;
   result: InsightPaginationResult;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
@@ -726,6 +777,8 @@ export function InsightResultTable({
     totalCount,
     fieldCount,
     isReady,
+    error,
+    retry,
     columnDisplayNames,
     columnTypeMap,
   } = result;
@@ -744,9 +797,50 @@ export function InsightResultTable({
     });
   }, [columnDisplayNames, columnTypeMap]);
 
-  const summary = isReady
-    ? `${(totalCount || 0).toLocaleString()} rows • ${(fieldCount || 0).toLocaleString()} fields`
-    : "Loading data...";
+  // A failed materialization stays `!isReady` forever: show its message rather
+  // than "Loading data..." so this half agrees with the chart's error state.
+  let summary = "Loading data...";
+  if (isReady) {
+    summary = `${(totalCount || 0).toLocaleString()} rows • ${(fieldCount || 0).toLocaleString()} fields`;
+  } else if (error) {
+    summary = "Couldn't load data";
+  }
+
+  // Mount the table only when the pagination hook is ready (per its contract):
+  // mounting earlier lets the initial fetch race the hook's own init-driven
+  // fetchData identity changes.
+  let tableBody: ReactNode = null;
+  if (isReady) {
+    tableBody = (
+      <div className="absolute inset-0">
+        {hasReportTable(insight) ? (
+          <ReportDataTable
+            insight={insight}
+            fetchData={fetchData}
+            totalCount={totalCount}
+            columnDisplayNames={columnDisplayNames}
+          />
+        ) : (
+          <VirtualTable
+            onFetchData={fetchData}
+            columnConfigs={columnConfigs}
+            height="100%"
+            compact
+          />
+        )}
+      </div>
+    );
+  } else if (error) {
+    tableBody = (
+      <div className="absolute inset-0 overflow-auto">
+        <InsightResultErrorState
+          error={error}
+          onRetry={retry}
+          className="min-h-full"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
@@ -772,32 +866,18 @@ export function InsightResultTable({
         inert={collapsed}
         aria-hidden={collapsed}
       >
-        {/* Mount only when the pagination hook is ready (per its contract):
-              mounting earlier lets the initial fetch race the hook's own
-              init-driven fetchData identity changes. */}
-        {isReady && (
-          <div className="absolute inset-0">
-            <VirtualTable
-              onFetchData={fetchData}
-              columnConfigs={columnConfigs}
-              height="100%"
-              compact
-            />
-          </div>
-        )}
+        {tableBody}
       </div>
     </div>
   );
 }
 
 function InsightMoreActionsMenu({
-  onInspectDataFrames,
   savedChart,
   onDuplicateChart,
   onDeleteChart,
 }: {
-  onInspectDataFrames: () => void;
-  savedChart?: { id: UUID; name: string };
+  savedChart: { id: UUID; name: string };
   onDuplicateChart: (id: UUID) => void;
   onDeleteChart: (id: UUID, name: string) => void;
 }) {
@@ -818,22 +898,15 @@ function InsightMoreActionsMenu({
         }
       />
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onInspectDataFrames}>
-          Inspect data frames
+        <DropdownMenuItem onClick={() => onDuplicateChart(savedChart.id)}>
+          Duplicate chart
         </DropdownMenuItem>
-        {savedChart && (
-          <>
-            <DropdownMenuItem onClick={() => onDuplicateChart(savedChart.id)}>
-              Duplicate chart
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-palette-danger"
-              onClick={() => onDeleteChart(savedChart.id, savedChart.name)}
-            >
-              Delete chart
-            </DropdownMenuItem>
-          </>
-        )}
+        <DropdownMenuItem
+          className="text-palette-danger"
+          onClick={() => onDeleteChart(savedChart.id, savedChart.name)}
+        >
+          Delete chart
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -844,10 +917,12 @@ function InsightMoreActionsMenu({
  * card above the result table; the data view shows the table alone.
  */
 function InsightCanvasWell({
+  insight,
   result,
   showChart,
   children,
 }: {
+  insight?: Insight;
   result: InsightPaginationResult;
   showChart: boolean;
   children: ReactNode;
@@ -866,6 +941,7 @@ function InsightCanvasWell({
             {children}
           </div>
           <InsightResultTable
+            insight={insight}
             result={result}
             collapsed={resultCollapsed}
             onToggleCollapsed={() =>
@@ -879,23 +955,45 @@ function InsightCanvasWell({
           />
         </>
       ) : (
-        <InsightResultTable result={result} className="flex-1" />
+        <InsightResultTable
+          insight={insight}
+          result={result}
+          className="flex-1"
+        />
       )}
     </div>
   );
 }
 
 function EphemeralChartCanvas({
+  detailRowsOnly,
   tableName,
   suggestion,
   isLoading,
+  error,
+  onRetry,
   onRegenerate,
 }: {
   tableName?: string;
+  detailRowsOnly?: boolean;
   suggestion?: ChartSuggestion;
   isLoading: boolean;
+  error?: string | null;
+  onRetry?: () => void;
   onRegenerate: () => void;
 }) {
+  // A failed suggestion materialization never becomes ready — show the error
+  // so this half agrees with the result table below instead of loading forever.
+  if (error) {
+    return (
+      <InsightResultErrorState
+        error={error}
+        onRetry={onRetry}
+        className="h-full"
+      />
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-neutral-fg-subtle">
@@ -921,6 +1019,7 @@ function EphemeralChartCanvas({
 
   return (
     <Chart
+      detailRowsOnly={detailRowsOnly}
       tableName={tableName}
       visualizationType={suggestion.chartType}
       encoding={suggestion.encoding}
@@ -950,6 +1049,16 @@ export function InsightView({
   reportId,
 }: InsightViewProps) {
   const insightId = insight.id;
+  const [viewerState, setViewerState] = useState<{
+    id: string;
+    runtime?: InsightRuntimeInput;
+  }>({ id: insightId });
+  const viewerRuntime =
+    viewerState.id === insightId ? viewerState.runtime : undefined;
+  const displayInsight = useMemo(
+    () => reportPresentation(insight, viewerRuntime),
+    [insight, viewerRuntime],
+  );
   const navigate = useNavigate();
 
   // Local state for insight name (prevents re-renders on typing)
@@ -1175,7 +1284,17 @@ export function InsightView({
       : undefined;
   const savedInsightResult = useInsightEncodingMetadata(
     insight,
-    activeView.kind !== "chart",
+    shouldMaterializeReportResult(activeView, insight),
+    viewerRuntime,
+  );
+  const {
+    options: pivotSortOptions,
+    error: pivotSortError,
+    retry: retryPivotSort,
+  } = usePivotSortOptions(
+    insight,
+    savedInsightResult,
+    displayInsight.selectedFields,
   );
   const {
     columns: encodingColumns,
@@ -1968,6 +2087,9 @@ export function InsightView({
         >
           <div className="h-full w-64">
             <InsightConfigPanel
+              pivotSortOptions={pivotSortOptions}
+              pivotSortError={pivotSortError}
+              onPivotSortRetry={retryPivotSort}
               insight={insight}
               dataTable={authoringTable}
               allDataTables={allDataTables}
@@ -2047,16 +2169,13 @@ export function InsightView({
                 <span className="@max-xl:sr-only">Add to report</span>
               </Button>
             </ControlTooltip>
-            <InsightMoreActionsMenu
-              onInspectDataFrames={() => navigate({ to: "/data-frames" })}
-              savedChart={
-                activeView.kind === "visualization"
-                  ? activeVisualization
-                  : undefined
-              }
-              onDuplicateChart={handleDuplicateVisualization}
-              onDeleteChart={handleDeleteVisualization}
-            />
+            {activeView.kind === "visualization" && activeVisualization && (
+              <InsightMoreActionsMenu
+                savedChart={activeVisualization}
+                onDuplicateChart={handleDuplicateVisualization}
+                onDeleteChart={handleDeleteVisualization}
+              />
+            )}
             {visualizationPane.available && (
               <Button
                 size="sm"
@@ -2088,7 +2207,16 @@ export function InsightView({
             className="shrink-0 px-1"
           />
 
+          {activeView.kind !== "chart" && (
+            <ReportSwitchers
+              insight={insight}
+              fields={modelResolvedFields}
+              runtime={viewerRuntime}
+              onChange={(runtime) => setViewerState({ id: insightId, runtime })}
+            />
+          )}
           <InsightCanvasWell
+            insight={activeView.kind === "chart" ? undefined : displayInsight}
             result={
               activeView.kind === "chart"
                 ? chartSuggestionResult
@@ -2098,18 +2226,44 @@ export function InsightView({
           >
             {activeView.kind === "chart" && (
               <EphemeralChartCanvas
+                detailRowsOnly={chartSuggestionResult.schema.some(
+                  (column) => column.id === "__report_grouping",
+                )}
                 tableName={chartSuggestionFrameId ?? undefined}
                 suggestion={activeChartSuggestion}
                 isLoading={!areChartSuggestionsReady}
+                error={chartSuggestionResult.error}
+                onRetry={chartSuggestionResult.retry}
                 onRegenerate={handleRegenerate}
               />
             )}
             {activeView.kind === "visualization" && activeVisualization && (
               <VisualizationPreview
-                visualization={activeVisualization}
+                visualization={{
+                  ...activeVisualization,
+                  encoding: reportEncoding(
+                    activeVisualization.encoding ?? {},
+                    insight,
+                    viewerRuntime,
+                    modelResolvedFields,
+                  ),
+                }}
                 height="container"
+                // Same primitive and host message as the result table below, so
+                // both halves of the workbench agree. Only set on error — the
+                // encoding-missing case keeps the preview's own terminal text.
+                fallback={
+                  savedInsightResult.error ? (
+                    <InsightResultErrorState
+                      error={savedInsightResult.error}
+                      onRetry={savedInsightResult.retry}
+                      className="h-full"
+                    />
+                  ) : undefined
+                }
                 materialization={{
-                  insight,
+                  insight: displayInsight,
+                  runtime: viewerRuntime,
                   dataTable: authoringTable,
                   dataFrameId: savedInsightResult.dataFrameId,
                   isReady: savedInsightResult.isReady,

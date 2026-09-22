@@ -10,6 +10,7 @@ const { cardState, execute, mutate, openUrl } = vi.hoisted(() => ({
   cardState: {
     onConnect: undefined as (() => Promise<void>) | undefined,
     onFileSelect: undefined as ((file: File) => Promise<void>) | undefined,
+    signInUrl: undefined as string | undefined,
   },
   execute: vi.fn(),
   mutate: vi.fn(),
@@ -31,17 +32,19 @@ vi.mock("@/hooks/useConnectorForm", () => ({
   }),
 }));
 vi.mock("@/lib/oauth-authorization-target", () => ({
-  OAuthPopupBlockedError: class extends Error {},
   openOAuthAuthorizationUrl: openUrl,
 }));
 vi.mock("./ConnectorCard", () => ({
   ConnectorCard: ({
     onConnect,
     onFileSelect,
+    signInUrl,
   }: {
     onConnect: () => Promise<void>;
     onFileSelect: (file: File) => Promise<void>;
+    signInUrl?: string;
   }) => {
+    cardState.signInUrl = signInUrl;
     cardState.onConnect = onConnect;
     cardState.onFileSelect = onFileSelect;
     return null;
@@ -68,6 +71,7 @@ describe("ConnectorCardWithForm OAuth setup", () => {
   beforeEach(() => {
     cardState.onConnect = undefined;
     cardState.onFileSelect = undefined;
+    cardState.signInUrl = undefined;
     execute.mockReset();
     execute.mockImplementation(async (action: () => Promise<unknown>) => {
       try {
@@ -79,7 +83,7 @@ describe("ConnectorCardWithForm OAuth setup", () => {
     mutate.mockReset();
     mutate.mockResolvedValue(undefined);
     openUrl.mockReset();
-    openUrl.mockResolvedValue(undefined);
+    openUrl.mockResolvedValue(true);
   });
 
   it("holds onboarding before OAuth setup and releases it when setup fails", async () => {
@@ -317,6 +321,7 @@ describe("ConnectorCardWithForm OAuth setup", () => {
     });
     openUrl.mockImplementation(async (url: string) => {
       order.push(`open:${url}`);
+      return true;
     });
     renderOAuthCard();
 
@@ -350,7 +355,33 @@ describe("ConnectorCardWithForm OAuth setup", () => {
     });
   });
 
-  it("cancels the issued session when the popup is blocked", async () => {
+  it("keeps the session and offers the sign-in link when no window opens", async () => {
+    mutate.mockImplementation(async (operation: string) =>
+      operation === "startConnectorSetup"
+        ? {
+            sessionId: "session-3",
+            authorizeUrl: "https://accounts.google.com/auth",
+          }
+        : { state: "awaiting-user-auth" },
+    );
+    openUrl.mockResolvedValue(false);
+    renderOAuthCard();
+
+    // act flushes the card's re-render only once its callback returns.
+    await act(async () => {
+      // Not awaited: the setup keeps polling until the sign-in finishes.
+      cardState.onConnect?.().catch(() => {});
+      await vi.waitFor(() => expect(openUrl).toHaveBeenCalled());
+    });
+
+    expect(cardState.signInUrl).toBe("https://accounts.google.com/auth");
+    expect(mutate).not.toHaveBeenCalledWith(
+      "cancelConnectorSetup",
+      expect.anything(),
+    );
+  });
+
+  it("cancels the issued session when the sign-in page cannot be opened", async () => {
     mutate.mockImplementation(async (operation: string) =>
       operation === "startConnectorSetup"
         ? {

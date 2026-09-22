@@ -1,7 +1,17 @@
-import type { Insight, InsightFetchFailed } from "@dashframe/types";
-import { describe, expect, it } from "vite-plus/test";
+import type {
+  Insight,
+  InsightFetchFailed,
+  InsightFetchResult,
+} from "@dashframe/types";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import { applyInsightRuntime, toFetchFailure } from "./data-fetch";
+import {
+  applyInsightRuntime,
+  createDataFetchFunctions,
+  fingerprintEffectiveInsight,
+  toFetchFailure,
+} from "./data-fetch";
+import type { HostContext } from "./context";
 import { PublishedSourceMaterializationError } from "./data-fetch/published-source-error";
 
 const insight: Insight = {
@@ -30,7 +40,363 @@ const insight: Insight = {
   },
 };
 
+function fetchContext(): HostContext {
+  return {
+    principal: { kind: "user", userId: "user" },
+    metadata: {
+      getDataTable: async (id: string) => ({ id }),
+      getInsight: async () => undefined,
+    },
+  } as unknown as HostContext;
+}
+
+const productFieldId = "10000000-0000-4000-8000-000000000001";
+const countryFieldId = "10000000-0000-4000-8000-000000000002";
+const otherFieldId = "10000000-0000-4000-8000-000000000003";
+
+const previewDefinition = {
+  baseTableId: "table-1",
+  selectedFields: [productFieldId],
+  metrics: [],
+};
+
+describe("fetchData sort schema", () => {
+  it("preserves the complete strict pivot tuple", async () => {
+    const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
+      status: "failed",
+      code: "EXPECTED",
+      message: "expected",
+      retryable: false,
+      diagnosticId: "diagnostic",
+    }));
+    const { fetchData } = createDataFetchFunctions(execute);
+    const pivotValues = [
+      { fieldId: "country", value: "US" },
+      { fieldId: "year", value: 2026 },
+      { fieldId: "active", value: true },
+      { fieldId: "segment", value: null },
+    ];
+
+    await fetchData(fetchContext(), {
+      insight: {
+        ...previewDefinition,
+        sorts: [{ field: "metric_revenue", direction: "desc", pivotValues }],
+      },
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        insight: expect.objectContaining({
+          sorts: [{ field: "metric_revenue", direction: "desc", pivotValues }],
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    [{ fieldId: "country", value: Number.NaN }],
+    [{ fieldId: "country", value: { nested: true } }],
+    [{ fieldId: "country", value: "US", extra: true }],
+  ])("rejects a malformed pivot tuple", async (pivotValues) => {
+    const execute = vi.fn();
+    const { fetchData } = createDataFetchFunctions(execute);
+
+    const result = await fetchData(fetchContext(), {
+      insight: {
+        ...previewDefinition,
+        sorts: [{ field: "metric_revenue", direction: "desc", pivotValues }],
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "FETCH_INVALID_DEFINITION",
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+});
+
+describe("Insight presentation requests", () => {
+  it("passes a validated presentation to an ephemeral preview", async () => {
+    const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
+      status: "failed",
+      code: "EXPECTED",
+      message: "expected",
+      retryable: false,
+      diagnosticId: "diagnostic",
+    }));
+    const { fetchData } = createDataFetchFunctions(execute);
+
+    await fetchData(fetchContext(), {
+      insight: previewDefinition,
+      presentation: {
+        dimensions: [productFieldId],
+        transforms: {
+          [productFieldId]: { kind: "temporal", aggregation: "yearMonth" },
+        },
+      },
+    });
+
+    expect(execute).toHaveBeenCalledWith({
+      context: expect.anything(),
+      insight: expect.objectContaining({
+        presentation: {
+          dimensions: [productFieldId],
+          transforms: {
+            [productFieldId]: {
+              kind: "temporal",
+              aggregation: "yearMonth",
+            },
+          },
+        },
+      }),
+      target: { kind: "ephemeral" },
+    });
+  });
+
+  it("accepts a date transform for a selected repeat-join field", async () => {
+    const repeatFieldId = `${productFieldId}_j1`;
+    const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
+      status: "failed",
+      code: "EXPECTED",
+      message: "expected",
+      retryable: false,
+      diagnosticId: "diagnostic",
+    }));
+    const { fetchData } = createDataFetchFunctions(execute);
+
+    await fetchData(fetchContext(), {
+      insight: { ...previewDefinition, selectedFields: [repeatFieldId] },
+      presentation: {
+        dimensions: [repeatFieldId],
+        transforms: {
+          [repeatFieldId]: { kind: "temporal", aggregation: "yearMonth" },
+        },
+      },
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        insight: expect.objectContaining({
+          presentation: {
+            dimensions: [repeatFieldId],
+            transforms: {
+              [repeatFieldId]: {
+                kind: "temporal",
+                aggregation: "yearMonth",
+              },
+            },
+          },
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    [{ dimensions: [productFieldId, productFieldId] }, "FETCH_INVALID_REQUEST"],
+    [
+      {
+        dimensions: [productFieldId],
+        transforms: {
+          [productFieldId]: { kind: "temporal", aggregation: "day" },
+        },
+      },
+      "FETCH_INVALID_REQUEST",
+    ],
+    [
+      {
+        dimensions: [productFieldId],
+        transforms: {
+          [otherFieldId]: { kind: "categorical", groupBy: "monthName" },
+        },
+      },
+      "RUNTIME_PRESENTATION_NOT_ALLOWED",
+    ],
+  ] as const)(
+    "rejects invalid presentation input %#",
+    async (presentation, code) => {
+      const execute = vi.fn();
+      const { fetchData } = createDataFetchFunctions(execute);
+
+      const result = await fetchData(fetchContext(), {
+        insight: previewDefinition,
+        presentation,
+      });
+
+      expect(result).toMatchObject({
+        status: "failed",
+        code,
+      });
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
+
+  it("uses an ephemeral frame after runtime selection and never offers a saved fallback", async () => {
+    const insightId = "00000000-0000-4000-8000-000000000001";
+    const listDataFramesByInsight = vi.fn(async () => []);
+    const context = {
+      principal: { kind: "user", userId: "user" },
+      metadata: {
+        getInsight: async () => ({
+          id: insightId,
+          name: "Saved",
+          createdAt: 0,
+          definition: {
+            source: { sourceType: "dataTable", sourceId: "table-1" },
+            selectedFields: [productFieldId, countryFieldId],
+            metrics: [],
+            runtimeControls: {
+              dimensions: {
+                allowedIds: [productFieldId, countryFieldId],
+                maxSelected: 1,
+              },
+            },
+          },
+        }),
+        listDataFramesByInsight,
+      },
+    } as unknown as HostContext;
+    const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "failed",
+      retryable: false,
+      diagnosticId: "diagnostic",
+    }));
+    const { runInsight } = createDataFetchFunctions(execute);
+
+    const result = await runInsight(context, {
+      insightId,
+      runtime: { dimensions: [countryFieldId] },
+      presentation: { dimensions: [countryFieldId] },
+    });
+
+    expect(result.status).toBe("failed");
+    expect(execute).toHaveBeenCalledWith({
+      context,
+      insight: expect.objectContaining({
+        selectedFields: [countryFieldId],
+        presentation: { dimensions: [countryFieldId] },
+      }),
+      target: { kind: "ephemeral" },
+    });
+    expect(listDataFramesByInsight).not.toHaveBeenCalled();
+
+    execute.mockClear();
+    execute.mockResolvedValueOnce({
+      status: "ready",
+      dataFrameId: "canonical-frame",
+      schema: [],
+      rowCount: 0,
+      definitionFingerprint: "canonical-fingerprint",
+      provenance: { connectorKind: "notion", bindingVersion: "v1" },
+      fetchedAt: 123,
+    });
+    await runInsight(context, {
+      insightId,
+      runtime: { dimensions: [countryFieldId] },
+    });
+    expect(execute).toHaveBeenCalledWith({
+      context,
+      insight: expect.not.objectContaining({ presentation: expect.anything() }),
+      target: { kind: "saved", insightId },
+    });
+  });
+
+  it("cross-validates presentation against the effective runtime dimensions", async () => {
+    const insightId = "00000000-0000-4000-8000-000000000001";
+    const context = {
+      principal: { kind: "user", userId: "user" },
+      metadata: {
+        getInsight: async () => ({
+          id: insightId,
+          name: "Saved",
+          createdAt: 0,
+          definition: {
+            source: { sourceType: "dataTable", sourceId: "table-1" },
+            selectedFields: [productFieldId, countryFieldId],
+            metrics: [],
+            runtimeControls: {
+              dimensions: {
+                allowedIds: [productFieldId, countryFieldId],
+                maxSelected: 1,
+              },
+            },
+          },
+        }),
+      },
+    } as unknown as HostContext;
+    const execute = vi.fn();
+    const { runInsight } = createDataFetchFunctions(execute);
+
+    const result = await runInsight(context, {
+      insightId,
+      runtime: { dimensions: [countryFieldId] },
+      presentation: { dimensions: [productFieldId] },
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "RUNTIME_PRESENTATION_NOT_ALLOWED",
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+});
+
 describe("applyInsightRuntime", () => {
+  it("switches declared dimensions and measures without dropping calculation dependencies or mutating the report", () => {
+    const saved: Insight = {
+      ...insight,
+      metrics: [
+        {
+          id: "orders",
+          name: "Orders",
+          sourceTable: "table-1",
+          aggregation: "count",
+        },
+        {
+          id: "rate",
+          name: "Rate",
+          sourceTable: "table-1",
+          aggregation: "count",
+          expression: {
+            kind: "binary",
+            operator: "divide",
+            left: { kind: "measure", measureId: "orders" },
+            right: { kind: "constant", value: 10 },
+          },
+        },
+      ],
+      runtimeControls: {
+        dimensions: { allowedIds: ["region", "date"], maxSelected: 1 },
+        measures: { allowedIds: ["orders", "rate"], maxSelected: 1 },
+      },
+    };
+    const original = JSON.stringify(saved);
+    const result = applyInsightRuntime(saved, {
+      dimensions: ["region"],
+      measures: ["rate"],
+    });
+    expect(result.selectedFields).toEqual(["region"]);
+    expect(result.runtimeDimensionsChanged).toBe(true);
+    expect(result.reporting?.measureIds).toEqual(["rate"]);
+    expect(result.metrics).toHaveLength(2);
+    expect(JSON.stringify(saved)).toBe(original);
+    for (const runtime of [
+      { dimensions: ["unknown"] },
+      { dimensions: ["region", "date"] },
+      { measures: [] },
+      { measures: ["orders", "orders"] },
+      { measures: ["unknown"] },
+    ])
+      expect(() => applyInsightRuntime(saved, runtime)).toThrow(
+        "RUNTIME_SELECTION_NOT_ALLOWED",
+      );
+    expect(() =>
+      applyInsightRuntime(insight, { dimensions: ["region"] }),
+    ).toThrow("RUNTIME_SELECTION_NOT_ALLOWED");
+  });
+
   it("uses only declared keys while retaining saved field and operator", () => {
     expect(
       applyInsightRuntime(insight, { filters: { region: "CA" } }).filters,
@@ -140,6 +506,20 @@ describe("applyInsightRuntime", () => {
     ).toEqual([
       { id: "region-filter", field: "region", operator: "eq", value: "US" },
     ]);
+
+    const optionalWithoutClearPermission: Insight = {
+      ...insight,
+      runtimeControls: {
+        filters: [
+          { key: "region", filterId: "region-filter", label: "Region" },
+        ],
+      },
+    };
+    expect(() =>
+      applyInsightRuntime(optionalWithoutClearPermission, {
+        filters: { region: null },
+      }),
+    ).toThrow("RUNTIME_FILTER_CLEAR_NOT_ALLOWED");
   });
 
   it("validates runtime values against saved scalar, in, and between operands", () => {
@@ -281,11 +661,102 @@ describe("applyInsightRuntime", () => {
         sort: { allowedFieldIds: ["revenue-total"], maxKeys: 1 },
       },
     };
+    const result = applyInsightRuntime(saved, {
+      sort: [{ fieldId: "revenue-total", direction: "desc" }],
+    });
+    expect(result.sorts).toEqual([
+      { field: "metric_revenue_total", direction: "desc" },
+    ]);
+    expect(result.runtimeSortOverride).toBe(true);
+  });
+
+  it("preserves the saved pivot tuple when runtime changes its metric sort direction", () => {
+    const pivotValues = [{ fieldId: "region", value: "US" }];
+    const saved: Insight = {
+      ...insight,
+      metrics: [
+        {
+          id: "revenue-total",
+          name: "Revenue",
+          sourceTable: "table-1",
+          columnName: "revenue",
+          aggregation: "sum",
+        },
+      ],
+      reporting: { pivotFields: ["region"] },
+      sorts: [
+        {
+          field: "metric_revenue_total",
+          direction: "desc",
+          pivotValues,
+        },
+      ],
+      runtimeControls: {
+        sort: { allowedFieldIds: ["revenue-total"], maxKeys: 1 },
+      },
+    };
+
     expect(
       applyInsightRuntime(saved, {
-        sort: [{ fieldId: "revenue-total", direction: "desc" }],
+        sort: [{ fieldId: "revenue-total", direction: "asc" }],
       }).sorts,
-    ).toEqual([{ field: "metric_revenue_total", direction: "desc" }]);
+    ).toEqual([
+      {
+        field: "metric_revenue_total",
+        direction: "asc",
+        pivotValues,
+      },
+    ]);
+  });
+
+  it("rejects an explicit dimension sort removed by the runtime selection", () => {
+    const saved: Insight = {
+      ...insight,
+      runtimeControls: {
+        dimensions: { allowedIds: ["region", "date"], maxSelected: 1 },
+        sort: { allowedFieldIds: ["region", "date"], maxKeys: 1 },
+      },
+    };
+
+    expect(() =>
+      applyInsightRuntime(saved, {
+        dimensions: ["region"],
+        sort: [{ fieldId: "date", direction: "asc" }],
+      }),
+    ).toThrow("RUNTIME_SORT_FIELD_NOT_ALLOWED");
+  });
+
+  it("includes internal runtime provenance in the effective fingerprint", () => {
+    const effective = applyInsightRuntime(
+      {
+        ...insight,
+        runtimeControls: {
+          dimensions: { allowedIds: ["region", "date"], maxSelected: 1 },
+        },
+      },
+      { dimensions: ["region"] },
+    );
+    const { runtimeDimensionsChanged: _changed, ...withoutProvenance } =
+      effective;
+
+    expect(fingerprintEffectiveInsight(effective)).not.toBe(
+      fingerprintEffectiveInsight(withoutProvenance),
+    );
+  });
+
+  it("distinguishes a presentation frame from its canonical report frame", () => {
+    const effective = {
+      baseTableId: "table-1",
+      selectedFields: ["region"],
+      metrics: [],
+    };
+
+    expect(
+      fingerprintEffectiveInsight({
+        ...effective,
+        presentation: { dimensions: ["region"] },
+      }),
+    ).not.toBe(fingerprintEffectiveInsight(effective));
   });
 
   it("applies only a declared bounded limit", () => {
@@ -309,6 +780,16 @@ describe("applyInsightRuntime", () => {
       code: "FETCH_EXECUTION_FAILED",
       message: "Live data could not be fetched.",
       retryable: true,
+    });
+    expect(
+      toFetchFailure(
+        new Error("RUNTIME_PIVOT_SORT_REQUIRES_TUPLE"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      code: "RUNTIME_PIVOT_SORT_REQUIRES_TUPLE",
+      message:
+        "This pivot report requires a saved pivot cell for metric sorting. Choose a pivot-cell sort first.",
     });
     expect(
       toFetchFailure(new Error("__proto__"), "FETCH_EXECUTION_FAILED"),
@@ -337,6 +818,36 @@ describe("applyInsightRuntime", () => {
       status: "failed",
       code: "RUNTIME_LIMIT_OUT_OF_RANGE",
       retryable: false,
+    });
+    expect(
+      toFetchFailure(
+        new Error("RUNTIME_SORT_REFERENCE_AMBIGUOUS"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      code: "RUNTIME_SORT_REFERENCE_AMBIGUOUS",
+      message:
+        "The saved sort matches more than one field. Choose the sort field again.",
+    });
+    expect(
+      toFetchFailure(
+        new Error("RUNTIME_SORT_REFERENCE_INVALID"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      code: "RUNTIME_SORT_REFERENCE_INVALID",
+      message:
+        "The saved sort field is no longer available. Choose another sort field.",
+    });
+    expect(
+      toFetchFailure(
+        new Error("RUNTIME_LIMIT_REQUIRES_SORT"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      code: "RUNTIME_LIMIT_REQUIRES_SORT",
+      message:
+        "The selected dimensions removed the sort required by the row limit. Choose another sort or remove the limit.",
     });
     expect(
       toFetchFailure(new Error("SOURCE_SCHEMA_CHANGED"), "FETCH_SOURCE_FAILED"),
