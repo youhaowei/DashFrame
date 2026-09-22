@@ -277,6 +277,80 @@ function useViewerRuntime(visualizationId?: string) {
   return { runtime, onChange };
 }
 
+/** A tile is its chart; the table is a workbench view. */
+function displayView(reportId: string | undefined, activeTab: string) {
+  return reportId === undefined ? activeTab : "chart";
+}
+
+/** A report tile gets its trust header; the workbench gets the view switch. */
+function DisplayHeader({
+  name,
+  insight,
+  reportId,
+  summary,
+  colorDisplayName,
+  activeTab,
+  onTabChange,
+  canShowBoth,
+  bothTooltip,
+}: {
+  name: string;
+  insight?: Insight;
+  reportId?: string;
+  summary: string;
+  colorDisplayName?: string;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  canShowBoth: boolean;
+  bothTooltip: string;
+}) {
+  if (reportId !== undefined)
+    return <TileHeader name={name} insight={insight} reportId={reportId} />;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <p className="text-xl font-semibold text-neutral-fg">{name}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-neutral-fg-subtle">{summary}</p>
+          {colorDisplayName && (
+            <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
+              Color: {colorDisplayName}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <Toggle
+          variant="outline"
+          size="sm"
+          value={activeTab}
+          onValueChange={onTabChange}
+          className="shrink-0"
+          options={[
+            {
+              value: "chart",
+              icon: <ChartIcon className="h-3.5 w-3.5" />,
+              label: "Chart",
+            },
+            {
+              value: "table",
+              icon: <TableIcon className="h-3.5 w-3.5" />,
+              label: "Table",
+            },
+            {
+              value: "both",
+              icon: <LayersIcon className="h-3.5 w-3.5" />,
+              label: "Both",
+              disabled: !canShowBoth,
+              tooltip: bothTooltip,
+            },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
 function VisualizationDisplayContent({
   visualizationId,
   overrides,
@@ -610,10 +684,8 @@ function VisualizationDisplayContent({
     presentationError: insightViewError,
   });
 
+  const view = displayView(reportId, activeTab);
   // Check if there's enough space to show both views
-  const isTile = reportId !== undefined;
-  // A tile is its chart; the table is a workbench view.
-  const view = isTile ? "chart" : activeTab;
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
   const bothTooltip = canShowBoth
     ? "Show chart and table simultaneously"
@@ -737,59 +809,17 @@ function VisualizationDisplayContent({
           runtime={viewerRuntime}
           onChange={(runtime) => setViewerRuntime(runtime)}
         />
-        {isTile ? (
-          <TileHeader
-            name={activeViz.name}
-            insight={insight}
-            reportId={reportId}
-          />
-        ) : (
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-xl font-semibold text-neutral-fg">
-                {activeViz.name}
-              </p>
-              <div className="flex items-center gap-2">
-                <p className="text-sm text-neutral-fg-subtle">
-                  {totalCount.toLocaleString()} rows • {columns.length} columns
-                </p>
-                {colorDisplayName && (
-                  <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
-                    Color: {colorDisplayName}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Toggle
-                variant="outline"
-                size="sm"
-                value={activeTab}
-                onValueChange={setActiveTab}
-                className="shrink-0"
-                options={[
-                  {
-                    value: "chart",
-                    icon: <ChartIcon className="h-3.5 w-3.5" />,
-                    label: "Chart",
-                  },
-                  {
-                    value: "table",
-                    icon: <TableIcon className="h-3.5 w-3.5" />,
-                    label: "Table",
-                  },
-                  {
-                    value: "both",
-                    icon: <LayersIcon className="h-3.5 w-3.5" />,
-                    label: "Both",
-                    disabled: !canShowBoth,
-                    tooltip: bothTooltip,
-                  },
-                ]}
-              />
-            </div>
-          </div>
-        )}
+        <DisplayHeader
+          name={activeViz.name}
+          insight={insight}
+          reportId={reportId}
+          summary={`${totalCount.toLocaleString()} rows • ${columns.length} columns`}
+          colorDisplayName={colorDisplayName}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          canShowBoth={canShowBoth}
+          bothTooltip={bothTooltip}
+        />
       </div>
 
       {view === "chart" && tableName && (
@@ -876,7 +906,7 @@ function TileHeader({
 }: {
   name: string;
   insight: Insight | null | undefined;
-  reportId: string | undefined;
+  reportId: string;
 }) {
   return (
     <div className="min-w-0">
