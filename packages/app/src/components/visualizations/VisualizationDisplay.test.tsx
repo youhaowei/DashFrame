@@ -6,7 +6,9 @@ import {
 } from "@/test/native-query-fixture";
 /** VisualizationDisplay saved execution and declared runtime-control coverage. */
 import type { Insight, Visualization } from "@dashframe/types";
-import { render } from "@testing-library/react";
+import { fieldIdToColumnAlias } from "@dashframe/engine";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   resolveDashboardRuntime,
@@ -71,7 +73,8 @@ vi.mock("@/data/host", () => ({
   useHostMutation: hostMutationMock(() => ({ mutateAsync: vi.fn() })),
 }));
 
-vi.mock("@dashframe/engine", () => ({
+vi.mock("@dashframe/engine", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dashframe/engine")>()),
   resolveEncodingToResultFrame: vi.fn().mockReturnValue({}),
   getMetricDisplayLabel: vi.fn().mockReturnValue(""),
 }));
@@ -84,6 +87,25 @@ vi.mock("@dashframe/ui", () => ({
   VirtualTable: () => null,
 }));
 
+vi.mock("./ReportSwitchers", () => ({
+  ReportSwitchers: ({
+    fields,
+    onChange,
+  }: {
+    fields: Array<{ name: string }>;
+    onChange: (runtime: { measures: string[] }) => void;
+  }) => (
+    <div aria-label="Switcher fields">
+      {fields.map((field) => (
+        <span key={field.name}>{field.name}</span>
+      ))}
+      <button type="button" onClick={() => onChange({ measures: ["revenue"] })}>
+        Revenue only
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("@dashframe/visualization", () => ({
   Chart: () => null,
   VisualizationProvider: ({ children }: { children: React.ReactNode }) =>
@@ -92,7 +114,25 @@ vi.mock("@dashframe/visualization", () => ({
 }));
 
 vi.mock("@wystack/ui-react", () => ({
-  ErrorState: () => null,
+  ErrorState: ({
+    title,
+    description,
+    retryAction,
+  }: {
+    title: string;
+    description?: string;
+    retryAction?: { label: string; onClick: () => void };
+  }) => (
+    <div role="alert">
+      <span>{title}</span>
+      <span>{description}</span>
+      {retryAction && (
+        <button type="button" onClick={retryAction.onClick}>
+          {retryAction.label}
+        </button>
+      )}
+    </div>
+  ),
   Spinner: () => null,
   Surface: ({ children }: { children: React.ReactNode }) => children,
   Toggle: () => null,
@@ -212,6 +252,105 @@ describe("VisualizationDisplay — declared runtime controls", () => {
     });
   });
 
+  it("offers unselected declared dimensions after reopening a saved report", async () => {
+    const report = {
+      ...insight,
+      selectedFields: ["field-date", "field-channel"],
+      runtimeControls: {
+        dimensions: {
+          allowedIds: ["field-date", "field-channel", "field-country"],
+          maxSelected: 2,
+        },
+      },
+    } as Insight;
+    const reportTable = {
+      ...dataTable,
+      name: "Orders",
+      dataFrameId: "orders-frame",
+      fields: [
+        {
+          id: "field-date",
+          name: "Date",
+          columnName: "date",
+          type: "date",
+          tableId: "t1",
+        },
+        {
+          id: "field-channel",
+          name: "Channel",
+          columnName: "channel",
+          type: "string",
+          tableId: "t1",
+        },
+        {
+          id: "field-country",
+          name: "Country",
+          columnName: "country",
+          type: "string",
+          tableId: "t1",
+        },
+      ],
+    };
+    setupCommonMocks(report);
+    mockUseDataTables.mockReturnValue({ data: [reportTable] });
+    mockUseInsightPagination.mockReturnValue({
+      fetchData: vi.fn(),
+      totalCount: 5,
+      columns: [],
+      // The materialized result contains only currently selected dimensions.
+      resolvedFields: reportTable.fields.slice(0, 2),
+      isReady: true,
+      columnDisplayNames: {},
+    });
+
+    render(<VisualizationDisplay visualizationId="viz-1" />);
+
+    expect(await screen.findByText("Country")).toBeTruthy();
+  });
+
+  it("surfaces canonical runtime failures before requesting a chart presentation", async () => {
+    const user = userEvent.setup({ delay: null });
+    const retry = vi.fn();
+    mockUseInsightPagination.mockImplementation(
+      (options: { runtime?: { measures?: string[] } }) =>
+        options.runtime?.measures
+          ? {
+              fetchData: vi.fn(),
+              totalCount: 0,
+              columns: [],
+              resolvedFields: [],
+              isReady: false,
+              error: "Revenue could not be calculated.",
+              retry,
+              columnDisplayNames: {},
+            }
+          : {
+              fetchData: vi.fn(),
+              totalCount: 5,
+              columns: [],
+              resolvedFields: [],
+              isReady: true,
+              error: null,
+              retry,
+              columnDisplayNames: {},
+            },
+    );
+    render(<VisualizationDisplay visualizationId="viz-1" />);
+    expect(await screen.findByText("Revenue only")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Revenue only" }));
+
+    expect(
+      await screen.findByText("Revenue could not be calculated."),
+    ).toBeTruthy();
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(null, {
+      runtime: { measures: ["revenue"] },
+      presentation: undefined,
+    });
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
   it("maps declared filter, sort, and limit values to one typed runtime input", () => {
     expect(
       resolveDashboardRuntime(insight, [dataTable], {
@@ -240,6 +379,23 @@ describe("VisualizationDisplay — declared runtime controls", () => {
         runtime: { filters: { status: cleared ? null : "paused" } },
       });
     }
+  });
+
+  it("maps a raw shared-control field to a declared alias-form filter", () => {
+    const aliased = {
+      ...insight,
+      filters: [
+        {
+          ...savedFilter,
+          field: fieldIdToColumnAlias("field-created"),
+        },
+      ],
+    } as Insight;
+    expect(
+      resolveDashboardRuntime(aliased, [dataTable], {
+        filters: [{ field: "created_at", operator: "eq", value: "paused" }],
+      }),
+    ).toEqual({ runtime: { filters: { status: "paused" } } });
   });
 
   it("rejects ambiguous shared fields and incompatible predicate operators", () => {

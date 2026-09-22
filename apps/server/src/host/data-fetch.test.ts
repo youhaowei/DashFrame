@@ -506,6 +506,20 @@ describe("applyInsightRuntime", () => {
     ).toEqual([
       { id: "region-filter", field: "region", operator: "eq", value: "US" },
     ]);
+
+    const optionalWithoutClearPermission: Insight = {
+      ...insight,
+      runtimeControls: {
+        filters: [
+          { key: "region", filterId: "region-filter", label: "Region" },
+        ],
+      },
+    };
+    expect(() =>
+      applyInsightRuntime(optionalWithoutClearPermission, {
+        filters: { region: null },
+      }),
+    ).toThrow("RUNTIME_FILTER_CLEAR_NOT_ALLOWED");
   });
 
   it("validates runtime values against saved scalar, in, and between operands", () => {

@@ -16,8 +16,13 @@ import {
   useInsightPagination,
 } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
+import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
 import { api } from "@dashframe/convex-backend/api";
-import { getMetricDisplayLabel, reportMeasureFormats } from "@dashframe/engine";
+import {
+  fieldIdToColumnAlias,
+  getMetricDisplayLabel,
+  reportMeasureFormats,
+} from "@dashframe/engine";
 import type {
   ChartEncoding,
   DashboardItemOverrides,
@@ -44,8 +49,27 @@ type DashboardRuntimeResolution = {
   error?: string;
 };
 
+function resolveVisualizationDataFailure(input: {
+  canonicalReady: boolean;
+  canonicalError?: string | null;
+  retryCanonical: () => void;
+  presentationError?: string | null;
+}) {
+  if (!input.canonicalReady && input.canonicalError) {
+    return {
+      description: input.canonicalError,
+      retryAction: { label: "Retry", onClick: input.retryCanonical },
+    };
+  }
+  if (input.presentationError) {
+    return { description: input.presentationError, retryAction: undefined };
+  }
+  return undefined;
+}
+
 function resolveRuntimeFilters(
   insight: Insight,
+  dataTables: readonly DataTable[],
   overrides: NonNullable<DashboardItemOverrides["filters"]>,
 ): DashboardRuntimeResolution {
   const values: Record<string, unknown> = {};
@@ -59,9 +83,14 @@ function resolveRuntimeFilters(
         const filter = (insight.filters ?? []).find(
           (saved) => saved.id === candidate.filterId,
         );
+        const aliasedField = dataTables
+          .flatMap((table) => table.fields ?? [])
+          .find((field) => fieldIdToColumnAlias(field.id) === filter?.field);
         return (
-          filter?.field === override.field &&
-          (override.cleared || filter.operator === override.operator)
+          (filter?.field === override.field ||
+            (aliasedField?.columnName ?? aliasedField?.name) ===
+              override.field) &&
+          (override.cleared || filter?.operator === override.operator)
         );
       },
     );
@@ -121,7 +150,11 @@ export function resolveDashboardRuntime(
   const runtime: InsightRuntimeInput = {};
 
   if (overrides.filters !== undefined) {
-    const resolution = resolveRuntimeFilters(insight, overrides.filters);
+    const resolution = resolveRuntimeFilters(
+      insight,
+      dataTables,
+      overrides.filters,
+    );
     if (resolution.error) return resolution;
     runtime.filters = resolution.runtime?.filters;
   }
@@ -282,6 +315,17 @@ function VisualizationDisplayContent({
     return resolveInsightSourceDataTable(insight, dataTables, insights);
   }, [insight, dataTables, insights]);
 
+  // Result fields only describe the current projection. Reader controls need
+  // the complete author-declared catalog so a dimension remains available
+  // after it is switched out of the result schema.
+  const switcherFields = useMemo(
+    () =>
+      insight
+        ? resolveInsightAvailableFields(insight, dataTables, insights)
+        : [],
+    [dataTables, insight, insights],
+  );
+
   const dashboardRuntime = useMemo(
     () =>
       insight
@@ -311,6 +355,8 @@ function VisualizationDisplayContent({
     totalCount,
     columns,
     isReady: isPaginationReady,
+    error: paginationError,
+    retry: retryPagination,
     columnDisplayNames,
     resolvedFields: instanceAwareFields,
   } = useInsightPagination({
@@ -542,6 +588,12 @@ function VisualizationDisplayContent({
   const colorDisplayName =
     resolvedEncoding.colorLabel ??
     columnDisplayNames[resolvedEncoding.color ?? ""];
+  const dataFailure = resolveVisualizationDataFailure({
+    canonicalReady: isPaginationReady,
+    canonicalError: paginationError,
+    retryCanonical: retryPagination,
+    presentationError: insightViewError,
+  });
 
   // Check if there's enough space to show both views
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
@@ -587,17 +639,16 @@ function VisualizationDisplayContent({
     );
   }
 
-  // Surface a post-bootstrap insight-view failure instead of spinning forever.
-  // When the native upload fails at runtime (loopback server stopped, auth
-  // expired, native registration 500), useInsightView sets `error` and never
-  // flips `isReady` — without this branch isWaitingForData stays true and the
-  // user sees an indefinite spinner. Show the error so the failure is visible.
-  if (isMounted && insightViewError) {
+  // Prefer canonical rematerialization failures while that request is unready;
+  // the presentation stays disabled in that state. Presentation upload errors
+  // use the same surface after the canonical result succeeds.
+  if (isMounted && dataFailure) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
         <ErrorState
           title="Failed to load visualization data"
-          description={insightViewError}
+          description={dataFailure.description}
+          retryAction={dataFailure.retryAction}
           className="w-full max-w-lg"
         />
       </div>
@@ -664,7 +715,7 @@ function VisualizationDisplayContent({
       >
         <ReportSwitchers
           insight={insight}
-          fields={instanceAwareFields}
+          fields={switcherFields}
           runtime={viewerRuntime}
           onChange={(runtime) => setViewerRuntime(runtime)}
         />

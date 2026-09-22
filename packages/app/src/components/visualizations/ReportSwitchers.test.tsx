@@ -1,6 +1,7 @@
 import type { Field, Insight } from "@dashframe/types";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import {
   beforeEach,
   afterEach,
@@ -61,6 +62,42 @@ describe("report reader switchers", () => {
       }),
     );
     expect(insight.selectedFields).toEqual(["date", "channel"]);
+  });
+  it("keeps switched-out dimensions available for a round trip", async () => {
+    const user = userEvent.setup({ delay: null });
+    function ControlledSwitchers() {
+      const [runtime, setRuntime] =
+        useState<Parameters<typeof ReportSwitchers>[0]["runtime"]>();
+      return (
+        <>
+          <output>{JSON.stringify(runtime?.dimensions)}</output>
+          <ReportSwitchers
+            insight={insight}
+            fields={fields}
+            runtime={runtime}
+            onChange={setRuntime}
+          />
+        </>
+      );
+    }
+    render(<ControlledSwitchers />);
+
+    await user.click(screen.getByRole("button", { name: "Dimensions · 2" }));
+    await user.click(screen.getByRole("checkbox", { name: "Channel" }));
+    await user.click(screen.getByRole("checkbox", { name: "Country" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    await user.click(screen.getByRole("button", { name: "Dimensions · 2" }));
+    expect(screen.getByRole("checkbox", { name: "Channel" })).toBeTruthy();
+    await user.click(screen.getByRole("checkbox", { name: "Country" }));
+    await user.click(screen.getByRole("checkbox", { name: "Channel" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe('["date","channel"]'),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Dimensions · 2" }));
+    expect(screen.getByRole("checkbox", { name: "Country" })).toBeTruthy();
   });
   it("selects a measure while preserving the active dimensions and filter values", async () => {
     const user = userEvent.setup({ delay: null });
