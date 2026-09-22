@@ -353,7 +353,10 @@ export default function DashboardDetailContent({
                   <Button
                     variant="outline"
                     label="Add a saved view"
-                    onClick={() => setIsAddOpen(true)}
+                    onClick={() => {
+                      setAddType("visualization");
+                      setIsAddOpen(true);
+                    }}
                   />
                 </div>
               }
