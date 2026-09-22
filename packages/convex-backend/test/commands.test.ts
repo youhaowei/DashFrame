@@ -5047,14 +5047,6 @@ it("saves and reopens report date grouping, pivot settings, and calculated measu
     }),
     cmd("SelectFields", { id: insightId, fieldIds: [dateId] }),
   );
-  const reporting = {
-    comparison: "previous_period" as const,
-    dateRange: { fieldId: dateId, range: { type: "previous_month" as const } },
-    dateGrains: { [dateId]: "month" as const },
-    pivotFields: [dateId],
-    totals: true,
-    limit: 10,
-  };
   const ratioId = id();
   const expression = {
     kind: "binary" as const,
@@ -5063,7 +5055,6 @@ it("saves and reopens report date grouping, pivot settings, and calculated measu
     right: { kind: "constant" as const, value: 100 },
   };
   await commit(
-    cmd("SetInsightReporting", { id: insightId, reporting }),
     cmd("AddMetric", {
       nodeId: insightId,
       metric: {
@@ -5076,6 +5067,32 @@ it("saves and reopens report date grouping, pivot settings, and calculated measu
       },
     }),
   );
+  const reporting = {
+    comparison: "previous_period" as const,
+    dateRange: { fieldId: dateId, range: { type: "previous_month" as const } },
+    dateGrains: { [dateId]: "month" as const },
+    pivotFields: [dateId],
+    measureIds: [ratioId],
+    topN: {
+      fieldId: dateId,
+      measureId: metricId,
+      count: 5,
+      direction: "desc" as const,
+    },
+    totals: true,
+    limit: 10,
+  };
+  const filters = [
+    {
+      field: metricIdToColumnAlias(metricId),
+      operator: "gt" as const,
+      value: 100,
+    },
+  ];
+  await commit(
+    cmd("SetInsightReporting", { id: insightId, reporting }),
+    cmd("SetInsightFilter", { id: insightId, filters }),
+  );
   const runtimeControls = {
     dimensions: { allowedIds: [dateId], maxSelected: 1 },
     measures: { allowedIds: [metricId, ratioId], maxSelected: 1 },
@@ -5086,6 +5103,9 @@ it("saves and reopens report date grouping, pivot settings, and calculated measu
   const reopened = await client.query(api.app.getInsight, { id: insightId });
   expect(reopened?.runtimeControls).toEqual(runtimeControls);
   expect(reopened?.reporting).toEqual(reporting);
+  expect(reopened?.filters).toEqual([
+    { ...filters[0], id: expect.any(String) },
+  ]);
   expect(
     reopened?.metrics.find((metric) => metric.id === ratioId)?.expression,
   ).toEqual(expression);

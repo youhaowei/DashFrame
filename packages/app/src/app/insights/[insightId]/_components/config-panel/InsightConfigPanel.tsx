@@ -1,3 +1,4 @@
+import { measureFilterFields } from "@/lib/insights/measure-filter-fields";
 import type { PivotSortOption } from "@/lib/insights/pivot-sort-options";
 import { ReportSelectionMenu } from "@/components/visualizations/ReportSwitchers";
 import { ReportPeriodControl, ReportResultOptions } from "./ReportSettings";
@@ -310,9 +311,20 @@ export function InsightConfigPanel({
   // resolve. Offered in the filter popover picker so a saved filter always
   // produces a working predicate. FiltersSection also receives combinedFields
   // so excluded or stale selections retain their display treatment.
+  const aggregateFilterFields = useMemo(
+    () => measureFilterFields(insight, combinedFields),
+    [insight, combinedFields],
+  );
   const filterableFields = useMemo(
-    () => computeFilterableFields(combinedFields, insight.joins),
-    [combinedFields, insight.joins],
+    () => [
+      ...computeFilterableFields(combinedFields, insight.joins),
+      ...aggregateFilterFields,
+    ],
+    [combinedFields, insight.joins, aggregateFilterFields],
+  );
+  const filterDisplayFields = useMemo(
+    () => [...combinedFields, ...aggregateFilterFields],
+    [combinedFields, aggregateFilterFields],
   );
 
   // Get selected fields in order (preserving insight.selectedFields order)
@@ -758,7 +770,9 @@ export function InsightConfigPanel({
         const nextRuntimeControls =
           runtimeControls.filters ||
           runtimeControls.sort ||
-          runtimeControls.limit
+          runtimeControls.limit ||
+          runtimeControls.dimensions ||
+          runtimeControls.measures
             ? runtimeControls
             : undefined;
         const updates: Partial<Omit<Insight, "id" | "createdAt">> = {
@@ -1274,7 +1288,7 @@ export function InsightConfigPanel({
               <FiltersSection
                 filters={filtersWithIds}
                 combinedFields={filterableFields}
-                displayFields={combinedFields}
+                displayFields={filterDisplayFields}
                 runtimeControls={localRuntimeControls}
                 onReorder={handleFiltersReorder}
                 onRemove={handleRemoveFilter}
