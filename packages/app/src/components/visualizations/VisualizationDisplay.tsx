@@ -198,12 +198,19 @@ export function VisualizationDisplay(props: VisualizationDisplayProps) {
   // card until the user navigated away. The query is the one the content
   // component already issues, so this shares its cache rather than adding a
   // fetch.
-  const { data: visualizations = [] } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
-  );
+  const {
+    data: visualizations = [],
+    isLoading,
+    isError,
+  } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
   const active = visualizations.find(
     (candidate) => candidate.id === props.visualizationId,
   );
+  // A report can keep an item whose saved view was deleted; say so instead of
+  // waiting for data that will never arrive.
+  if (!isLoading && !isError && props.visualizationId && !active) {
+    return <MissingSavedViewState />;
+  }
 
   return (
     <VisualizationErrorBoundary
@@ -275,6 +282,17 @@ function useViewerRuntime(visualizationId?: string) {
   const onChange = (next: InsightRuntimeInput | undefined) =>
     setState({ id: visualizationId, runtime: next });
   return { runtime, onChange };
+}
+
+function MissingSavedViewState() {
+  return (
+    <div className="flex h-full w-full items-center justify-center px-6">
+      <p className="text-center text-sm text-neutral-fg-subtle">
+        This saved view was deleted. Remove it from the report or add another
+        saved view.
+      </p>
+    </div>
+  );
 }
 
 /** A tile is its chart; the table is a workbench view. */

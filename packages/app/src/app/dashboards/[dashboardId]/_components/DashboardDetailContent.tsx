@@ -183,7 +183,7 @@ export default function DashboardDetailContent({
     }
   }, [isLoading, isFetching, dashboardsLoadError, dashboard, navigate]);
 
-  if (dashboardsLoadError || visualizationsLoadError) {
+  if (dashboardsLoadError || visualizationsLoadError || insightsLoadError) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center">
         <div>

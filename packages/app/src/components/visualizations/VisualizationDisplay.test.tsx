@@ -554,4 +554,14 @@ describe("VisualizationDisplay — report tile", () => {
     expect(source.getAttribute("href")).toBe(`/insights/${insight.id}`);
     expect(source.getAttribute("data-report-id")).toBe("report-a");
   });
+
+  it("says a tile's saved view was deleted instead of loading forever", async () => {
+    mockUseVisualizations.mockReturnValue({ data: [], isLoading: false });
+    render(
+      <VisualizationDisplay visualizationId="viz-1" reportId="report-a" />,
+    );
+
+    expect(await screen.findByText(/saved view was deleted/)).toBeTruthy();
+    expect(screen.queryByText("Loading visualization...")).toBeNull();
+  });
 });
