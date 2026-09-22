@@ -16,6 +16,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Badge, Button, cn, ErrorState } from "@wystack/ui-react";
 import {
   AlertCircleIcon,
+  ArrowLeftIcon,
   CheckIcon,
   DeleteIcon,
   ListIcon,
@@ -186,6 +187,45 @@ function PublishBlockedReason({
   return <p className="mt-1 text-xs text-palette-warning">{reason}</p>;
 }
 
+/**
+ * The report a draft edits, when it edits exactly one: review can then send
+ * the author back to that report's editor with the draft still open.
+ */
+export function draftReportId(
+  directNodes: readonly { kind: string; nodeId: string }[],
+): string | undefined {
+  const reports = directNodes.filter((node) => node.kind === "dashboard");
+  return reports.length === 1 ? reports[0]!.nodeId : undefined;
+}
+
+function KeepEditingButton({
+  draftId,
+  review,
+}: {
+  draftId: string;
+  review:
+    | { diff: { directNodes: { kind: string; nodeId: string }[] } }
+    | undefined;
+}) {
+  const navigate = useNavigate();
+  const reportId = review && draftReportId(review.diff.directNodes);
+  if (!reportId) return null;
+  return (
+    <Button
+      variant="ghost"
+      icon={ArrowLeftIcon}
+      label="Keep editing"
+      onClick={() =>
+        void navigate({
+          to: "/dashboards/$dashboardId/edit",
+          params: { dashboardId: reportId },
+          search: { draft: draftId },
+        })
+      }
+    />
+  );
+}
+
 export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
   const navigate = useNavigate();
   const setPendingDraft = useAssistantStore((state) => state.setPendingDraft);
@@ -311,6 +351,7 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <KeepEditingButton draftId={draftId} review={review} />
           <Button
             variant="outline"
             icon={DeleteIcon}
