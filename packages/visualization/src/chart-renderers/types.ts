@@ -16,7 +16,11 @@
  * ```
  */
 
-import type { ChartEncoding, VisualizationType } from "@dashframe/types";
+import type {
+  ChartEncoding,
+  VisualizationType,
+  MeasureFormat,
+} from "@dashframe/types";
 
 // ============================================================================
 // Chart Theme
@@ -52,6 +56,10 @@ export interface ChartTheme {
  * enabling query pushdown for aggregations.
  */
 export interface ChartConfig {
+  /** Exclude canonical subtotal rows from chart marks and domains. */
+  detailRowsOnly?: boolean;
+  /** Saved measure formats keyed by canonical result column. */
+  measureFormats?: Record<string, MeasureFormat>;
   /** DuckDB table name (usually DataFrame ID) */
   tableName: string;
 

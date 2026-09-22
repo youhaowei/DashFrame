@@ -1,5 +1,5 @@
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
-import type { DataTable } from "@dashframe/types";
+import type { DataTable, DateGrain, InsightReporting } from "@dashframe/types";
 import {
   SortableList,
   WorkbenchAddRow,
@@ -21,6 +21,11 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@wystack/ui-react";
 import {
   BooleanTypeIcon,
@@ -61,15 +66,33 @@ function FieldRenameEditor({
   field,
   dragHandle,
   onRename,
+  reporting,
+  onConfigure,
   onRemove,
 }: {
   field: CombinedField;
+  reporting?: InsightReporting;
+  onConfigure?: (
+    fieldId: string,
+    grain: DateGrain | undefined,
+    pivot: boolean,
+  ) => Promise<void>;
   dragHandle: ReactNode;
   onRename: (field: CombinedField, name: string) => Promise<void> | void;
   onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(field.name);
+  const [grain, setGrain] = useState<DateGrain | "none">(
+    reporting?.dateGrains?.[field.id] ?? "none",
+  );
+  const [pivot, setPivot] = useState(
+    Boolean(reporting?.pivotFields?.includes(field.id)),
+  );
+  const resetGrouping = () => {
+    setGrain(reporting?.dateGrains?.[field.id] ?? "none");
+    setPivot(Boolean(reporting?.pivotFields?.includes(field.id)));
+  };
   const [error, setError] = useState<string | null>(null);
   const { setPending, isPending } = useSaveDismissGuard();
   const [isSaving, setIsSaving] = useSavingFlag(setPending);
@@ -78,15 +101,21 @@ function FieldRenameEditor({
     if (isPending()) return;
     setOpen(false);
     setName(field.name);
+    resetGrouping();
     setError(null);
   };
   const save = async () => {
     const next = name.trim();
-    if (!next || next === field.name) return;
+    if (!next) return;
     setIsSaving(true);
     setError(null);
     try {
-      await onRename(field, next);
+      if (next !== field.name) await onRename(field, next);
+      await onConfigure?.(
+        field.id,
+        grain === "none" ? undefined : grain,
+        pivot,
+      );
       setOpen(false);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Unknown error";
@@ -103,6 +132,7 @@ function FieldRenameEditor({
         if (!next) close();
         else {
           setName(field.name);
+          resetGrouping();
           setError(null);
           setOpen(true);
         }
@@ -150,6 +180,51 @@ function FieldRenameEditor({
             autoFocus
           />
         </div>
+        {onConfigure && (
+          <div className="space-y-3">
+            {field.type === "date" && (
+              <div className="space-y-1.5">
+                <Label>Group date by</Label>
+                <Select
+                  value={grain}
+                  onValueChange={(value) =>
+                    setGrain((value ?? "none") as DateGrain | "none")
+                  }
+                >
+                  <SelectTrigger aria-label="Group date by">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["none", "day", "week", "month", "quarter", "year"].map(
+                      (value) => (
+                        <SelectItem key={value} value={value}>
+                          {value === "none"
+                            ? "Exact date"
+                            : value[0]!.toUpperCase() + value.slice(1)}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Pivot placement</Label>
+              <Select
+                value={pivot ? "column" : "row"}
+                onValueChange={(value) => setPivot(value === "column")}
+              >
+                <SelectTrigger aria-label="Pivot placement">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="row">Rows</SelectItem>
+                  <SelectItem value="column">Columns</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
         <div className="flex justify-end gap-2">
           <Button
             label="Cancel"
@@ -162,7 +237,12 @@ function FieldRenameEditor({
             label={isSaving ? "Saving…" : "Save"}
             size="sm"
             loading={isSaving}
-            disabled={!name.trim() || name.trim() === field.name}
+            disabled={
+              !name.trim() ||
+              (name.trim() === field.name &&
+                grain === (reporting?.dateGrains?.[field.id] ?? "none") &&
+                pivot === Boolean(reporting?.pivotFields?.includes(field.id)))
+            }
             onClick={() => void save()}
           />
         </div>
@@ -172,6 +252,8 @@ function FieldRenameEditor({
 }
 
 export function FieldsSection({
+  reporting,
+  onConfigure,
   selectedFields,
   availableFields,
   tables,
@@ -181,6 +263,12 @@ export function FieldsSection({
   onRename,
   onAdd,
 }: {
+  reporting?: InsightReporting;
+  onConfigure?: (
+    fieldId: string,
+    grain: DateGrain | undefined,
+    pivot: boolean,
+  ) => Promise<void>;
   selectedFields: CombinedField[];
   availableFields: CombinedField[];
   tables: DataTable[];
@@ -224,6 +312,8 @@ export function FieldsSection({
           renderItem={(item, _index, { dragHandle }) => (
             <FieldRenameEditor
               field={item.field}
+              reporting={reporting}
+              onConfigure={onConfigure}
               dragHandle={dragHandle}
               onRename={onRename}
               onRemove={() => onRemove(item.id)}

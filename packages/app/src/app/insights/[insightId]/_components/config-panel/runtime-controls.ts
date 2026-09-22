@@ -47,8 +47,25 @@ export function pruneRuntimeControls(
         }
       : undefined,
     limit: declaration.limit,
+    // A reader may select source dimensions absent from the current result.
+    dimensions: declaration.dimensions,
+    measures: declaration.measures
+      ? {
+          ...declaration.measures,
+          allowedIds: declaration.measures.allowedIds.filter((id) =>
+            fields.has(id),
+          ),
+        }
+      : undefined,
   };
   if (next.filters?.length === 0) delete next.filters;
   if (next.sort?.allowedFieldIds.length === 0) delete next.sort;
-  return next.filters || next.sort || next.limit ? next : undefined;
+  if (next.measures?.allowedIds.length === 0) delete next.measures;
+  return next.filters ||
+    next.sort ||
+    next.limit ||
+    next.dimensions ||
+    next.measures
+    ? next
+    : undefined;
 }

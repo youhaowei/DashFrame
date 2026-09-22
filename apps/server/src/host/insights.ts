@@ -24,6 +24,7 @@ import type { InsightRow } from "@dashframe/convex-backend/model";
 export type { InsightRow } from "@dashframe/convex-backend/model";
 import type {
   Insight,
+  InsightReporting,
   InsightFilter,
   InsightJoinConfig,
   InsightMetric,
@@ -33,6 +34,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { z } from "zod";
+import { reportingSchema } from "@dashframe/convex-backend/codecs";
 
 const tsToMillis = (value: number | null | undefined) => value ?? 0;
 
@@ -57,6 +59,7 @@ export interface StoredInsightDefinition {
   sorts?: unknown[];
   joins?: unknown[];
   runtimeControls?: InsightRuntimeDeclaration;
+  reporting?: InsightReporting;
 }
 
 /**
@@ -95,6 +98,7 @@ export type InsightDefinition = {
   sorts?: InsightSort[];
   joins?: InsightJoinConfig[];
   runtimeControls?: InsightRuntimeDeclaration;
+  reporting?: InsightReporting;
 };
 
 // ---------------------------------------------------------------------------
@@ -112,8 +116,17 @@ export const insightSourceSchema = z.object({
   sourceId: z.string(),
 });
 
+const runtimeSelectionSchema = z
+  .object({
+    allowedIds: z.array(z.string().min(1)).min(1),
+    maxSelected: z.number().int().positive().max(16),
+  })
+  .strict();
+
 export const runtimeControlsSchema = z
   .object({
+    dimensions: runtimeSelectionSchema.optional(),
+    measures: runtimeSelectionSchema.optional(),
     filters: z
       .array(
         z
@@ -196,6 +209,7 @@ export const storedInsightDefinitionSchema = z
       .array(z.unknown())
       .nullish()
       .transform((v) => v ?? undefined),
+    reporting: reportingSchema.optional(),
     runtimeControls: runtimeControlsSchema
       .nullish()
       .transform((v) => v ?? undefined),
@@ -261,6 +275,7 @@ export function toInsight(
     sorts: definition.sorts as InsightSort[] | undefined,
     joins: definition.joins as InsightJoinConfig[] | undefined,
     runtimeControls: definition.runtimeControls,
+    reporting: definition.reporting,
     createdAt: tsToMillis(row.createdAt),
     updatedAt: row.updatedAt ?? undefined,
   };
@@ -301,6 +316,7 @@ export function encodeInsightDefinition(input: {
   sorts?: InsightSort[];
   joins?: InsightJoinConfig[];
   runtimeControls?: InsightRuntimeDeclaration;
+  reporting?: InsightReporting;
 }): InsightDefinition {
   return {
     source: input.source,
@@ -310,5 +326,6 @@ export function encodeInsightDefinition(input: {
     sorts: input.sorts,
     joins: input.joins,
     runtimeControls: input.runtimeControls,
+    reporting: input.reporting,
   };
 }

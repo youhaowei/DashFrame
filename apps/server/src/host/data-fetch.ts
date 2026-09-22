@@ -2,26 +2,28 @@
 import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import type {
   Insight,
-  InsightFetchDefinition,
   InsightFetchResult,
+  InsightPresentation,
   InsightRuntimeInput,
+  MeasureExpression,
   UUID,
 } from "@dashframe/types";
+import { reportingSchema } from "@dashframe/convex-backend/codecs";
+import { isMeasureExpression } from "@dashframe/types";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import type { HostContext } from "./context";
 import { hostOperation } from "./operation";
-import type { MaterializationTarget } from "./data-fetch/materializer";
+import type {
+  EffectiveInsightDefinition,
+  MaterializationTarget,
+} from "./data-fetch/materializer";
 import { trustedPublishedSourceGenerations } from "./data-fetch/published-source-error";
 import { staleFrameMetadata } from "./data-fetch/publisher";
 import { decodeInsight, type InsightRow, type InsightSource } from "./insights";
 
-export type EffectiveInsightDefinition = InsightFetchDefinition & {
-  limit?: number;
-  /** Persisted composition wiring. Never accepted from fetchData callers. */
-  source?: InsightSource;
-};
+export type { EffectiveInsightDefinition } from "./data-fetch/materializer";
 
 /** Exact effective invocation identity used by publication and stale fallback. */
 export function fingerprintEffectiveInsight(
@@ -40,6 +42,7 @@ export function compatibleInsightFingerprints(
 }
 
 const RUNTIME_FAILURE_CODES = new Set([
+  "RUNTIME_SELECTION_NOT_ALLOWED",
   "RUNTIME_FILTER_NOT_DECLARED",
   "RUNTIME_FILTER_KEY_DUPLICATE",
   "RUNTIME_FILTER_DECLARATION_INVALID",
@@ -49,6 +52,10 @@ const RUNTIME_FAILURE_CODES = new Set([
   "RUNTIME_SORT_NOT_DECLARED",
   "RUNTIME_SORT_MAX_KEYS",
   "RUNTIME_SORT_FIELD_NOT_ALLOWED",
+  "RUNTIME_SORT_REFERENCE_AMBIGUOUS",
+  "RUNTIME_SORT_REFERENCE_INVALID",
+  "RUNTIME_LIMIT_REQUIRES_SORT",
+  "RUNTIME_PRESENTATION_NOT_ALLOWED",
   "RUNTIME_LIMIT_OUT_OF_RANGE",
 ]);
 
@@ -72,12 +79,48 @@ const definitionSchema = z
   .object({
     baseTableId: z.string().min(1),
     selectedFields: z.array(z.string().min(1)),
+    reporting: reportingSchema.optional(),
     metrics: z.array(
       z.object({
         id: z.string(),
         name: z.string(),
         sourceTable: z.string(),
         columnName: z.string().optional(),
+        expression: z.custom<MeasureExpression>(isMeasureExpression).optional(),
+        filters: z
+          .array(
+            filterSchema.extend({
+              value: z.union([
+                z.string(),
+                z.number().finite(),
+                z.boolean(),
+                z.null(),
+                z.array(
+                  z.union([
+                    z.string(),
+                    z.number().finite(),
+                    z.boolean(),
+                    z.null(),
+                  ]),
+                ),
+                z.object({
+                  low: z.union([z.string(), z.number().finite()]),
+                  high: z.union([z.string(), z.number().finite()]),
+                }),
+              ]),
+            }),
+          )
+          .optional(),
+        format: z
+          .object({
+            style: z.enum(["number", "currency", "percent"]),
+            decimals: z.number().int().min(0).max(20).optional(),
+            currency: z
+              .string()
+              .regex(/^[A-Z]{3}$/)
+              .optional(),
+          })
+          .optional(),
         aggregation: z.enum([
           "sum",
           "avg",
@@ -91,7 +134,27 @@ const definitionSchema = z
     filters: z.array(filterSchema).optional(),
     sorts: z
       .array(
-        z.object({ field: z.string(), direction: z.enum(["asc", "desc"]) }),
+        z
+          .object({
+            field: z.string(),
+            direction: z.enum(["asc", "desc"]),
+            pivotValues: z
+              .array(
+                z
+                  .object({
+                    fieldId: z.string(),
+                    value: z.union([
+                      z.string(),
+                      z.number().finite(),
+                      z.boolean(),
+                      z.null(),
+                    ]),
+                  })
+                  .strict(),
+              )
+              .optional(),
+          })
+          .strict(),
       )
       .optional(),
     joins: z
@@ -108,6 +171,8 @@ const definitionSchema = z
   .strict();
 const runtimeSchema = z
   .object({
+    dimensions: z.array(z.string().min(1)).max(16).optional(),
+    measures: z.array(z.string().min(1)).min(1).max(16).optional(),
     filters: z.record(z.string(), z.unknown()).optional(),
     sort: z
       .array(
@@ -116,6 +181,29 @@ const runtimeSchema = z
       .max(1)
       .optional(),
     limit: z.number().int().positive().optional(),
+  })
+  .strict();
+const dateTransformSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("temporal"),
+      aggregation: z.enum(["none", "yearWeek", "yearMonth", "year"]),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("categorical"),
+      groupBy: z.enum(["monthName", "dayOfWeek", "quarter"]),
+    })
+    .strict(),
+]);
+export const insightPresentationSchema = z
+  .object({
+    dimensions: z
+      .array(z.string().min(1))
+      .max(16)
+      .refine((dimensions) => new Set(dimensions).size === dimensions.length),
+    transforms: z.record(z.string().min(1), dateTransformSchema).optional(),
   })
   .strict();
 
@@ -284,6 +372,7 @@ function applyRuntimeSort(
   runtime: InsightRuntimeInput | undefined,
 ): void {
   if (!runtime?.sort) return;
+  definition.runtimeSortOverride = true;
   const control = saved.runtimeControls?.sort;
   if (!control) throw new Error("RUNTIME_SORT_NOT_DECLARED");
   if (control.maxKeys !== 1 || runtime.sort.length > control.maxKeys) {
@@ -294,12 +383,46 @@ function applyRuntimeSort(
   ) {
     throw new Error("RUNTIME_SORT_FIELD_NOT_ALLOWED");
   }
-  definition.sorts = runtime.sort.map((sort) => ({
-    field: saved.metrics.some((metric) => metric.id === sort.fieldId)
+  if (
+    runtime.sort.some(
+      (sort) =>
+        !definition.selectedFields.includes(sort.fieldId) &&
+        !saved.metrics.some((metric) => metric.id === sort.fieldId),
+    )
+  ) {
+    throw new Error("RUNTIME_SORT_FIELD_NOT_ALLOWED");
+  }
+  definition.sorts = runtime.sort.map((sort) => {
+    const metric = saved.metrics.some(
+      (candidate) => candidate.id === sort.fieldId,
+    );
+    const field = metric
       ? metricIdToColumnAlias(sort.fieldId)
-      : fieldIdToColumnAlias(sort.fieldId),
-    direction: sort.direction,
-  }));
+      : fieldIdToColumnAlias(sort.fieldId);
+    if (!metric || !definition.reporting?.pivotFields?.length)
+      return { field, direction: sort.direction };
+    const pivotFields = definition.reporting.pivotFields;
+    const savedPivot = saved.sorts?.find((candidate) => {
+      if (
+        candidate.field !== sort.fieldId &&
+        candidate.field !== metricIdToColumnAlias(sort.fieldId)
+      )
+        return false;
+      const tupleFields = candidate.pivotValues?.map((value) => value.fieldId);
+      return (
+        tupleFields?.length === pivotFields.length &&
+        new Set(tupleFields).size === tupleFields.length &&
+        pivotFields.every((id) => tupleFields.includes(id))
+      );
+    });
+    return {
+      field,
+      direction: sort.direction,
+      ...(savedPivot?.pivotValues && {
+        pivotValues: savedPivot.pivotValues,
+      }),
+    };
+  });
 }
 
 function applyRuntimeLimit(
@@ -315,6 +438,54 @@ function applyRuntimeLimit(
   definition.limit = runtime.limit;
 }
 
+function markChangedRuntimeDimensions(
+  definition: EffectiveInsightDefinition,
+  saved: Insight,
+  ids: readonly string[],
+): void {
+  if (
+    ids.length !== saved.selectedFields.length ||
+    ids.some((id, index) => id !== saved.selectedFields[index])
+  ) {
+    definition.runtimeDimensionsChanged = true;
+  }
+}
+
+function applyRuntimeSelections(
+  definition: EffectiveInsightDefinition,
+  saved: Insight,
+  runtime: InsightRuntimeInput | undefined,
+): void {
+  for (const kind of ["dimensions", "measures"] as const) {
+    const ids = runtime?.[kind];
+    if (ids === undefined) continue;
+    const control = saved.runtimeControls?.[kind];
+    if (
+      !control ||
+      ids.length > control.maxSelected ||
+      new Set(ids).size !== ids.length ||
+      ids.some((id) => !control.allowedIds.includes(id)) ||
+      (kind === "measures" &&
+        (ids.length === 0 ||
+          ids.some((id) => !saved.metrics.some((metric) => metric.id === id))))
+    )
+      throw new Error("RUNTIME_SELECTION_NOT_ALLOWED");
+    if (kind === "measures") {
+      definition.reporting = { ...definition.reporting, measureIds: [...ids] };
+    } else {
+      markChangedRuntimeDimensions(definition, saved, ids);
+      definition.selectedFields = [...ids];
+      const reporting = { ...definition.reporting };
+      reporting.pivotFields = reporting.pivotFields?.filter((id) =>
+        ids.includes(id),
+      );
+      if (reporting.topN && !ids.includes(reporting.topN.fieldId))
+        delete reporting.topN;
+      definition.reporting = reporting;
+    }
+  }
+}
+
 export function applyInsightRuntime(
   saved: Insight,
   runtime: InsightRuntimeInput | undefined,
@@ -327,11 +498,33 @@ export function applyInsightRuntime(
     sorts: saved.sorts,
     joins: saved.joins,
     source: saved.source,
+    reporting: saved.reporting,
+    limit: saved.reporting?.limit,
   };
+  applyRuntimeSelections(definition, saved, runtime);
   applyRuntimeFilters(definition, saved, runtime);
   applyRuntimeSort(definition, saved, runtime);
   applyRuntimeLimit(definition, saved, runtime);
   return definition;
+}
+
+function applyInsightPresentation(
+  definition: EffectiveInsightDefinition,
+  presentation: InsightPresentation | undefined,
+): void {
+  if (!presentation) return;
+  const requested = new Set(presentation.dimensions);
+  if (
+    presentation.dimensions.some(
+      (dimension) => !definition.selectedFields.includes(dimension),
+    ) ||
+    Object.keys(presentation.transforms ?? {}).some(
+      (dimension) => !requested.has(dimension),
+    )
+  ) {
+    throw new Error("RUNTIME_PRESENTATION_NOT_ALLOWED");
+  }
+  definition.presentation = presentation;
 }
 
 function failed(
@@ -371,6 +564,26 @@ const NAMED_FETCH_FAILURES: Record<
   FETCH_BATCH_BYTES_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
   FETCH_BYTE_BUDGET_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
   FETCH_STORAGE_BUDGET_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
+  RUNTIME_SORT_REFERENCE_AMBIGUOUS: {
+    message:
+      "The saved sort matches more than one field. Choose the sort field again.",
+  },
+  RUNTIME_SORT_REFERENCE_INVALID: {
+    message:
+      "The saved sort field is no longer available. Choose another sort field.",
+  },
+  RUNTIME_LIMIT_REQUIRES_SORT: {
+    message:
+      "The selected dimensions removed the sort required by the row limit. Choose another sort or remove the limit.",
+  },
+  RUNTIME_PIVOT_SORT_REQUIRES_TUPLE: {
+    message:
+      "This pivot report requires a saved pivot cell for metric sorting. Choose a pivot-cell sort first.",
+  },
+  RUNTIME_PRESENTATION_NOT_ALLOWED: {
+    message:
+      "The chart presentation must use dimensions selected by this Insight.",
+  },
   SOURCE_VALUE_UNSUPPORTED: {
     message:
       "The source contains a value that cannot be represented in a snapshot.",
@@ -439,24 +652,38 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
    * Saved runInsight generations remain durable and are not session-leased.
    */
   const fetchData = hostOperation({
-    input: z.object({ insight: z.unknown() }).strict(),
-    run: async (ctx, { insight }) => {
+    input: z
+      .object({
+        insight: z.unknown(),
+        presentation: z.unknown().optional(),
+      })
+      .strict(),
+    run: async (ctx, { insight, presentation }) => {
       const parsed = definitionSchema.safeParse(insight);
       if (!parsed.success)
         return failed(
           "FETCH_INVALID_DEFINITION",
           "The Insight definition is invalid.",
         );
+      const parsedPresentation = insightPresentationSchema
+        .optional()
+        .safeParse(presentation);
+      if (!parsedPresentation.success)
+        return failed(
+          "FETCH_INVALID_REQUEST",
+          "The requested Insight presentation is invalid.",
+        );
       try {
         const source = await resolveEphemeralSource(
           ctx,
           parsed.data.baseTableId as UUID,
         );
-        return materialize(
-          ctx,
-          { ...parsed.data, source },
-          { kind: "ephemeral" },
-        );
+        const effective: EffectiveInsightDefinition = {
+          ...parsed.data,
+          source,
+        };
+        applyInsightPresentation(effective, parsedPresentation.data);
+        return materialize(ctx, effective, { kind: "ephemeral" });
       } catch (error) {
         return toFetchFailure(error, "FETCH_SOURCE_FAILED");
       }
@@ -486,24 +713,37 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
   });
   const runInsight = hostOperation({
     input: z
-      .object({ insightId: z.string().uuid(), runtime: z.unknown().optional() })
+      .object({
+        insightId: z.string().uuid(),
+        runtime: z.unknown().optional(),
+        presentation: z.unknown().optional(),
+      })
       .strict(),
-    run: async (ctx, { insightId, runtime }) => {
+    run: async (ctx, { insightId, runtime, presentation }) => {
       const parsedRuntime = runtimeSchema.optional().safeParse(runtime);
-      if (!parsedRuntime.success)
+      const parsedPresentation = insightPresentationSchema
+        .optional()
+        .safeParse(presentation);
+      if (!parsedRuntime.success || !parsedPresentation.success)
         return failed(
           "FETCH_INVALID_REQUEST",
-          "The requested Insight runtime controls are invalid.",
+          "The requested Insight runtime controls or presentation are invalid.",
         );
       try {
         const saved = await getInsightForFetch(ctx, insightId as UUID);
         const effective = applyInsightRuntime(saved, parsedRuntime.data);
-        const invocationFingerprints = compatibleInsightFingerprints(effective);
-        const result = await materialize(ctx, effective, {
-          kind: "saved",
-          insightId: insightId as UUID,
-        });
+        applyInsightPresentation(effective, parsedPresentation.data);
+        const isPresentation = parsedPresentation.data !== undefined;
+        const result = await materialize(
+          ctx,
+          effective,
+          isPresentation
+            ? { kind: "ephemeral" }
+            : { kind: "saved", insightId: insightId as UUID },
+        );
         if (result.status !== "failed") return result;
+        if (isPresentation) return result;
+        const invocationFingerprints = compatibleInsightFingerprints(effective);
         const prior = await lastSuccessfulForInsight(
           ctx,
           insightId as UUID,

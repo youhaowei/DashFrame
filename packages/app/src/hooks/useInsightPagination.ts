@@ -15,6 +15,7 @@ import type {
   Insight,
   InsightFetchDefinition,
   InsightRuntimeInput,
+  InsightPresentation,
   InsightSourceGeneration,
   UUID,
 } from "@dashframe/types";
@@ -61,6 +62,7 @@ export interface UseInsightPaginationOptions {
   showModelPreview?: boolean;
   enabled?: boolean;
   runtime?: InsightRuntimeInput;
+  presentation?: InsightPresentation;
 }
 
 function toFetchDefinition(insight: Insight): InsightFetchDefinition {
@@ -71,6 +73,7 @@ function toFetchDefinition(insight: Insight): InsightFetchDefinition {
     filters: insight.filters,
     sorts: insight.sorts,
     joins: insight.joins,
+    reporting: insight.reporting,
   };
 }
 
@@ -250,6 +253,7 @@ export function useInsightPagination({
   showModelPreview = false,
   enabled = true,
   runtime,
+  presentation,
 }: UseInsightPaginationOptions) {
   const dataTablesQuery = queryStatus(
     useQuery({ query: api.app.listDataTables, args: {} }),
@@ -301,6 +305,7 @@ export function useInsightPagination({
   }, [dataFrameId]);
 
   const runtimeKey = JSON.stringify(runtime ?? null);
+  const presentationKey = JSON.stringify(presentation ?? null);
   const insightKey = JSON.stringify(
     insight ? toFetchDefinition(insight) : null,
   );
@@ -314,6 +319,7 @@ export function useInsightPagination({
     insight?.id ?? null,
     insightKey,
     runtimeKey,
+    presentationKey,
     showModelPreview,
     sourcesReady,
   ]);
@@ -365,6 +371,12 @@ export function useInsightPagination({
     const current = generation.current;
     const activeInsight = insight;
     if (!enabled || !activeInsight?.id || !sourcesReady) {
+      // This request generation can no longer publish. Forget its in-flight
+      // bookkeeping so re-enabling the same structural request starts a fresh
+      // materialization instead of waiting on a response this generation will
+      // discard before reading its DataFrame.
+      activeMaterialization.current = null;
+      pendingMaterialization.current = null;
       validResult.current = null;
       queueMicrotask(() => {
         if (current !== generation.current) return;
@@ -407,10 +419,12 @@ export function useInsightPagination({
     const materialized = showModelPreview
       ? requestHost("fetchData", {
           insight: toFetchDefinition(activeInsight),
+          ...(presentation ? { presentation } : {}),
         })
       : requestHost("runInsight", {
           insightId: activeInsight.id,
           ...(stableRuntime ? { runtime: stableRuntime } : {}),
+          ...(presentation ? { presentation } : {}),
         });
     let completedOwnFailure = false;
     let completedSourceGenerations:
@@ -469,21 +483,20 @@ export function useInsightPagination({
             setIsReady(false);
             return;
           }
-          const effectiveCount = stableRuntime?.limit
-            ? Math.min(page.totalCount, stableRuntime.limit)
-            : page.totalCount;
-          const nextColumns: VirtualTableColumn[] = page.schema.map(
-            ({ id, type }) => ({ name: id, type: type as ColumnType }),
-          );
+          const nextColumns: VirtualTableColumn[] = page.schema
+            .filter((column) => column.id !== "__report_grouping")
+            .map(({ id, type }) => ({ name: id, type: type as ColumnType }));
           setDataFrameId(resultFrame.dataFrameId);
           validResult.current = {
             requestIdentity,
             sourceRevision: activeRequest.sourceRevision,
           };
-          setTotalCount(effectiveCount);
+          setTotalCount(page.totalCount);
           setColumns(nextColumns);
           setSchema(page.schema);
-          setSampleRows(page.rows);
+          setSampleRows(
+            page.rows.filter((row) => Number(row.__report_grouping ?? 0) === 0),
+          );
           setFieldCount(nextColumns.length);
           setError(null);
           setIsReady(true);
@@ -569,6 +582,7 @@ export function useInsightPagination({
     insight?.id,
     insightKey,
     runtimeKey,
+    presentationKey,
     requestIdentity,
     showModelPreview,
     sourceRevision,
@@ -582,9 +596,7 @@ export function useInsightPagination({
       if (!dataFrameId) return { rows: [], totalCount: 0 };
       const current = generation.current;
       const requestedDataFrameId = dataFrameId;
-      const remaining = stableRuntime?.limit
-        ? Math.max(0, stableRuntime.limit - params.offset)
-        : params.limit;
+      const remaining = Math.max(0, totalCount - params.offset);
       if (remaining === 0) return { rows: [], totalCount };
       let page;
       try {
@@ -614,7 +626,7 @@ export function useInsightPagination({
         ? { rows: page.rows, totalCount }
         : { rows: [], totalCount: 0 };
     },
-    [dataFrameId, stableRuntime, totalCount],
+    [dataFrameId, totalCount],
   );
 
   const { fields: resolvedFields, displayNames: columnDisplayNames } = useMemo(

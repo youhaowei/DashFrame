@@ -26,6 +26,18 @@ beforeEach(() => {
 it("uses report-hierarchy terminology in deterministic intent summaries", () => {
   expect(
     describeCommand(
+      cmd("SetInsightMetrics", {
+        id: uuid(),
+        metrics: [],
+      }),
+    ),
+  ).toEqual({
+    command: "SetInsightMetrics",
+    summary: "Update metrics",
+  });
+
+  expect(
+    describeCommand(
       cmd("SetInsightRuntimeControls", {
         id: uuid(),
         runtimeControls: undefined,
@@ -47,6 +59,17 @@ it("uses report-hierarchy terminology in deterministic intent summaries", () => 
     command: "SetChartType",
     summary: "Change chart type to Horizontal bar",
   });
+});
+
+it("attributes an atomic metric replacement preview to its insight", async () => {
+  const { insightId } = await seedChain();
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("SetInsightMetrics", { id: insightId, metrics: [] })],
+  });
+  expect(diff.error).toBeUndefined();
+  expect(diff.directNodes).toEqual([
+    expect.objectContaining({ nodeId: insightId, kind: "insight" }),
+  ]);
 });
 
 async function seedVisualization() {

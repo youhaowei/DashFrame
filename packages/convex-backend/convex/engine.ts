@@ -10,6 +10,7 @@ import {
   COMMAND_PATHS,
   ENCODING_VALUE_CHANNELS,
   isUnmodifiedDraft,
+  isMeasureExpression,
   validateVisualizationEncoding,
   type VisualizationEncoding,
 } from "@dashframe/types";
@@ -24,6 +25,7 @@ import { parseStoredDashboardState } from "./dashboardCodec";
 import {
   storedInsightDefinitionSchema,
   runtimeControlsSchema,
+  reportingSchema,
 } from "./insightCodec";
 import type { Graph } from "./graph";
 function str(value: Json | undefined, label: string): string {
@@ -37,6 +39,65 @@ function array(value: Json | undefined, label: string): Json[] {
 }
 function objects(value: Json | undefined, label: string): ObjectValue[] {
   return array(value, label).map(record);
+}
+function validatePivotValues(sort: ObjectValue): void {
+  if (sort.pivotValues === undefined) return;
+  const values = objects(sort.pivotValues, "pivotValues");
+  if (!values.length || values.length > 16)
+    throw new Error("pivotValues must contain between 1 and 16 values");
+  const fields = new Set<string>();
+  for (const entry of values) {
+    const fieldId = str(entry.fieldId, "pivotValues.fieldId");
+    if (fields.has(fieldId))
+      throw new Error("pivotValues fieldIds must be unique");
+    fields.add(fieldId);
+    const value = entry.value;
+    if (
+      value !== null &&
+      typeof value !== "string" &&
+      typeof value !== "number" &&
+      typeof value !== "boolean"
+    )
+      throw new Error("pivotValues values must be scalar");
+    if (typeof value === "number" && !Number.isFinite(value))
+      throw new Error("pivotValues values must be finite");
+  }
+}
+function metricColumnAlias(metric: ObjectValue): string {
+  return `metric_${str(metric.id, "metric.id").replaceAll("-", "_")}`;
+}
+function exactPivotTuple(sort: ObjectValue, pivotFields: Json[]): boolean {
+  if (sort.pivotValues === undefined || !pivotFields.length) return false;
+  const tupleIds = objects(sort.pivotValues, "pivotValues").map((entry) =>
+    str(entry.fieldId, "pivotValues.fieldId"),
+  );
+  return (
+    new Set(pivotFields).size === pivotFields.length &&
+    tupleIds.length === pivotFields.length &&
+    pivotFields.every((fieldId) => tupleIds.includes(fieldId as string))
+  );
+}
+function validatePivotSortDefinition(def: ObjectValue): void {
+  const selectedIds = new Set(array(def.selectedFields, "selectedFields"));
+  const metricColumns = new Set(
+    objects(def.metrics, "metrics").map(metricColumnAlias),
+  );
+  const pivotFields = def.reporting
+    ? array(record(def.reporting).pivotFields ?? [], "pivotFields")
+    : [];
+  for (const sort of objects(def.sorts ?? [], "sorts")) {
+    validatePivotValues(sort);
+    if (sort.pivotValues === undefined) continue;
+    if (!metricColumns.has(str(sort.field, "sort field")))
+      throw new Error("Pivot sort field must be a canonical report measure");
+    if (
+      !exactPivotTuple(sort, pivotFields) ||
+      pivotFields.some((fieldId) => !selectedIds.has(fieldId))
+    )
+      throw new Error(
+        "Pivot sort values must exactly match selected report pivot dimensions",
+      );
+  }
 }
 function id(value: Json | undefined, label = "id"): string {
   const s = str(value, label);
@@ -148,10 +209,139 @@ function fieldReferences(field: ObjectValue): string[] {
     `field_${fieldId.replaceAll("-", "_")}`,
   ];
 }
-async function validateDerived(graph: Graph, def: ObjectValue) {
+async function validateRuntimeSelections(graph: Graph, def: ObjectValue) {
+  const controls = record(def.runtimeControls);
+  const fields = await availableFields(graph, def);
+  const metrics = objects(def.metrics, "metrics");
+  for (const kind of ["dimensions", "measures"]) {
+    if (!controls[kind]) continue;
+    const allowed = array(record(controls[kind]).allowedIds, "allowedIds");
+    const available = kind === "dimensions" ? fields : metrics;
+    if (
+      new Set(allowed).size !== allowed.length ||
+      allowed.some((id) => !available.some((item) => item.id === id))
+    )
+      throw new Error(
+        "Runtime selection references unavailable field or measure",
+      );
+  }
+}
+
+function measureDependencies(expression: Json | undefined): string[] {
+  if (!expression) return [];
+  const node = record(expression);
+  if (node.kind === "measure")
+    return [str(node.measureId, "measure expression dependency")];
+  if (node.kind !== "binary") return [];
+  return [
+    ...measureDependencies(node.left),
+    ...measureDependencies(node.right),
+  ];
+}
+
+function validateMetricDependencies(def: ObjectValue): void {
+  const metrics = objects(def.metrics, "metrics");
+  const byId = new Map(
+    metrics.map((metric) => [str(metric.id, "metric.id"), metric]),
+  );
+  for (const metric of byId.values())
+    for (const dependency of measureDependencies(metric.expression))
+      if (!byId.has(dependency))
+        throw new Error(
+          `Calculated measure "${str(metric.name, "metric.name")}" references unavailable measure ${dependency}. Add the measure or update the calculated measure.`,
+        );
+
+  const visiting = new Set<string>(),
+    visited = new Set<string>();
+  const visit = (metricId: string) => {
+    if (visiting.has(metricId))
+      throw new Error("Calculated measure dependencies must be acyclic");
+    if (visited.has(metricId)) return;
+    visiting.add(metricId);
+    const metric = byId.get(metricId)!;
+    for (const dependency of measureDependencies(metric.expression))
+      visit(dependency);
+    visiting.delete(metricId);
+    visited.add(metricId);
+  };
+  for (const metricId of byId.keys()) visit(metricId);
+}
+
+function validateReportingDefinition(def: ObjectValue): void {
+  if (!def.reporting) return;
+  const reporting = record(def.reporting);
+  if (reporting.comparison && !reporting.dateRange)
+    throw new Error("Report comparison requires a date range");
+  if (
+    reporting.totals &&
+    array(def.selectedFields, "selectedFields").length > 16
+  )
+    throw new Error("Report totals support at most 16 dimensions");
+}
+
+function validateComparisonMeasures(
+  def: ObjectValue,
+  fields: ObjectValue[],
+): void {
+  if (!def.reporting || !record(def.reporting).comparison) return;
+  const reporting = record(def.reporting);
+  const metrics = objects(def.metrics, "metrics");
+  const selected = reporting.measureIds
+    ? new Set(array(reporting.measureIds, "measureIds"))
+    : null;
+  const byId = new Map(
+    metrics.map((metric) => [str(metric.id, "metric.id"), metric]),
+  );
+  const checking = new Set<string>(),
+    numeric = new Map<string, boolean>();
+  const isNumeric = (metricId: string): boolean => {
+    const cached = numeric.get(metricId);
+    if (cached !== undefined) return cached;
+    if (checking.has(metricId)) return false;
+    checking.add(metricId);
+    const metric = byId.get(metricId)!;
+    let result: boolean;
+    if (metric.expression) {
+      result = measureDependencies(metric.expression).every(isNumeric);
+    } else if (
+      metric.aggregation === "count" ||
+      metric.aggregation === "count_distinct"
+    ) {
+      result = true;
+    } else {
+      result = fields.some(
+        (field) =>
+          field.tableId === metric.sourceTable &&
+          field.type === "number" &&
+          fieldReferences(field).includes(str(metric.columnName, "columnName")),
+      );
+    }
+    checking.delete(metricId);
+    numeric.set(metricId, result);
+    return result;
+  };
+  if (
+    metrics.some(
+      (metric) =>
+        (!selected || selected.has(str(metric.id, "metric.id"))) &&
+        !isNumeric(str(metric.id, "metric.id")),
+    )
+  )
+    throw new Error("Report comparison requires numeric measures");
+}
+
+async function validateDerived(
+  graph: Graph,
+  def: ObjectValue,
+  deferMetricValidation = false,
+) {
   const sourceType = record(def.source).sourceType;
+  validatePivotSortDefinition(def);
+  if (!deferMetricValidation) validateMetricDependencies(def);
+  validateReportingDefinition(def);
   const fields = await availableFields(graph, def);
   if (sourceType === "dataTable" && fields.length === 0) return;
+  if (!deferMetricValidation) validateComparisonMeasures(def, fields);
   for (const selected of array(def.selectedFields, "selectedFields"))
     if (!fields.some((f) => f.id === selected))
       throw new Error(`Field ${selected} is not output by source`);
@@ -185,15 +375,89 @@ async function validateDerived(graph: Graph, def: ObjectValue) {
   for (const f of objects(def.filters ?? [], "filters"))
     if (!columns.has(str(f.field, "filter field")))
       throw new Error("Filter field is not output by source");
-  for (const s of objects(def.sorts ?? [], "sorts"))
-    if (!resultColumns.has(str(s.field, "sort field")))
+  for (const s of objects(def.sorts ?? [], "sorts")) {
+    validatePivotValues(s);
+    const sortField = str(s.field, "sort field");
+    if (!resultColumns.has(sortField))
       throw new Error(
         `Sort field ${String(s.field)} is not output by source; expected one of: ${[
           ...resultColumns,
         ].join(", ")}`,
       );
+  }
 }
-function prune(def: ObjectValue) {
+async function prune(graph: Graph, def: ObjectValue) {
+  if (def.reporting) {
+    const reporting = record(def.reporting);
+    const selected = new Set(array(def.selectedFields, "selectedFields"));
+    if (reporting.dateGrains)
+      reporting.dateGrains = Object.fromEntries(
+        Object.entries(record(reporting.dateGrains)).filter(([id]) =>
+          selected.has(id),
+        ),
+      );
+    if (reporting.pivotFields)
+      reporting.pivotFields = array(
+        reporting.pivotFields,
+        "pivotFields",
+      ).filter((id) => selected.has(id));
+    if (reporting.measureIds) {
+      const measures = array(reporting.measureIds, "measureIds").filter((id) =>
+        objects(def.metrics, "metrics").some((metric) => metric.id === id),
+      );
+      if (measures.length) reporting.measureIds = measures;
+      else delete reporting.measureIds;
+    }
+    if (reporting.topN) {
+      const top = record(reporting.topN);
+      if (
+        !top.fieldId ||
+        !selected.has(top.fieldId) ||
+        !objects(def.metrics, "metrics").some(
+          (metric) => metric.id === top.measureId,
+        )
+      )
+        delete reporting.topN;
+    }
+    def.reporting = reporting;
+  }
+  const selected = new Set(array(def.selectedFields, "selectedFields"));
+  const metricColumns = new Set(
+    objects(def.metrics, "metrics").map(metricColumnAlias),
+  );
+  const sourceFields = await availableFields(graph, def);
+  const sourceColumns = new Set(sourceFields.flatMap(fieldReferences));
+  const sourceFieldsUnavailable =
+    record(def.source).sourceType === "dataTable" && sourceFields.length === 0;
+  if (def.filters)
+    def.filters = objects(def.filters, "filters").filter((filter) => {
+      const field = str(filter.field, "filter field");
+      return (
+        sourceFieldsUnavailable ||
+        sourceColumns.has(field) ||
+        !field.startsWith("metric_") ||
+        metricColumns.has(field)
+      );
+    });
+  const pivotFields = def.reporting
+    ? array(record(def.reporting).pivotFields ?? [], "pivotFields")
+    : [];
+  if (def.sorts)
+    def.sorts = objects(def.sorts, "sorts").filter((sort) => {
+      const field = str(sort.field, "sort field");
+      if (sort.pivotValues === undefined)
+        return (
+          sourceFieldsUnavailable ||
+          sourceColumns.has(field) ||
+          !field.startsWith("metric_") ||
+          metricColumns.has(field)
+        );
+      return (
+        metricColumns.has(field) &&
+        pivotFields.every((fieldId) => selected.has(fieldId)) &&
+        exactPivotTuple(sort, pivotFields)
+      );
+    });
   if (!def.runtimeControls) return;
   const controls = record(def.runtimeControls),
     next: ObjectValue = {};
@@ -217,6 +481,21 @@ function prune(def: ObjectValue) {
     if (allowedFieldIds.length) next.sort = { allowedFieldIds, maxKeys: 1 };
   }
   if (controls.limit) next.limit = controls.limit;
+  if (controls.dimensions) {
+    const selection = record(controls.dimensions);
+    const availableIds = new Set(sourceFields.map((field) => field.id));
+    const allowedIds = array(selection.allowedIds, "allowedIds").filter((id) =>
+      availableIds.has(id),
+    );
+    if (allowedIds.length) next.dimensions = { ...selection, allowedIds };
+  }
+  if (controls.measures) {
+    const selection = record(controls.measures);
+    const allowedIds = array(selection.allowedIds, "allowedIds").filter((id) =>
+      objects(def.metrics, "metrics").some((metric) => metric.id === id),
+    );
+    if (allowedIds.length) next.measures = { ...selection, allowedIds };
+  }
   if (Object.keys(next).length) def.runtimeControls = next;
   else delete def.runtimeControls;
 }
@@ -230,8 +509,24 @@ function validateMetric(metric: ObjectValue, derived: boolean) {
     )
   )
     throw new Error("Invalid aggregation");
-  if (metric.aggregation !== "count" || metric.columnName !== undefined)
+  if (
+    metric.expression !== undefined &&
+    !isMeasureExpression(metric.expression)
+  )
+    throw new Error("Invalid measure expression");
+  if (
+    !metric.expression &&
+    (metric.aggregation !== "count" || metric.columnName !== undefined)
+  )
     str(metric.columnName, "columnName");
+  if (metric.format) {
+    const currency = record(metric.format).currency;
+    if (
+      currency !== undefined &&
+      (typeof currency !== "string" || !/^[A-Za-z]{3}$/.test(currency))
+    )
+      throw new Error("Metric format currency must be a three-letter code");
+  }
 }
 async function validateJoin(graph: Graph, join: ObjectValue) {
   if (!["inner", "left", "right", "full"].includes(str(join.type, "join.type")))
@@ -338,14 +633,36 @@ export async function execute(
   if (commands.length > 200)
     throw new Error("A batch is limited to 200 commands");
   const results: { id?: string; value: Json }[] = [];
-  for (const command of commands) {
+  const metricMutationPaths = new Set([
+    "addMetric",
+    "updateMetric",
+    "removeMetric",
+    "setInsightMetrics",
+  ]);
+  const targetId = (command: Command) => {
+    const args = record(command.args);
+    const value = args.nodeId ?? args.id;
+    return typeof value === "string" ? value : undefined;
+  };
+  const lastMetricMutation = new Map<string, number>();
+  commands.forEach((command, index) => {
+    if (!metricMutationPaths.has(command.path)) return;
+    const target = targetId(command);
+    if (target) lastMetricMutation.set(target, index);
+  });
+  for (const [index, command] of commands.entries()) {
     if (
       !Object.values(COMMAND_PATHS).includes(
         command.path as (typeof COMMAND_PATHS)[keyof typeof COMMAND_PATHS],
       )
     )
       throw new Error(`Unknown command ${command.path}`);
-    const value = await run(graph, command, workspaceId, now, options);
+    const target = targetId(command);
+    const value = await run(graph, command, workspaceId, now, {
+      ...options,
+      deferMetricValidation:
+        target !== undefined && index < (lastMetricMutation.get(target) ?? -1),
+    });
     results.push(clean({ ...(command.id ? { id: command.id } : {}), value }));
   }
   return results;
@@ -355,7 +672,11 @@ async function run(
   command: Command,
   workspaceId: string,
   now: number,
-  options: { host?: boolean; service?: boolean },
+  options: {
+    host?: boolean;
+    service?: boolean;
+    deferMetricValidation?: boolean;
+  },
 ): Promise<Json> {
   const a = record(command.args),
     p = command.path;
@@ -480,7 +801,7 @@ async function run(
     storedInsightDefinitionSchema.parse(def);
     for (const metric of objects(def.metrics, "metrics"))
       validateMetric(metric, true);
-    await validateDerived(graph, def);
+    await validateDerived(graph, def, options.deferMetricValidation);
     return await create("insights", {
       definition: def,
       createdBy: { kind: options.service ? "agent" : "user" },
@@ -490,8 +811,10 @@ async function run(
     [
       "setInsightSource",
       "selectFields",
+      "setInsightMetrics",
       "setInsightFilter",
       "setInsightSort",
+      "setInsightReporting",
       "setInsightRuntimeControls",
       "addJoin",
       "updateJoin",
@@ -509,14 +832,23 @@ async function run(
       if (fields.some((v) => typeof v !== "string"))
         throw new Error("Invalid fieldIds");
       def.selectedFields = fields;
-      prune(def);
+      await prune(graph, def);
+    }
+    if (p === "setInsightMetrics") {
+      const metrics = objects(a.metrics, "metrics");
+      const metricIds = metrics.map((metric) => str(metric.id, "metric.id"));
+      if (new Set(metricIds).size !== metricIds.length)
+        throw new Error("Metric ids must be unique");
+      for (const metric of metrics) validateMetric(metric, true);
+      def.metrics = metrics;
+      await prune(graph, def);
     }
     if (p === "setInsightFilter") {
       def.filters = objects(a.filters, "filters").map((f, i) => ({
         ...f,
         id: typeof f.id === "string" ? f.id : `${row.id}:filter:${i}`,
       }));
-      prune(def);
+      await prune(graph, def);
     }
     if (p === "setInsightSort") {
       def.sorts = objects(a.sorts, "sorts");
@@ -524,13 +856,49 @@ async function run(
         str(s.field, "field");
         if (s.direction !== "asc" && s.direction !== "desc")
           throw new Error("Invalid sort direction");
+        validatePivotValues(s);
       }
+    }
+    if (p === "setInsightReporting") {
+      if (a.reporting === undefined) delete def.reporting;
+      else {
+        const reporting = reportingSchema.parse(a.reporting);
+        const selected = new Set(array(def.selectedFields, "selectedFields"));
+        const dimensions = [
+          ...Object.keys(reporting.dateGrains ?? {}),
+          ...(reporting.pivotFields ?? []),
+        ];
+        if (
+          reporting.measureIds?.some(
+            (id) =>
+              !objects(def.metrics, "metrics").some(
+                (metric) => metric.id === id,
+              ),
+          )
+        )
+          throw new Error("Selected measure is unavailable");
+        if (dimensions.some((field) => !selected.has(field)))
+          throw new Error("Reporting dimension must be selected");
+        if (
+          reporting.topN &&
+          (!selected.has(reporting.topN.fieldId) ||
+            !objects(def.metrics, "metrics").some(
+              (metric) => metric.id === reporting.topN!.measureId,
+            ))
+        )
+          throw new Error(
+            "Top N references an unavailable dimension or measure",
+          );
+        def.reporting = a.reporting;
+      }
+      await prune(graph, def);
     }
     if (p === "setInsightRuntimeControls") {
       if (a.runtimeControls === undefined) delete def.runtimeControls;
       else {
         runtimeControlsSchema.parse(a.runtimeControls);
         def.runtimeControls = a.runtimeControls;
+        await validateRuntimeSelections(graph, def);
         const controls = record(a.runtimeControls);
         const filters = objects(def.filters ?? [], "filters");
         if (controls.sort) {
@@ -576,8 +944,9 @@ async function run(
         }
       }
       def.joins = joins;
+      await prune(graph, def);
     }
-    await validateDerived(graph, def);
+    await validateDerived(graph, def, options.deferMetricValidation);
     row.definition = def;
     return { ok: true };
   }
@@ -613,7 +982,6 @@ async function run(
         if (at === -1) throw new Error("Field not found");
         selected.splice(at, 1);
       }
-      prune(def);
     } else {
       const list = def
         ? objects(def.metrics, "metrics")
@@ -630,8 +998,21 @@ async function run(
         list.push(item!);
       } else {
         if (at === -1) throw new Error("Item not found");
-        if (removing) list.splice(at, 1);
-        else {
+        if (removing) {
+          if (def && !isField && !options.deferMetricValidation) {
+            const removed = list[at]!;
+            const dependent = list.find(
+              (metric, index) =>
+                index !== at &&
+                measureDependencies(metric.expression).includes(key),
+            );
+            if (dependent)
+              throw new Error(
+                `Cannot remove measure "${str(removed.name, "metric.name")}". Calculated measure "${str(dependent.name, "metric.name")}" depends on it; remove or update the calculated measure first.`,
+              );
+          }
+          list.splice(at, 1);
+        } else {
           const updates = record(a.updates);
           if (!Object.keys(updates).length)
             throw new Error("Updates are required");
@@ -647,8 +1028,8 @@ async function run(
       }
     }
     if (def) {
-      prune(def);
-      await validateDerived(graph, def);
+      await prune(graph, def);
+      await validateDerived(graph, def, options.deferMetricValidation);
       row.definition = def;
     }
     return { ok: true, target: { kind: artifactKinds[t], id: row.id } };

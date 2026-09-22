@@ -18,6 +18,12 @@
  * - Two joins to the same table each get distinct aliases (via `_j{n}` suffix)
  */
 
+import {
+  absoluteDateRange,
+  previousPeriod,
+  previousYear,
+  resolveRelativeDateRange,
+} from "../reporting/periods";
 import { frameTableName } from "./frame-table-name";
 import type {
   DataTable,
@@ -26,9 +32,15 @@ import type {
   InsightFilter,
   InsightFilterBetweenValue,
   InsightMetric,
+  InsightPresentation,
+  MeasureExpression,
+  DateTransform,
   InsightSort,
+  InsightReporting,
   UUID,
 } from "@dashframe/types";
+
+import { isMeasureExpression } from "@dashframe/types";
 
 import { quoteIdentifier, quoteLiteral } from "./quoting";
 
@@ -215,6 +227,8 @@ export function metricToSqlExpression(metric: InsightMetric): string {
  * Options for building insight SQL.
  */
 export interface BuildInsightSQLOptions {
+  /** Fixed execution clock for relative report periods; defaults to now. */
+  asOf?: Date;
   /**
    * Query mode:
    * - "model": Raw joined data without aggregations (for data preview)
@@ -229,6 +243,10 @@ export interface BuildInsightSQLOptions {
   sortColumn?: string;
   /** Sort direction */
   sortDirection?: "asc" | "desc";
+  /** Exact pivot cell used to rank complete pivot rows. */
+  pivotValues?: InsightSort["pivotValues"];
+  /** Transient chart grouping over the canonical report cohort. */
+  presentation?: InsightPresentation;
   /**
    * Effective filters resolved from per-cell overrides via `resolveEffectiveParams`.
    * When provided, REPLACES `insight.filters` for this query only — the insight
@@ -342,6 +360,7 @@ function buildEffectiveOptions(
       ? {
           sortColumn: resolveSortColumnAlias(firstSort.field, tableFields),
           sortDirection: firstSort.direction,
+          pivotValues: firstSort.pivotValues,
         }
       : undefined;
   return {
@@ -351,13 +370,38 @@ function buildEffectiveOptions(
   };
 }
 
+function reportDateFilters(
+  dateRange: NonNullable<InsightReporting["dateRange"]>,
+  fields: Field[],
+  asOf: Date | undefined,
+  filters: InsightFilter[] | undefined,
+): InsightFilter[] {
+  const field = fields.find((candidate) => candidate.id === dateRange.fieldId);
+  if (!field || field.type !== "date")
+    throw new Error("Report date range references an unavailable date field");
+  const range =
+    dateRange.range.type === "absolute"
+      ? absoluteDateRange(
+          new Date(dateRange.range.start),
+          new Date(dateRange.range.end),
+        )
+      : resolveRelativeDateRange(dateRange.range, asOf ?? new Date());
+  const reference = fieldIdToColumnAlias(field.id);
+  return [
+    ...(filters ?? []),
+    { field: reference, operator: "gte", value: range.start.toISOString() },
+    { field: reference, operator: "lt", value: range.end.toISOString() },
+  ];
+}
+
 export function buildInsightSQL(
   baseTable: DataTable,
   joinedTables: Map<UUID, DataTable>,
   insight: Insight,
   options: BuildInsightSQLOptions,
 ): string | null {
-  const { mode, effectiveFilters, effectiveSorts, effectiveLimit } = options;
+  const { mode, effectiveFilters, effectiveSorts } = options;
+  const effectiveLimit = options.effectiveLimit ?? insight.reporting?.limit;
 
   if (!baseTable.dataFrameId) return null;
 
@@ -1068,33 +1112,7 @@ function resolveMetricAggRef(
   );
   if (!metric) return quoteIdentifier(filterField);
 
-  if (!AGG_WHITELIST_CONST.has(metric.aggregation)) {
-    throw new Error(
-      `resolveMetricAggRef: invalid aggregation "${metric.aggregation}" — must be one of: sum, avg, count, min, max, count_distinct`,
-    );
-  }
-  const aggFn = metric.aggregation.toUpperCase();
-
-  // COUNT(*) - no column
-  if (metric.aggregation === "count" && !metric.columnName) {
-    return "COUNT(*)";
-  }
-
-  if (!metric.columnName) return quoteIdentifier(filterField);
-
-  // Resolve the source column to its UUID alias (columns are aliased upstream)
-  const sourceField = Array.from(fieldIdMap.values()).find((candidate) =>
-    fieldMatchesReference(candidate, metric.columnName!),
-  );
-  const sourceRef = sourceField
-    ? fieldIdToColumnAlias(sourceField.id)
-    : metric.columnName;
-
-  if (metric.aggregation === "count_distinct") {
-    return `COUNT(DISTINCT ${quoteIdentifier(sourceRef)})`;
-  }
-
-  return `${aggFn}(${quoteIdentifier(sourceRef)})`;
+  return compileMeasure(metric, insight.metrics, fieldIdMap);
 }
 
 /**
@@ -1228,6 +1246,7 @@ function buildFieldIdMap(fields: Field[]): Map<string, Field> {
 function buildDimensionColumns(
   selectedFieldIds: string[],
   fieldIdMap: Map<string, Field>,
+  reporting?: InsightReporting,
 ): { selectParts: string[]; groupByParts: string[]; columnAliases: string[] } {
   const selectParts: string[] = [];
   const groupByParts: string[] = [];
@@ -1237,14 +1256,37 @@ function buildDimensionColumns(
     const field = fieldIdMap.get(fieldId);
     if (field) {
       const alias = fieldIdToColumnAlias(fieldId);
-      // Source column already has UUID alias, just reference it
-      selectParts.push(`"${alias}"`);
-      groupByParts.push(`"${alias}"`);
+      const grain = reporting?.dateGrains?.[fieldId];
+      if (
+        grain &&
+        !["day", "week", "month", "quarter", "year"].includes(grain)
+      ) {
+        throw new Error("Invalid date grouping");
+      }
+      if (grain && field.type !== "date")
+        throw new Error("Date grouping requires a date field");
+      const expression = grain
+        ? `DATE_TRUNC('${grain}', ${quoteIdentifier(alias)})`
+        : quoteIdentifier(alias);
+      selectParts.push(`${expression} AS ${quoteIdentifier(alias)}`);
+      groupByParts.push(expression);
       columnAliases.push(alias);
     }
   }
 
   return { selectParts, groupByParts, columnAliases };
+}
+
+function resolveMeasureSourceField(
+  metric: InsightMetric,
+  fields: Map<string, Field>,
+): Field | undefined {
+  if (!metric.columnName) return undefined;
+  return Array.from(fields.values()).find(
+    (field) =>
+      field.tableId === metric.sourceTable &&
+      fieldMatchesReference(field, metric.columnName!),
+  );
 }
 
 /**
@@ -1258,60 +1300,120 @@ function buildDimensionColumns(
  * Note: When aggregating from a joined view, the source column is already aliased
  * as `field_<uuid>`. We need to look up the field by columnName to get its UUID.
  */
-function buildMetricExpressionWithUUID(
-  metric: NonNullable<Insight["metrics"]>[number],
-  fieldIdMap: Map<string, Field>,
-): string | null {
-  if (!AGG_WHITELIST_CONST.has(metric.aggregation)) {
-    throw new Error(
-      `buildMetricExpressionWithUUID: invalid aggregation "${metric.aggregation}" — must be one of: sum, avg, count, min, max, count_distinct`,
+/** Compile once for SELECT, HAVING, and aggregate totals. Never sum displayed ratios. */
+function compileMeasure(
+  metric: InsightMetric,
+  measures: InsightMetric[],
+  fields: Map<string, Field>,
+  visiting = new Set<string>(),
+): string {
+  if (visiting.has(metric.id)) throw new Error("Cyclic measure reference");
+  const path = new Set(visiting).add(metric.id);
+  if (metric.expression) {
+    if (!isMeasureExpression(metric.expression))
+      throw new Error("Invalid measure expression");
+    if (metric.filters?.length)
+      throw new Error("Apply filters to the referenced aggregate measures");
+    return compileMeasureExpression(
+      metric.expression,
+      measures,
+      fields,
+      path,
+      0,
     );
   }
-  const aggFn = metric.aggregation.toUpperCase();
-  const outputAlias = metricIdToColumnAlias(metric.id);
-
-  // COUNT(*) - no column needed
-  if (metric.aggregation === "count" && !metric.columnName) {
-    return `COUNT(*) AS "${outputAlias}"`;
+  if (!AGG_WHITELIST_CONST.has(metric.aggregation)) {
+    throw new Error(`invalid aggregation "${metric.aggregation}"`);
   }
-
-  if (!metric.columnName) return null;
-
-  // Find the source field by columnName to get its UUID alias
-  let sourceColumnRef: string;
-  const sourceField = Array.from(fieldIdMap.values()).find((candidate) =>
-    fieldMatchesReference(candidate, metric.columnName!),
-  );
-
-  if (sourceField) {
-    // Source is a field with UUID alias
-    sourceColumnRef = fieldIdToColumnAlias(sourceField.id);
-  } else {
-    // Fallback: the raw source column name, which comes from the data verbatim
-    // (CSV headers) and so can contain double-quotes (shouldn't happen with
-    // proper config, but the quoting below has to hold either way).
-    sourceColumnRef = metric.columnName;
+  if (!metric.columnName && metric.aggregation !== "count") {
+    throw new Error("A measure requires a source column");
   }
+  const source = resolveMeasureSourceField(metric, fields);
+  const sourceColumn = source
+    ? fieldIdToColumnAlias(source.id)
+    : metric.columnName;
+  const column = sourceColumn ? quoteIdentifier(sourceColumn) : "*";
+  const aggregate =
+    metric.aggregation === "count_distinct"
+      ? `COUNT(DISTINCT ${column})`
+      : `${metric.aggregation.toUpperCase()}(${column})`;
+  if (!metric.filters?.length) return aggregate;
+  const predicates = metric.filters.map((filter) => {
+    const ref = resolveFilterColumnRef(filter.field, fields, "alias");
+    if (!ref) throw new Error("Measure filter references an unavailable field");
+    return buildFilterPredicate(ref, filter);
+  });
+  return `${aggregate} FILTER (WHERE ${predicates.join(" AND ")})`;
+}
 
-  // COUNT(DISTINCT column)
-  if (metric.aggregation === "count_distinct") {
-    return `COUNT(DISTINCT ${quoteIdentifier(sourceColumnRef)}) AS "${outputAlias}"`;
+function compileMeasureExpression(
+  expression: MeasureExpression,
+  measures: InsightMetric[],
+  fields: Map<string, Field>,
+  visiting: Set<string>,
+  depth: number,
+): string {
+  if (depth > 64 || visiting.size > 64)
+    throw new Error("Measure expression is too deep");
+  switch (expression.kind) {
+    case "constant":
+      if (!Number.isFinite(expression.value))
+        throw new Error("Measure constants must be finite");
+      return String(expression.value);
+    case "measure": {
+      const metric = measures.find(
+        (candidate) => candidate.id === expression.measureId,
+      );
+      if (!metric) throw new Error("Unknown measure reference");
+      return compileMeasure(metric, measures, fields, visiting);
+    }
+    case "binary": {
+      const left = compileMeasureExpression(
+        expression.left,
+        measures,
+        fields,
+        visiting,
+        depth + 1,
+      );
+      const right = compileMeasureExpression(
+        expression.right,
+        measures,
+        fields,
+        visiting,
+        depth + 1,
+      );
+      // Undefined ratios remain NULL in every presentation, including grand totals.
+      if (expression.operator === "divide")
+        return `(${left} / NULLIF(${right}, 0))`;
+      const operator = { add: "+", subtract: "-", multiply: "*" }[
+        expression.operator
+      ];
+      if (!operator) throw new Error("Invalid measure operator");
+      return `(${left} ${operator} ${right})`;
+    }
+    default:
+      throw new Error("Invalid measure expression");
   }
-
-  // Standard aggregation: SUM, AVG, MIN, MAX, COUNT
-  return `${aggFn}(${quoteIdentifier(sourceColumnRef)}) AS "${outputAlias}"`;
 }
 
 /** Build SELECT parts for all metrics with UUID aliases */
 function buildMetricColumnsWithUUID(
   metrics: NonNullable<Insight["metrics"]>,
   fieldIdMap: Map<string, Field>,
+  measureIds?: string[],
 ): { selectParts: string[]; columnAliases: string[] } {
   const selectParts: string[] = [];
   const columnAliases: string[] = [];
 
-  for (const metric of metrics) {
-    const expr = buildMetricExpressionWithUUID(metric, fieldIdMap);
+  const selected =
+    measureIds?.map((id) => {
+      const metric = metrics.find((candidate) => candidate.id === id);
+      if (!metric) throw new Error("Selected measure is unavailable");
+      return metric;
+    }) ?? metrics;
+  if (!selected.length) throw new Error("Select at least one measure");
+  for (const metric of selected) {
+    const expr = `${compileMeasure(metric, metrics, fieldIdMap)} AS ${quoteIdentifier(metricIdToColumnAlias(metric.id))}`;
     if (expr) {
       selectParts.push(expr);
       columnAliases.push(metricIdToColumnAlias(metric.id));
@@ -1319,6 +1421,637 @@ function buildMetricColumnsWithUUID(
   }
 
   return { selectParts, columnAliases };
+}
+
+function validateSelectedSortDimension(
+  allFields: Field[],
+  insight: Insight,
+  options: BuildInsightSQLOptions,
+): void {
+  if (
+    options.sortColumn &&
+    (insight.metrics.length || insight.selectedFields.length)
+  ) {
+    const sortedField = allFields.find(
+      (field) => fieldIdToColumnAlias(field.id) === options.sortColumn,
+    );
+    if (sortedField && !insight.selectedFields.includes(sortedField.id))
+      throw new Error(
+        "Sort dimension is not selected; choose a displayed dimension or measure",
+      );
+  }
+}
+
+type PivotSortContext = {
+  measureAlias: string;
+  pivotAliases: string[];
+  rowAliases: string[];
+  values: Array<{ field: Field; value: string | number | boolean | null }>;
+};
+
+function resolvePivotSortContext(
+  fields: Field[],
+  insight: Insight,
+  options: BuildInsightSQLOptions,
+): PivotSortContext | undefined {
+  if (options.pivotValues === undefined) return undefined;
+  if (!options.sortColumn || !options.sortDirection)
+    throw new Error("Pivot sort requires a measure and direction");
+  if (!SORT_DIRECTION_WHITELIST.has(options.sortDirection))
+    throw new Error("Invalid pivot sort direction");
+
+  const pivotIds = insight.reporting?.pivotFields ?? [];
+  if (!pivotIds.length)
+    throw new Error("Pivot sort requires at least one pivot dimension");
+  if (new Set(pivotIds).size !== pivotIds.length)
+    throw new Error("Pivot dimensions are ambiguous");
+  if (pivotIds.some((id) => !insight.selectedFields.includes(id)))
+    throw new Error("Pivot sort references an unavailable pivot dimension");
+
+  const tuple = options.pivotValues;
+  const tupleIds = tuple.map((entry) => entry.fieldId);
+  if (
+    tuple.length !== pivotIds.length ||
+    new Set(tupleIds).size !== tupleIds.length ||
+    pivotIds.some((id) => !tupleIds.includes(id))
+  ) {
+    throw new Error(
+      "Pivot sort must specify each pivot dimension exactly once",
+    );
+  }
+
+  const metrics = insight.metrics.filter(
+    (metric) => metricIdToColumnAlias(metric.id) === options.sortColumn,
+  );
+  if (metrics.length !== 1)
+    throw new Error(
+      "Pivot sort references an unavailable or ambiguous measure",
+    );
+
+  const fieldMap = buildFieldIdMap(fields);
+  const values = pivotIds.map((fieldId) => {
+    const field = fieldMap.get(fieldId);
+    if (!field)
+      throw new Error("Pivot sort references an unavailable pivot dimension");
+    const entry = tuple.find((candidate) => candidate.fieldId === fieldId)!;
+    validatePivotValue(field, entry.value);
+    return { field, value: entry.value };
+  });
+  const pivotSet = new Set(pivotIds);
+  return {
+    measureAlias: options.sortColumn,
+    pivotAliases: pivotIds.map(fieldIdToColumnAlias),
+    rowAliases: insight.selectedFields
+      .filter((id) => !pivotSet.has(id))
+      .map(fieldIdToColumnAlias),
+    values,
+  };
+}
+
+function validatePivotValue(
+  field: Field,
+  value: string | number | boolean | null,
+): void {
+  if (value === null) return;
+  if (field.type === "date") {
+    if (
+      (typeof value !== "string" || !Number.isFinite(Date.parse(value))) &&
+      (typeof value !== "number" || !Number.isFinite(value))
+    ) {
+      throw new Error("Pivot sort date value must be an ISO date or timestamp");
+    }
+    return;
+  }
+  if (field.type !== "unknown" && typeof value !== field.type)
+    throw new Error(`Pivot sort value does not match ${field.type} dimension`);
+  if (typeof value === "number" && !Number.isFinite(value))
+    throw new Error("Pivot sort values must be finite");
+}
+
+function qualifiedColumn(alias: string, column: string): string {
+  return `${quoteIdentifier(alias)}.${quoteIdentifier(column)}`;
+}
+
+function pivotValueSQL(
+  column: string,
+  field: Field,
+  value: string | number | boolean | null,
+): string {
+  if (value === null) return `${column} IS NULL`;
+  if (field.type !== "date")
+    return `${column} IS NOT DISTINCT FROM ${quoteValue(value)}`;
+  const timestamp =
+    typeof value === "number"
+      ? `MAKE_TIMESTAMP_MS(${value})`
+      : `CAST(${quoteLiteral(String(value))} AS TIMESTAMP)`;
+  return `CAST(${column} AS TIMESTAMP) IS NOT DISTINCT FROM ${timestamp}`;
+}
+
+function pivotCellPredicate(
+  context: PivotSortContext,
+  sourceAlias: string,
+  detailOnly = false,
+): string {
+  const predicates = context.values.map(({ field, value }) =>
+    pivotValueSQL(
+      qualifiedColumn(sourceAlias, fieldIdToColumnAlias(field.id)),
+      field,
+      value,
+    ),
+  );
+  if (detailOnly)
+    predicates.unshift(
+      `${qualifiedColumn(sourceAlias, "__report_grouping")} = 0`,
+    );
+  return predicates.join(" AND ");
+}
+
+function pivotStableOrder(context: PivotSortContext, alias: string): string[] {
+  return [...context.rowAliases, ...context.pivotAliases].map(
+    (column) => `${qualifiedColumn(alias, column)} ASC NULLS LAST`,
+  );
+}
+
+/** Select complete pivot rows before totals are re-aggregated from source rows. */
+function buildPivotRowSelectionSQL(
+  sql: string,
+  context: PivotSortContext,
+  options: BuildInsightSQLOptions,
+  outputColumns: string[],
+): string {
+  const rowColumns = context.rowAliases.map(quoteIdentifier);
+  const groupBy = rowColumns.length ? ` GROUP BY ${rowColumns.join(", ")}` : "";
+  const rowPrefix = rowColumns.length ? `${rowColumns.join(", ")}, ` : "";
+  const key = `MAX(CASE WHEN ${pivotCellPredicate(context, "__pivot_cell")} THEN ${qualifiedColumn("__pivot_cell", context.measureAlias)} END)`;
+  const rowOrder = [
+    `"__pivot_sort_key" ${options.sortDirection!.toUpperCase()} NULLS LAST`,
+    ...context.rowAliases.map(
+      (column) => `${quoteIdentifier(column)} ASC NULLS LAST`,
+    ),
+  ];
+  const rows = appendPagination(
+    `SELECT ${rowPrefix}${key} AS "__pivot_sort_key" FROM "__pivot_cells" AS "__pivot_cell"${groupBy} ORDER BY ${rowOrder.join(", ")}`,
+    { mode: options.mode, limit: options.limit, offset: options.offset },
+    new Set(),
+  );
+  const joins = context.rowAliases.map(
+    (column) =>
+      `${qualifiedColumn("__pivot_cell", column)} IS NOT DISTINCT FROM ${qualifiedColumn("__pivot_selected", column)}`,
+  );
+  const projected = outputColumns.map((column) =>
+    qualifiedColumn("__pivot_cell", column),
+  );
+  const order = [
+    `${qualifiedColumn("__pivot_selected", "__pivot_sort_key")} ${options.sortDirection!.toUpperCase()} NULLS LAST`,
+    ...pivotStableOrder(context, "__pivot_cell"),
+  ];
+  return (
+    `WITH "__pivot_cells" AS (${sql}), "__pivot_selected" AS (${rows}) ` +
+    `SELECT ${projected.join(", ")} FROM "__pivot_cells" AS "__pivot_cell" ` +
+    `JOIN "__pivot_selected" AS "__pivot_selected" ON ${joins.join(" AND ") || "TRUE"} ` +
+    `ORDER BY ${order.join(", ")}`
+  );
+}
+
+function pivotResultOrder(
+  context: PivotSortContext,
+  sourceAlias: string,
+  direction: "asc" | "desc",
+  hasTotals: boolean,
+): string[] {
+  const partition = context.rowAliases.length
+    ? ` PARTITION BY ${context.rowAliases
+        .map((column) => qualifiedColumn(sourceAlias, column))
+        .join(", ")}`
+    : "";
+  const key =
+    `MAX(CASE WHEN ${pivotCellPredicate(context, sourceAlias, hasTotals)} ` +
+    `THEN ${qualifiedColumn(sourceAlias, context.measureAlias)} END) OVER (` +
+    `${partition.trimStart()}) ${direction.toUpperCase()} NULLS LAST`;
+  return [
+    ...(hasTotals
+      ? [`${qualifiedColumn(sourceAlias, "__report_grouping")} ASC`]
+      : []),
+    key,
+    ...pivotStableOrder(context, sourceAlias),
+  ];
+}
+
+function validatePresentation(
+  presentation: InsightPresentation,
+  insight: Insight,
+  fields: Field[],
+): void {
+  if (new Set(presentation.dimensions).size !== presentation.dimensions.length)
+    throw new Error("Presentation dimensions must be unique");
+  if (
+    presentation.dimensions.some((id) => !insight.selectedFields.includes(id))
+  )
+    throw new Error("Presentation dimension is not selected");
+  const transforms = presentation.transforms ?? {};
+  for (const [id, transform] of Object.entries(transforms)) {
+    if (!presentation.dimensions.includes(id))
+      throw new Error(
+        "Presentation transform must target a presentation dimension",
+      );
+    const field = fields.find((candidate) => candidate.id === id);
+    if (!field || field.type !== "date")
+      throw new Error("Presentation date transform requires a date field");
+    if (!isValidPresentationTransform(transform))
+      throw new Error("Invalid presentation date transform");
+  }
+}
+
+function isValidPresentationTransform(transform: DateTransform): boolean {
+  if (!transform) return false;
+  if (transform.kind === "temporal")
+    return ["none", "year", "yearMonth", "yearWeek"].includes(
+      transform.aggregation,
+    );
+  if (transform.kind === "categorical")
+    return ["monthName", "dayOfWeek", "quarter"].includes(transform.groupBy);
+  return false;
+}
+
+function transformDateExpression(
+  expression: string,
+  transform: DateTransform | undefined,
+): string {
+  if (!transform) return expression;
+  if (transform.kind === "temporal") {
+    if (transform.aggregation === "none") return expression;
+    const grain = {
+      year: "year",
+      yearMonth: "month",
+      yearWeek: "week",
+    }[transform.aggregation];
+    if (!grain) throw new Error("Invalid presentation date transform");
+    return `DATE_TRUNC('${grain}', ${expression})`;
+  }
+  const functionName = {
+    monthName: "MONTHNAME",
+    dayOfWeek: "DAYNAME",
+    quarter: "QUARTER",
+  }[transform.groupBy];
+  if (!functionName) throw new Error("Invalid presentation date transform");
+  return `${functionName}(${expression})`;
+}
+
+function presentationDimensions(
+  presentation: InsightPresentation,
+  insight: Insight,
+  fields: Map<string, Field>,
+  alignment?: { fieldId: string; shift: string },
+): { selections: string[]; groups: string[]; aliases: string[] } {
+  const dimensions = buildDimensionColumns(
+    presentation.dimensions,
+    fields,
+    insight.reporting,
+  );
+  alignComparisonDimensions(
+    dimensions.groupByParts,
+    dimensions.selectParts,
+    presentation.dimensions,
+    alignment,
+  );
+  const groups = dimensions.groupByParts.map((expression, index) =>
+    transformDateExpression(
+      expression,
+      presentation.transforms?.[presentation.dimensions[index]!],
+    ),
+  );
+  return {
+    groups,
+    aliases: dimensions.columnAliases,
+    selections: groups.map(
+      (expression, index) =>
+        `${expression} AS ${quoteIdentifier(dimensions.columnAliases[index]!)}`,
+    ),
+  };
+}
+
+function canonicalMeasureIds(
+  insight: Insight,
+  options: BuildInsightSQLOptions,
+): string[] | undefined {
+  const selected = insight.reporting?.measureIds;
+  if (!selected) return undefined;
+  const sorted = insight.metrics.find(
+    (metric) => metricIdToColumnAlias(metric.id) === options.sortColumn,
+  );
+  return sorted && !selected.includes(sorted.id)
+    ? [...selected, sorted.id]
+    : selected;
+}
+
+function rawCohortSource(
+  fromClause: string,
+  whereClause: string,
+  groupByParts: string[],
+  dimensionAliases: string[],
+  eligible: string,
+): string {
+  const sourceAlias = quoteIdentifier("__presentation_source");
+  const matches = groupByParts.map((expression, index) => {
+    const alias = quoteIdentifier(dimensionAliases[index]!);
+    const qualified = expression.replaceAll(alias, `${sourceAlias}.${alias}`);
+    return `${qualified} IS NOT DISTINCT FROM "__presentation_groups".${alias}`;
+  });
+  return (
+    `(SELECT ${sourceAlias}.*, "__presentation_groups"."__presentation_ordinal" ` +
+    `FROM (SELECT * FROM ${fromClause} ${whereClause}) AS ${sourceAlias} ` +
+    `JOIN (${eligible}) AS "__presentation_groups" ON ${matches.join(" AND ") || "TRUE"}) AS "__presentation_rows"`
+  );
+}
+
+/** Attach an explicit ordinal so presentation rollups retain canonical cell order. */
+function eligibleWithPresentationOrdinal(
+  eligible: string,
+  dimensionAliases: string[],
+  metricAliases: string[],
+  options: BuildInsightSQLOptions,
+  pivotSort?: PivotSortContext,
+): string {
+  const available = new Set([...dimensionAliases, ...metricAliases]);
+  if (pivotSort) {
+    const source = "__presentation_eligible";
+    const partition = pivotSort.rowAliases.length
+      ? ` PARTITION BY ${pivotSort.rowAliases
+          .map((column) => qualifiedColumn(source, column))
+          .join(", ")}`
+      : "";
+    const key =
+      `MAX(CASE WHEN ${pivotCellPredicate(pivotSort, source)} ` +
+      `THEN ${qualifiedColumn(source, pivotSort.measureAlias)} END) OVER (` +
+      `${partition.trimStart()})`;
+    const keyed =
+      `SELECT ${quoteIdentifier(source)}.*, ${key} AS "__presentation_sort_key" ` +
+      `FROM (${eligible}) AS ${quoteIdentifier(source)}`;
+    const keyedAlias = "__presentation_keyed";
+    const order = [
+      `${qualifiedColumn(keyedAlias, "__presentation_sort_key")} ${options.sortDirection!.toUpperCase()} NULLS LAST`,
+      ...pivotStableOrder(pivotSort, keyedAlias),
+    ];
+    return (
+      `SELECT ${quoteIdentifier(keyedAlias)}.*, ` +
+      `ROW_NUMBER() OVER (ORDER BY ${order.join(", ")}) AS "__presentation_ordinal" ` +
+      `FROM (${keyed}) AS ${quoteIdentifier(keyedAlias)}`
+    );
+  }
+
+  const source = "__presentation_eligible";
+  const order: string[] = [];
+  if (
+    options.sortColumn &&
+    options.sortDirection &&
+    available.has(options.sortColumn)
+  ) {
+    order.push(
+      `${qualifiedColumn(source, options.sortColumn)} ${options.sortDirection.toUpperCase()} NULLS LAST`,
+    );
+  }
+  order.push(
+    ...dimensionAliases.map(
+      (column) => `${qualifiedColumn(source, column)} ASC NULLS LAST`,
+    ),
+  );
+  if (!order.length) order.push("1");
+  return (
+    `SELECT ${quoteIdentifier(source)}.*, ` +
+    `ROW_NUMBER() OVER (ORDER BY ${order.join(", ")}) AS "__presentation_ordinal" ` +
+    `FROM (${eligible}) AS ${quoteIdentifier(source)}`
+  );
+}
+
+function buildPresentationAggregate(
+  source: string,
+  fields: Field[],
+  insight: Insight,
+  presentation: InsightPresentation,
+  alignment?: { fieldId: string; shift: string },
+  exposeOrdinal = false,
+): { sql: string; aliases: string[]; outputAliases: string[] } {
+  validatePresentation(presentation, insight, fields);
+  const fieldMap = buildFieldIdMap(fields);
+  const dimensions = presentationDimensions(
+    presentation,
+    insight,
+    fieldMap,
+    alignment,
+  );
+  const metrics = buildMetricColumnsWithUUID(
+    insight.metrics,
+    fieldMap,
+    insight.reporting?.measureIds,
+  );
+  const outputAliases = [...dimensions.aliases, ...metrics.columnAliases];
+  const selections = [
+    ...dimensions.selections,
+    ...metrics.selectParts,
+    `MIN("__presentation_ordinal") AS "__presentation_ordinal"`,
+  ];
+  let aggregate = `SELECT ${selections.join(", ")} FROM ${source}`;
+  if (dimensions.groups.length)
+    aggregate += ` GROUP BY ${dimensions.groups.join(", ")}`;
+  else aggregate += " HAVING COUNT(*) > 0";
+  const sql = exposeOrdinal
+    ? aggregate
+    : `SELECT ${outputAliases.map(quoteIdentifier).join(", ")} FROM (${aggregate}) AS "__presentation_result" ORDER BY "__presentation_ordinal" ASC`;
+  return { sql, aliases: dimensions.aliases, outputAliases };
+}
+
+/** Keep hidden measure sorting inside the canonical query, then project only requested output. */
+function buildHiddenMeasureSortSQL(
+  fromClause: string,
+  fields: Field[],
+  insight: Insight,
+  options: BuildInsightSQLOptions,
+): string | undefined {
+  const selected = insight.reporting?.measureIds;
+  const sorted = insight.metrics.find(
+    (metric) => metricIdToColumnAlias(metric.id) === options.sortColumn,
+  );
+  if (!selected?.length || !options.sortDirection) return undefined;
+  if (!sorted || selected.includes(sorted.id)) return undefined;
+  const inner = buildAggregatedSQL(
+    fromClause,
+    fields,
+    {
+      ...insight,
+      reporting: { ...insight.reporting, measureIds: [...selected, sorted.id] },
+    },
+    options,
+    undefined,
+    true,
+  );
+  const dimensions = insight.selectedFields.map(fieldIdToColumnAlias);
+  const measures = selected.flatMap((id) => {
+    const alias = metricIdToColumnAlias(id);
+    return insight.reporting?.comparison
+      ? [
+          alias,
+          alias + "_previous",
+          alias + "_change",
+          alias + "_change_percent",
+        ]
+      : [alias];
+  });
+  const totals = Boolean(insight.reporting?.totals && dimensions.length);
+  const pivotSort = resolvePivotSortContext(fields, insight, options);
+  const columns = [
+    ...dimensions,
+    ...measures,
+    ...(totals ? ["__report_grouping"] : []),
+  ].map(quoteIdentifier);
+  const order = pivotSort
+    ? pivotResultOrder(
+        pivotSort,
+        "__projected_report",
+        options.sortDirection,
+        totals,
+      )
+    : [
+        ...(totals ? ['"__report_grouping" ASC'] : []),
+        `${quoteIdentifier(options.sortColumn!)} ${options.sortDirection === "desc" ? "DESC" : "ASC"}`,
+      ];
+  return `SELECT ${columns.join(", ")} FROM (${inner}) AS "__projected_report" ORDER BY ${order.join(", ")}`;
+}
+
+function buildSpecialReportSQL(
+  fromClause: string,
+  allFields: Field[],
+  insight: Insight,
+  options: BuildInsightSQLOptions,
+  deferPivotResultOrder: boolean,
+): string | undefined {
+  if (insight.reporting?.comparison) {
+    assertNumericComparisonMeasures(insight, buildFieldIdMap(allFields));
+  }
+  if (!options.presentation) {
+    const projected = buildHiddenMeasureSortSQL(
+      fromClause,
+      allFields,
+      insight,
+      options,
+    );
+    if (projected) return projected;
+  }
+  if (insight.reporting?.comparison) {
+    return options.presentation
+      ? buildPresentationPeriodComparisonSQL(
+          fromClause,
+          allFields,
+          insight,
+          options,
+        )
+      : buildPeriodComparisonSQL(
+          fromClause,
+          allFields,
+          insight,
+          options,
+          deferPivotResultOrder,
+        );
+  }
+  if (!insight.reporting?.dateRange) return undefined;
+  const { dateRange, ...reporting } = insight.reporting;
+  return buildAggregatedSQL(
+    fromClause,
+    allFields,
+    {
+      ...insight,
+      reporting,
+      filters: reportDateFilters(
+        dateRange,
+        allFields,
+        options.asOf,
+        insight.filters,
+      ),
+    },
+    options,
+    undefined,
+    deferPivotResultOrder,
+  );
+}
+
+/**
+ * Period comparisons emit subtraction and division columns, so every compared
+ * measure must produce a number. MIN/MAX preserve their source type, while
+ * count aggregations always produce a number. Derived measures are numeric only
+ * when all referenced measures are numeric.
+ */
+function assertNumericComparisonMeasures(
+  insight: Insight,
+  fields: Map<string, Field>,
+): void {
+  const selectedIds =
+    insight.reporting?.measureIds ?? insight.metrics.map((metric) => metric.id);
+  for (const id of selectedIds) {
+    const metric = insight.metrics.find((candidate) => candidate.id === id);
+    if (!metric) throw new Error("Selected comparison measure is unavailable");
+    if (
+      !isNumericComparisonMeasure(metric, insight.metrics, fields, new Set())
+    ) {
+      throw new Error(
+        `Period comparison requires numeric measures; "${metric.name}" is not numeric`,
+      );
+    }
+  }
+}
+
+function isNumericComparisonMeasure(
+  metric: InsightMetric,
+  measures: InsightMetric[],
+  fields: Map<string, Field>,
+  visiting: Set<string>,
+): boolean {
+  if (visiting.has(metric.id)) throw new Error("Cyclic measure reference");
+  if (metric.expression) {
+    if (!isMeasureExpression(metric.expression))
+      throw new Error("Invalid measure expression");
+    const path = new Set(visiting).add(metric.id);
+    const expressionIsNumeric = (expression: MeasureExpression): boolean => {
+      if (expression.kind === "constant") return true;
+      if (expression.kind === "binary") {
+        return (
+          expressionIsNumeric(expression.left) &&
+          expressionIsNumeric(expression.right)
+        );
+      }
+      const dependency = measures.find(
+        (candidate) => candidate.id === expression.measureId,
+      );
+      if (!dependency) throw new Error("Unknown measure reference");
+      return isNumericComparisonMeasure(dependency, measures, fields, path);
+    };
+    return expressionIsNumeric(metric.expression);
+  }
+
+  if (metric.aggregation === "count" || metric.aggregation === "count_distinct")
+    return true;
+  const source = resolveMeasureSourceField(metric, fields);
+  return source?.type === "number";
+}
+
+function buildUnconfiguredSQL(
+  querySource: string,
+  fields: Field[],
+  insight: Insight,
+  options: BuildInsightSQLOptions,
+  fieldIdMap: Map<string, Field>,
+): string | undefined {
+  if (insight.selectedFields.length || insight.metrics.length) return undefined;
+  const validColumns = new Set(
+    fields.map((field) => fieldIdToColumnAlias(field.id)),
+  );
+  const { whereClause } = buildFilterClauses(
+    insight,
+    fieldIdMap,
+    false,
+    "alias",
+  );
+  const filter = whereClause ? " " + whereClause : "";
+  const sql = `SELECT * FROM ${querySource}${filter}`;
+  return appendPagination(sql, options, validColumns);
 }
 
 /**
@@ -1335,33 +2068,34 @@ function buildAggregatedSQL(
   allFields: Field[],
   insight: Insight,
   options: BuildInsightSQLOptions,
+  alignment?: { fieldId: string; shift: string },
+  deferPivotResultOrder = false,
 ): string {
+  validateSelectedSortDimension(allFields, insight, options);
+  const special = buildSpecialReportSQL(
+    fromClause,
+    allFields,
+    insight,
+    options,
+    deferPivotResultOrder,
+  );
+  if (special) return special;
   const hasSelectedFields = (insight.selectedFields?.length ?? 0) > 0;
   const hasMetrics = (insight.metrics?.length ?? 0) > 0;
 
   // Build field map for lookups
   const fieldIdMap = buildFieldIdMap(allFields);
+  const querySource = buildTopNSource(fromClause, insight, fieldIdMap);
 
   // No configuration: fall back to raw data (all fields with UUID aliases)
-  if (!hasSelectedFields && !hasMetrics) {
-    // Valid columns are UUID aliases
-    const validColumns = new Set(
-      allFields.map((f) => fieldIdToColumnAlias(f.id)),
-    );
-    // No GROUP BY here, so all filters map to WHERE. The fromClause is a wrapped
-    // subquery whose columns are already UUID-aliased → use "alias" refMode.
-    const { whereClause } = buildFilterClauses(
-      insight,
-      fieldIdMap,
-      false,
-      "alias",
-    );
-    let sql = `SELECT * FROM ${fromClause}`;
-    if (whereClause) {
-      sql += ` ${whereClause}`;
-    }
-    return appendPagination(sql, options, validColumns);
-  }
+  const unconfigured = buildUnconfiguredSQL(
+    querySource,
+    allFields,
+    insight,
+    options,
+    fieldIdMap,
+  );
+  if (unconfigured) return unconfigured;
 
   // Build dimension columns with UUID aliases
   const {
@@ -1369,13 +2103,31 @@ function buildAggregatedSQL(
     groupByParts,
     columnAliases: dimensionAliases,
   } = hasSelectedFields
-    ? buildDimensionColumns(insight.selectedFields!, fieldIdMap)
+    ? buildDimensionColumns(
+        insight.selectedFields!,
+        fieldIdMap,
+        insight.reporting,
+      )
     : { selectParts: [], groupByParts: [], columnAliases: [] };
 
+  alignComparisonDimensions(
+    groupByParts,
+    dimensionSelects,
+    insight.selectedFields,
+    alignment,
+  );
+
   // Build metric columns with UUID aliases
+  const outputMeasureIds = options.presentation
+    ? canonicalMeasureIds(insight, options)
+    : insight.reporting?.measureIds;
   const { selectParts: metricSelects, columnAliases: metricAliases } =
     hasMetrics
-      ? buildMetricColumnsWithUUID(insight.metrics!, fieldIdMap)
+      ? buildMetricColumnsWithUUID(
+          insight.metrics!,
+          fieldIdMap,
+          outputMeasureIds,
+        )
       : { selectParts: [], columnAliases: [] };
 
   // Combine SELECT parts
@@ -1383,6 +2135,7 @@ function buildAggregatedSQL(
 
   // Build set of valid columns for sorting (all use UUID aliases now)
   const validColumns = new Set<string>([...dimensionAliases, ...metricAliases]);
+  const pivotSort = resolvePivotSortContext(allFields, insight, options);
 
   // Build filter clauses (WHERE for dimension filters, HAVING for metric filters).
   // Dimension-vs-metric is derived at compile time from the insight definition:
@@ -1398,7 +2151,7 @@ function buildAggregatedSQL(
   );
 
   // Build final SQL
-  let sql = `SELECT ${selectParts.join(", ")} FROM ${fromClause}`;
+  let sql = `SELECT ${selectParts.join(", ")} FROM ${querySource}`;
 
   if (whereClause) {
     sql += ` ${whereClause}`;
@@ -1412,7 +2165,564 @@ function buildAggregatedSQL(
     sql += ` ${havingClause}`;
   }
 
+  if (options.presentation) {
+    const canonicalEligible = pivotSort
+      ? buildPivotRowSelectionSQL(sql, pivotSort, options, [
+          ...dimensionAliases,
+          ...metricAliases,
+        ])
+      : appendPagination(sql, options, validColumns);
+    const eligible = eligibleWithPresentationOrdinal(
+      canonicalEligible,
+      dimensionAliases,
+      metricAliases,
+      options,
+      pivotSort,
+    );
+    return buildPresentationAggregate(
+      rawCohortSource(
+        querySource,
+        whereClause,
+        groupByParts,
+        dimensionAliases,
+        eligible,
+      ),
+      allFields,
+      insight,
+      options.presentation,
+      alignment,
+    ).sql;
+  }
+
+  if (insight.reporting?.totals && hasMetrics && hasGroupBy) {
+    return buildReportTotalsSQL({
+      sql,
+      fromClause: querySource,
+      whereClause,
+      groupByParts,
+      dimensionSelects,
+      metricSelects,
+      dimensionAliases,
+      insight,
+      options,
+      validColumns,
+      pivotSort,
+      deferPivotResultOrder,
+    });
+  }
+  if (pivotSort) {
+    return buildPivotRowSelectionSQL(sql, pivotSort, options, [
+      ...dimensionAliases,
+      ...metricAliases,
+    ]);
+  }
   return appendPagination(sql, options, validColumns);
+}
+
+function alignComparisonDimensions(
+  groupByParts: string[],
+  dimensionSelects: string[],
+  selectedFields: string[],
+  alignment: { fieldId: string; shift: string } | undefined,
+): void {
+  if (alignment) {
+    const index = selectedFields.indexOf(alignment.fieldId);
+    const expression = groupByParts[index];
+    if (expression) {
+      const alias = quoteIdentifier(fieldIdToColumnAlias(alignment.fieldId));
+      const aligned = expression.replaceAll(
+        alias,
+        `(${alias} + ${alignment.shift})`,
+      );
+      groupByParts[index] = aligned;
+      dimensionSelects[index] = `${aligned} AS ${alias}`;
+    }
+  }
+}
+
+function buildPresentationPeriodComparisonSQL(
+  fromClause: string,
+  fields: Field[],
+  insight: Insight,
+  options: BuildInsightSQLOptions,
+): string {
+  const { comparison, dateRange, ...reporting } = insight.reporting!;
+  if (!dateRange) throw new Error("Period comparison requires a date range");
+  const currentRange =
+    dateRange.range.type === "absolute"
+      ? absoluteDateRange(
+          new Date(dateRange.range.start),
+          new Date(dateRange.range.end),
+        )
+      : resolveRelativeDateRange(dateRange.range, options.asOf ?? new Date());
+  const baselineRange =
+    comparison === "previous_year"
+      ? previousYear(currentRange)
+      : previousPeriod(currentRange);
+  const shift = comparisonShift(
+    currentRange.start,
+    baselineRange.start,
+    comparison === "previous_year",
+  );
+  const currentInsight: Insight = {
+    ...insight,
+    reporting: { ...reporting, totals: false },
+    filters: reportDateFilters(
+      {
+        fieldId: dateRange.fieldId,
+        range: {
+          type: "absolute",
+          start: currentRange.start.toISOString(),
+          end: currentRange.end.toISOString(),
+        },
+      },
+      fields,
+      options.asOf,
+      insight.filters,
+    ),
+  };
+  const canonicalOptions = { ...options, presentation: undefined };
+  const eligibleInsight: Insight = {
+    ...currentInsight,
+    reporting: {
+      ...currentInsight.reporting,
+      measureIds: canonicalMeasureIds(currentInsight, options),
+    },
+  };
+  const canonicalEligible = buildAggregatedSQL(
+    fromClause,
+    fields,
+    eligibleInsight,
+    canonicalOptions,
+  );
+  const fieldMap = buildFieldIdMap(fields);
+  const currentSource = buildTopNSource(fromClause, currentInsight, fieldMap);
+  const currentDimensions = buildDimensionColumns(
+    insight.selectedFields,
+    fieldMap,
+    reporting,
+  );
+  const { whereClause: currentWhere } = buildFilterClauses(
+    currentInsight,
+    fieldMap,
+    true,
+    "alias",
+  );
+  const eligibleMetrics = buildMetricColumnsWithUUID(
+    eligibleInsight.metrics,
+    fieldMap,
+    eligibleInsight.reporting?.measureIds,
+  ).columnAliases;
+  const currentEligible = eligibleWithPresentationOrdinal(
+    canonicalEligible,
+    currentDimensions.columnAliases,
+    eligibleMetrics,
+    options,
+    resolvePivotSortContext(fields, eligibleInsight, options),
+  );
+  const currentRows = rawCohortSource(
+    currentSource,
+    currentWhere,
+    currentDimensions.groupByParts,
+    currentDimensions.columnAliases,
+    currentEligible,
+  );
+  const current = buildPresentationAggregate(
+    currentRows,
+    fields,
+    currentInsight,
+    options.presentation!,
+    undefined,
+    true,
+  );
+
+  const dateAlias = quoteIdentifier(fieldIdToColumnAlias(dateRange.fieldId));
+  const membership = currentDimensions.groupByParts.map((expression, index) => {
+    let shifted = expression.replaceAll(dateAlias, `(${dateAlias} + ${shift})`);
+    for (const field of fields) {
+      const alias = quoteIdentifier(fieldIdToColumnAlias(field.id));
+      shifted = shifted.replaceAll(alias, `"__comparison_raw".${alias}`);
+    }
+    return `${shifted} IS NOT DISTINCT FROM "__comparison_groups".${quoteIdentifier(currentDimensions.columnAliases[index]!)}`;
+  });
+  const { whereClause } = buildFilterClauses(insight, fieldMap, true, "alias");
+  const predicates = [
+    `${dateAlias} >= ${quoteLiteral(baselineRange.start.toISOString())}`,
+    `${dateAlias} < ${quoteLiteral(baselineRange.end.toISOString())}`,
+    ...(whereClause ? [whereClause.replace(/^WHERE /, "")] : []),
+  ];
+  const baselineRows =
+    `(SELECT "__comparison_raw".*, "__comparison_groups"."__presentation_ordinal" ` +
+    `FROM (SELECT * FROM ${fromClause} WHERE ${predicates.join(" AND ")}) AS "__comparison_raw" ` +
+    `JOIN (${currentEligible}) AS "__comparison_groups" ON ${membership.join(" AND ") || "TRUE"}) AS "__comparison_rows"`;
+  const baseline = buildPresentationAggregate(
+    baselineRows,
+    fields,
+    { ...currentInsight, filters: [] },
+    options.presentation!,
+    { fieldId: dateRange.fieldId, shift },
+  );
+  const joins = current.aliases.map((alias) => {
+    const column = quoteIdentifier(alias);
+    return `"c".${column} IS NOT DISTINCT FROM "b".${column}`;
+  });
+  const changes = comparisonColumns(insight);
+  const currentOutput = current.outputAliases.map(
+    (alias) => `"c".${quoteIdentifier(alias)}`,
+  );
+  return `WITH "__comparison_current" AS (${current.sql}), "__comparison_baseline" AS (${baseline.sql}) SELECT ${[...currentOutput, ...changes].join(", ")} FROM "__comparison_current" AS "c" LEFT JOIN "__comparison_baseline" AS "b" ON ${joins.join(" AND ") || "TRUE"} ORDER BY "c"."__presentation_ordinal" ASC`;
+}
+
+/** Baselines use the current report's retained groups, including Top N/HAVING. */
+function buildPeriodComparisonSQL(
+  fromClause: string,
+  fields: Field[],
+  insight: Insight,
+  options: BuildInsightSQLOptions,
+  deferPivotResultOrder = false,
+): string {
+  const { comparison, dateRange, ...reporting } = insight.reporting!;
+  if (!dateRange) throw new Error("Period comparison requires a date range");
+  // Validates the date field and the range through the same path as ordinary reports.
+  reportDateFilters(dateRange, fields, options.asOf, []);
+  const currentRange =
+    dateRange.range.type === "absolute"
+      ? absoluteDateRange(
+          new Date(dateRange.range.start),
+          new Date(dateRange.range.end),
+        )
+      : resolveRelativeDateRange(dateRange.range, options.asOf ?? new Date());
+  const baselineRange =
+    comparison === "previous_year"
+      ? previousYear(currentRange)
+      : previousPeriod(currentRange);
+  const shift = comparisonShift(
+    currentRange.start,
+    baselineRange.start,
+    comparison === "previous_year",
+  );
+  const dateAlias = quoteIdentifier(fieldIdToColumnAlias(dateRange.fieldId));
+  const current = buildAggregatedSQL(
+    fromClause,
+    fields,
+    {
+      ...insight,
+      reporting: {
+        ...reporting,
+        dateRange: {
+          fieldId: dateRange.fieldId,
+          range: {
+            type: "absolute",
+            start: currentRange.start.toISOString(),
+            end: currentRange.end.toISOString(),
+          },
+        },
+      },
+    },
+    options,
+  );
+  const fieldMap = buildFieldIdMap(fields);
+  const { groupByParts, columnAliases } = buildDimensionColumns(
+    insight.selectedFields,
+    fieldMap,
+    reporting,
+  );
+  const hasTotals = Boolean(
+    reporting.totals && groupByParts.length && insight.metrics.length,
+  );
+  const membership = groupByParts.map((expression, index) => {
+    let shifted = expression.replaceAll(dateAlias, `(${dateAlias} + ${shift})`);
+    for (const field of fields) {
+      const alias = quoteIdentifier(fieldIdToColumnAlias(field.id));
+      shifted = shifted.replaceAll(alias, `"__comparison_raw".${alias}`);
+    }
+    return `${shifted} IS NOT DISTINCT FROM "__comparison_current".${quoteIdentifier(columnAliases[index]!)}`;
+  });
+  if (hasTotals)
+    membership.push('"__comparison_current"."__report_grouping" = 0');
+  const { whereClause } = buildFilterClauses(insight, fieldMap, true, "alias");
+  const membershipWhere = membership.length
+    ? ` WHERE ${membership.join(" AND ")}`
+    : "";
+  const predicates = [
+    `${dateAlias} >= ${quoteLiteral(baselineRange.start.toISOString())}`,
+    `${dateAlias} < ${quoteLiteral(baselineRange.end.toISOString())}`,
+    ...(whereClause ? [whereClause.replace(/^WHERE /, "")] : []),
+    `EXISTS (SELECT 1 FROM "__comparison_current"${membershipWhere})`,
+  ];
+  const baselineSource = `(SELECT * FROM (SELECT * FROM ${fromClause}) AS "__comparison_raw" WHERE ${predicates.join(" AND ")}) AS "__comparison_source"`;
+  const baseline = buildAggregatedSQL(
+    baselineSource,
+    fields,
+    {
+      ...insight,
+      filters: [],
+      sorts: [],
+      reporting: { ...reporting, topN: undefined, limit: undefined },
+    },
+    { mode: "query" },
+    { fieldId: dateRange.fieldId, shift },
+  );
+  const joins = columnAliases.map((alias) => {
+    const column = quoteIdentifier(alias);
+    return `"c".${column} IS NOT DISTINCT FROM "b".${column}`;
+  });
+  if (hasTotals)
+    joins.push('"c"."__report_grouping" = "b"."__report_grouping"');
+  const changes = comparisonColumns(insight);
+  const order = comparisonOrder(
+    options,
+    columnAliases,
+    insight,
+    fields,
+    hasTotals,
+    deferPivotResultOrder,
+  );
+  return `WITH "__comparison_current" AS (${current}), "__comparison_baseline" AS (${baseline}) SELECT "c".*, ${changes.join(", ")} FROM "__comparison_current" AS "c" LEFT JOIN "__comparison_baseline" AS "b" ON ${joins.join(" AND ") || "TRUE"}${order}`;
+}
+
+function comparisonOrder(
+  options: BuildInsightSQLOptions,
+  dimensions: string[],
+  insight: Insight,
+  fields: Field[],
+  hasTotals: boolean,
+  deferPivotResultOrder: boolean,
+): string {
+  const pivotSort = resolvePivotSortContext(fields, insight, options);
+  if (pivotSort) {
+    if (deferPivotResultOrder) {
+      return hasTotals ? ' ORDER BY "c"."__report_grouping" ASC' : "";
+    }
+    return ` ORDER BY ${pivotResultOrder(
+      pivotSort,
+      "c",
+      options.sortDirection!,
+      hasTotals,
+    ).join(", ")}`;
+  }
+  const parts = hasTotals ? ['"c"."__report_grouping" ASC'] : [];
+  const allowed = new Set([
+    ...dimensions,
+    ...(
+      insight.reporting?.measureIds ??
+      insight.metrics.map((metric) => metric.id)
+    ).map(metricIdToColumnAlias),
+  ]);
+  if (
+    options.sortColumn &&
+    options.sortDirection &&
+    allowed.has(options.sortColumn) &&
+    SORT_DIRECTION_WHITELIST.has(options.sortDirection)
+  ) {
+    parts.push(
+      `"c".${quoteIdentifier(options.sortColumn)} ${options.sortDirection.toUpperCase()}`,
+    );
+  }
+  return parts.length ? ` ORDER BY ${parts.join(", ")}` : "";
+}
+
+function comparisonShift(current: Date, baseline: Date, year: boolean): string {
+  const months =
+    (current.getUTCFullYear() - baseline.getUTCFullYear()) * 12 +
+    current.getUTCMonth() -
+    baseline.getUTCMonth();
+  const calendar = [current, baseline].every(
+    (date) =>
+      date.getUTCDate() === 1 &&
+      date.getUTCHours() === 0 &&
+      date.getUTCMinutes() === 0 &&
+      date.getUTCSeconds() === 0 &&
+      date.getUTCMilliseconds() === 0,
+  );
+  const sameCalendarDay =
+    current.getUTCMonth() === baseline.getUTCMonth() &&
+    current.getUTCDate() === baseline.getUTCDate();
+  if ((year && sameCalendarDay) || calendar)
+    return `INTERVAL '${year ? 12 : months} months'`;
+  return `INTERVAL '${current.getTime() - baseline.getTime()} milliseconds'`;
+}
+
+function comparisonColumns(insight: Insight): string[] {
+  const metrics =
+    insight.reporting?.measureIds ?? insight.metrics.map((metric) => metric.id);
+  if (!metrics.length) throw new Error("Period comparison requires a measure");
+  return metrics.flatMap((id) => {
+    const alias = metricIdToColumnAlias(id);
+    const current = `"c".${quoteIdentifier(alias)}`;
+    const baseline = `"b".${quoteIdentifier(alias)}`;
+    const difference = `(${current} - ${baseline})`;
+    return [
+      `${baseline} AS ${quoteIdentifier(alias + "_previous")}`,
+      `${difference} AS ${quoteIdentifier(alias + "_change")}`,
+      `(${difference} / NULLIF(${baseline}, 0) * 100) AS ${quoteIdentifier(alias + "_change_percent")}`,
+    ];
+  });
+}
+
+function eligibleTopNSource(
+  fromClause: string,
+  insight: Insight,
+  fields: Map<string, Field>,
+): string {
+  const { whereClause, havingClause } = buildFilterClauses(
+    insight,
+    fields,
+    true,
+    "alias",
+  );
+  if (!havingClause) return fromClause;
+  const { selectParts, groupByParts, columnAliases } = buildDimensionColumns(
+    insight.selectedFields,
+    fields,
+    insight.reporting,
+  );
+  const eligible = `SELECT ${selectParts.join(", ")} FROM ${fromClause} ${whereClause} GROUP BY ${groupByParts.join(", ")} ${havingClause}`;
+  const matches = groupByParts.map((expression, index) => {
+    const alias = quoteIdentifier(columnAliases[index]!);
+    const qualified = expression.replaceAll(
+      alias,
+      `"__eligible_source".${alias}`,
+    );
+    return `${qualified} IS NOT DISTINCT FROM "__eligible_groups".${alias}`;
+  });
+  return `(SELECT "__eligible_source".* FROM (SELECT * FROM ${fromClause} ${whereClause}) AS "__eligible_source" WHERE EXISTS (SELECT 1 FROM (${eligible}) AS "__eligible_groups" WHERE ${matches.join(" AND ")})) AS "__eligible_rank_source"`;
+}
+
+/** Rank a selected dimension independently of the other grouping dimensions. */
+function buildTopNSource(
+  fromClause: string,
+  insight: Insight,
+  fields: Map<string, Field>,
+): string {
+  const top = insight.reporting?.topN;
+  if (!top) return fromClause;
+  if (
+    !Number.isInteger(top.count) ||
+    top.count < 1 ||
+    top.count > 10000 ||
+    !SORT_DIRECTION_WHITELIST.has(top.direction)
+  )
+    throw new Error("Invalid Top N settings");
+  const field = fields.get(top.fieldId);
+  const metric = insight.metrics.find(
+    (candidate) => candidate.id === top.measureId,
+  );
+  if (!field || !metric || !insight.selectedFields.includes(top.fieldId))
+    throw new Error("Top N references an unavailable dimension or measure");
+  fromClause = eligibleTopNSource(fromClause, insight, fields);
+  const alias = quoteIdentifier(fieldIdToColumnAlias(field.id));
+  const { groupByParts } = buildDimensionColumns(
+    [field.id],
+    fields,
+    insight.reporting,
+  );
+  const dimension = groupByParts[0]!;
+  const measure = compileMeasure(metric, insight.metrics, fields);
+  const { whereClause } = buildFilterClauses(insight, fields, true, "alias");
+  const ranking = `SELECT ${dimension} AS ${alias} FROM ${fromClause} ${whereClause} GROUP BY ${dimension} ORDER BY ${measure} ${top.direction.toUpperCase()}, ${dimension} ASC NULLS LAST LIMIT ${top.count}`;
+  const outer = dimension.replaceAll(alias, `"__rank_source".${alias}`);
+  return `(SELECT "__rank_source".* FROM (SELECT * FROM ${fromClause}) AS "__rank_source" WHERE EXISTS (SELECT 1 FROM (${ranking}) AS "__ranked" WHERE ${outer} IS NOT DISTINCT FROM "__ranked".${alias})) AS "__rank_result"`;
+}
+
+/** Re-aggregate contributing source rows, including after HAVING and Top N. */
+function buildReportTotalsSQL(args: {
+  sql: string;
+  fromClause: string;
+  whereClause: string;
+  groupByParts: string[];
+  dimensionSelects: string[];
+  metricSelects: string[];
+  dimensionAliases: string[];
+  insight: Insight;
+  options: BuildInsightSQLOptions;
+  validColumns: Set<string>;
+  pivotSort?: PivotSortContext;
+  deferPivotResultOrder: boolean;
+}): string {
+  const {
+    sql,
+    fromClause,
+    whereClause,
+    groupByParts,
+    dimensionSelects,
+    metricSelects,
+    dimensionAliases,
+    insight,
+    options,
+    validColumns,
+    pivotSort,
+    deferPivotResultOrder,
+  } = args;
+  if (groupByParts.length > 16)
+    throw new Error("Totals support at most 16 dimensions");
+  const eligible = pivotSort
+    ? buildPivotRowSelectionSQL(sql, pivotSort, options, [
+        ...dimensionAliases,
+        ...(
+          insight.reporting?.measureIds ??
+          insight.metrics.map((metric) => metric.id)
+        ).map(metricIdToColumnAlias),
+      ])
+    : appendPagination(sql, options, validColumns);
+  const sourceAlias = quoteIdentifier("__report_source");
+  const matches = groupByParts.map((expression, index) => {
+    const alias = quoteIdentifier(dimensionAliases[index]!);
+    const qualified = expression.replaceAll(alias, `${sourceAlias}.${alias}`);
+    return `${qualified} IS NOT DISTINCT FROM "__report_groups".${alias}`;
+  });
+  const pivot = new Set(insight.reporting?.pivotFields ?? []);
+  const rows = groupByParts.filter(
+    (_, index) => !pivot.has(insight.selectedFields[index]!),
+  );
+  const columns = groupByParts.filter((_, index) =>
+    pivot.has(insight.selectedFields[index]!),
+  );
+  const sets = new Set([groupByParts.join(", "), ""]);
+  if (rows.length && columns.length) {
+    sets.add(rows.join(", "));
+    sets.add(columns.join(", "));
+  }
+  const grouping = `GROUPING(${groupByParts.join(", ")})`;
+  const selections = [
+    ...dimensionSelects,
+    ...metricSelects,
+    `${grouping} AS "__report_grouping"`,
+  ].join(", ");
+  const groupingSets = [...sets].map((set) => `(${set})`).join(", ");
+  const grouped =
+    `WITH "__report_groups" AS (${eligible}), "__report_rows" AS (` +
+    `SELECT ${sourceAlias}.* FROM (SELECT * FROM ${fromClause} ${whereClause}) AS ${sourceAlias} ` +
+    `WHERE EXISTS (SELECT 1 FROM "__report_groups" WHERE ${matches.join(" AND ")})) ` +
+    `SELECT ${selections} ` +
+    `FROM "__report_rows" GROUP BY GROUPING SETS (${groupingSets})`;
+  if (pivotSort) {
+    const output = [
+      ...dimensionAliases,
+      ...(
+        insight.reporting?.measureIds ??
+        insight.metrics.map((metric) => metric.id)
+      ).map(metricIdToColumnAlias),
+      "__report_grouping",
+    ].map((column) => qualifiedColumn("__pivot_report", column));
+    const projected = `SELECT ${output.join(", ")} FROM (${grouped}) AS "__pivot_report"`;
+    if (deferPivotResultOrder) return projected;
+    return `${projected} ORDER BY ${pivotResultOrder(
+      pivotSort,
+      "__pivot_report",
+      options.sortDirection!,
+      true,
+    ).join(", ")}`;
+  }
+  let result = `${grouped} ORDER BY "__report_grouping" ASC`;
+  if (
+    options.sortColumn &&
+    options.sortDirection &&
+    validColumns.has(options.sortColumn)
+  ) {
+    result += `, ${quoteIdentifier(options.sortColumn)} ${options.sortDirection.toUpperCase()}`;
+  }
+  return result;
 }
 
 // Module-level whitelist constants — defined once, shared across all guard sites.

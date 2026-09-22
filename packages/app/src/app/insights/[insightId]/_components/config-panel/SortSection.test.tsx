@@ -27,6 +27,41 @@ describe("SortSection", () => {
       },
     );
   });
+  it.each(["sort", "limit"] as const)(
+    "preserves switchers when the last %s control is removed",
+    (kind) => {
+      const switchers = {
+        dimensions: { allowedIds: [field.id], maxSelected: 1 },
+        measures: { allowedIds: ["revenue"], maxSelected: 1 },
+      };
+      const onRuntimeChange = vi.fn().mockResolvedValue(true);
+      render(
+        <SortSection
+          sorts={[]}
+          fields={[field]}
+          metrics={[]}
+          onChange={vi.fn()}
+          onRuntimeChange={onRuntimeChange}
+          runtimeControls={{
+            ...switchers,
+            ...(kind === "sort"
+              ? { sort: { allowedFieldIds: [field.id], maxKeys: 1 } }
+              : { limit: { min: 1, max: 100 } }),
+          }}
+        />,
+      );
+      fireEvent.click(
+        screen.getByRole("switch", {
+          name:
+            kind === "sort"
+              ? "Viewers can change sort"
+              : "Viewers can set a limit",
+        }),
+      );
+      expect(onRuntimeChange).toHaveBeenCalledWith(switchers);
+    },
+  );
+
   it("flips an ascending sort to descending from its direction button", () => {
     const onChange = vi.fn();
     render(
@@ -329,4 +364,51 @@ describe("SortSection", () => {
       sort: { allowedFieldIds: [field.id], maxKeys: 1 },
     });
   });
+});
+
+it("saves a derived pivot sort and preserves its tuple when reversing direction", async () => {
+  const user = userEvent.setup({ delay: null });
+  const onChange = vi.fn();
+  const pivotValues = [{ fieldId: "channel", value: "Web" }];
+  const props = {
+    fields: [],
+    metrics: [
+      {
+        id: "revenue",
+        name: "Revenue",
+        sourceTable: "table",
+        aggregation: "sum" as const,
+      },
+    ],
+    pivotOptions: [
+      {
+        field: "metric_revenue",
+        measureId: "revenue",
+        label: "Revenue · Web",
+        pivotValues,
+      },
+    ],
+    onChange,
+    onRuntimeChange: vi.fn(),
+  };
+  const view = render(<SortSection {...props} sorts={[]} />);
+  await user.click(screen.getByRole("button", { name: "Add sort" }));
+  await user.click(
+    await screen.findByRole("option", { name: "Revenue · Web", exact: true }),
+  );
+  expect(onChange).toHaveBeenLastCalledWith([
+    { field: "metric_revenue", direction: "asc", pivotValues },
+  ]);
+  view.rerender(
+    <SortSection
+      {...props}
+      sorts={[{ field: "metric_revenue", direction: "asc", pivotValues }]}
+    />,
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Ascending; switch to descending" }),
+  );
+  expect(onChange).toHaveBeenLastCalledWith([
+    { field: "metric_revenue", direction: "desc", pivotValues },
+  ]);
 });
