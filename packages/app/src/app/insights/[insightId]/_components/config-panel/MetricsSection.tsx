@@ -155,6 +155,9 @@ function MetricEditor({
   const [nameDraft, setNameDraft] = useState(metric?.name ?? "");
   const [nameEdited, setNameEdited] = useState(Boolean(metric));
   const [error, setError] = useState<string | null>(null);
+  const [measureValidationError, setMeasureValidationError] = useState<
+    string | null
+  >(null);
   const { setPending, isPending } = useSaveDismissGuard();
   const [isSaving, setIsSaving] = useSavingFlag(setPending);
   const fields = useMemo(
@@ -184,6 +187,7 @@ function MetricEditor({
     setNameDraft(metric?.name ?? "");
     setNameEdited(Boolean(metric));
     setError(null);
+    setMeasureValidationError(null);
   };
   const close = () => {
     if (isPending()) return;
@@ -192,6 +196,10 @@ function MetricEditor({
   };
   const save = async () => {
     if (!name.trim() || (needsField && !columnName)) return;
+    if (measureValidationError) {
+      setError(measureValidationError);
+      return;
+    }
     setIsSaving(true);
     setError(null);
     try {
@@ -267,6 +275,7 @@ function MetricEditor({
           onChange={setOptions}
           metrics={metrics.filter((candidate) => candidate.id !== metric?.id)}
           dataTable={dataTable}
+          onValidationErrorChange={setMeasureValidationError}
         />
         {!options.expression && (
           <div className="flex gap-2">

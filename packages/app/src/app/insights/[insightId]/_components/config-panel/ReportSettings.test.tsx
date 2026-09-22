@@ -136,3 +136,30 @@ describe("report setting editors", () => {
     expect(screen.getByLabelText("Row limit (blank for all)")).toBeTruthy();
   });
 });
+
+it("prevents saving a comparison without a measure", async () => {
+  const user = userEvent.setup({ delay: null });
+  const onChange = vi.fn();
+  render(
+    <ReportPeriodControl
+      insight={{
+        ...insight,
+        metrics: [],
+        reporting: {
+          dateRange: { fieldId: "date", range: { type: "previous_month" } },
+          comparison: "previous_year",
+        },
+      }}
+      fields={[field]}
+      onChange={onChange}
+    />,
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Period · Previous month" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Save", exact: true }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Add a measure before comparing periods.",
+  );
+  expect(onChange).not.toHaveBeenCalled();
+});

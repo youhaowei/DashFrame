@@ -1,3 +1,4 @@
+import type { PivotSortOption } from "@/lib/insights/pivot-sort-options";
 import { ReportSelectionMenu } from "@/components/visualizations/ReportSwitchers";
 import { ReportPeriodControl, ReportResultOptions } from "./ReportSettings";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
@@ -80,6 +81,9 @@ import { pruneRuntimeControls, stableValueSignature } from "./runtime-controls";
 import { SortSection } from "./SortSection";
 
 interface InsightConfigPanelProps {
+  pivotSortOptions?: PivotSortOption[];
+  pivotSortError?: string;
+  onPivotSortRetry?: () => void;
   insight: Insight;
   dataTable: DataTable;
   allDataTables: DataTable[];
@@ -173,6 +177,9 @@ const CONFIG_SECTION_IDS: ConfigSection[] = CONFIG_SECTIONS.map(
 );
 
 export function InsightConfigPanel({
+  pivotSortOptions,
+  pivotSortError,
+  onPivotSortRetry,
   insight,
   dataTable,
   allDataTables,
@@ -1290,6 +1297,9 @@ export function InsightConfigPanel({
             "sort",
             <>
               <SortSection
+                pivotOptions={pivotSortOptions}
+                pivotError={pivotSortError}
+                onPivotRetry={onPivotSortRetry}
                 sorts={sorts}
                 fields={selectedFields}
                 metrics={visibleMetrics}

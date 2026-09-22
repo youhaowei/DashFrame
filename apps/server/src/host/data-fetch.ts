@@ -2,7 +2,6 @@
 import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import type {
   Insight,
-  InsightFetchDefinition,
   InsightFetchResult,
   InsightRuntimeInput,
   MeasureExpression,
@@ -15,16 +14,15 @@ import { z } from "zod";
 
 import type { HostContext } from "./context";
 import { hostOperation } from "./operation";
-import type { MaterializationTarget } from "./data-fetch/materializer";
+import type {
+  EffectiveInsightDefinition,
+  MaterializationTarget,
+} from "./data-fetch/materializer";
 import { trustedPublishedSourceGenerations } from "./data-fetch/published-source-error";
 import { staleFrameMetadata } from "./data-fetch/publisher";
 import { decodeInsight, type InsightRow, type InsightSource } from "./insights";
 
-export type EffectiveInsightDefinition = InsightFetchDefinition & {
-  limit?: number;
-  /** Persisted composition wiring. Never accepted from fetchData callers. */
-  source?: InsightSource;
-};
+export type { EffectiveInsightDefinition } from "./data-fetch/materializer";
 
 /** Exact effective invocation identity used by publication and stale fallback. */
 export function fingerprintEffectiveInsight(
@@ -53,6 +51,9 @@ const RUNTIME_FAILURE_CODES = new Set([
   "RUNTIME_SORT_NOT_DECLARED",
   "RUNTIME_SORT_MAX_KEYS",
   "RUNTIME_SORT_FIELD_NOT_ALLOWED",
+  "RUNTIME_SORT_REFERENCE_AMBIGUOUS",
+  "RUNTIME_SORT_REFERENCE_INVALID",
+  "RUNTIME_LIMIT_REQUIRES_SORT",
   "RUNTIME_LIMIT_OUT_OF_RANGE",
 ]);
 
@@ -131,7 +132,27 @@ const definitionSchema = z
     filters: z.array(filterSchema).optional(),
     sorts: z
       .array(
-        z.object({ field: z.string(), direction: z.enum(["asc", "desc"]) }),
+        z
+          .object({
+            field: z.string(),
+            direction: z.enum(["asc", "desc"]),
+            pivotValues: z
+              .array(
+                z
+                  .object({
+                    fieldId: z.string(),
+                    value: z.union([
+                      z.string(),
+                      z.number().finite(),
+                      z.boolean(),
+                      z.null(),
+                    ]),
+                  })
+                  .strict(),
+              )
+              .optional(),
+          })
+          .strict(),
       )
       .optional(),
     joins: z
@@ -326,6 +347,7 @@ function applyRuntimeSort(
   runtime: InsightRuntimeInput | undefined,
 ): void {
   if (!runtime?.sort) return;
+  definition.runtimeSortOverride = true;
   const control = saved.runtimeControls?.sort;
   if (!control) throw new Error("RUNTIME_SORT_NOT_DECLARED");
   if (control.maxKeys !== 1 || runtime.sort.length > control.maxKeys) {
@@ -333,6 +355,15 @@ function applyRuntimeSort(
   }
   if (
     runtime.sort.some((sort) => !control.allowedFieldIds.includes(sort.fieldId))
+  ) {
+    throw new Error("RUNTIME_SORT_FIELD_NOT_ALLOWED");
+  }
+  if (
+    runtime.sort.some(
+      (sort) =>
+        !definition.selectedFields.includes(sort.fieldId) &&
+        !saved.metrics.some((metric) => metric.id === sort.fieldId),
+    )
   ) {
     throw new Error("RUNTIME_SORT_FIELD_NOT_ALLOWED");
   }
@@ -357,6 +388,19 @@ function applyRuntimeLimit(
   definition.limit = runtime.limit;
 }
 
+function markChangedRuntimeDimensions(
+  definition: EffectiveInsightDefinition,
+  saved: Insight,
+  ids: readonly string[],
+): void {
+  if (
+    ids.length !== saved.selectedFields.length ||
+    ids.some((id, index) => id !== saved.selectedFields[index])
+  ) {
+    definition.runtimeDimensionsChanged = true;
+  }
+}
+
 function applyRuntimeSelections(
   definition: EffectiveInsightDefinition,
   saved: Insight,
@@ -379,6 +423,7 @@ function applyRuntimeSelections(
     if (kind === "measures") {
       definition.reporting = { ...definition.reporting, measureIds: [...ids] };
     } else {
+      markChangedRuntimeDimensions(definition, saved, ids);
       definition.selectedFields = [...ids];
       const reporting = { ...definition.reporting };
       reporting.pivotFields = reporting.pivotFields?.filter((id) =>
@@ -450,6 +495,18 @@ const NAMED_FETCH_FAILURES: Record<
   FETCH_BATCH_BYTES_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
   FETCH_BYTE_BUDGET_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
   FETCH_STORAGE_BUDGET_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
+  RUNTIME_SORT_REFERENCE_AMBIGUOUS: {
+    message:
+      "The saved sort matches more than one field. Choose the sort field again.",
+  },
+  RUNTIME_SORT_REFERENCE_INVALID: {
+    message:
+      "The saved sort field is no longer available. Choose another sort field.",
+  },
+  RUNTIME_LIMIT_REQUIRES_SORT: {
+    message:
+      "The selected dimensions removed the sort required by the row limit. Choose another sort or remove the limit.",
+  },
   SOURCE_VALUE_UNSUPPORTED: {
     message:
       "The source contains a value that cannot be represented in a snapshot.",

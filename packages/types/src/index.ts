@@ -103,6 +103,7 @@ export type {
   InsightJoinConfig,
   InsightRuntimeDeclaration,
   InsightRuntimeInput,
+  InsightPivotValue,
   InsightSort,
   InsightSource,
 } from "./insights";

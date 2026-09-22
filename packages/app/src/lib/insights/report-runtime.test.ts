@@ -25,6 +25,7 @@ const insight: Insight = {
 };
 const fields: Field[] = [
   { id: "country", name: "Country", tableId: "source", type: "string" },
+  { id: "product", name: "Product", tableId: "source", type: "string" },
 ];
 describe("report runtime presentation", () => {
   it("keeps query dependencies but projects selected measures and dimensions without changing the saved report", () => {
@@ -76,6 +77,73 @@ describe("report runtime presentation", () => {
       xType: "nominal",
       xTransform: undefined,
     });
+  });
+  it("rebinds removed dimensions one-to-one by their saved positions", () => {
+    const result = reportEncoding(
+      {
+        x: "field:date",
+        xType: "temporal",
+        xTransform: {
+          type: "date",
+          transform: { kind: "temporal", aggregation: "month" },
+        },
+        color: "field:channel",
+      },
+      insight,
+      { dimensions: ["country", "product"] },
+      fields,
+    );
+
+    expect(result).toMatchObject({
+      x: "field:country",
+      xType: "nominal",
+      xTransform: undefined,
+      color: "field:product",
+    });
+  });
+  it("preserves selected dimensions and clears a surplus removed channel", () => {
+    const result = reportEncoding(
+      {
+        x: "field:date",
+        xType: "temporal",
+        color: "field:channel",
+      },
+      insight,
+      { dimensions: ["channel"] },
+      fields,
+    );
+
+    expect(result.x).toBeUndefined();
+    expect(result.xType).toBeUndefined();
+    expect(result.xTransform).toBeUndefined();
+    expect(result.color).toBe("field:channel");
+  });
+  it("rebinds removed measures one-to-one and clears surplus channels", () => {
+    const replacements = reportEncoding(
+      {
+        y: "metric:orders",
+        size: "metric:rate",
+      },
+      insight,
+      { measures: ["revenue", "profit"] },
+      fields,
+    );
+
+    expect(replacements.y).toBe("metric:revenue");
+    expect(replacements.size).toBe("metric:profit");
+
+    const result = reportEncoding(
+      {
+        y: "metric:orders",
+        size: "metric:rate",
+      },
+      insight,
+      { measures: ["rate"] },
+      fields,
+    );
+
+    expect(result.y).toBeUndefined();
+    expect(result.size).toBe("metric:rate");
   });
 });
 

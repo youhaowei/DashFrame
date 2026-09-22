@@ -1,7 +1,17 @@
-import type { Insight, InsightFetchFailed } from "@dashframe/types";
-import { describe, expect, it } from "vite-plus/test";
+import type {
+  Insight,
+  InsightFetchFailed,
+  InsightFetchResult,
+} from "@dashframe/types";
+import { describe, expect, it, vi } from "vite-plus/test";
 
-import { applyInsightRuntime, toFetchFailure } from "./data-fetch";
+import {
+  applyInsightRuntime,
+  createDataFetchFunctions,
+  fingerprintEffectiveInsight,
+  toFetchFailure,
+} from "./data-fetch";
+import type { HostContext } from "./context";
 import { PublishedSourceMaterializationError } from "./data-fetch/published-source-error";
 
 const insight: Insight = {
@@ -29,6 +39,78 @@ const insight: Insight = {
     limit: { min: 1, max: 100 },
   },
 };
+
+function fetchContext(): HostContext {
+  return {
+    principal: { kind: "user", userId: "user" },
+    metadata: {
+      getDataTable: async (id: string) => ({ id }),
+      getInsight: async () => undefined,
+    },
+  } as unknown as HostContext;
+}
+
+const previewDefinition = {
+  baseTableId: "table-1",
+  selectedFields: ["product"],
+  metrics: [],
+};
+
+describe("fetchData sort schema", () => {
+  it("preserves the complete strict pivot tuple", async () => {
+    const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
+      status: "failed",
+      code: "EXPECTED",
+      message: "expected",
+      retryable: false,
+      diagnosticId: "diagnostic",
+    }));
+    const { fetchData } = createDataFetchFunctions(execute);
+    const pivotValues = [
+      { fieldId: "country", value: "US" },
+      { fieldId: "year", value: 2026 },
+      { fieldId: "active", value: true },
+      { fieldId: "segment", value: null },
+    ];
+
+    await fetchData(fetchContext(), {
+      insight: {
+        ...previewDefinition,
+        sorts: [{ field: "metric_revenue", direction: "desc", pivotValues }],
+      },
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        insight: expect.objectContaining({
+          sorts: [{ field: "metric_revenue", direction: "desc", pivotValues }],
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    [{ fieldId: "country", value: Number.NaN }],
+    [{ fieldId: "country", value: { nested: true } }],
+    [{ fieldId: "country", value: "US", extra: true }],
+  ])("rejects a malformed pivot tuple", async (pivotValues) => {
+    const execute = vi.fn();
+    const { fetchData } = createDataFetchFunctions(execute);
+
+    const result = await fetchData(fetchContext(), {
+      insight: {
+        ...previewDefinition,
+        sorts: [{ field: "metric_revenue", direction: "desc", pivotValues }],
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "FETCH_INVALID_DEFINITION",
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+});
 
 describe("applyInsightRuntime", () => {
   it("switches declared dimensions and measures without dropping calculation dependencies or mutating the report", () => {
@@ -65,6 +147,7 @@ describe("applyInsightRuntime", () => {
       measures: ["rate"],
     });
     expect(result.selectedFields).toEqual(["region"]);
+    expect(result.runtimeDimensionsChanged).toBe(true);
     expect(result.reporting?.measureIds).toEqual(["rate"]);
     expect(result.metrics).toHaveLength(2);
     expect(JSON.stringify(saved)).toBe(original);
@@ -333,11 +416,48 @@ describe("applyInsightRuntime", () => {
         sort: { allowedFieldIds: ["revenue-total"], maxKeys: 1 },
       },
     };
-    expect(
+    const result = applyInsightRuntime(saved, {
+      sort: [{ fieldId: "revenue-total", direction: "desc" }],
+    });
+    expect(result.sorts).toEqual([
+      { field: "metric_revenue_total", direction: "desc" },
+    ]);
+    expect(result.runtimeSortOverride).toBe(true);
+  });
+
+  it("rejects an explicit dimension sort removed by the runtime selection", () => {
+    const saved: Insight = {
+      ...insight,
+      runtimeControls: {
+        dimensions: { allowedIds: ["region", "date"], maxSelected: 1 },
+        sort: { allowedFieldIds: ["region", "date"], maxKeys: 1 },
+      },
+    };
+
+    expect(() =>
       applyInsightRuntime(saved, {
-        sort: [{ fieldId: "revenue-total", direction: "desc" }],
-      }).sorts,
-    ).toEqual([{ field: "metric_revenue_total", direction: "desc" }]);
+        dimensions: ["region"],
+        sort: [{ fieldId: "date", direction: "asc" }],
+      }),
+    ).toThrow("RUNTIME_SORT_FIELD_NOT_ALLOWED");
+  });
+
+  it("includes internal runtime provenance in the effective fingerprint", () => {
+    const effective = applyInsightRuntime(
+      {
+        ...insight,
+        runtimeControls: {
+          dimensions: { allowedIds: ["region", "date"], maxSelected: 1 },
+        },
+      },
+      { dimensions: ["region"] },
+    );
+    const { runtimeDimensionsChanged: _changed, ...withoutProvenance } =
+      effective;
+
+    expect(fingerprintEffectiveInsight(effective)).not.toBe(
+      fingerprintEffectiveInsight(withoutProvenance),
+    );
   });
 
   it("applies only a declared bounded limit", () => {
@@ -389,6 +509,36 @@ describe("applyInsightRuntime", () => {
       status: "failed",
       code: "RUNTIME_LIMIT_OUT_OF_RANGE",
       retryable: false,
+    });
+    expect(
+      toFetchFailure(
+        new Error("RUNTIME_SORT_REFERENCE_AMBIGUOUS"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      code: "RUNTIME_SORT_REFERENCE_AMBIGUOUS",
+      message:
+        "The saved sort matches more than one field. Choose the sort field again.",
+    });
+    expect(
+      toFetchFailure(
+        new Error("RUNTIME_SORT_REFERENCE_INVALID"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      code: "RUNTIME_SORT_REFERENCE_INVALID",
+      message:
+        "The saved sort field is no longer available. Choose another sort field.",
+    });
+    expect(
+      toFetchFailure(
+        new Error("RUNTIME_LIMIT_REQUIRES_SORT"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      code: "RUNTIME_LIMIT_REQUIRES_SORT",
+      message:
+        "The selected dimensions removed the sort required by the row limit. Choose another sort or remove the limit.",
     });
     expect(
       toFetchFailure(new Error("SOURCE_SCHEMA_CHANGED"), "FETCH_SOURCE_FAILED"),

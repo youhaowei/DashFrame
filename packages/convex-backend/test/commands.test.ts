@@ -159,6 +159,53 @@ async function makeInsightWithMetric() {
   );
   return { tableId, insightId, metricId };
 }
+async function makePivotInsightWithMetric() {
+  const { tableId, insightId, metricId } = await makeInsightWithMetric();
+  const revenueFieldId = id(),
+    channelId = id(),
+    periodId = id();
+  await commit(
+    cmd("AddField", {
+      nodeId: tableId,
+      field: {
+        id: revenueFieldId,
+        tableId,
+        name: "Revenue",
+        columnName: "revenue",
+        type: "number",
+      },
+    }),
+    cmd("AddField", {
+      nodeId: tableId,
+      field: {
+        id: channelId,
+        tableId,
+        name: "Channel",
+        columnName: "channel",
+        type: "string",
+      },
+    }),
+    cmd("AddField", {
+      nodeId: tableId,
+      field: {
+        id: periodId,
+        tableId,
+        name: "Period",
+        columnName: "period",
+        type: "date",
+      },
+    }),
+    cmd("SelectFields", {
+      id: insightId,
+      fieldIds: [channelId, periodId],
+    }),
+    cmd("SetInsightReporting", {
+      id: insightId,
+      reporting: { pivotFields: [channelId, periodId] },
+    }),
+  );
+  return { tableId, insightId, metricId, channelId, periodId };
+}
 async function makeDashWithVizItem(overrides?: {
   existingFilters?: {
     field: string;
@@ -2263,22 +2310,120 @@ describe("existing command behavior on native Convex", () => {
     ).toEqual([]);
   });
 
-  it("should replace the sort order (replace-all semantics)", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-
-    const sorts = [{ field: "amount", direction: "desc" as const }];
+  it("persists valid pivot sorts and prunes them when pivot dimensions are removed", async () => {
+    const { insightId, metricId, channelId, periodId } =
+      await makePivotInsightWithMetric();
+    const sorts = [
+      {
+        field: metricIdToColumnAlias(metricId),
+        direction: "desc" as const,
+        pivotValues: [
+          { fieldId: channelId, value: "Web" },
+          { fieldId: periodId, value: "2026-01-01T00:00:00.000Z" },
+        ],
+      },
+    ];
     await commit(cmd("SetInsightSort", { id: insightId, sorts }));
     const rows = await insightsById(insightId);
     const def = rows[0]?.definition as { sorts: typeof sorts };
     expect(def.sorts).toEqual(sorts);
+
+    await commit(
+      cmd("SetInsightReporting", {
+        id: insightId,
+        reporting: { pivotFields: [channelId] },
+      }),
+    );
+    expect(
+      (await client.query(api.app.getInsight, { id: insightId }))?.sorts,
+    ).toEqual([]);
+
+    await commit(
+      cmd("SetInsightReporting", {
+        id: insightId,
+        reporting: { pivotFields: [channelId, periodId] },
+      }),
+      cmd("SetInsightSort", { id: insightId, sorts }),
+      cmd("SelectFields", { id: insightId, fieldIds: [channelId] }),
+    );
+    const afterFieldRemoval = await client.query(api.app.getInsight, {
+      id: insightId,
+    });
+    expect(afterFieldRemoval?.sorts).toEqual([]);
+    expect(afterFieldRemoval?.reporting?.pivotFields).toEqual([channelId]);
+  });
+
+  it("rejects pivot sorts without an exact selected pivot tuple and metric", async () => {
+    const { insightId, metricId, channelId, periodId } =
+      await makePivotInsightWithMetric();
+    const values = [
+      { fieldId: channelId, value: "Web" },
+      { fieldId: periodId, value: "2026-01-01T00:00:00.000Z" },
+    ];
+    await commit(cmd("SetInsightReporting", { id: insightId }));
+    await expect(
+      commit(
+        cmd("SetInsightSort", {
+          id: insightId,
+          sorts: [
+            {
+              field: metricIdToColumnAlias(metricId),
+              direction: "desc",
+              pivotValues: values,
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("exactly match selected report pivot dimensions");
+
+    await commit(
+      cmd("SetInsightReporting", {
+        id: insightId,
+        reporting: { pivotFields: [channelId, periodId] },
+      }),
+    );
+    await expect(
+      commit(
+        cmd("SetInsightSort", {
+          id: insightId,
+          sorts: [
+            {
+              field: metricIdToColumnAlias(metricId),
+              direction: "desc",
+              pivotValues: [values[0]!],
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("exactly match selected report pivot dimensions");
+    await expect(
+      commit(
+        cmd("SetInsightSort", {
+          id: insightId,
+          sorts: [
+            {
+              field: fieldIdToColumnAlias(channelId),
+              direction: "desc",
+              pivotValues: values,
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("canonical report measure");
+    await expect(
+      commit(
+        cmd("SetInsightSort", {
+          id: insightId,
+          sorts: [
+            {
+              field: metricIdToColumnAlias(metricId),
+              direction: "desc",
+              pivotValues: [values[0]!, values[0]!],
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("fieldIds must be unique");
   });
   it("persists only declarations targeting saved filters and result fields", async () => {
     const { tableId } = await makeTable();

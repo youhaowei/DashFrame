@@ -247,7 +247,11 @@ export function ReportPeriodControl({
     <SettingEditor
       label={label}
       reporting={insight.reporting}
-      validate={validatePeriod}
+      validate={(draft) => {
+        validatePeriod(draft);
+        if (draft.dateRange && draft.comparison && !insight.metrics.length)
+          throw new Error("Add a measure before comparing periods.");
+      }}
       onSave={(draft) =>
         onChange({
           dateRange: draft.dateRange,

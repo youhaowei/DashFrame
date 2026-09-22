@@ -33,22 +33,67 @@ function axisType(
 function rebindField(
   result: VisualizationEncoding,
   channel: Channel,
-  dimensions: string[],
-  insight: Insight,
+  replacement: string | undefined,
   fields: Field[],
 ) {
-  const newDimension = dimensions.find(
-    (id) => !insight.selectedFields.includes(id),
-  );
-  const isAxis = channel === "x" || channel === "y";
-  const replacement = newDimension ?? (isAxis ? dimensions[0] : undefined);
   result[channel] = replacement ? fieldEncoding(replacement) : undefined;
   if (channel === "x" || channel === "y") {
-    result[`${channel}Type`] = axisType(
-      fields.find((field) => field.id === replacement)?.type,
-    );
+    result[`${channel}Type`] = replacement
+      ? axisType(fields.find((field) => field.id === replacement)?.type)
+      : undefined;
     result[`${channel}Transform`] = undefined;
   }
+}
+
+function positionalReplacement(
+  currentId: string,
+  previousIds: readonly string[],
+  nextIds: readonly string[],
+  usedIds: ReadonlySet<string>,
+): string | undefined {
+  const position = previousIds.indexOf(currentId);
+  const positional = position >= 0 ? nextIds[position] : undefined;
+  if (positional && !usedIds.has(positional)) return positional;
+  return nextIds.find((id) => !usedIds.has(id));
+}
+
+function rebindRemovedField(
+  result: VisualizationEncoding,
+  channel: Channel,
+  currentId: string,
+  dimensions: string[] | undefined,
+  insight: Insight,
+  fields: Field[],
+  usedDimensions: Set<string>,
+) {
+  if (!dimensions || dimensions.includes(currentId)) return;
+  const replacement = positionalReplacement(
+    currentId,
+    insight.selectedFields,
+    dimensions,
+    usedDimensions,
+  );
+  rebindField(result, channel, replacement, fields);
+  if (replacement) usedDimensions.add(replacement);
+}
+
+function rebindRemovedMetric(
+  result: VisualizationEncoding,
+  channel: Channel,
+  currentId: string,
+  measures: string[] | undefined,
+  previousMeasures: readonly string[],
+  usedMeasures: Set<string>,
+) {
+  if (!measures || measures.includes(currentId)) return;
+  const replacement = positionalReplacement(
+    currentId,
+    previousMeasures,
+    measures,
+    usedMeasures,
+  );
+  result[channel] = replacement ? metricEncoding(replacement) : undefined;
+  if (replacement) usedMeasures.add(replacement);
 }
 
 /** Rebind removed encodings to the viewer's replacement without changing saved charts. */
@@ -59,24 +104,52 @@ export function reportEncoding(
   fields: Field[],
 ): VisualizationEncoding {
   const result = { ...encoding };
-  for (const channel of ["x", "y", "color", "size"] as const) {
-    const parsed = parseEncoding(encoding[channel]);
+  const channels = ["x", "y", "color", "size"] as const;
+  const parsedChannels = channels.map((channel) => ({
+    channel,
+    parsed: parseEncoding(encoding[channel]),
+  }));
+  const dimensions = runtime?.dimensions;
+  const measures = runtime?.measures;
+  const previousMeasures =
+    insight.reporting?.measureIds ??
+    insight.metrics?.map((metric) => metric.id) ??
+    [];
+  const usedDimensions = new Set(
+    parsedChannels.flatMap(({ parsed }) =>
+      parsed?.type === "field" && dimensions?.includes(parsed.id)
+        ? [parsed.id]
+        : [],
+    ),
+  );
+  const usedMeasures = new Set(
+    parsedChannels.flatMap(({ parsed }) =>
+      parsed?.type === "metric" && measures?.includes(parsed.id)
+        ? [parsed.id]
+        : [],
+    ),
+  );
+  for (const { channel, parsed } of parsedChannels) {
     if (!parsed) continue;
-    if (
-      parsed.type === "field" &&
-      runtime?.dimensions &&
-      !runtime.dimensions.includes(parsed.id)
-    ) {
-      rebindField(result, channel, runtime.dimensions, insight, fields);
-    }
-    if (
-      parsed.type === "metric" &&
-      runtime?.measures &&
-      !runtime.measures.includes(parsed.id)
-    ) {
-      result[channel] = runtime.measures[0]
-        ? metricEncoding(runtime.measures[0])
-        : undefined;
+    if (parsed.type === "field") {
+      rebindRemovedField(
+        result,
+        channel,
+        parsed.id,
+        dimensions,
+        insight,
+        fields,
+        usedDimensions,
+      );
+    } else {
+      rebindRemovedMetric(
+        result,
+        channel,
+        parsed.id,
+        measures,
+        previousMeasures,
+        usedMeasures,
+      );
     }
   }
   return result;

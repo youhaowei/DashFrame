@@ -31,6 +31,7 @@ import type {
 } from "./materializer";
 import { createInsightMaterializer } from "./materializer";
 import { publishMaterialization } from "./publisher";
+import { runtimeSortsForCompile } from "./runtime-sort";
 
 const MATERIALIZATION_TIMEOUT_MS = 120_000;
 
@@ -206,10 +207,17 @@ export function productionMaterializerDependencies(): Pick<
       const base = tables.get(insight.baseTableId);
       if (!base) throw new Error("TARGET_NOT_READY");
       const joined = new Map([...tables].filter(([id]) => id !== base.id));
+      const available = buildInsightAvailableFields(
+        base,
+        joined,
+        insight as never,
+      );
+      if (!available) throw new Error("FETCH_COMPILE_FAILED");
+      const effectiveSorts = runtimeSortsForCompile(insight, available);
       const sql = buildInsightSQL(base, joined, insight as never, {
         mode: "query",
         effectiveLimit: insight.limit,
-        effectiveSorts: insight.sorts,
+        effectiveSorts,
       });
       if (!sql) throw new Error("FETCH_COMPILE_FAILED");
       return sql;

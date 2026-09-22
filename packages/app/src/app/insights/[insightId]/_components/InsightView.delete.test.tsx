@@ -25,6 +25,7 @@ import {
   resolveNewChartTarget,
   resolvePendingNewChartTarget,
   shouldMaterializeChartSuggestion,
+  shouldMaterializeReportResult,
   shouldClearSavedDraft,
 } from "./InsightView";
 
@@ -460,4 +461,18 @@ describe("InsightView saved-visualization delete confirmation", () => {
       );
     });
   });
+});
+
+it("keeps canonical pivot results enabled while authoring a new chart", () => {
+  const report = { reporting: { pivotFields: ["channel"] } } as Insight;
+  expect(
+    shouldMaterializeReportResult({ kind: "chart", chartType: "barY" }, report),
+  ).toBe(true);
+  expect(
+    shouldMaterializeReportResult(
+      { kind: "chart", chartType: "barY" },
+      { ...report, reporting: undefined },
+    ),
+  ).toBe(false);
+  expect(shouldMaterializeReportResult({ kind: "table" }, report)).toBe(true);
 });

@@ -40,6 +40,65 @@ function array(value: Json | undefined, label: string): Json[] {
 function objects(value: Json | undefined, label: string): ObjectValue[] {
   return array(value, label).map(record);
 }
+function validatePivotValues(sort: ObjectValue): void {
+  if (sort.pivotValues === undefined) return;
+  const values = objects(sort.pivotValues, "pivotValues");
+  if (!values.length || values.length > 16)
+    throw new Error("pivotValues must contain between 1 and 16 values");
+  const fields = new Set<string>();
+  for (const entry of values) {
+    const fieldId = str(entry.fieldId, "pivotValues.fieldId");
+    if (fields.has(fieldId))
+      throw new Error("pivotValues fieldIds must be unique");
+    fields.add(fieldId);
+    const value = entry.value;
+    if (
+      value !== null &&
+      typeof value !== "string" &&
+      typeof value !== "number" &&
+      typeof value !== "boolean"
+    )
+      throw new Error("pivotValues values must be scalar");
+    if (typeof value === "number" && !Number.isFinite(value))
+      throw new Error("pivotValues values must be finite");
+  }
+}
+function metricColumnAlias(metric: ObjectValue): string {
+  return `metric_${str(metric.id, "metric.id").replaceAll("-", "_")}`;
+}
+function exactPivotTuple(sort: ObjectValue, pivotFields: Json[]): boolean {
+  if (sort.pivotValues === undefined || !pivotFields.length) return false;
+  const tupleIds = objects(sort.pivotValues, "pivotValues").map((entry) =>
+    str(entry.fieldId, "pivotValues.fieldId"),
+  );
+  return (
+    new Set(pivotFields).size === pivotFields.length &&
+    tupleIds.length === pivotFields.length &&
+    pivotFields.every((fieldId) => tupleIds.includes(fieldId as string))
+  );
+}
+function validatePivotSortDefinition(def: ObjectValue): void {
+  const selectedIds = new Set(array(def.selectedFields, "selectedFields"));
+  const metricColumns = new Set(
+    objects(def.metrics, "metrics").map(metricColumnAlias),
+  );
+  const pivotFields = def.reporting
+    ? array(record(def.reporting).pivotFields ?? [], "pivotFields")
+    : [];
+  for (const sort of objects(def.sorts ?? [], "sorts")) {
+    validatePivotValues(sort);
+    if (sort.pivotValues === undefined) continue;
+    if (!metricColumns.has(str(sort.field, "sort field")))
+      throw new Error("Pivot sort field must be a canonical report measure");
+    if (
+      !exactPivotTuple(sort, pivotFields) ||
+      pivotFields.some((fieldId) => !selectedIds.has(fieldId))
+    )
+      throw new Error(
+        "Pivot sort values must exactly match selected report pivot dimensions",
+      );
+  }
+}
 function id(value: Json | undefined, label = "id"): string {
   const s = str(value, label);
   if (
@@ -170,6 +229,7 @@ async function validateRuntimeSelections(graph: Graph, def: ObjectValue) {
 
 async function validateDerived(graph: Graph, def: ObjectValue) {
   const sourceType = record(def.source).sourceType;
+  validatePivotSortDefinition(def);
   const fields = await availableFields(graph, def);
   if (sourceType === "dataTable" && fields.length === 0) return;
   for (const selected of array(def.selectedFields, "selectedFields"))
@@ -205,13 +265,16 @@ async function validateDerived(graph: Graph, def: ObjectValue) {
   for (const f of objects(def.filters ?? [], "filters"))
     if (!columns.has(str(f.field, "filter field")))
       throw new Error("Filter field is not output by source");
-  for (const s of objects(def.sorts ?? [], "sorts"))
-    if (!resultColumns.has(str(s.field, "sort field")))
+  for (const s of objects(def.sorts ?? [], "sorts")) {
+    validatePivotValues(s);
+    const sortField = str(s.field, "sort field");
+    if (!resultColumns.has(sortField))
       throw new Error(
         `Sort field ${String(s.field)} is not output by source; expected one of: ${[
           ...resultColumns,
         ].join(", ")}`,
       );
+  }
 }
 function prune(def: ObjectValue) {
   if (def.reporting) {
@@ -248,6 +311,21 @@ function prune(def: ObjectValue) {
     }
     def.reporting = reporting;
   }
+  const selected = new Set(array(def.selectedFields, "selectedFields"));
+  const metricColumns = new Set(
+    objects(def.metrics, "metrics").map(metricColumnAlias),
+  );
+  const pivotFields = def.reporting
+    ? array(record(def.reporting).pivotFields ?? [], "pivotFields")
+    : [];
+  if (def.sorts)
+    def.sorts = objects(def.sorts, "sorts").filter(
+      (sort) =>
+        sort.pivotValues === undefined ||
+        (metricColumns.has(str(sort.field, "sort field")) &&
+          pivotFields.every((fieldId) => selected.has(fieldId)) &&
+          exactPivotTuple(sort, pivotFields)),
+    );
   if (!def.runtimeControls) return;
   const controls = record(def.runtimeControls),
     next: ObjectValue = {};
@@ -595,6 +673,7 @@ async function run(
         str(s.field, "field");
         if (s.direction !== "asc" && s.direction !== "desc")
           throw new Error("Invalid sort direction");
+        validatePivotValues(s);
       }
     }
     if (p === "setInsightReporting") {
@@ -629,6 +708,7 @@ async function run(
           );
         def.reporting = a.reporting;
       }
+      prune(def);
     }
     if (p === "setInsightRuntimeControls") {
       if (a.runtimeControls === undefined) delete def.runtimeControls;

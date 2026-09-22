@@ -4,14 +4,15 @@ import {
   fieldIdToColumnAlias,
   formatReportValue,
 } from "@dashframe/engine";
-import type { Insight } from "@dashframe/types";
+import type { DateGrain, Insight } from "@dashframe/types";
 import {
   VirtualTable,
   type FetchDataParams,
   type FetchDataResult,
 } from "@dashframe/ui";
 import { ErrorState, Spinner } from "@wystack/ui-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useReportRows } from "@/hooks/useReportRows";
 
 interface ReportDataTableProps {
   insight: Insight;
@@ -20,8 +21,24 @@ interface ReportDataTableProps {
   columnDisplayNames: Record<string, string>;
 }
 
-function dimensionLabel(value: unknown): string {
+function dimensionLabel(value: unknown, grain?: DateGrain): string {
   if (value === null || value === undefined) return "(empty)";
+  if (
+    grain &&
+    (typeof value === "number" ||
+      typeof value === "string" ||
+      value instanceof Date)
+  ) {
+    const date = new Date(value);
+    if (Number.isFinite(date.getTime())) {
+      const iso = date.toISOString();
+      if (grain === "year") return iso.slice(0, 4);
+      if (grain === "quarter")
+        return `${iso.slice(0, 4)} Q${Math.floor(date.getUTCMonth() / 3) + 1}`;
+      if (grain === "month") return iso.slice(0, 7);
+      return iso.slice(0, 10);
+    }
+  }
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   return String(value);
 }
@@ -42,55 +59,15 @@ export function ReportDataTable({
   totalCount,
   columnDisplayNames,
 }: ReportDataTableProps) {
-  const [state, setState] = useState<{
-    fetch: typeof fetchData;
-    rows?: Record<string, unknown>[];
-    error?: string;
-  }>();
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        if (totalCount > 250000)
-          throw new Error(
-            "Set a report limit before opening this pivot; it exceeds 250,000 result rows.",
-          );
-        const rows: Record<string, unknown>[] = [];
-        while (rows.length < totalCount) {
-          const page = await fetchData({
-            offset: rows.length,
-            limit: Math.min(500, totalCount - rows.length),
-          });
-          if (cancelled) return;
-          if (page.totalCount !== totalCount || page.rows.length === 0)
-            throw new Error(
-              "The report changed or could not be fully loaded. Refresh it to retry.",
-            );
-          rows.push(...page.rows);
-        }
-        if (!cancelled) setState({ fetch: fetchData, rows });
-      } catch (cause) {
-        if (!cancelled)
-          setState({
-            fetch: fetchData,
-            error:
-              cause instanceof Error
-                ? cause.message
-                : "Could not load the report.",
-          });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [fetchData, totalCount]);
+  const state = useReportRows(fetchData, totalCount);
   const table = useMemo(() => {
     if (state?.fetch !== fetchData || !state.rows) return null;
     const grid = buildReportGrid(state.rows, insight);
     const dimensionColumns = grid.rowDimensions.map((id) => ({
       id: fieldIdToColumnAlias(id),
       label: columnDisplayNames[fieldIdToColumnAlias(id)] ?? id,
-      format: dimensionLabel,
+      format: (value: unknown) =>
+        dimensionLabel(value, insight.reporting?.dateGrains?.[id]),
     }));
     if (!dimensionColumns.length)
       dimensionColumns.push({
@@ -98,10 +75,20 @@ export function ReportDataTable({
         label: "Report",
         format: dimensionLabel,
       });
+    const pivotDimensions = insight.selectedFields.filter((id) =>
+      insight.reporting?.pivotFields?.includes(id),
+    );
     const measureColumns = grid.columns.map((column) => ({
       id: column.key,
       label: [
-        ...(column.total ? ["Total"] : column.values.map(dimensionLabel)),
+        ...(column.total
+          ? ["Total"]
+          : column.values.map((value, index) =>
+              dimensionLabel(
+                value,
+                insight.reporting?.dateGrains?.[pivotDimensions[index]!],
+              ),
+            )),
         column.label,
       ].join(" · "),
       align: "right" as const,
@@ -129,6 +116,7 @@ export function ReportDataTable({
       <ErrorState
         title="Couldn't load report"
         description={state.error}
+        retryAction={{ label: "Retry", onClick: state.retry }}
         size="sm"
       />
     );

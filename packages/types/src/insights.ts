@@ -48,9 +48,16 @@ export interface InsightFilterBetweenValue {
 /**
  * Sort order for insights.
  */
+export interface InsightPivotValue {
+  fieldId: string;
+  value: string | number | boolean | null;
+}
+
 export interface InsightSort {
   field: string;
   direction: "asc" | "desc";
+  /** Exact pivot cell used to rank complete pivot rows. */
+  pivotValues?: InsightPivotValue[];
 }
 
 /**

@@ -241,6 +241,8 @@ export interface BuildInsightSQLOptions {
   sortColumn?: string;
   /** Sort direction */
   sortDirection?: "asc" | "desc";
+  /** Exact pivot cell used to rank complete pivot rows. */
+  pivotValues?: InsightSort["pivotValues"];
   /**
    * Effective filters resolved from per-cell overrides via `resolveEffectiveParams`.
    * When provided, REPLACES `insight.filters` for this query only — the insight
@@ -354,6 +356,7 @@ function buildEffectiveOptions(
       ? {
           sortColumn: resolveSortColumnAlias(firstSort.field, tableFields),
           sortDirection: firstSort.direction,
+          pivotValues: firstSort.pivotValues,
         }
       : undefined;
   return {
@@ -1427,6 +1430,201 @@ function validateSelectedSortDimension(
   }
 }
 
+type PivotSortContext = {
+  measureAlias: string;
+  pivotAliases: string[];
+  rowAliases: string[];
+  values: Array<{ field: Field; value: string | number | boolean | null }>;
+};
+
+function resolvePivotSortContext(
+  fields: Field[],
+  insight: Insight,
+  options: BuildInsightSQLOptions,
+): PivotSortContext | undefined {
+  if (options.pivotValues === undefined) return undefined;
+  if (!options.sortColumn || !options.sortDirection)
+    throw new Error("Pivot sort requires a measure and direction");
+  if (!SORT_DIRECTION_WHITELIST.has(options.sortDirection))
+    throw new Error("Invalid pivot sort direction");
+
+  const pivotIds = insight.reporting?.pivotFields ?? [];
+  if (!pivotIds.length)
+    throw new Error("Pivot sort requires at least one pivot dimension");
+  if (new Set(pivotIds).size !== pivotIds.length)
+    throw new Error("Pivot dimensions are ambiguous");
+  if (pivotIds.some((id) => !insight.selectedFields.includes(id)))
+    throw new Error("Pivot sort references an unavailable pivot dimension");
+
+  const tuple = options.pivotValues;
+  const tupleIds = tuple.map((entry) => entry.fieldId);
+  if (
+    tuple.length !== pivotIds.length ||
+    new Set(tupleIds).size !== tupleIds.length ||
+    pivotIds.some((id) => !tupleIds.includes(id))
+  ) {
+    throw new Error(
+      "Pivot sort must specify each pivot dimension exactly once",
+    );
+  }
+
+  const metrics = insight.metrics.filter(
+    (metric) => metricIdToColumnAlias(metric.id) === options.sortColumn,
+  );
+  if (metrics.length !== 1)
+    throw new Error(
+      "Pivot sort references an unavailable or ambiguous measure",
+    );
+
+  const fieldMap = buildFieldIdMap(fields);
+  const values = pivotIds.map((fieldId) => {
+    const field = fieldMap.get(fieldId);
+    if (!field)
+      throw new Error("Pivot sort references an unavailable pivot dimension");
+    const entry = tuple.find((candidate) => candidate.fieldId === fieldId)!;
+    validatePivotValue(field, entry.value);
+    return { field, value: entry.value };
+  });
+  const pivotSet = new Set(pivotIds);
+  return {
+    measureAlias: options.sortColumn,
+    pivotAliases: pivotIds.map(fieldIdToColumnAlias),
+    rowAliases: insight.selectedFields
+      .filter((id) => !pivotSet.has(id))
+      .map(fieldIdToColumnAlias),
+    values,
+  };
+}
+
+function validatePivotValue(
+  field: Field,
+  value: string | number | boolean | null,
+): void {
+  if (value === null) return;
+  if (field.type === "date") {
+    if (
+      (typeof value !== "string" || !Number.isFinite(Date.parse(value))) &&
+      (typeof value !== "number" || !Number.isFinite(value))
+    ) {
+      throw new Error("Pivot sort date value must be an ISO date or timestamp");
+    }
+    return;
+  }
+  if (field.type !== "unknown" && typeof value !== field.type)
+    throw new Error(`Pivot sort value does not match ${field.type} dimension`);
+  if (typeof value === "number" && !Number.isFinite(value))
+    throw new Error("Pivot sort values must be finite");
+}
+
+function qualifiedColumn(alias: string, column: string): string {
+  return `${quoteIdentifier(alias)}.${quoteIdentifier(column)}`;
+}
+
+function pivotValueSQL(
+  column: string,
+  field: Field,
+  value: string | number | boolean | null,
+): string {
+  if (value === null) return `${column} IS NULL`;
+  if (field.type !== "date")
+    return `${column} IS NOT DISTINCT FROM ${quoteValue(value)}`;
+  const timestamp =
+    typeof value === "number"
+      ? `MAKE_TIMESTAMP_MS(${value})`
+      : `CAST(${quoteLiteral(String(value))} AS TIMESTAMP)`;
+  return `CAST(${column} AS TIMESTAMP) IS NOT DISTINCT FROM ${timestamp}`;
+}
+
+function pivotCellPredicate(
+  context: PivotSortContext,
+  sourceAlias: string,
+  detailOnly = false,
+): string {
+  const predicates = context.values.map(({ field, value }) =>
+    pivotValueSQL(
+      qualifiedColumn(sourceAlias, fieldIdToColumnAlias(field.id)),
+      field,
+      value,
+    ),
+  );
+  if (detailOnly)
+    predicates.unshift(
+      `${qualifiedColumn(sourceAlias, "__report_grouping")} = 0`,
+    );
+  return predicates.join(" AND ");
+}
+
+function pivotStableOrder(context: PivotSortContext, alias: string): string[] {
+  return [...context.rowAliases, ...context.pivotAliases].map(
+    (column) => `${qualifiedColumn(alias, column)} ASC NULLS LAST`,
+  );
+}
+
+/** Select complete pivot rows before totals are re-aggregated from source rows. */
+function buildPivotRowSelectionSQL(
+  sql: string,
+  context: PivotSortContext,
+  options: BuildInsightSQLOptions,
+  outputColumns: string[],
+): string {
+  const rowColumns = context.rowAliases.map(quoteIdentifier);
+  const groupBy = rowColumns.length ? ` GROUP BY ${rowColumns.join(", ")}` : "";
+  const rowPrefix = rowColumns.length ? `${rowColumns.join(", ")}, ` : "";
+  const key = `MAX(CASE WHEN ${pivotCellPredicate(context, "__pivot_cell")} THEN ${qualifiedColumn("__pivot_cell", context.measureAlias)} END)`;
+  const rowOrder = [
+    `"__pivot_sort_key" ${options.sortDirection!.toUpperCase()} NULLS LAST`,
+    ...context.rowAliases.map(
+      (column) => `${quoteIdentifier(column)} ASC NULLS LAST`,
+    ),
+  ];
+  const rows = appendPagination(
+    `SELECT ${rowPrefix}${key} AS "__pivot_sort_key" FROM "__pivot_cells" AS "__pivot_cell"${groupBy} ORDER BY ${rowOrder.join(", ")}`,
+    { mode: options.mode, limit: options.limit, offset: options.offset },
+    new Set(),
+  );
+  const joins = context.rowAliases.map(
+    (column) =>
+      `${qualifiedColumn("__pivot_cell", column)} IS NOT DISTINCT FROM ${qualifiedColumn("__pivot_selected", column)}`,
+  );
+  const projected = outputColumns.map((column) =>
+    qualifiedColumn("__pivot_cell", column),
+  );
+  const order = [
+    `${qualifiedColumn("__pivot_selected", "__pivot_sort_key")} ${options.sortDirection!.toUpperCase()} NULLS LAST`,
+    ...pivotStableOrder(context, "__pivot_cell"),
+  ];
+  return (
+    `WITH "__pivot_cells" AS (${sql}), "__pivot_selected" AS (${rows}) ` +
+    `SELECT ${projected.join(", ")} FROM "__pivot_cells" AS "__pivot_cell" ` +
+    `JOIN "__pivot_selected" AS "__pivot_selected" ON ${joins.join(" AND ") || "TRUE"} ` +
+    `ORDER BY ${order.join(", ")}`
+  );
+}
+
+function pivotResultOrder(
+  context: PivotSortContext,
+  sourceAlias: string,
+  direction: "asc" | "desc",
+  hasTotals: boolean,
+): string[] {
+  const partition = context.rowAliases.length
+    ? ` PARTITION BY ${context.rowAliases
+        .map((column) => qualifiedColumn(sourceAlias, column))
+        .join(", ")}`
+    : "";
+  const key =
+    `MAX(CASE WHEN ${pivotCellPredicate(context, sourceAlias, hasTotals)} ` +
+    `THEN ${qualifiedColumn(sourceAlias, context.measureAlias)} END) OVER (` +
+    `${partition.trimStart()}) ${direction.toUpperCase()} NULLS LAST`;
+  return [
+    ...(hasTotals
+      ? [`${qualifiedColumn(sourceAlias, "__report_grouping")} ASC`]
+      : []),
+    key,
+    ...pivotStableOrder(context, sourceAlias),
+  ];
+}
+
 /** Keep hidden measure sorting inside the canonical query, then project only requested output. */
 function buildHiddenMeasureSortSQL(
   fromClause: string,
@@ -1448,6 +1646,8 @@ function buildHiddenMeasureSortSQL(
       reporting: { ...insight.reporting, measureIds: [...selected, sorted.id] },
     },
     options,
+    undefined,
+    true,
   );
   const dimensions = insight.selectedFields.map(fieldIdToColumnAlias);
   const measures = selected.flatMap((id) => {
@@ -1462,15 +1662,23 @@ function buildHiddenMeasureSortSQL(
       : [alias];
   });
   const totals = Boolean(insight.reporting?.totals && dimensions.length);
+  const pivotSort = resolvePivotSortContext(fields, insight, options);
   const columns = [
     ...dimensions,
     ...measures,
     ...(totals ? ["__report_grouping"] : []),
   ].map(quoteIdentifier);
-  const order = [
-    ...(totals ? ['"__report_grouping" ASC'] : []),
-    `${quoteIdentifier(options.sortColumn!)} ${options.sortDirection === "desc" ? "DESC" : "ASC"}`,
-  ];
+  const order = pivotSort
+    ? pivotResultOrder(
+        pivotSort,
+        "__projected_report",
+        options.sortDirection,
+        totals,
+      )
+    : [
+        ...(totals ? ['"__report_grouping" ASC'] : []),
+        `${quoteIdentifier(options.sortColumn!)} ${options.sortDirection === "desc" ? "DESC" : "ASC"}`,
+      ];
   return `SELECT ${columns.join(", ")} FROM (${inner}) AS "__projected_report" ORDER BY ${order.join(", ")}`;
 }
 
@@ -1489,6 +1697,7 @@ function buildAggregatedSQL(
   insight: Insight,
   options: BuildInsightSQLOptions,
   alignment?: { fieldId: string; shift: string },
+  deferPivotResultOrder = false,
 ): string {
   const projected = buildHiddenMeasureSortSQL(
     fromClause,
@@ -1499,7 +1708,13 @@ function buildAggregatedSQL(
   if (projected) return projected;
   validateSelectedSortDimension(allFields, insight, options);
   if (insight.reporting?.comparison) {
-    return buildPeriodComparisonSQL(fromClause, allFields, insight, options);
+    return buildPeriodComparisonSQL(
+      fromClause,
+      allFields,
+      insight,
+      options,
+      deferPivotResultOrder,
+    );
   }
   if (insight.reporting?.dateRange) {
     const { dateRange, ...reporting } = insight.reporting;
@@ -1517,6 +1732,8 @@ function buildAggregatedSQL(
         ),
       },
       options,
+      undefined,
+      deferPivotResultOrder,
     );
   }
   const hasSelectedFields = (insight.selectedFields?.length ?? 0) > 0;
@@ -1582,6 +1799,7 @@ function buildAggregatedSQL(
 
   // Build set of valid columns for sorting (all use UUID aliases now)
   const validColumns = new Set<string>([...dimensionAliases, ...metricAliases]);
+  const pivotSort = resolvePivotSortContext(allFields, insight, options);
 
   // Build filter clauses (WHERE for dimension filters, HAVING for metric filters).
   // Dimension-vs-metric is derived at compile time from the insight definition:
@@ -1623,7 +1841,15 @@ function buildAggregatedSQL(
       insight,
       options,
       validColumns,
+      pivotSort,
+      deferPivotResultOrder,
     });
+  }
+  if (pivotSort) {
+    return buildPivotRowSelectionSQL(sql, pivotSort, options, [
+      ...dimensionAliases,
+      ...metricAliases,
+    ]);
   }
   return appendPagination(sql, options, validColumns);
 }
@@ -1655,6 +1881,7 @@ function buildPeriodComparisonSQL(
   fields: Field[],
   insight: Insight,
   options: BuildInsightSQLOptions,
+  deferPivotResultOrder = false,
 ): string {
   const { comparison, dateRange, ...reporting } = insight.reporting!;
   if (!dateRange) throw new Error("Period comparison requires a date range");
@@ -1745,7 +1972,14 @@ function buildPeriodComparisonSQL(
   if (hasTotals)
     joins.push('"c"."__report_grouping" = "b"."__report_grouping"');
   const changes = comparisonColumns(insight);
-  const order = comparisonOrder(options, columnAliases, insight, hasTotals);
+  const order = comparisonOrder(
+    options,
+    columnAliases,
+    insight,
+    fields,
+    hasTotals,
+    deferPivotResultOrder,
+  );
   return `WITH "__comparison_current" AS (${current}), "__comparison_baseline" AS (${baseline}) SELECT "c".*, ${changes.join(", ")} FROM "__comparison_current" AS "c" LEFT JOIN "__comparison_baseline" AS "b" ON ${joins.join(" AND ") || "TRUE"}${order}`;
 }
 
@@ -1753,8 +1987,22 @@ function comparisonOrder(
   options: BuildInsightSQLOptions,
   dimensions: string[],
   insight: Insight,
+  fields: Field[],
   hasTotals: boolean,
+  deferPivotResultOrder: boolean,
 ): string {
+  const pivotSort = resolvePivotSortContext(fields, insight, options);
+  if (pivotSort) {
+    if (deferPivotResultOrder) {
+      return hasTotals ? ' ORDER BY "c"."__report_grouping" ASC' : "";
+    }
+    return ` ORDER BY ${pivotResultOrder(
+      pivotSort,
+      "c",
+      options.sortDirection!,
+      hasTotals,
+    ).join(", ")}`;
+  }
   const parts = hasTotals ? ['"c"."__report_grouping" ASC'] : [];
   const allowed = new Set([
     ...dimensions,
@@ -1891,6 +2139,8 @@ function buildReportTotalsSQL(args: {
   insight: Insight;
   options: BuildInsightSQLOptions;
   validColumns: Set<string>;
+  pivotSort?: PivotSortContext;
+  deferPivotResultOrder: boolean;
 }): string {
   const {
     sql,
@@ -1903,10 +2153,20 @@ function buildReportTotalsSQL(args: {
     insight,
     options,
     validColumns,
+    pivotSort,
+    deferPivotResultOrder,
   } = args;
   if (groupByParts.length > 16)
     throw new Error("Totals support at most 16 dimensions");
-  const eligible = appendPagination(sql, options, validColumns);
+  const eligible = pivotSort
+    ? buildPivotRowSelectionSQL(sql, pivotSort, options, [
+        ...dimensionAliases,
+        ...(
+          insight.reporting?.measureIds ??
+          insight.metrics.map((metric) => metric.id)
+        ).map(metricIdToColumnAlias),
+      ])
+    : appendPagination(sql, options, validColumns);
   const sourceAlias = quoteIdentifier("__report_source");
   const matches = groupByParts.map((expression, index) => {
     const alias = quoteIdentifier(dimensionAliases[index]!);
@@ -1932,13 +2192,31 @@ function buildReportTotalsSQL(args: {
     `${grouping} AS "__report_grouping"`,
   ].join(", ");
   const groupingSets = [...sets].map((set) => `(${set})`).join(", ");
-  let result =
+  const grouped =
     `WITH "__report_groups" AS (${eligible}), "__report_rows" AS (` +
     `SELECT ${sourceAlias}.* FROM (SELECT * FROM ${fromClause} ${whereClause}) AS ${sourceAlias} ` +
     `WHERE EXISTS (SELECT 1 FROM "__report_groups" WHERE ${matches.join(" AND ")})) ` +
     `SELECT ${selections} ` +
-    `FROM "__report_rows" GROUP BY GROUPING SETS (${groupingSets}) ` +
-    `ORDER BY "__report_grouping" ASC`;
+    `FROM "__report_rows" GROUP BY GROUPING SETS (${groupingSets})`;
+  if (pivotSort) {
+    const output = [
+      ...dimensionAliases,
+      ...(
+        insight.reporting?.measureIds ??
+        insight.metrics.map((metric) => metric.id)
+      ).map(metricIdToColumnAlias),
+      "__report_grouping",
+    ].map((column) => qualifiedColumn("__pivot_report", column));
+    const projected = `SELECT ${output.join(", ")} FROM (${grouped}) AS "__pivot_report"`;
+    if (deferPivotResultOrder) return projected;
+    return `${projected} ORDER BY ${pivotResultOrder(
+      pivotSort,
+      "__pivot_report",
+      options.sortDirection!,
+      true,
+    ).join(", ")}`;
+  }
+  let result = `${grouped} ORDER BY "__report_grouping" ASC`;
   if (
     options.sortColumn &&
     options.sortDirection &&

@@ -26,6 +26,10 @@ import { CoalescedOperation, supportsStreaming } from "./streaming";
 export type EffectiveInsightDefinition = InsightFetchDefinition & {
   limit?: number;
   source?: { sourceType: "dataTable" | "insight"; sourceId: UUID };
+  /** Internal provenance: runtime controls changed the saved dimension selection. */
+  runtimeDimensionsChanged?: true;
+  /** Internal provenance: runtime controls explicitly replaced the saved sort. */
+  runtimeSortOverride?: true;
 };
 
 export type MaterializationTarget =

@@ -1,3 +1,4 @@
+import { usePivotSortOptions } from "@/hooks/usePivotSortOptions";
 import { ReportSwitchers } from "@/components/visualizations/ReportSwitchers";
 import {
   reportPresentation,
@@ -134,6 +135,16 @@ export function requestSavedVisualizationDeletion(
       }
     },
   });
+}
+
+export function shouldMaterializeReportResult(
+  activeView: InsightCanvasView,
+  insight: Insight,
+): boolean {
+  return (
+    activeView.kind !== "chart" ||
+    Boolean(insight.reporting?.pivotFields?.length)
+  );
 }
 
 /**
@@ -1273,9 +1284,14 @@ export function InsightView({
       : undefined;
   const savedInsightResult = useInsightEncodingMetadata(
     insight,
-    activeView.kind !== "chart",
+    shouldMaterializeReportResult(activeView, insight),
     viewerRuntime,
   );
+  const {
+    options: pivotSortOptions,
+    error: pivotSortError,
+    retry: retryPivotSort,
+  } = usePivotSortOptions(insight, savedInsightResult);
   const {
     columns: encodingColumns,
     columnDisplayNames: encodingRenderedColumnDisplayNames,
@@ -2067,6 +2083,9 @@ export function InsightView({
         >
           <div className="h-full w-64">
             <InsightConfigPanel
+              pivotSortOptions={pivotSortOptions}
+              pivotSortError={pivotSortError}
+              onPivotSortRetry={retryPivotSort}
               insight={insight}
               dataTable={authoringTable}
               allDataTables={allDataTables}

@@ -13,6 +13,13 @@ vi.mock("@dashframe/ui", () => ({
     columnConfigs: VirtualTableColumnConfig[];
   }) => (
     <table>
+      <thead>
+        <tr>
+          {columnConfigs.map((column) => (
+            <th key={column.id}>{column.label}</th>
+          ))}
+        </tr>
+      </thead>
       <tbody>
         {rows.map((row, index) => (
           <tr key={index}>
@@ -109,3 +116,32 @@ describe("ReportDataTable", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 });
+
+it.each([false, true])(
+  "formats Arrow timestamps as UTC months (pivot=%s)",
+  async (pivot) => {
+    const fetchData = vi.fn().mockResolvedValue({
+      rows: [{ field_date: Date.UTC(2026, 0, 1), metric_rate: 0.25 }],
+      totalCount: 1,
+    });
+    render(
+      <ReportDataTable
+        insight={{
+          ...insight,
+          selectedFields: ["date"],
+          reporting: {
+            dateGrains: { date: "month" },
+            pivotFields: pivot ? ["date"] : [],
+          },
+        }}
+        fetchData={fetchData}
+        totalCount={1}
+        columnDisplayNames={{ field_date: "Month" }}
+      />,
+    );
+    expect(
+      await screen.findByText(pivot ? "2026-01 · Conversion" : "2026-01"),
+    ).toBeTruthy();
+    expect(screen.queryByText(String(Date.UTC(2026, 0, 1)))).toBeNull();
+  },
+);
