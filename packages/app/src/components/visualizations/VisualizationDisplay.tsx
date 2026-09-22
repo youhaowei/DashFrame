@@ -34,6 +34,7 @@ import type {
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Chart, useVisualization } from "@dashframe/visualization";
+import { Link } from "@tanstack/react-router";
 
 import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui-react";
 import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-react/icons";
@@ -197,12 +198,19 @@ export function VisualizationDisplay(props: VisualizationDisplayProps) {
   // card until the user navigated away. The query is the one the content
   // component already issues, so this shares its cache rather than adding a
   // fetch.
-  const { data: visualizations = [] } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
-  );
+  const {
+    data: visualizations = [],
+    isLoading,
+    isError,
+  } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
   const active = visualizations.find(
     (candidate) => candidate.id === props.visualizationId,
   );
+  // A report can keep an item whose saved view was deleted; say so instead of
+  // waiting for data that will never arrive.
+  if (!isLoading && !isError && props.visualizationId && !active) {
+    return <MissingSavedViewState />;
+  }
 
   return (
     <VisualizationErrorBoundary
@@ -222,6 +230,13 @@ interface VisualizationDisplayProps {
    * behaviour, satisfying the no-override no-regression constraint).
    */
   overrides?: DashboardItemOverrides;
+  /**
+   * Set when this is a tile on a report. A tile carries the chart and what a
+   * reader needs to trust it: its title and the question it came from. The
+   * row and column count and the chart/table switch are workbench controls
+   * and stay off it.
+   */
+  reportId?: string;
 }
 
 function SavedResultTable({
@@ -269,9 +284,95 @@ function useViewerRuntime(visualizationId?: string) {
   return { runtime, onChange };
 }
 
+function MissingSavedViewState() {
+  return (
+    <div className="flex h-full w-full items-center justify-center px-6">
+      <p className="text-center text-sm text-neutral-fg-subtle">
+        This saved view was deleted. Remove it from the report or add another
+        saved view.
+      </p>
+    </div>
+  );
+}
+
+/** A tile is its chart; the table is a workbench view. */
+function displayView(reportId: string | undefined, activeTab: string) {
+  return reportId === undefined ? activeTab : "chart";
+}
+
+/** A report tile gets its trust header; the workbench gets the view switch. */
+function DisplayHeader({
+  name,
+  insight,
+  reportId,
+  summary,
+  colorDisplayName,
+  activeTab,
+  onTabChange,
+  canShowBoth,
+  bothTooltip,
+}: {
+  name: string;
+  insight?: Insight;
+  reportId?: string;
+  summary: string;
+  colorDisplayName?: string;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  canShowBoth: boolean;
+  bothTooltip: string;
+}) {
+  if (reportId !== undefined)
+    return <TileHeader name={name} insight={insight} reportId={reportId} />;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <p className="text-xl font-semibold text-neutral-fg">{name}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-neutral-fg-subtle">{summary}</p>
+          {colorDisplayName && (
+            <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
+              Color: {colorDisplayName}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <Toggle
+          variant="outline"
+          size="sm"
+          value={activeTab}
+          onValueChange={onTabChange}
+          className="shrink-0"
+          options={[
+            {
+              value: "chart",
+              icon: <ChartIcon className="h-3.5 w-3.5" />,
+              label: "Chart",
+            },
+            {
+              value: "table",
+              icon: <TableIcon className="h-3.5 w-3.5" />,
+              label: "Table",
+            },
+            {
+              value: "both",
+              icon: <LayersIcon className="h-3.5 w-3.5" />,
+              label: "Both",
+              disabled: !canShowBoth,
+              tooltip: bothTooltip,
+            },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
 function VisualizationDisplayContent({
   visualizationId,
   overrides,
+  reportId,
 }: VisualizationDisplayProps) {
   // Whole-engine-down signals. `engineError` is the native bootstrap failure
   // (connector never came up); `visualizationError` is the provider failing to
@@ -601,6 +702,7 @@ function VisualizationDisplayContent({
     presentationError: insightViewError,
   });
 
+  const view = displayView(reportId, activeTab);
   // Check if there's enough space to show both views
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
   const bothTooltip = canShowBoth
@@ -725,54 +827,20 @@ function VisualizationDisplayContent({
           runtime={viewerRuntime}
           onChange={(runtime) => setViewerRuntime(runtime)}
         />
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xl font-semibold text-neutral-fg">
-              {activeViz.name}
-            </p>
-            <div className="flex items-center gap-2">
-              <p className="text-sm text-neutral-fg-subtle">
-                {totalCount.toLocaleString()} rows • {columns.length} columns
-              </p>
-              {colorDisplayName && (
-                <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
-                  Color: {colorDisplayName}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Toggle
-              variant="outline"
-              size="sm"
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className="shrink-0"
-              options={[
-                {
-                  value: "chart",
-                  icon: <ChartIcon className="h-3.5 w-3.5" />,
-                  label: "Chart",
-                },
-                {
-                  value: "table",
-                  icon: <TableIcon className="h-3.5 w-3.5" />,
-                  label: "Table",
-                },
-                {
-                  value: "both",
-                  icon: <LayersIcon className="h-3.5 w-3.5" />,
-                  label: "Both",
-                  disabled: !canShowBoth,
-                  tooltip: bothTooltip,
-                },
-              ]}
-            />
-          </div>
-        </div>
+        <DisplayHeader
+          name={activeViz.name}
+          insight={insight}
+          reportId={reportId}
+          summary={`${totalCount.toLocaleString()} rows • ${columns.length} columns`}
+          colorDisplayName={colorDisplayName}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          canShowBoth={canShowBoth}
+          bothTooltip={bothTooltip}
+        />
       </div>
 
-      {activeTab === "chart" && tableName && (
+      {view === "chart" && tableName && (
         <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4 pb-8">
           <Chart
             detailRowsOnly={Boolean(
@@ -790,7 +858,7 @@ function VisualizationDisplayContent({
         </div>
       )}
 
-      {activeTab === "table" && (
+      {view === "table" && (
         <div className="mt-3 flex min-h-0 flex-1 flex-col px-4">
           <Surface
             elevation="inset"
@@ -808,7 +876,7 @@ function VisualizationDisplayContent({
         </div>
       )}
 
-      {activeTab === "both" && tableName && (
+      {view === "both" && tableName && (
         <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Chart takes 60% of space */}
           <div className="h-[60%] min-h-[200px] overflow-hidden px-4 pb-4">
@@ -843,6 +911,36 @@ function VisualizationDisplayContent({
             </Surface>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** A report tile's heading: the view's name and the question it came from. */
+function TileHeader({
+  name,
+  insight,
+  reportId,
+}: {
+  name: string;
+  insight: Insight | null | undefined;
+  reportId: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-sm font-semibold text-neutral-fg">{name}</p>
+      {insight && (
+        <p className="truncate text-xs text-neutral-fg-subtle">
+          from{" "}
+          <Link
+            to="/insights/$insightId"
+            params={{ insightId: insight.id }}
+            search={{ reportId, visualize: false }}
+            className="text-neutral-fg-subtle underline-offset-2 transition-colors duration-150 hover:text-neutral-fg hover:underline motion-reduce:transition-none"
+          >
+            {insight.name}
+          </Link>
+        </p>
       )}
     </div>
   );
