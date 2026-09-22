@@ -15,6 +15,7 @@ import type { UUID } from "./uuid";
 const id = "11111111-1111-4111-8111-111111111111" as UUID;
 const midA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as UUID;
 const midB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as UUID;
+const midC = "dddddddd-dddd-4ddd-8ddd-dddddddddddd" as UUID;
 const tableId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc" as UUID;
 
 function metric(mid: UUID, name: string): InsightMetric {
@@ -90,9 +91,9 @@ describe("buildMetricDiffCommands", () => {
     ]);
   });
 
-  it("rebuilds rather than merging when an edit clears a field", () => {
+  it("atomically replaces metrics when an edit clears a field", () => {
     // sum(amount) -> count(*): `columnName` is cleared. A merge cannot express
-    // that (undefined does not survive JSON), so the metric is rebuilt.
+    // that (undefined does not survive JSON), so the list is replaced.
     const prev = metric(midA, "Sum");
     const next: InsightMetric = {
       ...prev,
@@ -102,20 +103,16 @@ describe("buildMetricDiffCommands", () => {
     };
     const commands = buildMetricDiffCommands(id, [prev], [next]);
     expect(commands).toEqual([
-      cmd("RemoveMetric", { nodeId: id, metricId: midA }),
-      cmd("AddMetric", { nodeId: id, metric: next }),
+      cmd("SetInsightMetrics", { id, metrics: [next] }),
     ]);
   });
 
-  it("rebuilds via remove+add when order changes", () => {
+  it("atomically replaces metrics when order changes", () => {
     const a = metric(midA, "A");
     const b = metric(midB, "B");
     const commands = buildMetricDiffCommands(id, [a, b], [b, a]);
-    expect(commands.map((c) => c.path)).toEqual([
-      "removeMetric",
-      "removeMetric",
-      "addMetric",
-      "addMetric",
+    expect(commands).toEqual([
+      cmd("SetInsightMetrics", { id, metrics: [b, a] }),
     ]);
   });
 });
@@ -181,10 +178,18 @@ describe("buildInsightUpdateCommands", () => {
   it("builds an atomic source transition through an empty valid definition", () => {
     const priorMetric = metric(midA, "Prior");
     const nextMetric = metric(midB, "Next");
+    const priorCalculated: InsightMetric = {
+      ...metric(midC, "Prior ratio"),
+      expression: { kind: "measure", measureId: priorMetric.id },
+    };
+    const nextCalculated: InsightMetric = {
+      ...metric(midC, "Next ratio"),
+      expression: { kind: "measure", measureId: nextMetric.id },
+    };
     const current = {
       ...baseInsight,
       selectedFields: [midA],
-      metrics: [priorMetric],
+      metrics: [priorMetric, priorCalculated],
       filters: [{ field: "amount", operator: "eq" as const, value: 1 }],
       sorts: [{ field: "amount", direction: "asc" as const }],
       runtimeControls: { limit: { min: 1, max: 10 } },
@@ -192,24 +197,31 @@ describe("buildInsightUpdateCommands", () => {
     const commands = buildInsightUpdateCommands(id, current, {
       source: { sourceType: "dataTable", sourceId: midB },
       selectedFields: [midB],
-      metrics: [nextMetric],
+      metrics: [nextCalculated, nextMetric],
     });
 
     expect(commands.map((command) => command.path)).toEqual([
       "setInsightFilter",
       "setInsightSort",
       "setInsightRuntimeControls",
-      "removeMetric",
+      "setInsightMetrics",
       "selectFields",
       "setInsightSource",
       "selectFields",
-      "addMetric",
+      "setInsightMetrics",
       "setInsightFilter",
       "setInsightSort",
       "setInsightRuntimeControls",
     ]);
+    expect(commands[3]).toEqual(cmd("SetInsightMetrics", { id, metrics: [] }));
     expect(commands[4]).toEqual(cmd("SelectFields", { id, fieldIds: [] }));
     expect(commands[6]).toEqual(cmd("SelectFields", { id, fieldIds: [midB] }));
+    expect(commands[7]).toEqual(
+      cmd("SetInsightMetrics", {
+        id,
+        metrics: [nextCalculated, nextMetric],
+      }),
+    );
   });
 
   it("returns empty when no known slices are present", () => {

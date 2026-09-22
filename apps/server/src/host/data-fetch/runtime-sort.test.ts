@@ -122,6 +122,41 @@ describe("runtime dimension sort reconciliation", () => {
     ).toEqual([sort]);
   });
 
+  it("rejects a tupleless runtime metric override for a pivot report", () => {
+    expect(() =>
+      runtimeSortsForCompile(
+        definition({
+          runtimeDimensionsChanged: undefined,
+          runtimeSortOverride: true,
+          sorts: [
+            { field: metricIdToColumnAlias("revenue"), direction: "desc" },
+          ],
+          reporting: { pivotFields: ["product"] },
+        }),
+        fields,
+      ),
+    ).toThrow("RUNTIME_PIVOT_SORT_REQUIRES_TUPLE");
+  });
+
+  it("accepts a runtime metric override with the saved exact pivot tuple", () => {
+    const sort = {
+      field: metricIdToColumnAlias("revenue"),
+      direction: "asc" as const,
+      pivotValues: [{ fieldId: "product", value: "Widget" }],
+    };
+    expect(
+      runtimeSortsForCompile(
+        definition({
+          runtimeDimensionsChanged: undefined,
+          runtimeSortOverride: true,
+          sorts: [sort],
+          reporting: { pivotFields: ["product"] },
+        }),
+        fields,
+      ),
+    ).toEqual([sort]);
+  });
+
   it("rejects an ambiguous joined raw reference", () => {
     const duplicate = { ...fields[1]!, id: "joined-product" };
     expect(() =>

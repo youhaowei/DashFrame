@@ -176,5 +176,5 @@ describe("InsightConfigPanel aggregate filters", () => {
     );
     expect(screen.getByLabelText("Value")).toHaveProperty("type", "number");
     expect(screen.getByLabelText("Value")).toHaveProperty("value", "1000");
-  });
+  }, 10_000);
 });

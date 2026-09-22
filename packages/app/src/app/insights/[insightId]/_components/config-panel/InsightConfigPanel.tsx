@@ -23,6 +23,7 @@ import type {
   DataTable,
   Insight,
   InsightMetric,
+  MeasureExpression,
   InsightRuntimeDeclaration,
   InsightSort,
   UUID,
@@ -176,6 +177,17 @@ const CONFIG_SECTIONS: Array<{
 const CONFIG_SECTION_IDS: ConfigSection[] = CONFIG_SECTIONS.map(
   (section) => section.id,
 );
+
+function referencesMeasure(
+  expression: MeasureExpression | undefined,
+  id: string,
+): boolean {
+  if (!expression || expression.kind === "constant") return false;
+  return expression.kind === "measure"
+    ? expression.measureId === id
+    : referencesMeasure(expression.left, id) ||
+        referencesMeasure(expression.right, id);
+}
 
 export function InsightConfigPanel({
   pivotSortOptions,
@@ -934,8 +946,11 @@ export function InsightConfigPanel({
               }),
             ];
           },
-        ).catch(() => {
+        ).catch((error: unknown) => {
           if (signature) rollbackRuntimeControls(signature);
+          toast.error(
+            error instanceof Error ? error.message : "Unable to remove field",
+          );
         });
       } else {
         // Prune viewer controls when the queued removal runs, so it builds on
@@ -949,6 +964,17 @@ export function InsightConfigPanel({
               writeStatus.generation !== requestedWriteGeneration
             ) {
               throw new Error("Visualization update still pending");
+            }
+            const dependent = metrics.find(
+              (metric) =>
+                metric.id !== itemId &&
+                referencesMeasure(metric.expression, itemId),
+            );
+            if (dependent) {
+              const removed = metrics.find((metric) => metric.id === itemId);
+              throw new Error(
+                `Cannot remove "${removed?.name ?? "measure"}" because "${dependent.name}" depends on it. Remove or update "${dependent.name}" first.`,
+              );
             }
             return metrics.filter((metric) => metric.id !== itemId);
           },
@@ -977,8 +1003,11 @@ export function InsightConfigPanel({
               }),
             ];
           },
-        ).catch(() => {
+        ).catch((error: unknown) => {
           if (signature) rollbackRuntimeControls(signature);
+          toast.error(
+            error instanceof Error ? error.message : "Unable to remove measure",
+          );
         });
       }
     },

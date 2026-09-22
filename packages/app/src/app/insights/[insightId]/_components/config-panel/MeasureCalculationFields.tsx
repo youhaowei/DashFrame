@@ -109,6 +109,12 @@ export function MeasureCalculationFields({
   const setFormat = (patch: Partial<MeasureFormat>) =>
     onChange({ ...value, format: { ...format, ...patch } });
   const validationError = useMemo(() => {
+    if (
+      value.format?.style === "currency" &&
+      !/^[A-Za-z]{3}$/.test(value.format.currency ?? "USD")
+    ) {
+      return "Currency code must contain three letters, for example USD.";
+    }
     for (const [index, filter] of (value.filters ?? []).entries()) {
       const field = dataTable.fields?.find(
         (candidate) =>
@@ -125,7 +131,7 @@ export function MeasureCalculationFields({
       }
     }
     return null;
-  }, [dataTable.fields, filterDrafts, value.filters]);
+  }, [dataTable.fields, filterDrafts, value.filters, value.format]);
   useEffect(() => {
     onValidationErrorChange?.(validationError);
   }, [onValidationErrorChange, validationError]);

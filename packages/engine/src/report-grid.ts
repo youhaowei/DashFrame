@@ -9,9 +9,12 @@ export function formatMeasureValue(
   if (typeof value !== "number" && typeof value !== "bigint") return "—";
   if (typeof value === "number" && !Number.isFinite(value)) return "—";
   const style = format?.style ?? "number";
+  const currency = /^[A-Za-z]{3}$/.test(format?.currency ?? "")
+    ? format!.currency
+    : "USD";
   return new Intl.NumberFormat("en-US", {
     style: style === "number" ? "decimal" : style,
-    ...(style === "currency" ? { currency: format?.currency ?? "USD" } : {}),
+    ...(style === "currency" ? { currency } : {}),
     minimumFractionDigits: format?.decimals ?? (style === "number" ? 0 : 2),
     maximumFractionDigits: format?.decimals ?? 2,
   }).format(value);

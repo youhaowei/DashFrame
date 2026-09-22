@@ -234,3 +234,34 @@ it("discards stale filter drafts when calculation mode replaces the filter list"
   ).toBeTruthy();
   expect(onAdd).not.toHaveBeenCalled();
 });
+
+it("keeps partial currency edits local and blocks invalid measure saves", async () => {
+  const onValidationErrorChange = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState<MeasureOptions>({
+      format: { style: "currency", currency: "USD" },
+    });
+    return (
+      <MeasureCalculationFields
+        value={value}
+        onChange={setValue}
+        metrics={[]}
+        dataTable={table("number")}
+        onValidationErrorChange={onValidationErrorChange}
+      />
+    );
+  }
+  render(<Harness />);
+  for (const value of ["", "U", "US", "123"]) {
+    fireEvent.change(screen.getByLabelText("Currency code"), {
+      target: { value },
+    });
+    expect(onValidationErrorChange).toHaveBeenLastCalledWith(
+      "Currency code must contain three letters, for example USD.",
+    );
+  }
+  fireEvent.change(screen.getByLabelText("Currency code"), {
+    target: { value: "EUR" },
+  });
+  expect(onValidationErrorChange).toHaveBeenLastCalledWith(null);
+});

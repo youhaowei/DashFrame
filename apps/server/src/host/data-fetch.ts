@@ -392,12 +392,37 @@ function applyRuntimeSort(
   ) {
     throw new Error("RUNTIME_SORT_FIELD_NOT_ALLOWED");
   }
-  definition.sorts = runtime.sort.map((sort) => ({
-    field: saved.metrics.some((metric) => metric.id === sort.fieldId)
+  definition.sorts = runtime.sort.map((sort) => {
+    const metric = saved.metrics.some(
+      (candidate) => candidate.id === sort.fieldId,
+    );
+    const field = metric
       ? metricIdToColumnAlias(sort.fieldId)
-      : fieldIdToColumnAlias(sort.fieldId),
-    direction: sort.direction,
-  }));
+      : fieldIdToColumnAlias(sort.fieldId);
+    if (!metric || !definition.reporting?.pivotFields?.length)
+      return { field, direction: sort.direction };
+    const pivotFields = definition.reporting.pivotFields;
+    const savedPivot = saved.sorts?.find((candidate) => {
+      if (
+        candidate.field !== sort.fieldId &&
+        candidate.field !== metricIdToColumnAlias(sort.fieldId)
+      )
+        return false;
+      const tupleFields = candidate.pivotValues?.map((value) => value.fieldId);
+      return (
+        tupleFields?.length === pivotFields.length &&
+        new Set(tupleFields).size === tupleFields.length &&
+        pivotFields.every((id) => tupleFields.includes(id))
+      );
+    });
+    return {
+      field,
+      direction: sort.direction,
+      ...(savedPivot?.pivotValues && {
+        pivotValues: savedPivot.pivotValues,
+      }),
+    };
+  });
 }
 
 function applyRuntimeLimit(
@@ -550,6 +575,10 @@ const NAMED_FETCH_FAILURES: Record<
   RUNTIME_LIMIT_REQUIRES_SORT: {
     message:
       "The selected dimensions removed the sort required by the row limit. Choose another sort or remove the limit.",
+  },
+  RUNTIME_PIVOT_SORT_REQUIRES_TUPLE: {
+    message:
+      "This pivot report requires a saved pivot cell for metric sorting. Choose a pivot-cell sort first.",
   },
   RUNTIME_PRESENTATION_NOT_ALLOWED: {
     message:

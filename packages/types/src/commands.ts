@@ -206,6 +206,7 @@ export interface CommandPayloads {
   };
   SetInsightSource: { id: UUID; source: InsightSourceInput };
   SelectFields: { id: UUID; fieldIds: UUID[] };
+  SetInsightMetrics: { id: UUID; metrics: InsightMetric[] };
   SetInsightFilter: {
     id: UUID;
     /** UI-authored literals stay in their domain shape; agent operands remain explicitly tagged. */
@@ -299,6 +300,7 @@ export const COMMAND_PATHS = {
   CreateInsight: "createInsightCmd",
   SetInsightSource: "setInsightSource",
   SelectFields: "selectFields",
+  SetInsightMetrics: "setInsightMetrics",
   SetInsightFilter: "setInsightFilter",
   SetInsightSort: "setInsightSort",
   SetInsightReporting: "setInsightReporting",
@@ -366,7 +368,7 @@ function clearsAKey(previous: InsightMetric, next: InsightMetric): boolean {
 
 /**
  * Diff two metric lists into Add/Update/Remove commands (one batch).
- * Rebuilds via remove-all + add-all when order changes with the same id set
+ * Atomically replaces the list when order changes with the same id set
  * (UpdateMetric is in-place and cannot reorder), and when any edit clears a
  * field (a merge cannot express a removal — see `clearsAKey`).
  */
@@ -392,13 +394,7 @@ export function buildMetricDiffCommands(
   const commands: Command[] = [];
 
   if (orderChanged || clearsAField) {
-    for (let i = previous.length - 1; i >= 0; i--) {
-      commands.push(cmd("RemoveMetric", { nodeId, metricId: previous[i]!.id }));
-    }
-    for (const metric of next) {
-      commands.push(cmd("AddMetric", { nodeId, metric }));
-    }
-    return commands;
+    return [cmd("SetInsightMetrics", { id: nodeId, metrics: [...next] })];
   }
 
   for (const m of previous) {
@@ -478,7 +474,9 @@ export function buildInsightUpdateCommands(
         cmd("SetInsightRuntimeControls", { id, runtimeControls: undefined }),
       );
     }
-    commands.push(...buildMetricDiffCommands(id, current.metrics ?? [], []));
+    if (current.metrics?.length) {
+      commands.push(cmd("SetInsightMetrics", { id, metrics: [] }));
+    }
     if (current.selectedFields.length) {
       commands.push(cmd("SelectFields", { id, fieldIds: [] }));
     }
@@ -496,7 +494,9 @@ export function buildInsightUpdateCommands(
       commands.push(cmd("SelectFields", { id, fieldIds: selectedFields }));
     }
     const metrics = updates.metrics ?? current.metrics;
-    commands.push(...buildMetricDiffCommands(id, [], metrics));
+    if (metrics.length) {
+      commands.push(cmd("SetInsightMetrics", { id, metrics: [...metrics] }));
+    }
     const filters = updates.filters ?? current.filters;
     if (filters?.length) {
       commands.push(cmd("SetInsightFilter", { id, filters }));

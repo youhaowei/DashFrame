@@ -65,15 +65,31 @@ export function runtimeSortsForCompile(
   insight: EffectiveInsightDefinition,
   fields: readonly Field[],
 ): InsightSort[] | undefined {
-  if (!insight.runtimeDimensionsChanged || insight.runtimeSortOverride) {
+  if (!insight.runtimeDimensionsChanged && !insight.runtimeSortOverride) {
     return insight.sorts;
   }
   const savedSorts = insight.sorts;
   if (!savedSorts?.length) return savedSorts;
   const effective: InsightSort[] = [];
   for (const sort of savedSorts) {
+    const metricAlias = metricSortAlias(sort.field, insight);
+    if (
+      insight.runtimeSortOverride &&
+      metricAlias &&
+      insight.reporting?.pivotFields?.length &&
+      sort.pivotValues === undefined
+    ) {
+      throw new Error("RUNTIME_PIVOT_SORT_REQUIRES_TUPLE");
+    }
     const reconciled = reconcileSort(sort, insight, fields);
     if (reconciled) effective.push(reconciled);
+    else if (
+      insight.runtimeSortOverride &&
+      metricAlias &&
+      insight.reporting?.pivotFields?.length
+    ) {
+      throw new Error("RUNTIME_PIVOT_SORT_REQUIRES_TUPLE");
+    }
   }
   if (insight.limit !== undefined && effective.length === 0) {
     throw new Error("RUNTIME_LIMIT_REQUIRES_SORT");

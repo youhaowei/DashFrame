@@ -60,6 +60,18 @@ const REVENUE_METRIC: InsightMetric = {
   aggregation: "sum",
 };
 
+const comparisonReporting: NonNullable<Insight["reporting"]> = {
+  comparison: "previous_period",
+  dateRange: {
+    fieldId: DATE_FIELD_ID,
+    range: {
+      type: "absolute",
+      start: "2024-01-01T00:00:00.000Z",
+      end: "2024-02-01T00:00:00.000Z",
+    },
+  },
+};
+
 const BASE_TABLE: DataTable = {
   id: TABLE_ID,
   name: "sales",
@@ -97,6 +109,14 @@ function metricsOnlyInsight(filters?: InsightFilter[]): Insight {
   };
 }
 
+function comparisonInsight(metrics: InsightMetric[]): Insight {
+  return {
+    ...metricsOnlyInsight(),
+    metrics,
+    reporting: comparisonReporting,
+  };
+}
+
 const QUERY_OPTS: BuildInsightSQLOptions = { mode: "query" };
 
 function build(
@@ -107,6 +127,185 @@ function build(
   expect(sql).not.toBeNull();
   return sql!;
 }
+
+describe("buildInsightSQL — period comparison measure types", () => {
+  it.each([
+    {
+      name: "Minimum Region",
+      columnName: "region",
+      aggregation: "min" as const,
+    },
+    {
+      name: "Latest Order Date",
+      columnName: "order_date",
+      aggregation: "max" as const,
+    },
+  ])("rejects arithmetic over non-numeric $name", (definition) => {
+    const metric: InsightMetric = {
+      id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" as UUID,
+      sourceTable: TABLE_ID,
+      ...definition,
+    };
+
+    expect(() => build(comparisonInsight([metric]))).toThrow(
+      `Period comparison requires numeric measures; "${definition.name}" is not numeric`,
+    );
+  });
+
+  it("emits previous, absolute change, and percent change for numeric MIN", () => {
+    const metric: InsightMetric = {
+      id: "ffffffff-ffff-ffff-ffff-ffffffffffff" as UUID,
+      name: "Minimum Amount",
+      sourceTable: TABLE_ID,
+      columnName: "amount",
+      aggregation: "min",
+    };
+    const alias = metricIdToColumnAlias(metric.id);
+
+    const sql = build(comparisonInsight([metric]));
+
+    expect(sql).toContain(`"b"."${alias}" AS "${alias}_previous"`);
+    expect(sql).toContain(
+      `("c"."${alias}" - "b"."${alias}") AS "${alias}_change"`,
+    );
+    expect(sql).toContain(`AS "${alias}_change_percent"`);
+  });
+
+  it("rejects a derived comparison when a dependency is non-numeric", () => {
+    const textMinimum: InsightMetric = {
+      id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" as UUID,
+      name: "Minimum Region",
+      sourceTable: TABLE_ID,
+      columnName: "region",
+      aggregation: "min",
+    };
+    const derived: InsightMetric = {
+      id: "ffffffff-ffff-ffff-ffff-ffffffffffff" as UUID,
+      name: "Invalid Derived Measure",
+      sourceTable: TABLE_ID,
+      aggregation: "sum",
+      expression: {
+        kind: "binary",
+        operator: "add",
+        left: { kind: "measure", measureId: textMinimum.id },
+        right: { kind: "constant", value: 1 },
+      },
+    };
+
+    const insight = comparisonInsight([textMinimum, derived]);
+    insight.reporting = { ...comparisonReporting, measureIds: [derived.id] };
+
+    expect(() => build(insight)).toThrow(
+      'Period comparison requires numeric measures; "Invalid Derived Measure" is not numeric',
+    );
+  });
+
+  it("uses source-table identity when joined columns share a name", () => {
+    const baseTableId = "10101010-1010-1010-1010-101010101010" as UUID;
+    const joinedTableId = "20202020-2020-2020-2020-202020202020" as UUID;
+    const baseJoinId = "30303030-3030-3030-3030-303030303030" as UUID;
+    const baseDateId = "40404040-4040-4040-4040-404040404040" as UUID;
+    const baseValueId = "50505050-5050-5050-5050-505050505050" as UUID;
+    const joinedKeyId = "60606060-6060-6060-6060-606060606060" as UUID;
+    const joinedValueId = "70707070-7070-7070-7070-707070707070" as UUID;
+    const metricId = "80808080-8080-8080-8080-808080808080" as UUID;
+    const baseTable: DataTable = {
+      id: baseTableId,
+      name: "events",
+      dataSourceId: "90909090-9090-9090-9090-909090909090" as UUID,
+      table: "events.csv",
+      fields: [
+        field(baseJoinId, "Group ID", "group_id", "string"),
+        field(baseDateId, "Event Date", "event_date", "date"),
+        field(baseValueId, "Base Value", "value", "string"),
+      ].map((candidate) => ({ ...candidate, tableId: baseTableId })),
+      metrics: [],
+      dataFrameId: "aaaaaaaa-1111-1111-1111-111111111111" as UUID,
+      createdAt: 0,
+    };
+    const joinedTable: DataTable = {
+      id: joinedTableId,
+      name: "groups",
+      dataSourceId: baseTable.dataSourceId,
+      table: "groups.csv",
+      fields: [
+        field(joinedKeyId, "Group ID", "group_id", "string"),
+        field(joinedValueId, "Joined Value", "value", "number"),
+      ].map((candidate) => ({ ...candidate, tableId: joinedTableId })),
+      metrics: [],
+      dataFrameId: "bbbbbbbb-1111-1111-1111-111111111111" as UUID,
+      createdAt: 0,
+    };
+    const insight: Insight = {
+      id: "cccccccc-1111-1111-1111-111111111111" as UUID,
+      name: "Joined value comparison",
+      source: { sourceType: "dataTable", sourceId: baseTableId },
+      selectedFields: [],
+      metrics: [
+        {
+          id: metricId,
+          name: "Minimum Joined Value",
+          sourceTable: joinedTableId,
+          columnName: "value",
+          aggregation: "min",
+        },
+      ],
+      joins: [
+        {
+          type: "inner",
+          rightTableId: joinedTableId,
+          leftKey: "group_id",
+          rightKey: "group_id",
+        },
+      ],
+      reporting: {
+        comparison: "previous_period",
+        dateRange: {
+          fieldId: baseDateId,
+          range: comparisonReporting.dateRange!.range,
+        },
+      },
+      createdAt: 0,
+    };
+
+    const sql = buildInsightSQL(
+      baseTable,
+      new Map([[joinedTableId, joinedTable]]),
+      insight,
+      QUERY_OPTS,
+    );
+
+    expect(sql).toContain(`MIN("${fieldIdToColumnAlias(joinedValueId)}")`);
+    expect(sql).not.toContain(`MIN("${fieldIdToColumnAlias(baseValueId)}")`);
+
+    const numericBase: DataTable = {
+      ...baseTable,
+      fields: baseTable.fields.map((candidate) =>
+        candidate.id === baseValueId
+          ? { ...candidate, type: "number" }
+          : candidate,
+      ),
+    };
+    const textJoined: DataTable = {
+      ...joinedTable,
+      fields: joinedTable.fields.map((candidate) =>
+        candidate.id === joinedValueId
+          ? { ...candidate, type: "string" }
+          : candidate,
+      ),
+    };
+    expect(() =>
+      buildInsightSQL(
+        numericBase,
+        new Map([[joinedTableId, textJoined]]),
+        insight,
+        QUERY_OPTS,
+      ),
+    ).toThrow(
+      'Period comparison requires numeric measures; "Minimum Joined Value" is not numeric',
+    );
+  });
+});
 
 describe("buildInsightSQL — filter clause routing", () => {
   it("emits a WHERE clause for a filter on a grouped dimension (not HAVING)", () => {

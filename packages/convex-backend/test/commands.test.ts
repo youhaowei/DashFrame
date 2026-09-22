@@ -2388,6 +2388,24 @@ describe("existing command behavior on native Convex", () => {
     expect(reopened?.sorts).toEqual([]);
   });
 
+  it("rejects duplicate ids in an atomic insight metric replacement", async () => {
+    const { tableId, insightId, metricId } = await makeInsightWithMetric();
+    const duplicate = {
+      id: metricId,
+      name: "Duplicate",
+      sourceTable: tableId,
+      aggregation: "count" as const,
+    };
+    await expect(
+      commit(
+        cmd("SetInsightMetrics", {
+          id: insightId,
+          metrics: [duplicate, duplicate],
+        }),
+      ),
+    ).rejects.toThrow("Metric ids must be unique");
+  });
+
   it("preserves source filter and sort columns whose names start with metric_", async () => {
     const { tableId } = await makeTable();
     const insightId = id();
@@ -5178,9 +5196,16 @@ it("saves and reopens report date grouping, pivot settings, and calculated measu
       value: 100,
     },
   ];
+  const sorts = [
+    {
+      field: metricIdToColumnAlias(metricId),
+      direction: "desc" as const,
+    },
+  ];
   await commit(
     cmd("SetInsightReporting", { id: insightId, reporting }),
     cmd("SetInsightFilter", { id: insightId, filters }),
+    cmd("SetInsightSort", { id: insightId, sorts }),
   );
   const runtimeControls = {
     dimensions: { allowedIds: [dateId], maxSelected: 1 },
@@ -5195,9 +5220,45 @@ it("saves and reopens report date grouping, pivot settings, and calculated measu
   expect(reopened?.filters).toEqual([
     { ...filters[0], id: expect.any(String) },
   ]);
+  expect(reopened?.sorts).toEqual(sorts);
   expect(
     reopened?.metrics.find((metric) => metric.id === ratioId)?.expression,
   ).toEqual(expression);
+  const ratio = reopened?.metrics.find((metric) => metric.id === ratioId);
+  const revenue = reopened?.metrics.find((metric) => metric.id === metricId);
+  expect(ratio).toBeDefined();
+  expect(revenue).toBeDefined();
+  const reorderedMetrics = [
+    ratio!,
+    {
+      ...revenue!,
+      name: "Revenue count",
+      aggregation: "count" as const,
+      columnName: undefined,
+    },
+  ];
+  const metricCommands = buildInsightUpdateCommands(insightId, reopened!, {
+    metrics: reorderedMetrics,
+  });
+  expect(metricCommands.map((command) => command.path)).toEqual([
+    COMMAND_PATHS.SetInsightMetrics,
+  ]);
+  await commit(...metricCommands);
+  const afterReplacement = await client.query(api.app.getInsight, {
+    id: insightId,
+  });
+  expect(afterReplacement?.metrics.map((metric) => metric.id)).toEqual([
+    ratioId,
+    metricId,
+  ]);
+  expect(afterReplacement?.metrics[1]).not.toHaveProperty("columnName");
+  expect(afterReplacement?.reporting).toEqual(reporting);
+  expect(afterReplacement?.filters).toEqual([
+    { ...filters[0], id: expect.any(String) },
+  ]);
+  expect(afterReplacement?.sorts).toEqual(sorts);
+  expect(afterReplacement?.runtimeControls).toEqual(runtimeControls);
+  expect(afterReplacement?.metrics[0]?.expression).toEqual(expression);
   const preview = await draftCommit(
     cmd("SetInsightReporting", { id: insightId, reporting }),
   );
@@ -5311,4 +5372,381 @@ it("persists reusable calculated measures with their filtered dependencies and f
   );
   const [reopened] = await tablesById(tableId);
   expect(reopened!.metrics).toEqual(metrics);
+});
+
+it("rejects missing or cyclic calculated measure dependencies and preserves referenced measures", async () => {
+  const { tableId, insightId, metricId } = await makeInsightWithMetric();
+  const calculatedId = id();
+  await commit(
+    cmd("AddMetric", {
+      nodeId: insightId,
+      metric: {
+        id: calculatedId,
+        name: "Revenue ratio",
+        sourceTable: tableId,
+        aggregation: "count",
+        expression: { kind: "measure", measureId: metricId },
+      },
+    }),
+  );
+
+  await expect(
+    commit(cmd("RemoveMetric", { nodeId: insightId, metricId })),
+  ).rejects.toThrow(
+    'Cannot remove measure "Total Revenue". Calculated measure "Revenue ratio" depends on it',
+  );
+  await expect(
+    commit(
+      cmd("SetInsightMetrics", {
+        id: insightId,
+        metrics: [
+          {
+            id: metricId,
+            name: "A",
+            sourceTable: tableId,
+            aggregation: "count",
+            expression: { kind: "measure", measureId: calculatedId },
+          },
+          {
+            id: calculatedId,
+            name: "B",
+            sourceTable: tableId,
+            aggregation: "count",
+            expression: { kind: "measure", measureId: metricId },
+          },
+        ],
+      }),
+    ),
+  ).rejects.toThrow("must be acyclic");
+  await expect(
+    commit(
+      cmd("AddMetric", {
+        nodeId: insightId,
+        metric: {
+          id: id(),
+          name: "Missing dependency",
+          sourceTable: tableId,
+          aggregation: "count",
+          expression: { kind: "measure", measureId: id() },
+        },
+      }),
+    ),
+  ).rejects.toThrow("references unavailable measure");
+
+  const reopened = await client.query(api.app.getInsight, { id: insightId });
+  expect(reopened?.metrics.map((metric) => metric.id)).toEqual([
+    metricId,
+    calculatedId,
+  ]);
+});
+
+it("validates calculated measure dependencies at the final batch state", async () => {
+  const { tableId } = await makeTable();
+  const insightId = id(),
+    baseId = id(),
+    calculatedId = id();
+  await commit(
+    cmd("CreateInsight", {
+      id: insightId,
+      name: "Batch metrics",
+      source: { sourceType: "dataTable", sourceId: tableId },
+    }),
+    cmd("AddMetric", {
+      nodeId: insightId,
+      metric: {
+        id: calculatedId,
+        name: "Rate",
+        sourceTable: tableId,
+        aggregation: "count",
+        expression: { kind: "measure", measureId: baseId },
+      },
+    }),
+    cmd("AddMetric", {
+      nodeId: insightId,
+      metric: {
+        id: baseId,
+        name: "Base",
+        sourceTable: tableId,
+        aggregation: "count",
+      },
+    }),
+  );
+  expect(
+    (await client.query(api.app.getInsight, { id: insightId }))?.metrics.map(
+      (metric) => metric.id,
+    ),
+  ).toEqual([calculatedId, baseId]);
+
+  await commit(
+    cmd("RemoveMetric", { nodeId: insightId, metricId: baseId }),
+    cmd("RemoveMetric", { nodeId: insightId, metricId: calculatedId }),
+  );
+  expect(
+    (await client.query(api.app.getInsight, { id: insightId }))?.metrics,
+  ).toEqual([]);
+});
+
+it("applies a source replacement with calculated measures as one valid graph", async () => {
+  const first = await makeTable();
+  const second = await makeTable();
+  const insightId = id(),
+    priorBaseId = id(),
+    priorCalculatedId = id(),
+    nextBaseId = id(),
+    nextCalculatedId = id();
+  await commit(
+    cmd("CreateInsight", {
+      id: insightId,
+      name: "Source replacement",
+      source: { sourceType: "dataTable", sourceId: first.tableId },
+      metrics: [
+        {
+          id: priorBaseId,
+          name: "Prior base",
+          sourceTable: first.tableId,
+          aggregation: "count",
+        },
+        {
+          id: priorCalculatedId,
+          name: "Prior ratio",
+          sourceTable: first.tableId,
+          aggregation: "count",
+          expression: { kind: "measure", measureId: priorBaseId },
+        },
+      ],
+    }),
+  );
+  const current = await client.query(api.app.getInsight, { id: insightId });
+  expect(current).toBeDefined();
+  const nextMetrics = [
+    {
+      id: nextCalculatedId,
+      name: "Next ratio",
+      sourceTable: second.tableId,
+      aggregation: "count" as const,
+      expression: { kind: "measure" as const, measureId: nextBaseId },
+    },
+    {
+      id: nextBaseId,
+      name: "Next base",
+      sourceTable: second.tableId,
+      aggregation: "count" as const,
+    },
+  ];
+  await commit(
+    ...buildInsightUpdateCommands(insightId, current!, {
+      source: { sourceType: "dataTable", sourceId: second.tableId },
+      metrics: nextMetrics,
+    }),
+  );
+
+  const reopened = await client.query(api.app.getInsight, { id: insightId });
+  expect(reopened?.source).toEqual({
+    sourceType: "dataTable",
+    sourceId: second.tableId,
+  });
+  expect(reopened?.metrics).toEqual(nextMetrics);
+});
+
+it("requires a date range and numeric measures for report comparisons", async () => {
+  const { tableId } = await makeTable();
+  const insightId = id();
+  await commit(
+    cmd("CreateInsight", {
+      id: insightId,
+      name: "Comparison",
+      source: { sourceType: "dataTable", sourceId: tableId },
+    }),
+  );
+  await expect(
+    commit(
+      cmd("SetInsightReporting", {
+        id: insightId,
+        reporting: { comparison: "previous_period" },
+      }),
+    ),
+  ).rejects.toThrow("requires a date range");
+
+  const dateId = id(),
+    categoryId = id(),
+    textMetricId = id();
+  await commit(
+    cmd("AddField", {
+      nodeId: tableId,
+      field: {
+        id: dateId,
+        tableId,
+        name: "Date",
+        columnName: "date",
+        type: "date",
+      },
+    }),
+    cmd("AddField", {
+      nodeId: tableId,
+      field: {
+        id: categoryId,
+        tableId,
+        name: "Category",
+        columnName: "category",
+        type: "string",
+      },
+    }),
+    cmd("SelectFields", { id: insightId, fieldIds: [dateId] }),
+    cmd("AddMetric", {
+      nodeId: insightId,
+      metric: {
+        id: textMetricId,
+        name: "First category",
+        sourceTable: tableId,
+        columnName: "category",
+        aggregation: "min",
+      },
+    }),
+  );
+  await expect(
+    commit(
+      cmd("SetInsightReporting", {
+        id: insightId,
+        reporting: {
+          comparison: "previous_period",
+          dateRange: { fieldId: dateId, range: { type: "previous_month" } },
+          measureIds: [textMetricId],
+        },
+      }),
+    ),
+  ).rejects.toThrow("requires numeric measures");
+});
+
+it("prunes runtime dimensions when a join removes an unselected joined field", async () => {
+  const { tableId: ordersId } = await makeTable();
+  const { tableId: accountsId } = await makeTable();
+  const accountKeyId = id(),
+    accountId = id(),
+    countryId = id(),
+    insightId = id();
+  await commit(
+    cmd("AddField", {
+      nodeId: ordersId,
+      field: {
+        id: accountKeyId,
+        tableId: ordersId,
+        name: "Account",
+        columnName: "account_id",
+        type: "string",
+      },
+    }),
+    cmd("AddField", {
+      nodeId: accountsId,
+      field: {
+        id: accountId,
+        tableId: accountsId,
+        name: "ID",
+        columnName: "id",
+        type: "string",
+      },
+    }),
+    cmd("AddField", {
+      nodeId: accountsId,
+      field: {
+        id: countryId,
+        tableId: accountsId,
+        name: "Country",
+        columnName: "country",
+        type: "string",
+      },
+    }),
+    cmd("CreateInsight", {
+      id: insightId,
+      name: "Orders",
+      source: { sourceType: "dataTable", sourceId: ordersId },
+    }),
+    cmd("AddJoin", {
+      id: insightId,
+      join: {
+        type: "left",
+        rightTableId: accountsId,
+        leftKey: "account_id",
+        rightKey: "id",
+      },
+    }),
+    cmd("SetInsightRuntimeControls", {
+      id: insightId,
+      runtimeControls: {
+        dimensions: { allowedIds: [countryId], maxSelected: 1 },
+      },
+    }),
+  );
+  expect(
+    (await client.query(api.app.getInsight, { id: insightId }))
+      ?.runtimeControls,
+  ).toEqual({ dimensions: { allowedIds: [countryId], maxSelected: 1 } });
+
+  await commit(cmd("RemoveJoin", { id: insightId, joinIndex: 0 }));
+  expect(
+    (await client.query(api.app.getInsight, { id: insightId }))
+      ?.runtimeControls,
+  ).toBeUndefined();
+});
+
+it("limits report totals to sixteen dimensions when enabling or changing fields", async () => {
+  const { tableId } = await makeTable();
+  const insightId = id();
+  const fieldIds = Array.from({ length: 17 }, () => id());
+  await commit(
+    cmd("CreateInsight", {
+      id: insightId,
+      name: "Wide report",
+      source: { sourceType: "dataTable", sourceId: tableId },
+    }),
+    ...fieldIds.map((fieldId, index) =>
+      cmd("AddField", {
+        nodeId: tableId,
+        field: {
+          id: fieldId,
+          tableId,
+          name: `Dimension ${index + 1}`,
+          columnName: `dimension_${index + 1}`,
+          type: "string",
+        },
+      }),
+    ),
+    cmd("SelectFields", { id: insightId, fieldIds }),
+  );
+  await expect(
+    commit(
+      cmd("SetInsightReporting", {
+        id: insightId,
+        reporting: { totals: true },
+      }),
+    ),
+  ).rejects.toThrow("at most 16 dimensions");
+
+  await commit(
+    cmd("SelectFields", { id: insightId, fieldIds: fieldIds.slice(0, 16) }),
+    cmd("SetInsightReporting", {
+      id: insightId,
+      reporting: { totals: true },
+    }),
+  );
+  await expect(
+    commit(cmd("SelectFields", { id: insightId, fieldIds })),
+  ).rejects.toThrow("at most 16 dimensions");
+});
+
+it("rejects invalid metric currency codes", async () => {
+  const { tableId, insightId } = await makeInsightWithMetric();
+  await expect(
+    commit(
+      cmd("AddMetric", {
+        nodeId: insightId,
+        metric: {
+          id: id(),
+          name: "Revenue",
+          sourceTable: tableId,
+          aggregation: "count",
+          format: { style: "currency", currency: "US" },
+        },
+      }),
+    ),
+  ).rejects.toThrow("three-letter code");
 });

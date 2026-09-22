@@ -1277,6 +1277,18 @@ function buildDimensionColumns(
   return { selectParts, groupByParts, columnAliases };
 }
 
+function resolveMeasureSourceField(
+  metric: InsightMetric,
+  fields: Map<string, Field>,
+): Field | undefined {
+  if (!metric.columnName) return undefined;
+  return Array.from(fields.values()).find(
+    (field) =>
+      field.tableId === metric.sourceTable &&
+      fieldMatchesReference(field, metric.columnName!),
+  );
+}
+
 /**
  * Build SQL expression for a single metric aggregation with UUID alias.
  *
@@ -1316,11 +1328,7 @@ function compileMeasure(
   if (!metric.columnName && metric.aggregation !== "count") {
     throw new Error("A measure requires a source column");
   }
-  const source = metric.columnName
-    ? Array.from(fields.values()).find((field) =>
-        fieldMatchesReference(field, metric.columnName!),
-      )
-    : undefined;
+  const source = resolveMeasureSourceField(metric, fields);
   const sourceColumn = source
     ? fieldIdToColumnAlias(source.id)
     : metric.columnName;
@@ -1916,6 +1924,9 @@ function buildSpecialReportSQL(
   options: BuildInsightSQLOptions,
   deferPivotResultOrder: boolean,
 ): string | undefined {
+  if (insight.reporting?.comparison) {
+    assertNumericComparisonMeasures(insight, buildFieldIdMap(allFields));
+  }
   if (!options.presentation) {
     const projected = buildHiddenMeasureSortSQL(
       fromClause,
@@ -1960,6 +1971,65 @@ function buildSpecialReportSQL(
     undefined,
     deferPivotResultOrder,
   );
+}
+
+/**
+ * Period comparisons emit subtraction and division columns, so every compared
+ * measure must produce a number. MIN/MAX preserve their source type, while
+ * count aggregations always produce a number. Derived measures are numeric only
+ * when all referenced measures are numeric.
+ */
+function assertNumericComparisonMeasures(
+  insight: Insight,
+  fields: Map<string, Field>,
+): void {
+  const selectedIds =
+    insight.reporting?.measureIds ?? insight.metrics.map((metric) => metric.id);
+  for (const id of selectedIds) {
+    const metric = insight.metrics.find((candidate) => candidate.id === id);
+    if (!metric) throw new Error("Selected comparison measure is unavailable");
+    if (
+      !isNumericComparisonMeasure(metric, insight.metrics, fields, new Set())
+    ) {
+      throw new Error(
+        `Period comparison requires numeric measures; "${metric.name}" is not numeric`,
+      );
+    }
+  }
+}
+
+function isNumericComparisonMeasure(
+  metric: InsightMetric,
+  measures: InsightMetric[],
+  fields: Map<string, Field>,
+  visiting: Set<string>,
+): boolean {
+  if (visiting.has(metric.id)) throw new Error("Cyclic measure reference");
+  if (metric.expression) {
+    if (!isMeasureExpression(metric.expression))
+      throw new Error("Invalid measure expression");
+    const path = new Set(visiting).add(metric.id);
+    const expressionIsNumeric = (expression: MeasureExpression): boolean => {
+      if (expression.kind === "constant") return true;
+      if (expression.kind === "binary") {
+        return (
+          expressionIsNumeric(expression.left) &&
+          expressionIsNumeric(expression.right)
+        );
+      }
+      const dependency = measures.find(
+        (candidate) => candidate.id === expression.measureId,
+      );
+      if (!dependency) throw new Error("Unknown measure reference");
+      return isNumericComparisonMeasure(dependency, measures, fields, path);
+    };
+    return expressionIsNumeric(metric.expression);
+  }
+
+  if (metric.aggregation === "count" || metric.aggregation === "count_distinct")
+    return true;
+  const source = resolveMeasureSourceField(metric, fields);
+  return source?.type === "number";
 }
 
 function buildUnconfiguredSQL(

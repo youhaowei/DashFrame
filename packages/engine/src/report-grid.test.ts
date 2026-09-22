@@ -124,3 +124,11 @@ it("keeps large integer pivot members distinct without losing precision", () => 
     "9,007,199,254,740,993",
   );
 });
+
+it("renders legacy malformed currency codes without crashing the report", () => {
+  for (const currency of ["", "U", "US", "123"]) {
+    expect(formatMeasureValue(12, { style: "currency", currency })).toBe(
+      "$12.00",
+    );
+  }
+});

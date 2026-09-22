@@ -670,6 +670,45 @@ describe("applyInsightRuntime", () => {
     expect(result.runtimeSortOverride).toBe(true);
   });
 
+  it("preserves the saved pivot tuple when runtime changes its metric sort direction", () => {
+    const pivotValues = [{ fieldId: "region", value: "US" }];
+    const saved: Insight = {
+      ...insight,
+      metrics: [
+        {
+          id: "revenue-total",
+          name: "Revenue",
+          sourceTable: "table-1",
+          columnName: "revenue",
+          aggregation: "sum",
+        },
+      ],
+      reporting: { pivotFields: ["region"] },
+      sorts: [
+        {
+          field: "metric_revenue_total",
+          direction: "desc",
+          pivotValues,
+        },
+      ],
+      runtimeControls: {
+        sort: { allowedFieldIds: ["revenue-total"], maxKeys: 1 },
+      },
+    };
+
+    expect(
+      applyInsightRuntime(saved, {
+        sort: [{ fieldId: "revenue-total", direction: "asc" }],
+      }).sorts,
+    ).toEqual([
+      {
+        field: "metric_revenue_total",
+        direction: "asc",
+        pivotValues,
+      },
+    ]);
+  });
+
   it("rejects an explicit dimension sort removed by the runtime selection", () => {
     const saved: Insight = {
       ...insight,
@@ -741,6 +780,16 @@ describe("applyInsightRuntime", () => {
       code: "FETCH_EXECUTION_FAILED",
       message: "Live data could not be fetched.",
       retryable: true,
+    });
+    expect(
+      toFetchFailure(
+        new Error("RUNTIME_PIVOT_SORT_REQUIRES_TUPLE"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      code: "RUNTIME_PIVOT_SORT_REQUIRES_TUPLE",
+      message:
+        "This pivot report requires a saved pivot cell for metric sorting. Choose a pivot-cell sort first.",
     });
     expect(
       toFetchFailure(new Error("__proto__"), "FETCH_EXECUTION_FAILED"),
