@@ -12,6 +12,28 @@ import { toast } from "sonner";
 import { DashboardItem } from "./DashboardItem";
 import { useReportWrite } from "./report-write";
 
+/**
+ * A drag or resize tracks the pointer across the whole window, so text it
+ * passes over would otherwise get selected. Hold selection off until it ends.
+ */
+function holdTextSelection() {
+  globalThis.getSelection?.()?.removeAllRanges();
+  document.body.style.userSelect = "none";
+  document.body.dataset.reportArranging = "";
+}
+
+function releaseTextSelection() {
+  document.body.style.userSelect = "";
+  // The release is followed by a click wherever the pointer landed; keep the
+  // marker until it has passed so the canvas doesn't read it as a click away.
+  setTimeout(() => delete document.body.dataset.reportArranging, 0);
+}
+
+/** True while a tile drag or resize, or the click that ends one, is in flight. */
+export function isArrangingReport(): boolean {
+  return document.body.dataset.reportArranging !== undefined;
+}
+
 const ResponsiveGridLayout = WidthProvider(Responsive);
 // View and edit share one set of breakpoints so the editor previews exactly
 // what readers see: the saved 12-column layout at every desktop width, laid
@@ -129,7 +151,7 @@ export function DashboardGrid({
     return map;
   }, [dashboard.controls, dashboard.items, controlTransientValues]);
 
-  return (
+  const grid = (
     <ResponsiveGridLayout
       className="layout"
       layouts={layouts}
@@ -141,8 +163,16 @@ export function DashboardGrid({
       isResizable={isEditable && activeBreakpoint === "lg"}
       draggableHandle=".grid-drag-handle"
       onBreakpointChange={setActiveBreakpoint}
-      onDragStop={persistCanonicalLayout}
-      onResizeStop={persistCanonicalLayout}
+      onDragStart={holdTextSelection}
+      onResizeStart={holdTextSelection}
+      onDragStop={(layout) => {
+        releaseTextSelection();
+        persistCanonicalLayout(layout);
+      }}
+      onResizeStop={(layout) => {
+        releaseTextSelection();
+        persistCanonicalLayout(layout);
+      }}
       margin={[16, 16]}
       resizeHandle={
         isEditable ? (
@@ -181,5 +211,22 @@ export function DashboardGrid({
         </div>
       ))}
     </ResponsiveGridLayout>
+  );
+
+  if (!isEditable) return grid;
+  // While editing, the page ends in a marked edge with open space below it, so
+  // a tile dragged or resized downward always has room to grow into: the edge
+  // moves down with the grid instead of the tile running into a wall.
+  return (
+    <div>
+      {grid}
+      <div aria-hidden className="mx-4 h-[360px]">
+        <div className="flex items-center gap-3 text-[calc(0.75rem/var(--report-zoom,1))] text-neutral-fg-subtle">
+          <span className="h-px flex-1 bg-neutral-border" />
+          End of report
+          <span className="h-px flex-1 bg-neutral-border" />
+        </div>
+      </div>
+    </div>
   );
 }

@@ -6,6 +6,7 @@
 
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { cn } from "@wystack/ui-react";
+import { isArrangingReport } from "./DashboardGrid";
 import type { MouseEvent, ReactNode } from "react";
 
 const PANE_CLASS =
@@ -92,6 +93,7 @@ export function ReportCanvasWell({
   children: ReactNode;
 }) {
   const handleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (isArrangingReport()) return;
     if (!(event.target as HTMLElement).closest("[data-dashframe-widget-id]")) {
       onBackgroundClick?.();
     }
