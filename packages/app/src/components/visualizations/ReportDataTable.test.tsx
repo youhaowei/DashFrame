@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import type { Insight } from "@dashframe/types";
 import type { VirtualTableColumnConfig } from "@dashframe/ui";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -145,3 +145,67 @@ it.each([false, true])(
     expect(screen.queryByText(String(Date.UTC(2026, 0, 1)))).toBeNull();
   },
 );
+
+it("keeps pivot table and KPI comparisons on the same weighted grand total", async () => {
+  const comparative: Insight = {
+    ...insight,
+    selectedFields: ["date", "channel"],
+    metrics: [
+      ...insight.metrics,
+      {
+        id: "visits",
+        name: "Visits dependency",
+        sourceTable: "source",
+        aggregation: "count",
+      },
+    ],
+    reporting: {
+      totals: true,
+      pivotFields: ["channel"],
+      dateGrains: { date: "month" },
+      measureIds: ["rate"],
+      comparison: "previous_period",
+    },
+  };
+  const rows = [
+    {
+      field_date: Date.UTC(2026, 1, 1),
+      field_channel: "Web",
+      metric_rate: 0.5,
+      __report_grouping: 0,
+    },
+    {
+      field_date: Date.UTC(2026, 1, 1),
+      field_channel: "Store",
+      metric_rate: 0.05,
+      __report_grouping: 0,
+    },
+    {
+      field_date: null,
+      field_channel: null,
+      __report_grouping: 3,
+      metric_rate: 0.1,
+      metric_rate_previous: 0.08,
+      metric_rate_change: 0.02,
+      metric_rate_change_percent: 25,
+      metric_visits: 100,
+    },
+  ];
+  render(
+    <ReportDataTable
+      insight={comparative}
+      fetchData={vi.fn().mockResolvedValue({ rows, totalCount: rows.length })}
+      totalCount={rows.length}
+      columnDisplayNames={{ field_date: "Month" }}
+    />,
+  );
+  const table = await screen.findByRole("table");
+  const kpis = screen.getByLabelText("Report totals");
+  expect(within(kpis).getByText("10.0%")).toBeTruthy();
+  expect(within(kpis).getByText("Previous: 8.0%")).toBeTruthy();
+  expect(within(kpis).getByText("Change: 2.0 pp · 25.0%")).toBeTruthy();
+  for (const value of ["10.0%", "8.0%", "2.0 pp", "25.0%"])
+    expect(within(table).getByText(value)).toBeTruthy();
+  expect(screen.queryByText("Visits dependency")).toBeNull();
+  expect(screen.queryByText("27.5%")).toBeNull();
+});
