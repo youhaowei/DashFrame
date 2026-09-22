@@ -267,6 +267,58 @@ describe("useInsightPagination", () => {
     expect(client.mutate).toHaveBeenCalledTimes(3);
   });
 
+  it("restarts an identical presentation after it is disabled and ignores the stale response", async () => {
+    let settleStale!: (value: unknown) => void;
+    client.mutate
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            settleStale = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        status: "ready",
+        dataFrameId: "frame-current",
+      });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 1,
+      page: {},
+    });
+    const presentation: InsightPresentation = {
+      dimensions: ["10000000-0000-4000-8000-000000000001"],
+    };
+    const runtime = { measures: ["revenue"] };
+    const { result, rerender } = renderHook(
+      ({ value }) =>
+        useInsightPagination({ insight: value, runtime, presentation }),
+      { initialProps: { value: insight as Insight | null } },
+    );
+
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(1));
+    rerender({ value: null });
+    await act(async () => Promise.resolve());
+    rerender({ value: insight });
+
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(result.current.dataFrameId).toBe("frame-current"),
+    );
+    act(() => {
+      settleStale({ status: "ready", dataFrameId: "frame-stale" });
+    });
+    await act(async () => Promise.resolve());
+
+    expect(result.current.dataFrameId).toBe("frame-current");
+    expect(queryDataFrame).toHaveBeenCalledTimes(1);
+    expect(queryDataFrame).toHaveBeenCalledWith("frame-current", {
+      offset: 0,
+      limit: 100,
+    });
+  });
+
   it("pages every presentation cell when a pivot runtime limit is one", async () => {
     const pivotId = "10000000-0000-4000-8000-000000000001";
     client.mutate.mockResolvedValue({

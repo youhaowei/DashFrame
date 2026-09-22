@@ -11,9 +11,16 @@ export function usePivotSortOptions(
     totalCount: number;
     fetchData: (params: FetchDataParams) => Promise<FetchDataResult>;
   },
+  effectiveSelectedFields = insight?.selectedFields,
 ) {
+  const pivotFields = insight?.reporting?.pivotFields ?? [];
+  const incompatible = Boolean(
+    pivotFields.length &&
+    effectiveSelectedFields &&
+    pivotFields.some((fieldId) => !effectiveSelectedFields.includes(fieldId)),
+  );
   const rows = useReportRows(
-    result.isReady && insight?.reporting?.pivotFields?.length
+    result.isReady && pivotFields.length && !incompatible
       ? result.fetchData
       : undefined,
     result.totalCount,
@@ -22,5 +29,11 @@ export function usePivotSortOptions(
     () => buildPivotSortOptions(insight, rows?.rows ?? []),
     [insight, rows?.rows],
   );
-  return { options, error: rows?.error, retry: rows?.retry };
+  return {
+    options,
+    error: incompatible
+      ? "Reset the viewer dimension controls to choose a pivot cell to sort by."
+      : rows?.error,
+    retry: incompatible ? undefined : rows?.retry,
+  };
 }

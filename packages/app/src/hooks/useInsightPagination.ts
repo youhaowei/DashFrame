@@ -371,6 +371,12 @@ export function useInsightPagination({
     const current = generation.current;
     const activeInsight = insight;
     if (!enabled || !activeInsight?.id || !sourcesReady) {
+      // This request generation can no longer publish. Forget its in-flight
+      // bookkeeping so re-enabling the same structural request starts a fresh
+      // materialization instead of waiting on a response this generation will
+      // discard before reading its DataFrame.
+      activeMaterialization.current = null;
+      pendingMaterialization.current = null;
       validResult.current = null;
       queueMicrotask(() => {
         if (current !== generation.current) return;

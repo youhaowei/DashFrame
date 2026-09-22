@@ -1291,7 +1291,11 @@ export function InsightView({
     options: pivotSortOptions,
     error: pivotSortError,
     retry: retryPivotSort,
-  } = usePivotSortOptions(insight, savedInsightResult);
+  } = usePivotSortOptions(
+    insight,
+    savedInsightResult,
+    displayInsight.selectedFields,
+  );
   const {
     columns: encodingColumns,
     columnDisplayNames: encodingRenderedColumnDisplayNames,
