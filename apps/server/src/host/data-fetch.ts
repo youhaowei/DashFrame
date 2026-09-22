@@ -197,7 +197,7 @@ const dateTransformSchema = z.discriminatedUnion("kind", [
     })
     .strict(),
 ]);
-const presentationSchema = z
+export const insightPresentationSchema = z
   .object({
     dimensions: z
       .array(z.string().min(1))
@@ -636,7 +636,7 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
           "FETCH_INVALID_DEFINITION",
           "The Insight definition is invalid.",
         );
-      const parsedPresentation = presentationSchema
+      const parsedPresentation = insightPresentationSchema
         .optional()
         .safeParse(presentation);
       if (!parsedPresentation.success)
@@ -692,7 +692,7 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
       .strict(),
     run: async (ctx, { insightId, runtime, presentation }) => {
       const parsedRuntime = runtimeSchema.optional().safeParse(runtime);
-      const parsedPresentation = presentationSchema
+      const parsedPresentation = insightPresentationSchema
         .optional()
         .safeParse(presentation);
       if (!parsedRuntime.success || !parsedPresentation.success)
