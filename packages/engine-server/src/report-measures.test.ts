@@ -215,6 +215,17 @@ describe("Report measure correctness in DuckDB", () => {
       ) AS t(period, product, channel, revenue, converted)`,
     );
   }
+  async function queryWithOptions(
+    definition: Insight,
+    options: Parameters<typeof buildInsightSQL>[3],
+  ) {
+    await query(insight);
+    return arrowIpcToJsonRows(
+      await engine!.queryArrow(
+        buildInsightSQL(table, new Map(), definition, options)!,
+      ),
+    );
+  }
   async function queryPivot(
     definition: Insight,
     options?: Parameters<typeof buildInsightSQL>[3],
@@ -524,6 +535,289 @@ describe("Report measure correctness in DuckDB", () => {
     expect(grand.metric_pivot_revenue_previous).toBe(60);
     expect(grand.metric_pivot_rate).toBeCloseTo(1 / 3);
     expect(grand.metric_pivot_rate_previous).toBe(0.5);
+  });
+
+  it("reaggregates calculated, distinct-count, and average measures from cohort source rows", async () => {
+    await seedPivotSales();
+    const distinctProducts: InsightMetric = {
+      id: "distinct_products",
+      name: "Distinct products",
+      sourceTable: "pivot_sales",
+      columnName: "product",
+      aggregation: "count_distinct",
+    };
+    const averageRevenue: InsightMetric = {
+      id: "average_revenue",
+      name: "Average revenue",
+      sourceTable: "pivot_sales",
+      columnName: "revenue",
+      aggregation: "avg",
+    };
+    const rows = await queryPivot(
+      {
+        ...pivotInsight,
+        metrics: [...pivotInsight.metrics, distinctProducts, averageRevenue],
+        reporting: {
+          ...pivotInsight.reporting,
+          dateRange: {
+            fieldId: "period",
+            range: {
+              type: "absolute",
+              start: "2026-01-01T00:00:00Z",
+              end: "2026-02-01T00:00:00Z",
+            },
+          },
+        },
+      },
+      { mode: "query", presentation: { dimensions: [] } },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.metric_pivot_rate).toBeCloseTo(2 / 5);
+    expect(rows[0]?.metric_distinct_products).toBe(2);
+    expect(rows[0]?.metric_average_revenue).toBeCloseTo(1191 / 5);
+  });
+
+  it("omits a channel, then applies a date transform after the report date grain", async () => {
+    await seedPivotSales();
+    const rows = await queryPivot(
+      {
+        ...pivotInsight,
+        selectedFields: ["period", "channel"],
+        reporting: {
+          dateGrains: { period: "day" },
+          dateRange: {
+            fieldId: "period",
+            range: {
+              type: "absolute",
+              start: "2025-12-01T00:00:00Z",
+              end: "2026-02-01T00:00:00Z",
+            },
+          },
+        },
+      },
+      {
+        mode: "query",
+        presentation: {
+          dimensions: ["period"],
+          transforms: {
+            period: { kind: "temporal", aggregation: "yearMonth" },
+          },
+        },
+      },
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.metric_pivot_rate).sort()).toEqual([0.4, 0.5]);
+  });
+
+  it("keeps pivot-row limits as the source cohort for presentation measures", async () => {
+    await seedPivotSales();
+    const rows = await queryPivot(
+      {
+        ...pivotInsight,
+        reporting: {
+          ...pivotInsight.reporting,
+          dateRange: {
+            fieldId: "period",
+            range: {
+              type: "absolute",
+              start: "2026-01-01T00:00:00Z",
+              end: "2026-02-01T00:00:00Z",
+            },
+          },
+        },
+      },
+      {
+        mode: "query",
+        effectiveLimit: 1,
+        effectiveSorts: [
+          {
+            field: metricIdToColumnAlias("pivot_revenue"),
+            direction: "desc",
+            pivotValues: [{ fieldId: "channel", value: "Web" }],
+          },
+        ],
+        presentation: { dimensions: ["product"] },
+      },
+    );
+    expect(rows).toEqual([
+      expect.objectContaining({
+        field_product: "A",
+        metric_pivot_revenue: 101,
+      }),
+    ]);
+    expect(rows[0]?.metric_pivot_rate).toBeCloseTo(1 / 3);
+  });
+
+  it("keeps categorical presentation groups in descending report order", async () => {
+    const revenue: InsightMetric = {
+      id: "presentation_revenue",
+      name: "Revenue",
+      sourceTable: "sales",
+      columnName: "revenue",
+      aggregation: "sum",
+    };
+    const rows = await queryWithOptions(
+      { ...insight, metrics: [...insight.metrics, revenue] },
+      {
+        mode: "query",
+        sortColumn: metricIdToColumnAlias(revenue.id),
+        sortDirection: "desc",
+        presentation: { dimensions: ["country"] },
+      },
+    );
+    expect(rows.map((row) => row.field_country)).toEqual(["US", "CA"]);
+  });
+
+  it("orders coarse presentation groups by their first pivot-ranked cell", async () => {
+    await seedPivotSales();
+    const rows = await queryPivot(
+      {
+        ...pivotInsight,
+        reporting: {
+          ...pivotInsight.reporting,
+          dateRange: {
+            fieldId: "period",
+            range: {
+              type: "absolute",
+              start: "2026-01-01T00:00:00Z",
+              end: "2026-02-01T00:00:00Z",
+            },
+          },
+        },
+      },
+      {
+        mode: "query",
+        effectiveSorts: [
+          {
+            field: metricIdToColumnAlias("pivot_revenue"),
+            direction: "desc",
+            pivotValues: [{ fieldId: "channel", value: "Web" }],
+          },
+        ],
+        presentation: { dimensions: ["product"] },
+      },
+    );
+    expect(rows.map((row) => row.field_product)).toEqual(["A", "B"]);
+    expect(rows.map((row) => row.metric_pivot_revenue)).toEqual([101, 1090]);
+  });
+
+  it("reaggregates the aggregate-filtered Top N and limited cohort", async () => {
+    const revenue: InsightMetric = {
+      id: "cohort_revenue",
+      name: "Revenue",
+      sourceTable: "sales",
+      columnName: "revenue",
+      aggregation: "sum",
+    };
+    const rows = await queryWithOptions(
+      {
+        ...insight,
+        metrics: [...insight.metrics, revenue],
+        filters: [
+          { field: metricIdToColumnAlias("orders"), operator: "gt", value: 1 },
+        ],
+        reporting: {
+          topN: {
+            fieldId: "country",
+            measureId: "cohort_revenue",
+            count: 1,
+            direction: "desc",
+          },
+        },
+      },
+      {
+        mode: "query",
+        limit: 1,
+        sortColumn: metricIdToColumnAlias("cohort_revenue"),
+        sortDirection: "desc",
+        presentation: { dimensions: [] },
+      },
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.metric_cohort_revenue).toBe(90);
+    expect(rows[0]?.metric_rate).toBeCloseTo(0.4);
+  });
+
+  it("rolls comparison periods up from the same full-dimensional cohort", async () => {
+    await seedPivotSales();
+    const rows = await queryPivot(
+      {
+        ...pivotInsight,
+        reporting: {
+          ...pivotInsight.reporting,
+          comparison: "previous_period",
+          dateRange: {
+            fieldId: "period",
+            range: {
+              type: "absolute",
+              start: "2026-01-01T00:00:00Z",
+              end: "2026-02-01T00:00:00Z",
+            },
+          },
+        },
+      },
+      {
+        mode: "query",
+        effectiveSorts: [
+          {
+            field: metricIdToColumnAlias("pivot_revenue"),
+            direction: "desc",
+            pivotValues: [{ fieldId: "channel", value: "Web" }],
+          },
+        ],
+        presentation: { dimensions: ["product"] },
+      },
+    );
+    expect(rows.map((row) => row.field_product)).toEqual(["A", "B"]);
+    expect(rows[0]?.metric_pivot_rate).toBeCloseTo(1 / 3);
+    expect(rows[0]?.metric_pivot_rate_previous).toBe(0.5);
+    expect(rows[0]?.metric_pivot_revenue_previous).toBe(60);
+    expect(rows[1]?.metric_pivot_revenue).toBe(1090);
+    expect(rows[1]?.metric_pivot_revenue_previous).toBe(220);
+  });
+
+  it("returns no presentation KPI for an empty aggregate-filter cohort", async () => {
+    await seedPivotSales();
+    const rows = await queryPivot(
+      {
+        ...pivotInsight,
+        filters: [
+          {
+            field: metricIdToColumnAlias("pivot_revenue"),
+            operator: "gt",
+            value: 10000,
+          },
+        ],
+      },
+      { mode: "query", presentation: { dimensions: [] } },
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("rejects unsafe presentation dimensions and transforms", () => {
+    expect(() =>
+      buildInsightSQL(pivotTable, new Map(), pivotInsight, {
+        mode: "query",
+        presentation: { dimensions: ["product", "product"] },
+      }),
+    ).toThrow("must be unique");
+    expect(() =>
+      buildInsightSQL(pivotTable, new Map(), pivotInsight, {
+        mode: "query",
+        presentation: { dimensions: ["missing"] },
+      }),
+    ).toThrow("not selected");
+    expect(() =>
+      buildInsightSQL(pivotTable, new Map(), pivotInsight, {
+        mode: "query",
+        presentation: {
+          dimensions: ["product"],
+          transforms: {
+            product: { kind: "temporal", aggregation: "year" },
+          },
+        },
+      }),
+    ).toThrow("requires a date field");
   });
 
   it("rejects incomplete, mistyped, and unavailable pivot sort tuples", () => {

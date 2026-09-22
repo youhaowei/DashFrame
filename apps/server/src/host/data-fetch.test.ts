@@ -50,9 +50,13 @@ function fetchContext(): HostContext {
   } as unknown as HostContext;
 }
 
+const productFieldId = "10000000-0000-4000-8000-000000000001";
+const countryFieldId = "10000000-0000-4000-8000-000000000002";
+const otherFieldId = "10000000-0000-4000-8000-000000000003";
+
 const previewDefinition = {
   baseTableId: "table-1",
-  selectedFields: ["product"],
+  selectedFields: [productFieldId],
   metrics: [],
 };
 
@@ -107,6 +111,233 @@ describe("fetchData sort schema", () => {
     expect(result).toMatchObject({
       status: "failed",
       code: "FETCH_INVALID_DEFINITION",
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+});
+
+describe("Insight presentation requests", () => {
+  it("passes a validated presentation to an ephemeral preview", async () => {
+    const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
+      status: "failed",
+      code: "EXPECTED",
+      message: "expected",
+      retryable: false,
+      diagnosticId: "diagnostic",
+    }));
+    const { fetchData } = createDataFetchFunctions(execute);
+
+    await fetchData(fetchContext(), {
+      insight: previewDefinition,
+      presentation: {
+        dimensions: [productFieldId],
+        transforms: {
+          [productFieldId]: { kind: "temporal", aggregation: "yearMonth" },
+        },
+      },
+    });
+
+    expect(execute).toHaveBeenCalledWith({
+      context: expect.anything(),
+      insight: expect.objectContaining({
+        presentation: {
+          dimensions: [productFieldId],
+          transforms: {
+            [productFieldId]: {
+              kind: "temporal",
+              aggregation: "yearMonth",
+            },
+          },
+        },
+      }),
+      target: { kind: "ephemeral" },
+    });
+  });
+
+  it("accepts a date transform for a selected repeat-join field", async () => {
+    const repeatFieldId = `${productFieldId}_j1`;
+    const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
+      status: "failed",
+      code: "EXPECTED",
+      message: "expected",
+      retryable: false,
+      diagnosticId: "diagnostic",
+    }));
+    const { fetchData } = createDataFetchFunctions(execute);
+
+    await fetchData(fetchContext(), {
+      insight: { ...previewDefinition, selectedFields: [repeatFieldId] },
+      presentation: {
+        dimensions: [repeatFieldId],
+        transforms: {
+          [repeatFieldId]: { kind: "temporal", aggregation: "yearMonth" },
+        },
+      },
+    });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        insight: expect.objectContaining({
+          presentation: {
+            dimensions: [repeatFieldId],
+            transforms: {
+              [repeatFieldId]: {
+                kind: "temporal",
+                aggregation: "yearMonth",
+              },
+            },
+          },
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    [{ dimensions: [productFieldId, productFieldId] }, "FETCH_INVALID_REQUEST"],
+    [
+      {
+        dimensions: [productFieldId],
+        transforms: {
+          [productFieldId]: { kind: "temporal", aggregation: "day" },
+        },
+      },
+      "FETCH_INVALID_REQUEST",
+    ],
+    [
+      {
+        dimensions: [productFieldId],
+        transforms: {
+          [otherFieldId]: { kind: "categorical", groupBy: "monthName" },
+        },
+      },
+      "RUNTIME_PRESENTATION_NOT_ALLOWED",
+    ],
+  ] as const)(
+    "rejects invalid presentation input %#",
+    async (presentation, code) => {
+      const execute = vi.fn();
+      const { fetchData } = createDataFetchFunctions(execute);
+
+      const result = await fetchData(fetchContext(), {
+        insight: previewDefinition,
+        presentation,
+      });
+
+      expect(result).toMatchObject({
+        status: "failed",
+        code,
+      });
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
+
+  it("uses an ephemeral frame after runtime selection and never offers a saved fallback", async () => {
+    const insightId = "00000000-0000-4000-8000-000000000001";
+    const listDataFramesByInsight = vi.fn(async () => []);
+    const context = {
+      principal: { kind: "user", userId: "user" },
+      metadata: {
+        getInsight: async () => ({
+          id: insightId,
+          name: "Saved",
+          createdAt: 0,
+          definition: {
+            source: { sourceType: "dataTable", sourceId: "table-1" },
+            selectedFields: [productFieldId, countryFieldId],
+            metrics: [],
+            runtimeControls: {
+              dimensions: {
+                allowedIds: [productFieldId, countryFieldId],
+                maxSelected: 1,
+              },
+            },
+          },
+        }),
+        listDataFramesByInsight,
+      },
+    } as unknown as HostContext;
+    const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
+      status: "failed",
+      code: "FETCH_EXECUTION_FAILED",
+      message: "failed",
+      retryable: false,
+      diagnosticId: "diagnostic",
+    }));
+    const { runInsight } = createDataFetchFunctions(execute);
+
+    const result = await runInsight(context, {
+      insightId,
+      runtime: { dimensions: [countryFieldId] },
+      presentation: { dimensions: [countryFieldId] },
+    });
+
+    expect(result.status).toBe("failed");
+    expect(execute).toHaveBeenCalledWith({
+      context,
+      insight: expect.objectContaining({
+        selectedFields: [countryFieldId],
+        presentation: { dimensions: [countryFieldId] },
+      }),
+      target: { kind: "ephemeral" },
+    });
+    expect(listDataFramesByInsight).not.toHaveBeenCalled();
+
+    execute.mockClear();
+    execute.mockResolvedValueOnce({
+      status: "ready",
+      dataFrameId: "canonical-frame",
+      schema: [],
+      rowCount: 0,
+      definitionFingerprint: "canonical-fingerprint",
+      provenance: { connectorKind: "notion", bindingVersion: "v1" },
+      fetchedAt: 123,
+    });
+    await runInsight(context, {
+      insightId,
+      runtime: { dimensions: [countryFieldId] },
+    });
+    expect(execute).toHaveBeenCalledWith({
+      context,
+      insight: expect.not.objectContaining({ presentation: expect.anything() }),
+      target: { kind: "saved", insightId },
+    });
+  });
+
+  it("cross-validates presentation against the effective runtime dimensions", async () => {
+    const insightId = "00000000-0000-4000-8000-000000000001";
+    const context = {
+      principal: { kind: "user", userId: "user" },
+      metadata: {
+        getInsight: async () => ({
+          id: insightId,
+          name: "Saved",
+          createdAt: 0,
+          definition: {
+            source: { sourceType: "dataTable", sourceId: "table-1" },
+            selectedFields: [productFieldId, countryFieldId],
+            metrics: [],
+            runtimeControls: {
+              dimensions: {
+                allowedIds: [productFieldId, countryFieldId],
+                maxSelected: 1,
+              },
+            },
+          },
+        }),
+      },
+    } as unknown as HostContext;
+    const execute = vi.fn();
+    const { runInsight } = createDataFetchFunctions(execute);
+
+    const result = await runInsight(context, {
+      insightId,
+      runtime: { dimensions: [countryFieldId] },
+      presentation: { dimensions: [productFieldId] },
+    });
+
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "RUNTIME_PRESENTATION_NOT_ALLOWED",
     });
     expect(execute).not.toHaveBeenCalled();
   });
@@ -458,6 +689,21 @@ describe("applyInsightRuntime", () => {
     expect(fingerprintEffectiveInsight(effective)).not.toBe(
       fingerprintEffectiveInsight(withoutProvenance),
     );
+  });
+
+  it("distinguishes a presentation frame from its canonical report frame", () => {
+    const effective = {
+      baseTableId: "table-1",
+      selectedFields: ["region"],
+      metrics: [],
+    };
+
+    expect(
+      fingerprintEffectiveInsight({
+        ...effective,
+        presentation: { dimensions: ["region"] },
+      }),
+    ).not.toBe(fingerprintEffectiveInsight(effective));
   });
 
   it("applies only a declared bounded limit", () => {

@@ -208,6 +208,7 @@ describe("VisualizationDisplay — declared runtime controls", () => {
     });
     expect(mockUseInsightView).toHaveBeenCalledWith(insight, {
       runtime: undefined,
+      presentation: undefined,
     });
   });
 

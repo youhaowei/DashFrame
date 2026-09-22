@@ -1,3 +1,7 @@
+import {
+  buildChartPresentation,
+  resolveReportChartEncoding,
+} from "@/lib/insights/chart-presentation";
 import { ReportSwitchers } from "./ReportSwitchers";
 import {
   reportPresentation,
@@ -13,11 +17,7 @@ import {
 } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@dashframe/convex-backend/api";
-import {
-  getMetricDisplayLabel,
-  reportMeasureFormats,
-  resolveEncodingToResultFrame,
-} from "@dashframe/engine";
+import { getMetricDisplayLabel, reportMeasureFormats } from "@dashframe/engine";
 import type {
   ChartEncoding,
   DashboardItemOverrides,
@@ -304,21 +304,8 @@ function VisualizationDisplayContent({
     [insight, effectiveRuntime],
   );
 
-  // Use insight view hook to get the proper table name (handles joins).
-  // `error` surfaces a post-bootstrap failure (e.g. native upload failed because
-  // the loopback server stopped or returned 500). Without consuming it here the
-  // view never becomes ready and the component would spin forever.
-  //
-  const {
-    viewName: insightViewName,
-    isReady: isInsightViewReady,
-    error: insightViewError,
-  } = useInsightView(dashboardRuntime.error ? null : insight, {
-    runtime: effectiveRuntime,
-  });
-
-  // The table reads the same saved execution generation and declared runtime
-  // values as the chart; neither surface reconstructs query semantics locally.
+  // Materialize the canonical table first. The chart then reaggregates its
+  // displayed dimensions from the published sources using the same runtime.
   const {
     fetchData,
     totalCount,
@@ -332,6 +319,44 @@ function VisualizationDisplayContent({
     enabled: Boolean(insight && !dashboardRuntime.error),
     runtime: effectiveRuntime,
   });
+
+  const chartStorageEncoding = useMemo(
+    () =>
+      activeViz && insight
+        ? reportEncoding(
+            activeViz.encoding ?? {},
+            insight,
+            effectiveRuntime,
+            instanceAwareFields,
+          )
+        : {},
+    [activeViz, insight, effectiveRuntime, instanceAwareFields],
+  );
+  const chartPresentation = useMemo(
+    () =>
+      buildChartPresentation(
+        displayInsight,
+        chartStorageEncoding,
+        activeViz?.visualizationType,
+      ),
+    [displayInsight, chartStorageEncoding, activeViz?.visualizationType],
+  );
+  // Use insight view hook to get the proper table name (handles joins).
+  // `error` surfaces a post-bootstrap failure (e.g. native upload failed because
+  // the loopback server stopped or returned 500). Without consuming it here the
+  // view never becomes ready and the component would spin forever.
+  //
+  const {
+    viewName: insightViewName,
+    isReady: isInsightViewReady,
+    error: insightViewError,
+  } = useInsightView(
+    dashboardRuntime.error || !isPaginationReady ? null : insight,
+    {
+      runtime: effectiveRuntime,
+      presentation: chartPresentation,
+    },
+  );
 
   // Helper to calculate visible rows from container dimensions
   const calculateVisibleRows = () => {
@@ -422,13 +447,13 @@ function VisualizationDisplayContent({
     };
 
     // Resolve prefixed IDs to SQL expressions
-    const storageEncoding = reportEncoding(
-      activeViz.encoding,
-      insight,
-      effectiveRuntime,
-      resolutionFields,
+    const storageEncoding = chartStorageEncoding;
+    const resolved = resolveReportChartEncoding(
+      storageEncoding,
+      context,
+      Boolean(chartPresentation),
+      activeViz.visualizationType,
     );
-    const resolved = resolveEncodingToResultFrame(storageEncoding, context);
     const resolveColumnReference = (value: string | undefined) => {
       if (!value) return undefined;
       if (columns.some((column) => column.name === value)) return value;
@@ -502,7 +527,8 @@ function VisualizationDisplayContent({
     columns,
     columnDisplayNames,
     instanceAwareFields,
-    effectiveRuntime,
+    chartStorageEncoding,
+    chartPresentation,
   ]);
 
   // Build column configs for VirtualTable to show human-readable headers
@@ -693,6 +719,7 @@ function VisualizationDisplayContent({
         <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4 pb-8">
           <Chart
             detailRowsOnly={Boolean(
+              !chartPresentation &&
               displayInsight?.reporting?.totals &&
               displayInsight.selectedFields.length &&
               displayInsight.metrics.length,
@@ -730,6 +757,7 @@ function VisualizationDisplayContent({
           <div className="h-[60%] min-h-[200px] overflow-hidden px-4 pb-4">
             <Chart
               detailRowsOnly={Boolean(
+                !chartPresentation &&
                 displayInsight?.reporting?.totals &&
                 displayInsight.selectedFields.length &&
                 displayInsight.metrics.length,

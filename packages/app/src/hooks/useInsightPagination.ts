@@ -15,6 +15,7 @@ import type {
   Insight,
   InsightFetchDefinition,
   InsightRuntimeInput,
+  InsightPresentation,
   InsightSourceGeneration,
   UUID,
 } from "@dashframe/types";
@@ -61,6 +62,7 @@ export interface UseInsightPaginationOptions {
   showModelPreview?: boolean;
   enabled?: boolean;
   runtime?: InsightRuntimeInput;
+  presentation?: InsightPresentation;
 }
 
 function toFetchDefinition(insight: Insight): InsightFetchDefinition {
@@ -251,6 +253,7 @@ export function useInsightPagination({
   showModelPreview = false,
   enabled = true,
   runtime,
+  presentation,
 }: UseInsightPaginationOptions) {
   const dataTablesQuery = queryStatus(
     useQuery({ query: api.app.listDataTables, args: {} }),
@@ -302,6 +305,7 @@ export function useInsightPagination({
   }, [dataFrameId]);
 
   const runtimeKey = JSON.stringify(runtime ?? null);
+  const presentationKey = JSON.stringify(presentation ?? null);
   const insightKey = JSON.stringify(
     insight ? toFetchDefinition(insight) : null,
   );
@@ -315,6 +319,7 @@ export function useInsightPagination({
     insight?.id ?? null,
     insightKey,
     runtimeKey,
+    presentationKey,
     showModelPreview,
     sourcesReady,
   ]);
@@ -408,10 +413,12 @@ export function useInsightPagination({
     const materialized = showModelPreview
       ? requestHost("fetchData", {
           insight: toFetchDefinition(activeInsight),
+          ...(presentation ? { presentation } : {}),
         })
       : requestHost("runInsight", {
           insightId: activeInsight.id,
           ...(stableRuntime ? { runtime: stableRuntime } : {}),
+          ...(presentation ? { presentation } : {}),
         });
     let completedOwnFailure = false;
     let completedSourceGenerations:
@@ -470,13 +477,6 @@ export function useInsightPagination({
             setIsReady(false);
             return;
           }
-          const hasTotals = page.schema.some(
-            (column) => column.id === "__report_grouping",
-          );
-          const effectiveCount =
-            stableRuntime?.limit && !hasTotals
-              ? Math.min(page.totalCount, stableRuntime.limit)
-              : page.totalCount;
           const nextColumns: VirtualTableColumn[] = page.schema
             .filter((column) => column.id !== "__report_grouping")
             .map(({ id, type }) => ({ name: id, type: type as ColumnType }));
@@ -485,7 +485,7 @@ export function useInsightPagination({
             requestIdentity,
             sourceRevision: activeRequest.sourceRevision,
           };
-          setTotalCount(effectiveCount);
+          setTotalCount(page.totalCount);
           setColumns(nextColumns);
           setSchema(page.schema);
           setSampleRows(
@@ -576,6 +576,7 @@ export function useInsightPagination({
     insight?.id,
     insightKey,
     runtimeKey,
+    presentationKey,
     requestIdentity,
     showModelPreview,
     sourceRevision,
@@ -589,11 +590,7 @@ export function useInsightPagination({
       if (!dataFrameId) return { rows: [], totalCount: 0 };
       const current = generation.current;
       const requestedDataFrameId = dataFrameId;
-      const remaining =
-        stableRuntime?.limit &&
-        !schema.some((column) => column.id === "__report_grouping")
-          ? Math.max(0, stableRuntime.limit - params.offset)
-          : params.limit;
+      const remaining = Math.max(0, totalCount - params.offset);
       if (remaining === 0) return { rows: [], totalCount };
       let page;
       try {
@@ -623,7 +620,7 @@ export function useInsightPagination({
         ? { rows: page.rows, totalCount }
         : { rows: [], totalCount: 0 };
     },
-    [dataFrameId, stableRuntime, totalCount, schema],
+    [dataFrameId, totalCount],
   );
 
   const { fields: resolvedFields, displayNames: columnDisplayNames } = useMemo(

@@ -1,17 +1,20 @@
+import {
+  buildChartPresentation,
+  resolveReportChartEncoding,
+} from "@/lib/insights/chart-presentation";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@dashframe/convex-backend/api";
-import {
-  resolveEncodingToResultFrame,
-  reportMeasureFormats,
-} from "@dashframe/engine";
+import { reportMeasureFormats } from "@dashframe/engine";
 import type {
   ChartEncoding,
   DataTable,
   Field,
   Insight,
+  InsightRuntimeInput,
+  InsightPresentation,
   Visualization,
 } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
@@ -46,6 +49,7 @@ interface VisualizationPreviewProps {
     isReady: boolean;
     error: string | null;
     resolvedFields: Field[];
+    runtime?: InsightRuntimeInput;
   };
 }
 
@@ -70,20 +74,69 @@ export function VisualizationPreview(props: VisualizationPreviewProps) {
       resetKey={`${props.visualization.id}:${props.visualization.updatedAt ?? ""}`}
     >
       {props.materialization ? (
-        <ResolvedVisualizationPreview
+        <SharedVisualizationPreview
           {...props}
-          insight={props.materialization.insight}
-          dataTable={props.materialization.dataTable}
-          instanceAwareFields={props.materialization.resolvedFields}
-          viewName={props.materialization.dataFrameId}
-          isReady={props.materialization.isReady}
-          error={props.materialization.error}
-          isLoadingInsight={false}
+          materialization={props.materialization}
         />
       ) : (
         <VisualizationPreviewContent {...props} />
       )}
     </VisualizationErrorBoundary>
+  );
+}
+
+function SharedVisualizationPreview(
+  props: VisualizationPreviewProps & {
+    materialization: NonNullable<VisualizationPreviewProps["materialization"]>;
+  },
+) {
+  const provided = props.materialization;
+  const presentation = buildChartPresentation(
+    provided.insight,
+    props.visualization.encoding,
+    props.visualization.visualizationType,
+  );
+  return presentation ? (
+    <ChartPresentationPreview {...props} presentation={presentation} />
+  ) : (
+    <ResolvedVisualizationPreview
+      {...props}
+      insight={provided.insight}
+      dataTable={provided.dataTable}
+      instanceAwareFields={provided.resolvedFields}
+      viewName={provided.dataFrameId}
+      isReady={provided.isReady}
+      error={provided.error}
+      isLoadingInsight={false}
+    />
+  );
+}
+function ChartPresentationPreview(
+  props: VisualizationPreviewProps & {
+    materialization: NonNullable<VisualizationPreviewProps["materialization"]>;
+    presentation: InsightPresentation;
+  },
+) {
+  const provided = props.materialization;
+  const result = useInsightPagination({
+    insight: provided.insight,
+    showModelPreview: false,
+    enabled: provided.isReady,
+    runtime: provided.runtime,
+    presentation: props.presentation,
+  });
+  return (
+    <ResolvedVisualizationPreview
+      {...props}
+      insight={provided.insight}
+      dataTable={provided.dataTable}
+      instanceAwareFields={result.resolvedFields}
+      viewName={result.dataFrameId}
+      isReady={provided.isReady && result.isReady}
+      error={provided.error ?? result.error}
+      isLoadingInsight={false}
+      presentationApplied
+    />
   );
 }
 
@@ -124,7 +177,18 @@ function VisualizationPreviewContent({
   }, [insight]);
 
   // Resolve the saved Insight's current immutable server frame for Mosaic.
-  const { viewName, isReady, error } = useInsightView(insight);
+  const presentation = useMemo(
+    () =>
+      buildChartPresentation(
+        insight,
+        visualization.encoding,
+        visualization.visualizationType,
+      ),
+    [insight, visualization.encoding, visualization.visualizationType],
+  );
+  const { viewName, isReady, error } = useInsightView(insight, {
+    presentation,
+  });
 
   // Resolve instance-qualified fields for repeat-join insights so that
   // field:<uuid>_j1 encodings resolve to their SQL alias correctly.
@@ -134,6 +198,7 @@ function VisualizationPreviewContent({
       ({ source: { sourceType: "dataTable", sourceId: "" } } as Insight),
     showModelPreview: false,
     enabled: !!insightForView,
+    presentation,
   });
 
   return (
@@ -148,6 +213,7 @@ function VisualizationPreviewContent({
       isReady={isReady}
       error={error}
       isLoadingInsight={isLoadingInsight}
+      presentationApplied={Boolean(presentation)}
     />
   );
 }
@@ -163,6 +229,7 @@ function ResolvedVisualizationPreview({
   isReady,
   error,
   isLoadingInsight,
+  presentationApplied = false,
 }: Pick<VisualizationPreviewProps, "visualization" | "height" | "fallback"> & {
   insight: Insight | null | undefined;
   dataTable: DataTable | undefined;
@@ -171,6 +238,7 @@ function ResolvedVisualizationPreview({
   isReady: boolean;
   error: string | null;
   isLoadingInsight: boolean;
+  presentationApplied?: boolean;
 }) {
   // Resolve encoding against the saved Insight's materialized result frame.
   // - field:<uuid> → column name (e.g., "Product")
@@ -198,9 +266,11 @@ function ResolvedVisualizationPreview({
     };
 
     // Resolve prefixed IDs to SQL expressions
-    const resolved = resolveEncodingToResultFrame(
+    const resolved = resolveReportChartEncoding(
       visualization.encoding,
       context,
+      presentationApplied,
+      visualization.visualizationType,
     );
 
     return {
@@ -211,7 +281,14 @@ function ResolvedVisualizationPreview({
       xTransform: visualization.encoding.xTransform,
       yTransform: visualization.encoding.yTransform,
     };
-  }, [visualization.encoding, dataTable, insight, instanceAwareFields]);
+  }, [
+    visualization.encoding,
+    visualization.visualizationType,
+    dataTable,
+    insight,
+    instanceAwareFields,
+    presentationApplied,
+  ]);
 
   // Error state — checked BEFORE the loading guard so that view-creation errors
   // that leave `isReady=false` reach a terminal UI instead of spinning forever.
@@ -261,6 +338,7 @@ function ResolvedVisualizationPreview({
     >
       <Chart
         detailRowsOnly={Boolean(
+          !presentationApplied &&
           insight?.reporting?.totals &&
           insight.selectedFields.length &&
           insight.metrics.length,

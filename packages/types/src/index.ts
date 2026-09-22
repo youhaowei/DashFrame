@@ -104,6 +104,7 @@ export type {
   InsightRuntimeDeclaration,
   InsightRuntimeInput,
   InsightPivotValue,
+  InsightPresentation,
   InsightSort,
   InsightSource,
 } from "./insights";

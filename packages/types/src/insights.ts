@@ -1,4 +1,5 @@
 import type { Field } from "./field";
+import type { DateTransform } from "./encoding-helpers";
 import type { InsightMetric } from "./metric";
 import type { UUID } from "./uuid";
 
@@ -77,6 +78,12 @@ export type InsightSource =
   | { sourceType: "insight"; sourceId: UUID };
 
 export type DateGrain = "day" | "week" | "month" | "quarter" | "year";
+
+/** Transient chart grouping over a canonical report cohort. Never persisted. */
+export interface InsightPresentation {
+  dimensions: UUID[];
+  transforms?: Record<UUID, DateTransform>;
+}
 
 export type RelativeDateRange =
   | { readonly type: "this_month" }

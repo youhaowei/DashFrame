@@ -1,5 +1,10 @@
 import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
-import type { DataTable, Insight, UUID } from "@dashframe/types";
+import type {
+  DataTable,
+  Insight,
+  InsightPresentation,
+  UUID,
+} from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { HostOperationError } from "@/data/host";
 import { StrictMode } from "react";
@@ -141,7 +146,7 @@ describe("useInsightPagination", () => {
         },
       ],
       rows: [],
-      totalCount: 12,
+      totalCount: 5,
       page: {},
     });
     const runtime = {
@@ -185,6 +190,137 @@ describe("useInsightPagination", () => {
       ).resolves.toEqual({ rows: [], totalCount: 5 });
     });
     expect(queryDataFrame).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends presentation to runInsight and rematerializes for dimension and transform changes", async () => {
+    client.mutate
+      .mockResolvedValueOnce({ status: "ready", dataFrameId: "frame-product" })
+      .mockResolvedValueOnce({ status: "ready", dataFrameId: "frame-date" })
+      .mockResolvedValueOnce({
+        status: "ready",
+        dataFrameId: "frame-date-month",
+      });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 1,
+      page: {},
+    });
+    const productId = "10000000-0000-4000-8000-000000000001";
+    const dateId = "10000000-0000-4000-8000-000000000002";
+    const { result, rerender } = renderHook(
+      ({ presentation }) => useInsightPagination({ insight, presentation }),
+      {
+        initialProps: {
+          presentation: {
+            dimensions: [productId],
+          } as InsightPresentation,
+        },
+      },
+    );
+
+    await waitFor(() =>
+      expect(result.current.dataFrameId).toBe("frame-product"),
+    );
+    expect(client.mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _path: "runInsight" }),
+      {
+        insightId: insight.id,
+        presentation: { dimensions: [productId] },
+      },
+    );
+
+    rerender({ presentation: { dimensions: [dateId] } });
+    await waitFor(() => expect(result.current.dataFrameId).toBe("frame-date"));
+    expect(client.mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _path: "runInsight" }),
+      {
+        insightId: insight.id,
+        presentation: { dimensions: [dateId] },
+      },
+    );
+
+    rerender({
+      presentation: {
+        dimensions: [dateId],
+        transforms: {
+          [dateId]: { kind: "temporal", aggregation: "yearMonth" },
+        },
+      },
+    });
+    await waitFor(() =>
+      expect(result.current.dataFrameId).toBe("frame-date-month"),
+    );
+    expect(client.mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _path: "runInsight" }),
+      {
+        insightId: insight.id,
+        presentation: {
+          dimensions: [dateId],
+          transforms: {
+            [dateId]: { kind: "temporal", aggregation: "yearMonth" },
+          },
+        },
+      },
+    );
+    expect(client.mutate).toHaveBeenCalledTimes(3);
+  });
+
+  it("pages every presentation cell when a pivot runtime limit is one", async () => {
+    const pivotId = "10000000-0000-4000-8000-000000000001";
+    client.mutate.mockResolvedValue({
+      status: "ready",
+      dataFrameId: "frame-pivot",
+    });
+    queryDataFrame.mockImplementation(
+      async (
+        _dataFrameId: string,
+        params: { offset: number; limit: number; sort?: unknown },
+      ) => ({
+        status: "ready",
+        schema: [],
+        rows:
+          params.offset === 0
+            ? [{ [pivotId]: "US" }, { [pivotId]: "CA" }]
+            : [{ [pivotId]: "CA" }],
+        totalCount: 2,
+        page: params,
+      }),
+    );
+    const pivotInsight = {
+      ...insight,
+      reporting: { pivotFields: [pivotId] },
+    } as Insight;
+    const runtime = { limit: 1 };
+    const presentation = { dimensions: [pivotId] };
+    const { result } = renderHook(() =>
+      useInsightPagination({
+        insight: pivotInsight,
+        runtime,
+        presentation,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(result.current.totalCount).toBe(2);
+    expect(client.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ _path: "runInsight" }),
+      {
+        insightId: insight.id,
+        runtime,
+        presentation,
+      },
+    );
+
+    await expect(
+      result.current.fetchData({ offset: 1, limit: 1 }),
+    ).resolves.toEqual({ rows: [{ [pivotId]: "CA" }], totalCount: 2 });
+    expect(queryDataFrame).toHaveBeenLastCalledWith("frame-pivot", {
+      offset: 1,
+      limit: 1,
+      sort: undefined,
+    });
   });
 
   it("uses fetchData only for ephemeral previews and exposes fetch failure", async () => {

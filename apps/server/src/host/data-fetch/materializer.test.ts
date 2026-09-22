@@ -163,6 +163,115 @@ const insight = {
 };
 
 describe("immutable Insight materializer", () => {
+  it("reuses published source generations for presentation without republishing them", async () => {
+    const resolveSource = vi.fn(
+      async (
+        _ctx: HostContext,
+        tableId: UUID,
+        _signal?: AbortSignal,
+        _batchBytes?: number,
+        _preferPublished?: boolean,
+      ) => {
+        const persisted = source(tableId);
+        persisted.table.dataFrameId = `${tableId}-published`;
+        persisted.table.lastFetchedAt = 456;
+        persisted.existingFrameId = persisted.table.dataFrameId;
+        return persisted;
+      },
+    );
+    const h = harness({ resolveSource });
+
+    const ready = await createInsightMaterializer(h.dependencies).materialize({
+      ctx: {} as never,
+      target: { kind: "ephemeral" },
+      insight: {
+        ...insight,
+        presentation: { dimensions: ["base-field"] },
+      },
+    });
+
+    expect(resolveSource.mock.calls.every((call) => call[4] === true)).toBe(
+      true,
+    );
+    expect(h.publish.mock.calls[0]![1].sources).toEqual([]);
+    expect(ready.sourceGenerations).toEqual([
+      {
+        tableId: "base",
+        dataFrameId: "base-published",
+        lastFetchedAt: 456,
+      },
+      {
+        tableId: "joined",
+        dataFrameId: "joined-published",
+        lastFetchedAt: 456,
+      },
+    ]);
+  });
+
+  it("propagates presentation source reuse through recursive Insights", async () => {
+    const resolveSource = vi.fn(
+      async (
+        _ctx: HostContext,
+        tableId: UUID,
+        _signal?: AbortSignal,
+        _batchBytes?: number,
+        _preferPublished?: boolean,
+      ) => source(tableId),
+    );
+    const h = harness({
+      resolveSource,
+      resolveInsight: vi.fn(async () => ({
+        baseTableId: "base",
+        source: { sourceType: "dataTable" as const, sourceId: "base" },
+        selectedFields: ["base-field"],
+        metrics: [],
+      })),
+      inspect: () => ({
+        rowCount: 2,
+        schema: [{ id: "field_result_field", name: "result", type: "string" }],
+      }),
+    });
+
+    await createInsightMaterializer(h.dependencies).materialize({
+      ctx: {} as never,
+      target: { kind: "ephemeral" },
+      insight: {
+        baseTableId: "upstream",
+        source: { sourceType: "insight", sourceId: "upstream" },
+        selectedFields: ["result-field"],
+        metrics: [],
+        presentation: { dimensions: ["result-field"] },
+      },
+    });
+
+    expect(resolveSource).toHaveBeenCalledOnce();
+    expect(resolveSource.mock.calls[0]![4]).toBe(true);
+  });
+
+  it("keeps normal materializations on live source acquisition", async () => {
+    const resolveSource = vi.fn(
+      async (
+        _ctx: HostContext,
+        tableId: UUID,
+        _signal?: AbortSignal,
+        _batchBytes?: number,
+        _preferPublished?: boolean,
+      ) => source(tableId),
+    );
+    const h = harness({ resolveSource });
+
+    await createInsightMaterializer(h.dependencies).materialize({
+      ctx: {} as never,
+      target: { kind: "saved", insightId: "insight" },
+      insight,
+    });
+
+    expect(resolveSource.mock.calls.every((call) => call[4] === false)).toBe(
+      true,
+    );
+    expect(h.publish.mock.calls[0]![1].sources).toHaveLength(2);
+  });
+
   it("rejects refreshes of persisted local sources as non-refreshable", async () => {
     const persisted = source("base");
     persisted.existingFrameId = "existing-frame";

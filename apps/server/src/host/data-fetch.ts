@@ -3,6 +3,7 @@ import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import type {
   Insight,
   InsightFetchResult,
+  InsightPresentation,
   InsightRuntimeInput,
   MeasureExpression,
   UUID,
@@ -54,6 +55,7 @@ const RUNTIME_FAILURE_CODES = new Set([
   "RUNTIME_SORT_REFERENCE_AMBIGUOUS",
   "RUNTIME_SORT_REFERENCE_INVALID",
   "RUNTIME_LIMIT_REQUIRES_SORT",
+  "RUNTIME_PRESENTATION_NOT_ALLOWED",
   "RUNTIME_LIMIT_OUT_OF_RANGE",
 ]);
 
@@ -179,6 +181,29 @@ const runtimeSchema = z
       .max(1)
       .optional(),
     limit: z.number().int().positive().optional(),
+  })
+  .strict();
+const dateTransformSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("temporal"),
+      aggregation: z.enum(["none", "yearWeek", "yearMonth", "year"]),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("categorical"),
+      groupBy: z.enum(["monthName", "dayOfWeek", "quarter"]),
+    })
+    .strict(),
+]);
+const presentationSchema = z
+  .object({
+    dimensions: z
+      .array(z.string().min(1))
+      .max(16)
+      .refine((dimensions) => new Set(dimensions).size === dimensions.length),
+    transforms: z.record(z.string().min(1), dateTransformSchema).optional(),
   })
   .strict();
 
@@ -458,6 +483,25 @@ export function applyInsightRuntime(
   return definition;
 }
 
+function applyInsightPresentation(
+  definition: EffectiveInsightDefinition,
+  presentation: InsightPresentation | undefined,
+): void {
+  if (!presentation) return;
+  const requested = new Set(presentation.dimensions);
+  if (
+    presentation.dimensions.some(
+      (dimension) => !definition.selectedFields.includes(dimension),
+    ) ||
+    Object.keys(presentation.transforms ?? {}).some(
+      (dimension) => !requested.has(dimension),
+    )
+  ) {
+    throw new Error("RUNTIME_PRESENTATION_NOT_ALLOWED");
+  }
+  definition.presentation = presentation;
+}
+
 function failed(
   code: string,
   message: string,
@@ -506,6 +550,10 @@ const NAMED_FETCH_FAILURES: Record<
   RUNTIME_LIMIT_REQUIRES_SORT: {
     message:
       "The selected dimensions removed the sort required by the row limit. Choose another sort or remove the limit.",
+  },
+  RUNTIME_PRESENTATION_NOT_ALLOWED: {
+    message:
+      "The chart presentation must use dimensions selected by this Insight.",
   },
   SOURCE_VALUE_UNSUPPORTED: {
     message:
@@ -575,24 +623,38 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
    * Saved runInsight generations remain durable and are not session-leased.
    */
   const fetchData = hostOperation({
-    input: z.object({ insight: z.unknown() }).strict(),
-    run: async (ctx, { insight }) => {
+    input: z
+      .object({
+        insight: z.unknown(),
+        presentation: z.unknown().optional(),
+      })
+      .strict(),
+    run: async (ctx, { insight, presentation }) => {
       const parsed = definitionSchema.safeParse(insight);
       if (!parsed.success)
         return failed(
           "FETCH_INVALID_DEFINITION",
           "The Insight definition is invalid.",
         );
+      const parsedPresentation = presentationSchema
+        .optional()
+        .safeParse(presentation);
+      if (!parsedPresentation.success)
+        return failed(
+          "FETCH_INVALID_REQUEST",
+          "The requested Insight presentation is invalid.",
+        );
       try {
         const source = await resolveEphemeralSource(
           ctx,
           parsed.data.baseTableId as UUID,
         );
-        return materialize(
-          ctx,
-          { ...parsed.data, source },
-          { kind: "ephemeral" },
-        );
+        const effective: EffectiveInsightDefinition = {
+          ...parsed.data,
+          source,
+        };
+        applyInsightPresentation(effective, parsedPresentation.data);
+        return materialize(ctx, effective, { kind: "ephemeral" });
       } catch (error) {
         return toFetchFailure(error, "FETCH_SOURCE_FAILED");
       }
@@ -622,24 +684,37 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
   });
   const runInsight = hostOperation({
     input: z
-      .object({ insightId: z.string().uuid(), runtime: z.unknown().optional() })
+      .object({
+        insightId: z.string().uuid(),
+        runtime: z.unknown().optional(),
+        presentation: z.unknown().optional(),
+      })
       .strict(),
-    run: async (ctx, { insightId, runtime }) => {
+    run: async (ctx, { insightId, runtime, presentation }) => {
       const parsedRuntime = runtimeSchema.optional().safeParse(runtime);
-      if (!parsedRuntime.success)
+      const parsedPresentation = presentationSchema
+        .optional()
+        .safeParse(presentation);
+      if (!parsedRuntime.success || !parsedPresentation.success)
         return failed(
           "FETCH_INVALID_REQUEST",
-          "The requested Insight runtime controls are invalid.",
+          "The requested Insight runtime controls or presentation are invalid.",
         );
       try {
         const saved = await getInsightForFetch(ctx, insightId as UUID);
         const effective = applyInsightRuntime(saved, parsedRuntime.data);
-        const invocationFingerprints = compatibleInsightFingerprints(effective);
-        const result = await materialize(ctx, effective, {
-          kind: "saved",
-          insightId: insightId as UUID,
-        });
+        applyInsightPresentation(effective, parsedPresentation.data);
+        const isPresentation = parsedPresentation.data !== undefined;
+        const result = await materialize(
+          ctx,
+          effective,
+          isPresentation
+            ? { kind: "ephemeral" }
+            : { kind: "saved", insightId: insightId as UUID },
+        );
         if (result.status !== "failed") return result;
+        if (isPresentation) return result;
+        const invocationFingerprints = compatibleInsightFingerprints(effective);
         const prior = await lastSuccessfulForInsight(
           ctx,
           insightId as UUID,

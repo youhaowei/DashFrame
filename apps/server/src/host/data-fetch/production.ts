@@ -7,7 +7,13 @@ import {
   metricIdToColumnAlias,
 } from "@dashframe/engine";
 import { inspectArrowIpc } from "@dashframe/engine-server/arrow-data-path";
-import type { InsightSourceGeneration, UUID } from "@dashframe/types";
+import type {
+  ColumnType,
+  DataTable,
+  Field,
+  InsightSourceGeneration,
+  UUID,
+} from "@dashframe/types";
 
 import { randomUUID } from "node:crypto";
 import type { HostContext } from "../context";
@@ -34,6 +40,101 @@ import { publishMaterialization } from "./publisher";
 import { runtimeSortsForCompile } from "./runtime-sort";
 
 const MATERIALIZATION_TIMEOUT_MS = 120_000;
+
+function resultDimensionType(
+  field: Field,
+  insight: EffectiveInsightDefinition,
+): ColumnType {
+  const transform = insight.presentation?.transforms?.[field.id];
+  if (transform?.kind !== "categorical") return field.type;
+  return transform.groupBy === "quarter" ? "number" : "string";
+}
+
+function expectedResultSchema(
+  insight: EffectiveInsightDefinition,
+  tables: Map<UUID, DataTable>,
+  available: Field[],
+): Map<string, { id: string; name: string; type: ColumnType }> {
+  const dimensionIds = insight.presentation
+    ? insight.presentation.dimensions
+    : insight.selectedFields;
+  let selected: Field[];
+  if (dimensionIds.length) {
+    selected = available.filter((field) => dimensionIds.includes(field.id));
+  } else {
+    selected = insight.metrics.length ? [] : available;
+  }
+  const measureIds = insight.reporting?.measureIds;
+  const metrics = measureIds?.length
+    ? measureIds.map((id) =>
+        insight.metrics.find((metric) => metric.id === id)!,
+      )
+    : insight.metrics;
+  const dimensions = selected.map((field) => {
+    const id = fieldIdToColumnAlias(field.id);
+    return [
+      id,
+      { id, name: field.name, type: resultDimensionType(field, insight) },
+    ] as const;
+  });
+  const measures = metrics.flatMap((metric) => {
+    const id = metricIdToColumnAlias(metric.id);
+    const sourceType =
+      metric.aggregation === "min" || metric.aggregation === "max"
+        ? [...tables.values()]
+            .find((candidate) => candidate.id === metric.sourceTable)
+            ?.fields.find(
+              (field) => (field.columnName ?? field.name) === metric.columnName,
+            )?.type
+        : undefined;
+    const current = {
+      id,
+      name: metric.name,
+      type: sourceType ?? ("number" as const),
+    };
+    if (!insight.reporting?.comparison) return [[id, current] as const];
+    return [
+      [id, current] as const,
+      [
+        `${id}_previous`,
+        { ...current, id: `${id}_previous`, name: `${metric.name} previous` },
+      ] as const,
+      [
+        `${id}_change`,
+        {
+          id: `${id}_change`,
+          name: `${metric.name} change`,
+          type: "number" as const,
+        },
+      ] as const,
+      [
+        `${id}_change_percent`,
+        {
+          id: `${id}_change_percent`,
+          name: `${metric.name} change percent`,
+          type: "number" as const,
+        },
+      ] as const,
+    ];
+  });
+  const grouping =
+    !insight.presentation &&
+    insight.reporting?.totals &&
+    dimensions.length &&
+    measures.length
+      ? ([
+          [
+            "__report_grouping",
+            {
+              id: "__report_grouping",
+              name: "Report grouping",
+              type: "number" as const,
+            },
+          ] as const,
+        ] as const)
+      : [];
+  return new Map([...dimensions, ...measures, ...grouping]);
+}
 
 /** Real C1 lifecycle executor with bounded sibling replay, never a durable result cache. */
 export function createProductionFetchExecutor(): LiveFetchExecutor {
@@ -218,6 +319,7 @@ export function productionMaterializerDependencies(): Pick<
         mode: "query",
         effectiveLimit: insight.limit,
         effectiveSorts,
+        presentation: insight.presentation,
       });
       if (!sql) throw new Error("FETCH_COMPILE_FAILED");
       return sql;
@@ -233,46 +335,7 @@ export function productionMaterializerDependencies(): Pick<
         insight as never,
       );
       if (!available) throw new Error("TARGET_NOT_READY");
-      let selected = available;
-      if (insight.selectedFields.length) {
-        selected = available.filter((field) =>
-          insight.selectedFields.includes(field.id),
-        );
-      } else if (insight.metrics.length) {
-        selected = [];
-      }
-      const expected = new Map([
-        ...selected.map(
-          (field) =>
-            [
-              fieldIdToColumnAlias(field.id),
-              {
-                id: fieldIdToColumnAlias(field.id),
-                name: field.name,
-                type: field.type,
-              },
-            ] as const,
-        ),
-        ...insight.metrics.map((metric) => {
-          const sourceType =
-            metric.aggregation === "min" || metric.aggregation === "max"
-              ? [...tables.values()]
-                  .find((candidate) => candidate.id === metric.sourceTable)
-                  ?.fields.find(
-                    (field) =>
-                      (field.columnName ?? field.name) === metric.columnName,
-                  )?.type
-              : undefined;
-          return [
-            metricIdToColumnAlias(metric.id),
-            {
-              id: metricIdToColumnAlias(metric.id),
-              name: metric.name,
-              type: sourceType ?? "number",
-            },
-          ] as const;
-        }),
-      ]);
+      const expected = expectedResultSchema(insight, tables, available);
       if (
         table.fieldNames.length !== expected.size ||
         table.fieldNames.some((name) => !expected.has(name))
@@ -293,8 +356,21 @@ async function resolveProductionSource(
   tableId: string,
   signal?: AbortSignal,
   batchBytes?: number,
+  preferPublished = false,
 ): Promise<SourceGeneration> {
   const binding = await resolveSourceBinding(ctx, tableId);
+  if (preferPublished && binding.table.dataFrameId) {
+    return {
+      table: binding.table as never,
+      fields: binding.table.fields as SourceGeneration["fields"],
+      rowCount: 0,
+      existingFrameId: binding.table.dataFrameId,
+      provenance: {
+        connectorKind: binding.connectorKind,
+        bindingVersion: binding.sourceBindingVersion,
+      },
+    };
+  }
   if (binding.connectorKind === "googleAnalytics" && supportsStreaming(ctx)) {
     return {
       table: binding.table as never,

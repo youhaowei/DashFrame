@@ -2259,6 +2259,7 @@ export function InsightView({
                 }
                 materialization={{
                   insight: displayInsight,
+                  runtime: viewerRuntime,
                   dataTable: authoringTable,
                   dataFrameId: savedInsightResult.dataFrameId,
                   isReady: savedInsightResult.isReady,
