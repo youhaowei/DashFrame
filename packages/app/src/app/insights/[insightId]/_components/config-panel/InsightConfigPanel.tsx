@@ -78,7 +78,11 @@ import {
   type RuntimeFilterControl,
 } from "./FiltersSection";
 import { MetricsSection } from "./MetricsSection";
-import { pruneRuntimeControls, stableValueSignature } from "./runtime-controls";
+import {
+  pruneRuntimeControls,
+  stableValueSignature,
+  withoutViewerField,
+} from "./runtime-controls";
 import { SortSection } from "./SortSection";
 
 interface InsightConfigPanelProps {
@@ -933,13 +937,16 @@ export function InsightConfigPanel({
             return fields.filter((id) => id !== itemId);
           },
           (current, fields) => {
-            const nextRuntimeControls = pruneRuntimeControls(
-              runtimeControlsRef.current,
-              current.filters ?? [],
-              [
-                ...fields,
-                ...(current.metrics ?? []).map((metric) => metric.id),
-              ],
+            const nextRuntimeControls = withoutViewerField(
+              pruneRuntimeControls(
+                runtimeControlsRef.current,
+                current.filters ?? [],
+                [
+                  ...fields,
+                  ...(current.metrics ?? []).map((metric) => metric.id),
+                ],
+              ),
+              itemId as UUID,
             );
             if (
               pendingRuntimeControlsSignatureRef.current === null &&

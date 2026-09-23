@@ -188,7 +188,7 @@ describe("InsightConfigPanel metric saves", () => {
       ...insight,
       reporting: { measureIds: [revenue.id], totals: true },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Reuse measure/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Reuse measure" }));
     fireEvent.click(
       await screen.findByRole("checkbox", { name: "Saved orders" }),
     );
@@ -215,7 +215,7 @@ describe("InsightConfigPanel metric saves", () => {
     commitBatch.mockResolvedValue({});
     renderPanel();
     fireEvent.click(
-      screen.getByRole("button", { name: /^Save measure to source/ }),
+      screen.getByRole("button", { name: "Save measure to source" }),
     );
     fireEvent.click(
       await screen.findByRole("checkbox", { name: "Revenue", exact: true }),

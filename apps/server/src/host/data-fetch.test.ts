@@ -427,6 +427,23 @@ describe("applyInsightRuntime", () => {
     });
     expect(result.selectedFields).toEqual(["region", "product"]);
     expect(result.reporting?.measureIds).toEqual(["orders"]);
+    // The cap counts only the viewer's picks, never the fixed fields.
+    expect(
+      applyInsightRuntime(saved, {
+        dimensions: ["region", "date", "product"],
+      }).selectedFields,
+    ).toEqual(["region", "date", "product"]);
+    const oneChoice: Insight = {
+      ...saved,
+      runtimeControls: {
+        dimensions: { allowedIds: ["date", "product"], maxSelected: 1 },
+      },
+    };
+    expect(() =>
+      applyInsightRuntime(oneChoice, {
+        dimensions: ["region", "date", "product"],
+      }),
+    ).toThrow("RUNTIME_SELECTION_NOT_ALLOWED");
     for (const runtime of [
       // Dropping a fixed field or measure is refused.
       { dimensions: ["date"] },

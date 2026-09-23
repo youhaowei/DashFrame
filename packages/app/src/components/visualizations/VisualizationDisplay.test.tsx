@@ -79,7 +79,8 @@ vi.mock("@dashframe/engine", async (importOriginal) => ({
   getMetricDisplayLabel: vi.fn().mockReturnValue(""),
 }));
 
-vi.mock("@dashframe/types", () => ({
+vi.mock("@dashframe/types", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@dashframe/types")>()),
   parseEncoding: vi.fn().mockReturnValue(null),
 }));
 
@@ -356,6 +357,18 @@ describe("VisualizationDisplay — declared runtime controls", () => {
               columnDisplayNames: {},
             },
     );
+    mockUseInsights.mockReturnValue({
+      data: [
+        {
+          ...insight,
+          // The viewer may only request a measure the author offered.
+          runtimeControls: {
+            ...insight.runtimeControls,
+            measures: { allowedIds: ["revenue"], maxSelected: 1 },
+          },
+        },
+      ],
+    });
     render(<VisualizationDisplay visualizationId="viz-1" />);
     expect(await screen.findByText("Revenue only")).toBeTruthy();
 

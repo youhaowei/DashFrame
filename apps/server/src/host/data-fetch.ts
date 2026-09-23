@@ -171,8 +171,10 @@ const definitionSchema = z
   .strict();
 const runtimeSchema = z
   .object({
-    dimensions: z.array(z.string().min(1)).max(16).optional(),
-    measures: z.array(z.string().min(1)).min(1).max(16).optional(),
+    // A selection is the saved fixed ids plus up to 16 viewer picks; the
+    // semantic check below enforces the exact bound.
+    dimensions: z.array(z.string().min(1)).max(256).optional(),
+    measures: z.array(z.string().min(1)).min(1).max(256).optional(),
     filters: z.record(z.string(), z.unknown()).optional(),
     sort: z
       .array(

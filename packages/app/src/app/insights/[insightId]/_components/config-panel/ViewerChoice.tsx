@@ -1,6 +1,7 @@
 import { WorkbenchCheckbox } from "@dashframe/ui";
 import { Tooltip } from "@wystack/ui-react";
 import { Eye } from "lucide-react";
+import { useId } from "react";
 
 /**
  * Marks a chip that viewers can change. The eye alone is not self-explanatory,
@@ -27,16 +28,21 @@ export function ViewerChoiceCheckbox({
   onCheckedChange: (checked: boolean) => void;
   kind: "fields" | "metrics";
 }) {
+  const hintId = useId();
   return (
     <div className="space-y-1">
       <label className="flex cursor-pointer items-center gap-2 text-xs">
         <WorkbenchCheckbox
           checked={checked}
+          aria-describedby={hintId}
           onCheckedChange={(next) => onCheckedChange(next === true)}
         />
         Viewers can show or hide
       </label>
-      <p className="pl-6 text-[11px] leading-4 text-neutral-fg-subtle">
+      <p
+        id={hintId}
+        className="pl-6 text-[11px] leading-4 text-neutral-fg-subtle"
+      >
         Viewers pick which of the marked {kind} the report shows.
       </p>
     </div>

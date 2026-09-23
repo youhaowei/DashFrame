@@ -177,6 +177,11 @@ export type InsightFetchDefinition = Pick<
  * the authority for field, operator, default, and type.
  */
 export interface InsightRuntimeDeclaration {
+  /**
+   * Fields and measures a viewer may turn on or off. The rest of the saved
+   * selection is fixed and stays in every run; `maxSelected` caps only the
+   * viewer's picks, not the whole selection.
+   */
   dimensions?: { allowedIds: UUID[]; maxSelected: number };
   measures?: { allowedIds: UUID[]; maxSelected: number };
   filters?: Array<{
@@ -284,7 +289,11 @@ export function fixedRuntimeIds(
   >,
   kind: "dimensions" | "measures",
 ): UUID[] {
-  const optional = new Set(saved.runtimeControls?.[kind]?.allowedIds ?? []);
+  const control = saved.runtimeControls?.[kind];
+  // Without a declaration a viewer can change nothing, so nothing is marked
+  // fixed either; the host refuses any selection for that kind.
+  if (!control) return [];
+  const optional = new Set(control.allowedIds);
   const shown =
     kind === "dimensions"
       ? saved.selectedFields

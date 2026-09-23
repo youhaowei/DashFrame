@@ -69,3 +69,27 @@ export function pruneRuntimeControls(
     ? next
     : undefined;
 }
+
+/**
+ * Removing a field from the report also stops offering it to viewers, so it
+ * doesn't come straight back as a field viewers can add.
+ */
+export function withoutViewerField(
+  declaration: InsightRuntimeDeclaration | undefined,
+  fieldId: UUID,
+): InsightRuntimeDeclaration | undefined {
+  const dimensions = declaration?.dimensions;
+  if (!declaration || !dimensions?.allowedIds.includes(fieldId))
+    return declaration;
+  const allowedIds = dimensions.allowedIds.filter((id) => id !== fieldId);
+  const next = { ...declaration };
+  if (allowedIds.length === 0) delete next.dimensions;
+  else
+    next.dimensions = {
+      allowedIds,
+      maxSelected: Math.min(dimensions.maxSelected, allowedIds.length),
+    };
+  return Object.values(next).some((value) => value !== undefined)
+    ? next
+    : undefined;
+}

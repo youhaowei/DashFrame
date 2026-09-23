@@ -1,7 +1,11 @@
 import { reportMeasureFormats } from "@dashframe/engine";
 import { describe, expect, it } from "vite-plus/test";
 import type { Field, Insight, VisualizationEncoding } from "@dashframe/types";
-import { reportEncoding, reportPresentation } from "./report-runtime";
+import {
+  currentViewerRuntime,
+  reportEncoding,
+  reportPresentation,
+} from "./report-runtime";
 const insight: Insight = {
   id: "report",
   name: "Report",
@@ -171,5 +175,94 @@ it("preserves the selected measure's percent format when a viewer switches from 
   });
   expect(reportMeasureFormats(presentation).metric_orders).toEqual({
     style: "number",
+  });
+});
+
+describe("currentViewerRuntime", () => {
+  const saved = {
+    id: "report",
+    name: "Report",
+    source: { sourceType: "dataTable", sourceId: "source" },
+    selectedFields: ["region", "date"],
+    metrics: [],
+    runtimeControls: {
+      dimensions: { allowedIds: ["date", "product"], maxSelected: 2 },
+    },
+    createdAt: 0,
+  } as unknown as Insight;
+
+  it("keeps a viewer's picks valid after the author adds a field", () => {
+    // The viewer hid date while the report showed region and date.
+    const runtime = { dimensions: ["region"] };
+    const edited = {
+      ...saved,
+      selectedFields: ["region", "date", "country"],
+    } as Insight;
+    expect(currentViewerRuntime(edited, runtime)).toEqual({
+      dimensions: ["region", "country"],
+    });
+  });
+
+  it("drops picks that are no longer viewer choices", () => {
+    const runtime = { dimensions: ["region", "date", "product"] };
+    const narrowed = {
+      ...saved,
+      runtimeControls: {
+        dimensions: { allowedIds: ["date"], maxSelected: 1 },
+      },
+    } as unknown as Insight;
+    expect(currentViewerRuntime(narrowed, runtime)).toEqual({
+      dimensions: ["region", "date"],
+    });
+    const closed = { ...saved, runtimeControls: undefined } as Insight;
+    expect(currentViewerRuntime(closed, runtime)).toEqual({});
+  });
+});
+
+describe("reportEncoding with fixed selections", () => {
+  it("swaps a viewer choice without handing its channel to a fixed field", () => {
+    const report = {
+      id: "report",
+      name: "Report",
+      source: { sourceType: "dataTable", sourceId: "source" },
+      selectedFields: ["date", "channel"],
+      metrics: [],
+      runtimeControls: {
+        dimensions: { allowedIds: ["channel", "country"], maxSelected: 1 },
+      },
+      createdAt: 0,
+    } as unknown as Insight;
+    const fields = [
+      { id: "date", name: "Date", type: "date", tableId: "source" },
+      { id: "channel", name: "Channel", type: "string", tableId: "source" },
+      { id: "country", name: "Country", type: "string", tableId: "source" },
+    ] as Field[];
+    // Date is fixed and not encoded; the viewer swaps Channel for Country.
+    expect(
+      reportEncoding(
+        { color: "field:channel" },
+        report,
+        { dimensions: ["date", "country"] },
+        fields,
+      ),
+    ).toEqual({ color: "field:country" });
+  });
+
+  it("keeps a viewer's picks valid after the author fixes a hidden choice", () => {
+    const report = {
+      id: "report",
+      name: "Report",
+      source: { sourceType: "dataTable", sourceId: "source" },
+      selectedFields: ["date", "channel"],
+      metrics: [],
+      // Channel stopped being a viewer choice after the viewer hid it.
+      runtimeControls: {
+        dimensions: { allowedIds: ["date"], maxSelected: 1 },
+      },
+      createdAt: 0,
+    } as unknown as Insight;
+    expect(currentViewerRuntime(report, { dimensions: ["date"] })).toEqual({
+      dimensions: ["date", "channel"],
+    });
   });
 });

@@ -125,11 +125,15 @@ function FieldRenameEditor({
     setError(null);
     try {
       if (next !== field.name) await onRename(field, next);
-      await onConfigure?.(
-        field.id,
-        grain === "none" ? undefined : grain,
-        pivot,
-      );
+      const groupingChanged =
+        grain !== (reporting?.dateGrains?.[field.id] ?? "none") ||
+        pivot !== Boolean(reporting?.pivotFields?.includes(field.id));
+      if (groupingChanged)
+        await onConfigure?.(
+          field.id,
+          grain === "none" ? undefined : grain,
+          pivot,
+        );
       if (viewer !== viewerChoice) await onViewerChange?.(field.id, viewer);
       setOpen(false);
     } catch (cause) {

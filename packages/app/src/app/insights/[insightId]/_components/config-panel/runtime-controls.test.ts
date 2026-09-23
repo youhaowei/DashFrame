@@ -1,6 +1,6 @@
 import type { InsightFilter, UUID } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
-import { pruneRuntimeControls } from "./runtime-controls";
+import { pruneRuntimeControls, withoutViewerField } from "./runtime-controls";
 
 describe("pruneRuntimeControls", () => {
   it("removes declarations whose saved targets disappeared", () => {
@@ -73,4 +73,21 @@ it("retains a dimension-only declaration and removes empty measure choices", () 
       [],
     ),
   ).toBeUndefined();
+});
+
+describe("withoutViewerField", () => {
+  it("stops offering a removed field to viewers", () => {
+    expect(
+      withoutViewerField(
+        { dimensions: { allowedIds: ["region", "date"], maxSelected: 2 } },
+        "region" as UUID,
+      ),
+    ).toEqual({ dimensions: { allowedIds: ["date"], maxSelected: 1 } });
+    expect(
+      withoutViewerField(
+        { dimensions: { allowedIds: ["region"], maxSelected: 1 } },
+        "region" as UUID,
+      ),
+    ).toBeUndefined();
+  });
 });

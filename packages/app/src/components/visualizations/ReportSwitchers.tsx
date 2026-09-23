@@ -1,9 +1,5 @@
-import type {
-  Field,
-  Insight,
-  InsightRuntimeInput,
-  UUID,
-} from "@dashframe/types";
+import type { Field, Insight, InsightRuntimeInput } from "@dashframe/types";
+import { withFixedIds } from "@/lib/insights/report-runtime";
 import { fixedRuntimeIds } from "@dashframe/types";
 import { WorkbenchCheckbox } from "@dashframe/ui";
 import {
@@ -71,7 +67,10 @@ export function ReportSelectionMenu({
             type="button"
             className="rounded-md bg-neutral-bg-subtle px-3 py-2 text-xs transition-colors hover:bg-neutral-bg-muted"
           >
-            {label} · {selected.length} of {options.length}
+            {/* A count only means something when several can be picked. */}
+            {maximum > 1
+              ? `${label} · ${selected.length} of ${options.length}`
+              : label}
           </button>
         }
       />
@@ -124,22 +123,6 @@ export function ReportSelectionMenu({
   );
 }
 
-/**
- * The viewer's picks plus everything the saved report always shows, in the
- * saved order, with picks the report doesn't show by default appended.
- */
-function withFixed(
-  saved: readonly UUID[],
-  fixed: readonly UUID[],
-  picked: readonly string[],
-): UUID[] {
-  const keep = new Set<string>([...fixed, ...picked]);
-  return [
-    ...saved.filter((id) => keep.has(id)),
-    ...(picked.filter((id) => !saved.includes(id as UUID)) as UUID[]),
-  ];
-}
-
 export function ReportSwitchers({
   insight,
   fields,
@@ -175,7 +158,7 @@ export function ReportSwitchers({
           onApply={(ids) =>
             onChange({
               ...runtime,
-              dimensions: withFixed(
+              dimensions: withFixedIds(
                 insight.selectedFields,
                 fixedRuntimeIds(insight, "dimensions"),
                 ids,
@@ -198,7 +181,7 @@ export function ReportSwitchers({
           onApply={(ids) =>
             onChange({
               ...runtime,
-              measures: withFixed(
+              measures: withFixedIds(
                 savedMeasures,
                 fixedRuntimeIds(insight, "measures"),
                 ids,

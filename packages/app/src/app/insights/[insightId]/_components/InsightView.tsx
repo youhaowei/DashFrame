@@ -1,6 +1,7 @@
 import { usePivotSortOptions } from "@/hooks/usePivotSortOptions";
 import { ReportSwitchers } from "@/components/visualizations/ReportSwitchers";
 import {
+  currentViewerRuntime,
   reportPresentation,
   reportEncoding,
 } from "@/lib/insights/report-runtime";
@@ -1053,8 +1054,14 @@ export function InsightView({
     id: string;
     runtime?: InsightRuntimeInput;
   }>({ id: insightId });
-  const viewerRuntime =
-    viewerState.id === insightId ? viewerState.runtime : undefined;
+  const viewerRuntime = useMemo(
+    () =>
+      currentViewerRuntime(
+        insight,
+        viewerState.id === insightId ? viewerState.runtime : undefined,
+      ),
+    [insight, insightId, viewerState],
+  );
   const displayInsight = useMemo(
     () => reportPresentation(insight, viewerRuntime),
     [insight, viewerRuntime],
