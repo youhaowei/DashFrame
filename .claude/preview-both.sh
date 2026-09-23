@@ -3,9 +3,9 @@
 # Electron app (native window) at the same time, from one action.
 #
 # Why this shape:
-#   - The web app must stay a single foreground portless process so Claude
-#     Preview can iframe it (it owns the PORT env and the iframe URL). So web
-#     runs in the FOREGROUND through the existing portless-shim, unchanged.
+#   - The web app must stay a single foreground process so Claude Preview can
+#     open it (it owns the PORT env and the URL). So web runs in the
+#     FOREGROUND through the existing portless-shim, unchanged.
 #   - The desktop app is a native Electron window, not an iframe-able URL. It
 #     runs in the BACKGROUND via `bun run dev` (which builds the
 #     wystack→server-core→server→main chain, starts its own renderer Vite
@@ -34,9 +34,9 @@ echo "[preview-both] starting desktop (Electron native window)…"
 (cd "${ROOT}" && bun run dev) &
 desktop_pid=$!
 
-# 2. Web in the foreground through portless-shim — Preview iframes this. The
-#    shim forwards the Preview-injected PORT to portless as --app-port.
+# 2. Web in the foreground through portless-shim — Preview opens this. With
+#    the Preview-injected PORT set, the shim serves Vite directly on that port.
 #    Not `exec`: the script must stay alive so the EXIT trap can tear down the
 #    desktop process when Preview stops the web.
-echo "[preview-both] starting web (previewable) on portless…"
+echo "[preview-both] starting web (previewable)…"
 "${ROOT}/.claude/portless-shim.sh" bunx vp dev
