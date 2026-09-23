@@ -203,6 +203,19 @@ describe("currentViewerRuntime", () => {
     });
   });
 
+  it("falls back to the saved report when none of the picks remain", () => {
+    const report = {
+      ...saved,
+      selectedFields: [],
+      metrics: [
+        { id: "b", name: "B", sourceTable: "source", aggregation: "count" },
+      ],
+      // The viewer picked metric a, which the author has since deleted.
+      runtimeControls: { measures: { allowedIds: ["b"], maxSelected: 1 } },
+    } as unknown as Insight;
+    expect(currentViewerRuntime(report, { measures: ["a"] })).toEqual({});
+  });
+
   it("drops picks that are no longer viewer choices", () => {
     const runtime = { dimensions: ["region", "date", "product"] };
     const narrowed = {

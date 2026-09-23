@@ -54,11 +54,14 @@ export function currentViewerRuntime(
       delete next[kind];
       continue;
     }
-    next[kind] = withFixedIds(
+    const rebuilt = withFixedIds(
       saved,
       fixedRuntimeIds(insight, kind),
       picks.filter((id) => allowed.includes(id)),
     );
+    // Nothing the viewer picked is left, so fall back to the saved report.
+    if (rebuilt.length === 0) delete next[kind];
+    else next[kind] = rebuilt;
   }
   return next;
 }
