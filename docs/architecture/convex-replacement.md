@@ -14,7 +14,7 @@ application architecture.
   commands, draft overlay/review/publication and private metadata operations for the host.
 - `@dashframe/convex-local`: official local-backend process lifecycle, project isolation,
   loopback binding, private administration, readiness and offline restart.
-- DashFrame host: native data/credential operations, assistant streaming, MCP, JWT issuance
+- DashFrame host: native data/credential operations, MCP, JWT issuance
   after existing host authentication. Admin credentials never cross renderer IPC.
 - Renderer: generated Convex API and subscriptions; ordinary authenticated host requests
   for host-only operations. No WyStack RPC/subscription runtime.

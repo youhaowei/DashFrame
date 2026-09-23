@@ -421,8 +421,8 @@ export async function createStandaloneSecretServices(
   );
   // Permanent mapping identifier: NEVER change after secrets may exist under it.
   // Registered WITHOUT `fallback: true`: only explicitly configured classes
-  // may land in this host-local encrypted store. Assistant-provider remains
-  // fail-closed because it has no class default here.
+  // may land in this host-local encrypted store; classes without a default
+  // stay fail-closed.
   registry.register(ENCRYPTED_FILE_BACKEND_NAME, backend);
   registry.setClassDefault(
     CREDENTIAL_CLASS.ServeToken,

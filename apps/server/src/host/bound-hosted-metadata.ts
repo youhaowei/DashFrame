@@ -1,13 +1,13 @@
 import { isPrincipal, type Principal } from "@wystack/identity";
 import type { ConnectorSetupStore } from "../connector-setup/session-store";
-import type { HostedProviderMetadata } from "./hosted-convex-provider-metadata";
+import type { HostedSourceMetadata } from "./hosted-convex-source-operations";
 import type { HostedCredentialOwnership } from "./hosted-credential-ownership";
 import type { HostMetadata } from "./metadata";
 
 /** Adapt request-bound hosted capabilities without forwarding caller identity in JSON. */
 export function bindHostedMetadata(options: {
   principal: Principal;
-  metadata: HostedProviderMetadata;
+  metadata: HostedSourceMetadata;
   connectorSetup: ConnectorSetupStore;
   credentialOwnership: Pick<HostedCredentialOwnership, "revoke">;
 }): HostMetadata {

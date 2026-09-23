@@ -1,7 +1,6 @@
 import { api } from "@dashframe/convex-backend/api";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
-import { useBindArtifact } from "@/components/assistant/artifact-context";
 import { useRenderPerf } from "@/lib/perf";
 
 import { Spinner } from "@wystack/ui-react";
@@ -27,13 +26,9 @@ export default function InsightPageContent({
     useQuery({ query: api.app.getInsight, args: { id: insightId } }),
   );
 
-  // Instrument the artifact render boundary and bind the assistant to this
-  // insight (cleared on unmount). Both run unconditionally — hooks before the
-  // loading/not-found early returns.
+  // Instrument the artifact render boundary (cleared on unmount). Runs
+  // unconditionally — hooks before the loading/not-found early returns.
   useRenderPerf(`insight:${insightId}`);
-  useBindArtifact(
-    insight ? { kind: "insight", id: insightId, title: insight.name } : null,
-  );
 
   if (isLoading) {
     return (

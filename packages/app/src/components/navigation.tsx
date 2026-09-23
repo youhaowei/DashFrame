@@ -8,7 +8,6 @@ import { clearAllData } from "@/lib/data-access/data-frames";
 import { reloadRootWithFreshWorkspaceState } from "@/lib/clear-all-data-navigation";
 import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
-import { useAssistantStore } from "@/lib/stores/assistant-store";
 import { useShellStore } from "@/lib/stores/shell-store";
 import { api } from "@dashframe/convex-backend/api";
 import { Link, useLocation } from "@tanstack/react-router";
@@ -41,7 +40,6 @@ import {
   GridIcon,
   MenuIcon,
   SettingsIcon,
-  SparklesIcon,
   UserIcon,
 } from "@wystack/ui-react/icons";
 import { type ReactNode, useEffect, useState } from "react";
@@ -85,7 +83,6 @@ const navItems: NavItem[] = [
 
 interface SidebarContentProps {
   onClearData?: () => void;
-  onAssistantProviders?: () => void;
   onAccessCredentials?: () => void;
   onSignOut?: () => void;
   onNavigate?: () => void;
@@ -100,7 +97,6 @@ interface SidebarContentProps {
 
 function SidebarContent({
   onClearData,
-  onAssistantProviders,
   onAccessCredentials,
   onSignOut,
   onNavigate,
@@ -194,10 +190,6 @@ function SidebarContent({
             }
           />
           <DropdownMenuContent align="start" side="top">
-            <DropdownMenuItem onClick={onAssistantProviders}>
-              <SparklesIcon className="mr-2 h-4 w-4" />
-              Assistant providers
-            </DropdownMenuItem>
             {onAccessCredentials ? (
               <DropdownMenuItem onClick={onAccessCredentials}>
                 <DatabaseIcon className="mr-2 h-4 w-4" />
@@ -242,7 +234,6 @@ export function Navigation() {
   const [isOpen, setIsOpen] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showAccessCredentials, setShowAccessCredentials] = useState(false);
-  const setAssistantSetupOpen = useAssistantStore((s) => s.setSetupOpen);
   const accessCapabilities = useAccessCapabilities();
   const signOut = useSignOut();
   const { data: draftCount = 0 } = queryStatus(
@@ -292,7 +283,6 @@ export function Navigation() {
           <SidebarContent
             pendingDraftCount={draftCount}
             onClearData={() => setShowClearConfirm(true)}
-            onAssistantProviders={() => setAssistantSetupOpen(true)}
             onAccessCredentials={
               canManageAccessCredentials
                 ? () => setShowAccessCredentials(true)
@@ -336,7 +326,6 @@ export function Navigation() {
                 pendingDraftCount={draftCount}
                 onNavigate={() => setIsOpen(false)}
                 onClearData={() => setShowClearConfirm(true)}
-                onAssistantProviders={() => setAssistantSetupOpen(true)}
                 onAccessCredentials={
                   canManageAccessCredentials
                     ? () => setShowAccessCredentials(true)

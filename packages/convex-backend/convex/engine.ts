@@ -570,7 +570,7 @@ function safeExtra(extra: ObjectValue) {
 }
 const secretRefPattern = /^secret:[0-9a-f-]{36}$/i;
 // Defines credential slots that connector commands may write after host staging.
-// credentialRef is stored by assistant-provider APIs, not connector commands.
+// credentialRef is not command-writable and never appears in connector configs.
 const COMMAND_WRITABLE_CREDENTIAL_SLOTS = [
   "apiKey",
   "connectionString",

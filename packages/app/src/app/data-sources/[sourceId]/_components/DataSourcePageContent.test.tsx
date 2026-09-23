@@ -101,10 +101,6 @@ vi.mock("@/hooks/useCreateInsight", () => ({
   }),
 }));
 
-vi.mock("@/components/assistant/artifact-context", () => ({
-  useBindArtifact: vi.fn(),
-}));
-
 vi.mock("@/hooks/useDataFrameData", () => ({
   useDataFrameData: () => mockUseDataFrameData(),
 }));

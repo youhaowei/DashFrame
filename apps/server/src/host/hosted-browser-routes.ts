@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createArrowDataPath } from "@dashframe/engine-server/arrow-data-path";
 import { MAX_LOCAL_ARROW_BYTES } from "@dashframe/types";
-import { handleAssistantRunRequest } from "../assistant-run-route";
 import {
   handleConnectorOAuthCallback,
   handleConnectorSetupResume,
@@ -14,26 +13,6 @@ import type { createHostedApplication } from "./hosted-application";
 import type { createHostedWorkOSSession } from "./hosted-workos-session";
 import type { createHostedAdmissionService } from "./hosted-admission-service";
 import type { WithHostedContext } from "./hosted-route-context";
-
-export const MAX_HOSTED_ASSISTANT_BODY_BYTES = 4 * 1024 * 1024;
-
-function runHostedAssistant(
-  request: Request,
-  hosted: ReturnType<typeof createHostedApplication>,
-  signal: AbortSignal,
-) {
-  const assistant = new Hono();
-  assistant.post("/assistant/run", (context) =>
-    handleAssistantRunRequest(context, {
-      app: hosted.application,
-      metadata: hosted.context.metadata,
-      vault: hosted.context.vault,
-      allowOperatorCredentialFallback: false,
-      resolveContext: async () => ({ principal: hosted.context.principal }),
-    }),
-  );
-  return assistant.fetch(new Request(request, { signal }));
-}
 
 export function mountHostedBrowserRoutes(
   app: Hono,
@@ -47,7 +26,7 @@ export function mountHostedBrowserRoutes(
 ) {
   const { publicOrigin, session, admission, tokens, withHostedContext } =
     options;
-  for (const route of ["/api/*", "/data/*", "/assistant/*"]) {
+  for (const route of ["/api/*", "/data/*"]) {
     app.use(route, async (c, next) => {
       if (!isHostedOriginAllowed(c.req.raw, publicOrigin))
         return c.json({ error: "Origin is not allowed" }, 403);
@@ -55,10 +34,6 @@ export function mountHostedBrowserRoutes(
     });
   }
   app.use("/data/*", bodyLimit({ maxSize: MAX_LOCAL_ARROW_BYTES }));
-  app.use(
-    "/assistant/*",
-    bodyLimit({ maxSize: MAX_HOSTED_ASSISTANT_BODY_BYTES }),
-  );
   app.route(
     "/",
     createHostedHttpApplication({
@@ -147,11 +122,6 @@ export function mountHostedBrowserRoutes(
         new Request(target, new Request(c.req.raw, { signal })),
       );
     }),
-  );
-  app.post("/assistant/run", (c) =>
-    authenticated(c.req.raw, async (hosted, signal) =>
-      runHostedAssistant(c.req.raw, hosted, signal),
-    ),
   );
   app.get("/api/connectors/oauth/callback", (c) =>
     authenticated(c.req.raw, async (hosted) =>

@@ -54,26 +54,6 @@ const cases = {
     openToService:
       "API clients may discover properties through host-owned connector credentials.",
   },
-  listAssistantProviderCatalog: {
-    input: {},
-    openToService: "Provider descriptors are public catalog metadata.",
-  },
-  listAssistantProviderConfigs: { input: {} },
-  saveAssistantProviderConfig: {
-    input: {
-      input: {
-        providerId: "openai",
-        displayLabel: "Provider",
-        authKind: "api-key",
-        defaultModel: "model",
-      },
-    },
-  },
-  removeAssistantProviderConfig: { input: { id } },
-  setAssistantDefaultModel: {
-    input: { input: { id, expectedDefaultModel: "old", defaultModel: "new" } },
-  },
-  startAssistantOAuthLogin: { input: { id } },
   getAccessCapabilities: {
     input: {},
     openToService:

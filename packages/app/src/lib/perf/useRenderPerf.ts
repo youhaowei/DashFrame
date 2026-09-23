@@ -24,7 +24,7 @@ export function useRenderPerf(label: string): void {
     const span = perfMark(PerfStage.Render, label);
 
     // `requestAnimationFrame` is absent in some non-visual runtimes (jsdom
-    // shims, SSR). `AppLayout`/`AssistantRegion` call this hook unconditionally
+    // shims, SSR). `Shell`/`AppLayout` call this hook unconditionally
     // and are exercised under jsdom, so fall back to a timer rather than
     // throwing from the effect.
     const schedule: (cb: () => void) => number =

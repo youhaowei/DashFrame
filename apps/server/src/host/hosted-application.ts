@@ -3,7 +3,7 @@ import type { ConnectorSetupStore } from "../connector-setup/session-store";
 import { bindHostedMetadata } from "./bound-hosted-metadata";
 import type { HostContext } from "./context";
 import { createApplicationOperations } from "./dispatch";
-import { createHostedProviderMetadata } from "./hosted-convex-provider-metadata";
+import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
 import { createHostedCredentialOwnership } from "./hosted-credential-ownership";
 import { validateHostedDeploymentUrl } from "./hosted-deployment-url";
 import type {
@@ -70,13 +70,13 @@ export function createHostedApplication(options: {
     )
       throw new Error("FORBIDDEN");
   }
-  const hostedMetadata = createHostedProviderMetadata({
+  const hostedMetadata = createHostedSourceMetadata({
     deploymentUrl,
     allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
     credentialVault: resources.vault,
     getToken: async () => tokens.metadata(source, workspaceId).token,
   });
-  const cleanupMetadata = createHostedProviderMetadata({
+  const cleanupMetadata = createHostedSourceMetadata({
     deploymentUrl,
     allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
     credentialVault: resources.vault,

@@ -20,8 +20,8 @@ import { describe, expect, it } from "vite-plus/test";
  * 2. An externalized dep undeclared where main.js resolves it. build-main.mjs
  *    externalizes every npm bare specifier; each exact specifier (including
  *    subpaths like `typebox/value`) must then resolve at runtime from
- *    apps/desktop. `typebox`, `pg`, `@notionhq/client`, and the pi-ai
- *    packages were only declared on the workspace packages that use them, not on
+ *    apps/desktop. `typebox`, `pg`, and `@notionhq/client` were only declared
+ *    on the workspace packages that use them, not on
  *    apps/desktop, and weren't hoisted — the loader halted on the first one.
  *    Guarded by "resolves every externalized dependency".
  */

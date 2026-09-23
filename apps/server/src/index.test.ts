@@ -514,7 +514,7 @@ describe("dashframe serve CLI", () => {
 
         // Connector credentials now DO have a class default here: OAuth
         // connector onboarding stores its token bundle through this same
-        // standalone vault. Assistant-provider remains the fail-closed class.
+        // standalone vault.
         const connectorRef = await services.vault!.store("connector-secret", {
           class: CREDENTIAL_CLASS.ConnectorKey,
         });
@@ -529,8 +529,8 @@ describe("dashframe serve CLI", () => {
         // class with no explicit default must keep throwing rather than land
         // in this host-local vault.
         await expect(
-          services.vault!.store("assistant-provider-secret", {
-            class: CREDENTIAL_CLASS.AssistantProvider,
+          services.vault!.store("unregistered-class-secret", {
+            class: "no-such-class" as "connector-key",
           }),
         ).rejects.toThrow(/no fallback default/);
       } finally {

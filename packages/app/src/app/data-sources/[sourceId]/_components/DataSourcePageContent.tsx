@@ -3,10 +3,6 @@ import { ArtifactSwitcher } from "@/components/artifacts/ArtifactSwitcher";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { RefreshTableButton } from "@/components/data-sources/RefreshTableButton";
 import { queryStatus } from "@/data/query-status";
-import {
-  type ArtifactContextValue,
-  useBindArtifact,
-} from "@/components/assistant/artifact-context";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { AppLayout } from "@/components/layouts/AppLayout";
@@ -140,30 +136,6 @@ export function buildAnalysisByFieldId(
  * - Selected table details (fields, metrics, preview)
  * - Actions to create insights from tables
  */
-/**
- * Builds the assistant's artifact binding for a data source, memoized so the
- * binding effect only fires on a real change. Returns null until the source
- * loads.
- */
-function useDataSourceArtifact(
-  dataSource: unknown,
-  sourceId: string,
-  sourceName: string,
-  tableCount: number,
-): ArtifactContextValue | null {
-  return useMemo(() => {
-    if (!dataSource) return null;
-    const unit = tableCount === 1 ? "table" : "tables";
-    const subtitle = tableCount > 0 ? `${tableCount} ${unit}` : undefined;
-    return {
-      kind: "data-source",
-      id: sourceId,
-      title: sourceName || "Untitled source",
-      subtitle,
-    };
-  }, [dataSource, sourceId, sourceName, tableCount]);
-}
-
 export default function DataSourcePageContent({
   sourceId,
 }: DataSourcePageContentProps) {
@@ -226,12 +198,6 @@ export default function DataSourcePageContent({
   // Use source name directly - mutations update database which triggers re-render
   const sourceName = dataSource?.name ?? "";
   const connector = dataSource ? getConnectorById(dataSource.type) : null;
-
-  // Bind the assistant to this data source so its sidebar is contextual to what
-  // the user is looking at. Cleared automatically on unmount.
-  useBindArtifact(
-    useDataSourceArtifact(dataSource, sourceId, sourceName, dataTables.length),
-  );
 
   // Get DataFrame entry for metadata (row/column counts).
   const dataFrameId = selectedTable?.dataFrameId;

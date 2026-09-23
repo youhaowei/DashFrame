@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   test: {
     // jsdom gives `window` + `localStorage`, needed by the persisted Zustand
-    // stores (assistant dock preference) and any DOM-touching store logic.
+    // stores and any DOM-touching store logic.
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],

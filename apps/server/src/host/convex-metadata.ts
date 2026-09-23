@@ -187,24 +187,6 @@ export function createHostMetadata(
           typeof internal.host.prepareRemoteDataTable
         >,
       )) as unknown as Field[],
-    listAssistantProviderConfigs: () =>
-      client.query(internal.host.listAssistantProviderConfigs, { workspaceId }),
-    getAssistantProviderConfig: (id) =>
-      client.query(internal.host.getAssistantProviderConfig, {
-        workspaceId,
-        id,
-      }),
-    saveAssistantProviderConfig: (input) =>
-      client.mutation(internal.host.saveAssistantProviderConfig, {
-        workspaceId,
-        ...input,
-      }),
-    removeAssistantProviderConfig: async (input) => {
-      await client.mutation(internal.host.removeAssistantProviderConfig, {
-        workspaceId,
-        ...input,
-      });
-    },
     commitBatch: (principal, commands) =>
       client.mutation(
         internal.host.commitBatch,

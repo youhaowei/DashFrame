@@ -7,8 +7,6 @@ import {
   PanelLeftOpenIcon,
 } from "@wystack/ui-react/icons";
 
-import { AssistantToggle } from "./assistant/AssistantToggle";
-
 /** Width reserved for the macOS traffic lights when the title bar is hidden. */
 const TRAFFIC_LIGHT_SPACER_PX = 64;
 
@@ -60,7 +58,6 @@ export function AppTopBar() {
       }
       right={
         <div className="flex items-center gap-1">
-          <AssistantToggle className="h-7 w-7" />
           <Button
             variant="ghost"
             icon={PaletteIcon}

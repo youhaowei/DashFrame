@@ -23,9 +23,6 @@ const { mockNavigate, mockCommitBatch, mockToastError, renderedState } =
     },
   }));
 
-vi.mock("@/components/assistant/artifact-context", () => ({
-  useBindArtifact: () => undefined,
-}));
 vi.mock("@/components/layouts/AppLayout", () => ({
   AppLayout: ({
     children,

@@ -33,11 +33,6 @@ vi.mock("@/lib/perf", () => ({ PerfHud: () => null }));
 vi.mock("@/lib/stores", () => ({
   useToastStore: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),
 }));
-vi.mock("@/lib/stores/assistant-store", () => ({
-  useAssistantStore: (
-    select: (state: { setSetupOpen: () => void }) => unknown,
-  ) => select({ setSetupOpen: vi.fn() }),
-}));
 vi.mock("@/lib/stores/shell-store", () => ({
   useShellStore: (select: (state: { leftNavOpen: boolean }) => unknown) =>
     select({ leftNavOpen: true }),

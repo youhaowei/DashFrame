@@ -298,10 +298,6 @@ app
       CREDENTIAL_CLASS.ServeToken,
       "electron-keychain",
     );
-    secretRegistry.setClassDefault(
-      CREDENTIAL_CLASS.AssistantProvider,
-      "electron-keychain",
-    );
     // Opaque secret references map to encrypted host blobs. Convex stores the
     // references only; the mapping and keychain material remain host-local.
     secretVault = new SecretVault(

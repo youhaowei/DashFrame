@@ -8,8 +8,7 @@ import {
 } from "react";
 
 import { AppTopBar } from "@/components/AppTopBar";
-import { ArtifactContextProvider } from "@/components/assistant/artifact-context";
-import { AssistantRegion } from "@/components/assistant/AssistantRegion";
+import { useRenderPerf } from "@/lib/perf";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Navigation } from "@/components/navigation";
 import { ConnectorSetup } from "@/components/providers/ConnectorSetup";
@@ -20,8 +19,8 @@ import { ShellRails } from "@/components/shell/ShellRails";
 import { ThemeProvider } from "@/components/theme-provider";
 import { WebMCPProvider } from "@/components/webmcp/WebMCPProvider";
 import { PlatformProvider } from "@/lib/platform";
-import { Outlet } from "@tanstack/react-router";
-import { TooltipProvider } from "@wystack/ui-react";
+import { Outlet, useLocation } from "@tanstack/react-router";
+import { Stage, TooltipProvider } from "@wystack/ui-react";
 import { Toaster } from "sonner";
 
 /**
@@ -51,8 +50,7 @@ const PassThrough: ProviderWrapper = ({ children }) => <>{children}</>;
  *   TopBar  (full-width window chrome)
  *   ├── Dock side=left   — Navigation (flat, on the canvas)
  *   ├── Stage            — the primary content surface (artifact/page)
- *   ├── Dock side=right  — page-scoped context panel family
- *   └── Dock side=right  — persistent assistant rail
+ *   └── Dock side=right  — page-scoped context panel family
  *
  * The left nav and top bar sit *flat* on the canvas (window chrome); the Stage
  * is the elevated primary surface; side rails float as vibrancy Docks. Region
@@ -61,6 +59,8 @@ const PassThrough: ProviderWrapper = ({ children }) => <>{children}</>;
 function Shell() {
   const shellRowRef = useRef<HTMLDivElement>(null);
   const shellWidth = useElementWidth(shellRowRef);
+  const pathname = useLocation({ select: (l) => l.pathname });
+  useRenderPerf(`shell:${pathname}`);
 
   return (
     <div className="relative isolate flex h-screen flex-col text-neutral-fg">
@@ -70,9 +70,9 @@ function Shell() {
         className="relative flex min-h-0 flex-1 flex-row gap-[var(--surface-inset)] px-[var(--surface-inset)] pb-[var(--surface-inset)]"
       >
         <Navigation />
-        <AssistantRegion>
+        <Stage>
           <Outlet />
-        </AssistantRegion>
+        </Stage>
         <ShellRails shellWidth={shellWidth} />
       </div>
     </div>
@@ -113,13 +113,11 @@ export function RouteRoot({
             <VisualizationSetup>
               <StoreHydration>
                 <ContextPanelProvider>
-                  <ArtifactContextProvider>
-                    <PlatformProvider>
-                      <WebMCPProvider>
-                        <Shell />
-                      </WebMCPProvider>
-                    </PlatformProvider>
-                  </ArtifactContextProvider>
+                  <PlatformProvider>
+                    <WebMCPProvider>
+                      <Shell />
+                    </WebMCPProvider>
+                  </PlatformProvider>
                 </ContextPanelProvider>
               </StoreHydration>
               <Toaster

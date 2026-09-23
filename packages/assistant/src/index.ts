@@ -1,21 +1,3 @@
-/**
- * @dashframe/assistant — agentic report harness substrate.
- *
- * OAuth credential lifecycle: read the Claude Code subscription token from
- * the OS keychain at runtime; refresh in-memory when expired; never write
- * back. Fail closed on dead credentials.
- *
- * Typed tool-layer helper: the seam all assistant mutation and read tools
- * build through.
- *
- * Assistant run entry point: consumes a single AssistantHost port, opens a draft,
- * assembles tools, and drives pi's loop. Never canonical.
- */
-
-// OAuth credential lifecycle
-export * from "./oauth/index.js";
-
-// Typed tool-layer helper — the seam all assistant mutation and read tools build through.
 export {
   Check,
   Convert,
@@ -31,55 +13,9 @@ export {
   type ToolHandlerErrorDetails,
 } from "./tool.js";
 
-// READ layer — privacy-aware graph resolver: 4 fixed read tools, the floor, the
-// GraphReader port, and the command vocabulary guide.
 export * from "./read/index.js";
 
-// AssistantHost port + run entry point.
-export {
-  type AssistantCommand,
-  type AssistantCommandResult,
-  type AssistantHost,
-} from "./assistant-host.js";
-
-export {
-  createAssistantRun,
-  type AssistantRunResult,
-  type AssistantRunTerminationReason,
-  type CreateAssistantRunOptions,
-} from "./assistant-run.js";
-
-export { resolveDefaultAnthropicModel } from "./model.js";
-
-export {
-  getAssistantProviderCatalog,
-  loginAssistantProviderOAuth,
-  resolveAssistantProvider,
-  type AssistantProviderAuthKind,
-  type AssistantProviderCatalogEntry,
-  type AssistantProviderModelOption,
-  type ResolvedAssistantProvider,
-  type StoredAssistantProviderConfig,
-} from "./provider-config.js";
-
-export {
-  registerOAuthProvider,
-  resetOAuthProviders,
-  type OAuthCredentials,
-} from "@earendil-works/pi-ai/oauth";
-
-// Public constants for server-side drift/security tests; applyCommand itself is package-internal.
 export {
   CREDENTIAL_COMMAND_ARG_FIELDS,
   DRAFT_SAFE_COMMANDS,
-} from "./apply-command-tool.js";
-
-// Provider measurement harness — live Anthropic/Bedrock streaming smoke.
-export {
-  installBedrockProvider,
-  measureAssistantStream,
-  measureProviderRun,
-  measureProviderRuns,
-  type ProviderMeasurementResult,
-  type ProviderMeasurementSpec,
-} from "./provider-measurement.js";
+} from "./draft-commands.js";

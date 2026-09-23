@@ -8,7 +8,6 @@ import {
   draftLifecycleErrorDescription,
   isDriftError,
 } from "@/components/preview-diff/user-facing-errors";
-import { useAssistantStore } from "@/lib/stores/assistant-store";
 import { api } from "@dashframe/convex-backend/api";
 import { getConvexClient } from "@/data/runtime";
 import { useNavigate } from "@tanstack/react-router";
@@ -188,7 +187,6 @@ function PublishBlockedReason({
 
 export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
   const navigate = useNavigate();
-  const setPendingDraft = useAssistantStore((state) => state.setPendingDraft);
   const {
     data: review,
     isLoading,
@@ -219,9 +217,6 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
         expectedCommandCount: String(review.commandCount),
         expectedLogSignature: review.logSignature,
       });
-      if (useAssistantStore.getState().pendingDraftId === draftId) {
-        setPendingDraft(null);
-      }
       toast.success("Draft published");
       let remaining = openDrafts.filter((draft) => draft.draftId !== draftId);
       try {
@@ -247,9 +242,6 @@ export default function DraftReviewPage({ draftId }: DraftReviewPageProps) {
     setBusy("discard");
     try {
       await discard({ draftId });
-      if (useAssistantStore.getState().pendingDraftId === draftId) {
-        setPendingDraft(null);
-      }
       toast.success("Draft discarded");
       navigate({ to: "/drafts", replace: true });
     } catch (error) {

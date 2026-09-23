@@ -322,7 +322,7 @@ export async function createHostedServerSurface(options: {
   const staticSurface = await createStaticWebSurface(options.staticDirectory);
   app.get("/health", (c) => c.json({ status: "ok", mode: "hosted" }));
   app.get("*", (c) => {
-    if (/^\/(api|data|assistant|mcp|auth)(\/|$)/.test(c.req.path))
+    if (/^\/(api|data|mcp|auth)(\/|$)/.test(c.req.path))
       return c.json({ error: "Not found" }, 404);
     return staticSurface(c.req.raw);
   });
