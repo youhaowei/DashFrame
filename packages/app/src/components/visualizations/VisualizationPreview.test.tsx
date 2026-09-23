@@ -14,6 +14,7 @@ import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
  */
 import { render, screen } from "@testing-library/react";
 import type { UseInsightPaginationOptions } from "@/hooks/useInsightPagination";
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { VisualizationPreview } from "./VisualizationPreview";
 
@@ -390,5 +391,148 @@ describe("VisualizationPreview — (c) encoding-missing branch", () => {
       }),
     );
     expect(screen.getByTestId("chart")).not.toBeNull();
+  });
+});
+
+it("titles a measure from its source column's display name", () => {
+  const metricId = "40000000-0000-4000-8000-000000000001";
+  const sourceAlias = "field_50000000_0000_4000_8000_000000000001";
+  const metricInsight = {
+    ...insight,
+    metrics: [
+      {
+        id: metricId,
+        name: "",
+        sourceTable: "t1",
+        columnName: sourceAlias,
+        aggregation: "sum",
+      },
+    ],
+  } as import("@dashframe/types").Insight;
+  mockChart.mockClear();
+  mockResolveEncoding.mockReturnValueOnce({ y: "metric_y" });
+  mockUseInsightPagination.mockReturnValueOnce({
+    dataFrameId: "frame-presentation",
+    isReady: true,
+    error: null,
+    resolvedFields: [],
+  });
+
+  render(
+    <VisualizationPreview
+      visualization={{
+        ...visualization,
+        encoding: { y: `metric:${metricId}` },
+      }}
+      thumbnail={false}
+      columnDisplayNames={{ [sourceAlias]: "Revenue" }}
+      materialization={{
+        insight: metricInsight,
+        dataTable,
+        dataFrameId: "frame-shared",
+        isReady: true,
+        error: null,
+        resolvedFields: [],
+      }}
+    />,
+  );
+
+  expect(mockChart).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      encoding: expect.objectContaining({ yLabel: "Sum of Revenue" }),
+    }),
+  );
+});
+
+describe("VisualizationPreview — chart chrome", () => {
+  function renderReady(thumbnail?: boolean) {
+    mockChart.mockClear();
+    mockUseInsight.mockReturnValue({
+      data: {
+        ...insight,
+        source: { sourceType: "insight", sourceId: "upstream" },
+      },
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [] });
+    mockUseInsightPagination.mockReturnValue({
+      resolvedFields: [{ id: "f1", name: "Revenue", tableId: "upstream" }],
+    });
+    mockResolveEncoding.mockReturnValue({ x: "field_f1" });
+    mockUseInsightView.mockReturnValue({
+      viewName: "frame-ready",
+      isReady: true,
+      error: null,
+    });
+    render(
+      <VisualizationPreview
+        visualization={visualization}
+        {...(thumbnail === undefined ? {} : { thumbnail })}
+      />,
+    );
+  }
+
+  it("draws a card thumbnail without axes by default", () => {
+    renderReady();
+    expect(screen.getByTestId("chart")).toBeTruthy();
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({ preview: true }),
+    );
+  });
+
+  it("draws the full chart, axes included, when it is not a thumbnail", () => {
+    renderReady(false);
+    expect(screen.getByTestId("chart")).toBeTruthy();
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        preview: false,
+        // Axis titles name the field, not its column alias.
+        encoding: expect.objectContaining({ xLabel: "Revenue" }),
+      }),
+    );
+  });
+
+  it("titles repeat-join fields with their instance-aware display names", () => {
+    const userNameId = "30000000-0000-4000-8000-000000000001";
+    const approverNameId = `${userNameId}_j1`;
+    mockChart.mockClear();
+    mockResolveEncoding.mockReturnValueOnce({ x: "field_x", color: "field_c" });
+
+    render(
+      <VisualizationPreview
+        visualization={{
+          ...visualization,
+          encoding: {
+            x: `field:${userNameId}`,
+            color: `field:${approverNameId}`,
+          },
+        }}
+        thumbnail={false}
+        columnDisplayNames={{
+          [fieldIdToColumnAlias(userNameId)]: "User Name (created_by)",
+          [fieldIdToColumnAlias(approverNameId)]: "User Name (approved_by)",
+        }}
+        materialization={{
+          insight,
+          dataTable,
+          dataFrameId: "frame-shared",
+          isReady: true,
+          error: null,
+          resolvedFields: [
+            { id: userNameId, name: "User Name", tableId: "users" },
+            { id: approverNameId, name: "User Name", tableId: "users" },
+          ] as import("@dashframe/types").Field[],
+        }}
+      />,
+    );
+
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        encoding: expect.objectContaining({
+          xLabel: "User Name (created_by)",
+          colorLabel: "User Name (approved_by)",
+        }),
+      }),
+    );
   });
 });
