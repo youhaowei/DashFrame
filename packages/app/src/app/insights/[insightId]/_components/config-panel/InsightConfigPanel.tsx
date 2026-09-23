@@ -16,7 +16,6 @@ import {
   saveReusableMeasure,
   importReusableMeasure,
 } from "@dashframe/engine";
-import { MeasureLibraryControls } from "./MeasureLibraryControls";
 import type {
   Command,
   DataTable,
@@ -609,6 +608,9 @@ export function InsightConfigPanel({
     },
     [commitBatch, dataTable.id],
   );
+
+  const measureLibraryAvailable =
+    insight.source.sourceType === "dataTable" && !insight.joins?.length;
 
   const handleReuseMeasure = useCallback(
     async (metricId: string) => {
@@ -1306,16 +1308,13 @@ export function InsightConfigPanel({
                 onViewerChange={(id, enabled) =>
                   setViewerChoice("measures", id, enabled)
                 }
+                // The measure library holds single-source definitions only.
+                {...(measureLibraryAvailable && {
+                  savedMeasures: dataTable.metrics ?? [],
+                  onReuse: handleReuseMeasure,
+                  onSaveToSource: handleSaveReusableMeasure,
+                })}
               />
-              {insight.source.sourceType === "dataTable" &&
-                !insight.joins?.length && (
-                  <MeasureLibraryControls
-                    metrics={visibleMetrics}
-                    saved={dataTable.metrics ?? []}
-                    onSave={handleSaveReusableMeasure}
-                    onReuse={handleReuseMeasure}
-                  />
-                )}
             </>,
           )}
           {renderSection(

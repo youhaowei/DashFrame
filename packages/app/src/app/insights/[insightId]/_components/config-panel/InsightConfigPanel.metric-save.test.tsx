@@ -85,12 +85,32 @@ vi.mock("./MetricsSection", () => ({
     onAdd,
     onEdit,
     onRemove,
+    savedMeasures,
+    onReuse,
+    onSaveToSource,
   }: {
     onAdd: (metric: InsightMetric) => Promise<void>;
     onEdit: (metric: InsightMetric) => Promise<void>;
     onRemove: (metricId: string) => void;
+    savedMeasures?: { id: string; name: string }[];
+    onReuse?: (id: string) => Promise<void>;
+    onSaveToSource?: (metricId: string) => Promise<void>;
   }) => (
     <>
+      {savedMeasures?.map((saved) => (
+        <button
+          key={saved.id}
+          type="button"
+          onClick={() => onReuse?.(saved.id)}
+        >
+          Reuse {saved.name}
+        </button>
+      ))}
+      {onSaveToSource && (
+        <button type="button" onClick={() => onSaveToSource(revenue.id)}>
+          Save revenue to source
+        </button>
+      )}
       <button type="button" onClick={() => onRemove(margin.id)}>
         Remove margin
       </button>
@@ -188,11 +208,7 @@ describe("InsightConfigPanel metric saves", () => {
       ...insight,
       reporting: { measureIds: [revenue.id], totals: true },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Reuse measure" }));
-    fireEvent.click(
-      await screen.findByRole("checkbox", { name: "Saved orders" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Apply", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Reuse Saved orders" }));
     await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
     const commands = commitBatch.mock.calls[0][0].commands;
     expect(commands).toHaveLength(2);
@@ -211,16 +227,48 @@ describe("InsightConfigPanel metric saves", () => {
     );
   });
 
+  it("offers the measure library only on a single-table source", () => {
+    renderPanel({
+      ...insight,
+      joins: [
+        {
+          type: "left",
+          rightTableId: "20000000-0000-4000-8000-000000000002" as UUID,
+          leftKey: "customer_id",
+          rightKey: "id",
+        },
+      ],
+    } as Insight);
+    expect(
+      screen.queryByRole("button", { name: "Reuse Saved orders" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Save revenue to source" }),
+    ).toBeNull();
+  });
+
+  it("offers no measure library on an insight built on another insight", () => {
+    renderPanel({
+      ...insight,
+      source: {
+        sourceType: "insight",
+        sourceId: "30000000-0000-4000-8000-000000000003" as UUID,
+      },
+    } as Insight);
+    expect(
+      screen.queryByRole("button", { name: "Reuse Saved orders" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Save revenue to source" }),
+    ).toBeNull();
+  });
+
   it("saves a reusable source definition without mutating the report", async () => {
     commitBatch.mockResolvedValue({});
     renderPanel();
     fireEvent.click(
-      screen.getByRole("button", { name: "Save measure to source" }),
+      screen.getByRole("button", { name: "Save revenue to source" }),
     );
-    fireEvent.click(
-      await screen.findByRole("checkbox", { name: "Revenue", exact: true }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Apply", exact: true }));
     await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
     const commands = commitBatch.mock.calls[0][0].commands;
     expect(commands).toHaveLength(1);
