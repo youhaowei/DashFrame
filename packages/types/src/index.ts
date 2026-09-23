@@ -109,7 +109,7 @@ export type {
   InsightSource,
 } from "./insights";
 
-export { isUnmodifiedDraft } from "./insights";
+export { fixedRuntimeIds, isUnmodifiedDraft } from "./insights";
 
 export type {
   AxisType,

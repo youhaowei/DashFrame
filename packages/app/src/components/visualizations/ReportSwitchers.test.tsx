@@ -50,7 +50,7 @@ describe("report reader switchers", () => {
     render(
       <ReportSwitchers insight={insight} fields={fields} onChange={onChange} />,
     );
-    await user.click(screen.getByRole("button", { name: "Dimensions · 2" }));
+    await user.click(screen.getByRole("button", { name: "Fields · 2 of 3" }));
     await user.click(screen.getByRole("checkbox", { name: "Channel" }));
     await user.click(screen.getByRole("checkbox", { name: "Country" }));
     await user.click(
@@ -82,12 +82,12 @@ describe("report reader switchers", () => {
     }
     render(<ControlledSwitchers />);
 
-    await user.click(screen.getByRole("button", { name: "Dimensions · 2" }));
+    await user.click(screen.getByRole("button", { name: "Fields · 2 of 3" }));
     await user.click(screen.getByRole("checkbox", { name: "Channel" }));
     await user.click(screen.getByRole("checkbox", { name: "Country" }));
     await user.click(screen.getByRole("button", { name: "Apply" }));
 
-    await user.click(screen.getByRole("button", { name: "Dimensions · 2" }));
+    await user.click(screen.getByRole("button", { name: "Fields · 2 of 3" }));
     expect(screen.getByRole("checkbox", { name: "Channel" })).toBeTruthy();
     await user.click(screen.getByRole("checkbox", { name: "Country" }));
     await user.click(screen.getByRole("checkbox", { name: "Channel" }));
@@ -96,7 +96,7 @@ describe("report reader switchers", () => {
       expect(screen.getByRole("status").textContent).toBe('["date","channel"]'),
     );
 
-    await user.click(screen.getByRole("button", { name: "Dimensions · 2" }));
+    await user.click(screen.getByRole("button", { name: "Fields · 2 of 3" }));
     expect(screen.getByRole("checkbox", { name: "Country" })).toBeTruthy();
   });
   it("selects a measure while preserving the active dimensions and filter values", async () => {
@@ -114,13 +114,40 @@ describe("report reader switchers", () => {
         onChange={onChange}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Measures · 2" }));
+    await user.click(screen.getByRole("button", { name: "Metrics · 2 of 2" }));
     await user.click(screen.getByRole("checkbox", { name: "Orders" }));
     await user.click(
       screen.getByRole("button", { name: "Apply", exact: true }),
     );
     await waitFor(() =>
       expect(onChange).toHaveBeenCalledWith({ ...runtime, measures: ["rate"] }),
+    );
+  });
+  it("keeps fields the author didn't mark when a viewer changes the choice", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onChange = vi.fn();
+    const partlyOpen: Insight = {
+      ...insight,
+      runtimeControls: {
+        dimensions: { allowedIds: ["channel", "country"], maxSelected: 2 },
+      },
+    };
+    render(
+      <ReportSwitchers
+        insight={partlyOpen}
+        fields={fields}
+        onChange={onChange}
+      />,
+    );
+    // Month is not a viewer choice, so it is neither offered nor counted.
+    await user.click(screen.getByRole("button", { name: "Fields · 1 of 2" }));
+    expect(screen.queryByRole("checkbox", { name: "Month" })).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: "Channel" }));
+    await user.click(
+      screen.getByRole("button", { name: "Apply", exact: true }),
+    );
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({ dimensions: ["date"] }),
     );
   });
   it("keeps author choices open when saving declarations fails", async () => {
@@ -134,7 +161,7 @@ describe("report reader switchers", () => {
       />,
     );
     await user.click(
-      screen.getByRole("button", { name: "Viewer choices · 1" }),
+      screen.getByRole("button", { name: "Viewer choices · 1 of 1" }),
     );
     await user.click(
       screen.getByRole("button", { name: "Apply", exact: true }),

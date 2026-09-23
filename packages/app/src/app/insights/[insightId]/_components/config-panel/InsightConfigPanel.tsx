@@ -1,6 +1,5 @@
 import { measureFilterFields } from "@/lib/insights/measure-filter-fields";
 import type { PivotSortOption } from "@/lib/insights/pivot-sort-options";
-import { ReportSelectionMenu } from "@/components/visualizations/ReportSwitchers";
 import { ReportPeriodControl, ReportResultOptions } from "./ReportSettings";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
@@ -399,15 +398,26 @@ export function InsightConfigPanel({
     kind: "dimensions" | "measures",
     ids: string[],
   ) => {
-    const current = latestInsightRef.current;
+    // Build on the staged value so a change made before the last echo lands
+    // is not overwritten.
     const controls = {
-      ...current.runtimeControls,
+      ...runtimeControlsRef.current,
       [kind]: ids.length
         ? { allowedIds: ids, maxSelected: Math.min(16, ids.length) }
         : undefined,
     };
     if (!(await handleRuntimeControlsChange(controls)))
       throw new Error("Could not save viewer choices.");
+  };
+  const setViewerChoice = (
+    kind: "dimensions" | "measures",
+    id: string,
+    enabled: boolean,
+  ) => {
+    const current = runtimeControlsRef.current?.[kind]?.allowedIds ?? [];
+    const next = current.filter((value) => value !== id);
+    if (enabled) next.push(id as UUID);
+    return saveViewerChoices(kind, next);
   };
 
   /**
@@ -1263,18 +1273,13 @@ export function InsightConfigPanel({
                 onRemove={handleRemoveField}
                 onRename={handleRenameField}
                 onAdd={handleAddField}
+                viewerFieldIds={
+                  localRuntimeControls?.dimensions?.allowedIds ?? []
+                }
+                onViewerChange={(id, enabled) =>
+                  setViewerChoice("dimensions", id, enabled)
+                }
               />
-              <div className="mt-2">
-                <ReportSelectionMenu
-                  label="Viewer dimension choices"
-                  options={combinedFields.map((field) => ({
-                    id: field.id,
-                    label: field.displayName ?? field.name,
-                  }))}
-                  selected={localRuntimeControls?.dimensions?.allowedIds ?? []}
-                  onApply={(ids) => saveViewerChoices("dimensions", ids)}
-                />
-              </div>
             </>,
           )}
           {renderSection(
@@ -1288,6 +1293,12 @@ export function InsightConfigPanel({
                 onRemove={handleRemoveMetric}
                 onAdd={handleAddMetric}
                 onEdit={handleEditMetric}
+                viewerMetricIds={
+                  localRuntimeControls?.measures?.allowedIds ?? []
+                }
+                onViewerChange={(id, enabled) =>
+                  setViewerChoice("measures", id, enabled)
+                }
               />
               {insight.source.sourceType === "dataTable" &&
                 !insight.joins?.length && (
@@ -1298,17 +1309,6 @@ export function InsightConfigPanel({
                     onReuse={handleReuseMeasure}
                   />
                 )}
-              <div className="mt-2">
-                <ReportSelectionMenu
-                  label="Viewer measure choices"
-                  options={visibleMetrics.map((metric) => ({
-                    id: metric.id,
-                    label: metric.name,
-                  }))}
-                  selected={localRuntimeControls?.measures?.allowedIds ?? []}
-                  onApply={(ids) => saveViewerChoices("measures", ids)}
-                />
-              </div>
             </>,
           )}
           {renderSection(

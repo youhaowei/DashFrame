@@ -9,7 +9,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { reportingSchema } from "@dashframe/convex-backend/codecs";
-import { isMeasureExpression } from "@dashframe/types";
+import { fixedRuntimeIds, isMeasureExpression } from "@dashframe/types";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
@@ -460,11 +460,16 @@ function applyRuntimeSelections(
     const ids = runtime?.[kind];
     if (ids === undefined) continue;
     const control = saved.runtimeControls?.[kind];
+    // Only viewer choices may come and go; the rest of the saved selection
+    // must stay in every runtime request.
+    const fixed = fixedRuntimeIds(saved, kind);
+    const optional = ids.filter((id) => !fixed.includes(id));
     if (
       !control ||
-      ids.length > control.maxSelected ||
+      optional.length > control.maxSelected ||
       new Set(ids).size !== ids.length ||
-      ids.some((id) => !control.allowedIds.includes(id)) ||
+      fixed.some((id) => !ids.includes(id)) ||
+      optional.some((id) => !control.allowedIds.includes(id)) ||
       (kind === "measures" &&
         (ids.length === 0 ||
           ids.some((id) => !saved.metrics.some((metric) => metric.id === id))))

@@ -37,6 +37,7 @@ import {
   type MeasureOptions,
 } from "./MeasureCalculationFields";
 import { metricColumnNameForSave } from "./metric-formula";
+import { ViewerChoiceCheckbox, ViewerChoiceMark } from "./ViewerChoice";
 import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 interface MetricSortableItem extends SortableListItem {
@@ -139,7 +140,12 @@ function MetricEditor({
   dragHandle,
   onSave,
   onRemove,
+  viewerChoice = false,
+  onViewerChange,
 }: {
+  /** Whether viewers can show or hide this metric. */
+  viewerChoice?: boolean;
+  onViewerChange?: (metricId: string, enabled: boolean) => Promise<void>;
   metrics: InsightMetric[];
   metric?: InsightMetric;
   dataTable: DataTable;
@@ -161,6 +167,7 @@ function MetricEditor({
   const [columnName, setColumnName] = useState(metric?.columnName ?? "");
   const [nameDraft, setNameDraft] = useState(metric?.name ?? "");
   const [nameEdited, setNameEdited] = useState(Boolean(metric));
+  const [viewer, setViewer] = useState(viewerChoice);
   const [error, setError] = useState<string | null>(null);
   const [measureValidationError, setMeasureValidationError] = useState<
     string | null
@@ -193,6 +200,7 @@ function MetricEditor({
     setColumnName(metric?.columnName ?? "");
     setNameDraft(metric?.name ?? "");
     setNameEdited(Boolean(metric));
+    setViewer(viewerChoice);
     setError(null);
     setMeasureValidationError(null);
   };
@@ -210,14 +218,18 @@ function MetricEditor({
     setIsSaving(true);
     setError(null);
     try {
-      await onSave({
-        id: metric?.id ?? (crypto.randomUUID() as UUID),
-        name: name.trim(),
-        sourceTable: metric?.sourceTable ?? dataTable.id,
-        columnName: metricColumnNameForSave(aggregation, columnName),
-        aggregation,
-        ...options,
-      });
+      if (!metric || definitionChanged) {
+        await onSave({
+          id: metric?.id ?? (crypto.randomUUID() as UUID),
+          name: name.trim(),
+          sourceTable: metric?.sourceTable ?? dataTable.id,
+          columnName: metricColumnNameForSave(aggregation, columnName),
+          aggregation,
+          ...options,
+        });
+      }
+      if (metric && viewer !== viewerChoice)
+        await onViewerChange?.(metric.id, viewer);
       setOpen(false);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Unknown error";
@@ -226,6 +238,19 @@ function MetricEditor({
       setIsSaving(false);
     }
   };
+
+  const definitionChanged =
+    metric === undefined ||
+    JSON.stringify(options) !==
+      JSON.stringify({
+        expression: metric.expression,
+        filters: metric.filters,
+        format: metric.format,
+      }) ||
+    name.trim() !== metric.name ||
+    aggregation !== metric.aggregation ||
+    metricColumnNameForSave(aggregation, columnName) !==
+      (metric.columnName || undefined);
 
   const trigger = metric ? (
     <WorkbenchChip
@@ -251,6 +276,11 @@ function MetricEditor({
             </button>
           }
         />
+      }
+      trailing={
+        viewerChoice ? (
+          <ViewerChoiceMark label={`Viewers can show or hide ${metric.name}`} />
+        ) : undefined
       }
       removeLabel={`Remove ${metric.name}`}
       onRemove={onRemove}
@@ -360,6 +390,13 @@ function MetricEditor({
             }}
           />
         </div>
+        {metric && onViewerChange && (
+          <ViewerChoiceCheckbox
+            checked={viewer}
+            onCheckedChange={setViewer}
+            kind="metrics"
+          />
+        )}
         <div className="flex justify-end gap-2">
           <Button
             label="Cancel"
@@ -375,17 +412,7 @@ function MetricEditor({
             disabled={
               !name.trim() ||
               (needsField && !columnName) ||
-              (metric !== undefined &&
-                JSON.stringify(options) ===
-                  JSON.stringify({
-                    expression: metric.expression,
-                    filters: metric.filters,
-                    format: metric.format,
-                  }) &&
-                name.trim() === metric.name &&
-                aggregation === metric.aggregation &&
-                metricColumnNameForSave(aggregation, columnName) ===
-                  (metric.columnName || undefined))
+              (!definitionChanged && viewer === viewerChoice)
             }
             onClick={() => void save()}
           />
@@ -403,7 +430,12 @@ export function MetricsSection({
   onRemove,
   onAdd,
   onEdit,
+  viewerMetricIds = [],
+  onViewerChange,
 }: {
+  /** Metrics viewers can show or hide. */
+  viewerMetricIds?: readonly string[];
+  onViewerChange?: (metricId: string, enabled: boolean) => Promise<void>;
   metrics: InsightMetric[];
   dataTable: DataTable;
   columnDisplayNames?: ColumnDisplayNames;
@@ -436,6 +468,8 @@ export function MetricsSection({
               columnDisplayNames={columnDisplayNames}
               dragHandle={dragHandle}
               onSave={onEdit}
+              viewerChoice={viewerMetricIds.includes(item.id)}
+              onViewerChange={onViewerChange}
               onRemove={() => onRemove(item.id)}
             />
           )}

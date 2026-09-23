@@ -272,6 +272,28 @@ export function isUnmodifiedDraft(insight: InsightDraftShape): boolean {
 }
 
 /**
+ * Viewer choices name the fields or measures a viewer may turn on or off.
+ * Everything else the saved insight shows is fixed: it stays in every
+ * viewer's result, and a runtime selection must keep it. Shared by the
+ * runtime controls and the server check so the two can never disagree.
+ */
+export function fixedRuntimeIds(
+  saved: Pick<
+    Insight,
+    "selectedFields" | "metrics" | "reporting" | "runtimeControls"
+  >,
+  kind: "dimensions" | "measures",
+): UUID[] {
+  const optional = new Set(saved.runtimeControls?.[kind]?.allowedIds ?? []);
+  const shown =
+    kind === "dimensions"
+      ? saved.selectedFields
+      : (saved.reporting?.measureIds ??
+        saved.metrics.map((metric) => metric.id));
+  return shown.filter((id) => !optional.has(id));
+}
+
+/**
  * CompiledInsight - An Insight with all IDs resolved to actual entities.
  *
  * This is a "denormalized" view of an Insight where:

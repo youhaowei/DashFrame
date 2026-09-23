@@ -27,7 +27,7 @@ import {
   SelectValue,
   cn,
 } from "@wystack/ui-react";
-import { Eye, ListFilter } from "lucide-react";
+import { ListFilter } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -42,6 +42,7 @@ import {
   isFilterDraftValid,
   type FilterDraft,
 } from "./filter-value";
+import { ViewerChoiceMark } from "./ViewerChoice";
 import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 export interface FilterWithId extends InsightFilter {
@@ -348,7 +349,7 @@ function FilterEditor({
       }
       trailing={
         control ? (
-          <Eye aria-hidden className="h-3.5 w-3.5 text-neutral-fg-subtle" />
+          <ViewerChoiceMark label={`Viewers can change ${displayName}`} />
         ) : undefined
       }
       removeLabel={`Remove filter ${displayName}`}

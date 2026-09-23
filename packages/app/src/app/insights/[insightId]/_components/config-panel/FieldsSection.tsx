@@ -4,6 +4,7 @@ import {
   SortableList,
   WorkbenchAddRow,
   WorkbenchChip,
+  WorkbenchSwitch,
   WorkbenchChipLabel,
   type SortableListItem,
 } from "@dashframe/ui";
@@ -17,6 +18,10 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldLabel,
   Input,
   Label,
   Popover,
@@ -35,6 +40,7 @@ import {
   TextTypeIcon,
 } from "@wystack/ui-react/icons";
 import { useCallback, useState, type ReactNode } from "react";
+import { ViewerChoiceCheckbox, ViewerChoiceMark } from "./ViewerChoice";
 import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 export function FieldTypeIcon({ type }: { type: string }) {
@@ -69,9 +75,14 @@ function FieldRenameEditor({
   onRename,
   reporting,
   onConfigure,
+  viewerChoice = false,
+  onViewerChange,
   onRemove,
 }: {
   field: CombinedField;
+  /** Whether viewers can show or hide this field. */
+  viewerChoice?: boolean;
+  onViewerChange?: (fieldId: string, enabled: boolean) => Promise<void>;
   reporting?: InsightReporting;
   onConfigure?: (
     fieldId: string,
@@ -90,9 +101,11 @@ function FieldRenameEditor({
   const [pivot, setPivot] = useState(
     Boolean(reporting?.pivotFields?.includes(field.id)),
   );
+  const [viewer, setViewer] = useState(viewerChoice);
   const resetGrouping = () => {
     setGrain(reporting?.dateGrains?.[field.id] ?? "none");
     setPivot(Boolean(reporting?.pivotFields?.includes(field.id)));
+    setViewer(viewerChoice);
   };
   const [error, setError] = useState<string | null>(null);
   const { setPending, isPending } = useSaveDismissGuard();
@@ -117,10 +130,11 @@ function FieldRenameEditor({
         grain === "none" ? undefined : grain,
         pivot,
       );
+      if (viewer !== viewerChoice) await onViewerChange?.(field.id, viewer);
       setOpen(false);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Unknown error";
-      setError(`Failed to rename field: ${message}`);
+      setError(`Failed to save field: ${message}`);
     } finally {
       setIsSaving(false);
     }
@@ -155,6 +169,13 @@ function FieldRenameEditor({
               </button>
             }
           />
+        }
+        trailing={
+          viewerChoice ? (
+            <ViewerChoiceMark
+              label={`Viewers can show or hide ${field.displayName}`}
+            />
+          ) : undefined
         }
         removeLabel={`Remove ${field.displayName}`}
         onRemove={onRemove}
@@ -226,6 +247,13 @@ function FieldRenameEditor({
             </div>
           </div>
         )}
+        {onViewerChange && (
+          <ViewerChoiceCheckbox
+            checked={viewer}
+            onCheckedChange={setViewer}
+            kind="fields"
+          />
+        )}
         <div className="flex justify-end gap-2">
           <Button
             label="Cancel"
@@ -242,7 +270,8 @@ function FieldRenameEditor({
               !name.trim() ||
               (name.trim() === field.name &&
                 grain === (reporting?.dateGrains?.[field.id] ?? "none") &&
-                pivot === Boolean(reporting?.pivotFields?.includes(field.id)))
+                pivot === Boolean(reporting?.pivotFields?.includes(field.id)) &&
+                viewer === viewerChoice)
             }
             onClick={() => void save()}
           />
@@ -263,7 +292,12 @@ export function FieldsSection({
   onRemove,
   onRename,
   onAdd,
+  viewerFieldIds = [],
+  onViewerChange,
 }: {
+  /** Fields viewers can show or hide, selected or not. */
+  viewerFieldIds?: readonly string[];
+  onViewerChange?: (fieldId: string, enabled: boolean) => Promise<void>;
   reporting?: InsightReporting;
   onConfigure?: (
     fieldId: string,
@@ -280,6 +314,24 @@ export function FieldsSection({
   onAdd: (fieldId: string) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
+  const [viewerOnly, setViewerOnly] = useState(false);
+  const selectedIds = new Set(selectedFields.map((field) => field.id));
+  // Viewers can add these although the report doesn't show them by default.
+  const viewerOnlyFields = viewerFieldIds.flatMap((id) => {
+    if (selectedIds.has(id)) return [];
+    const field = availableFields.find((candidate) => candidate.id === id);
+    return field ? [field] : [];
+  });
+  // A failed viewer-choice write already shows its own toast.
+  const ignoreRejection = () => undefined;
+  const pickField = (fieldId: string) => {
+    if (viewerOnly) onViewerChange?.(fieldId, true).catch(ignoreRejection);
+    else onAdd(fieldId);
+    setAddOpen(false);
+  };
+  const addableFields = viewerOnly
+    ? availableFields.filter((field) => !viewerFieldIds.includes(field.id))
+    : availableFields;
   const sortableItems: FieldSortableItem[] = selectedFields.map((field) => ({
     id: field.id,
     field,
@@ -290,7 +342,7 @@ export function FieldsSection({
   );
   const tableById = new Map(tables.map((table) => [table.id, table]));
   const groupedFields = new Map<string, CombinedField[]>();
-  for (const field of availableFields) {
+  for (const field of addableFields) {
     const groupId = field.sourceTableId;
     groupedFields.set(groupId, [...(groupedFields.get(groupId) ?? []), field]);
   }
@@ -317,12 +369,35 @@ export function FieldsSection({
               onConfigure={onConfigure}
               dragHandle={dragHandle}
               onRename={onRename}
+              viewerChoice={viewerFieldIds.includes(item.id)}
+              onViewerChange={onViewerChange}
               onRemove={() => onRemove(item.id)}
             />
           )}
         />
       )}
-      <Popover open={addOpen} onOpenChange={setAddOpen}>
+      {viewerOnlyFields.map((field) => (
+        <WorkbenchChip
+          key={field.id}
+          icon={<FieldTypeIcon type={field.type} />}
+          title={field.displayName}
+          description="viewers can add"
+          trailing={
+            <ViewerChoiceMark label={`Viewers can add ${field.displayName}`} />
+          }
+          removeLabel={`Stop offering ${field.displayName} to viewers`}
+          onRemove={() =>
+            onViewerChange?.(field.id, false).catch(ignoreRejection)
+          }
+        />
+      ))}
+      <Popover
+        open={addOpen}
+        onOpenChange={(next) => {
+          setAddOpen(next);
+          if (!next) setViewerOnly(false);
+        }}
+      >
         <PopoverTrigger
           render={
             <WorkbenchAddRow disabled={availableFields.length === 0}>
@@ -349,10 +424,7 @@ export function FieldsSection({
                       key={field.id}
                       value={field.id}
                       keywords={[field.displayName, field.type, tableName]}
-                      onSelect={() => {
-                        onAdd(field.id);
-                        setAddOpen(false);
-                      }}
+                      onSelect={() => pickField(field.id)}
                     >
                       <FieldTypeIcon type={field.type} />
                       <span className="min-w-0 flex-1 truncate">
@@ -367,6 +439,27 @@ export function FieldsSection({
               ))}
             </CommandList>
           </Command>
+          {onViewerChange && (
+            <Field
+              orientation="horizontal"
+              className="border-t border-neutral-border/60 px-3 py-2"
+            >
+              <FieldContent>
+                <FieldLabel htmlFor="add-field-viewer-only">
+                  Offer to viewers only
+                </FieldLabel>
+                <FieldDescription id="add-field-viewer-only-hint">
+                  Hidden until a viewer adds it
+                </FieldDescription>
+              </FieldContent>
+              <WorkbenchSwitch
+                id="add-field-viewer-only"
+                aria-describedby="add-field-viewer-only-hint"
+                checked={viewerOnly}
+                onCheckedChange={(next) => setViewerOnly(next === true)}
+              />
+            </Field>
+          )}
         </PopoverContent>
       </Popover>
     </div>
