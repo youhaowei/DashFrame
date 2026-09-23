@@ -14,6 +14,7 @@ import { api } from "@dashframe/convex-backend/api";
 import type {
   FileSourceConnector,
   RemoteApiConnector,
+  SourceType,
 } from "@dashframe/engine";
 import type { CreateDataSourceInput, UUID } from "@dashframe/types";
 import { cmd, COMMAND_PATHS, resultValueByCommandPath } from "@dashframe/types";
@@ -96,6 +97,12 @@ export interface DataPickerContentProps {
   showSources?: boolean;
   /** Keep parent onboarding mounted through connection and follow-up selection. */
   onActivityChange?: (active: boolean) => void;
+  /**
+   * Only offer these kinds of connection under "Add New Data". A caller that
+   * imports into one existing source passes its kind, so the picker cannot
+   * create a different source and hand back a table from it.
+   */
+  connectorSourceTypes?: readonly SourceType[];
 }
 
 interface RemoteResourceState {
@@ -123,6 +130,7 @@ export function DataPickerContent({
   showInsights = true,
   showSources = true,
   onActivityChange,
+  connectorSourceTypes,
 }: DataPickerContentProps) {
   const dataSourcesQuery = queryStatus(
     useQuery({ query: api.app.listDataSources, args: {} }),
@@ -558,6 +566,7 @@ export function DataPickerContent({
               onConnect={handleConnect}
               onOAuthConnect={handleOAuthConnect}
               onActivityChange={handleConnectorActivityChange}
+              sourceTypes={connectorSourceTypes}
             />
           </SectionList>
         )}

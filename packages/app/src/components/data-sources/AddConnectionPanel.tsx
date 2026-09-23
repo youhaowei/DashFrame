@@ -7,6 +7,7 @@ import type {
   AnyConnector,
   FileSourceConnector,
   RemoteApiConnector,
+  SourceType,
 } from "@dashframe/engine";
 import {
   Alert,
@@ -40,6 +41,11 @@ export interface AddConnectionPanelProps {
     dataSourceId: string,
   ) => Promise<void>;
   onActivityChange?: (active: boolean) => void;
+  /**
+   * Only offer connectors of these kinds. Omit to offer every connector in
+   * the catalog.
+   */
+  sourceTypes?: readonly SourceType[];
 }
 
 /**
@@ -60,6 +66,7 @@ export function AddConnectionPanel({
   onConnect,
   onOAuthConnect,
   onActivityChange,
+  sourceTypes,
 }: AddConnectionPanelProps) {
   const [activeConnectorId, setActiveConnectorId] = useState<string | null>(
     null,
@@ -102,9 +109,10 @@ export function AddConnectionPanel({
     if (!catalog) return [];
     return catalog
       .map((entry) => getConnectorById(entry.id))
-      .filter((c): c is AnyConnector => c !== undefined);
+      .filter((c): c is AnyConnector => c !== undefined)
+      .filter((c) => !sourceTypes || sourceTypes.includes(c.sourceType));
     // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- registryVersion is a trigger-only dependency: not read above, but it recomputes once the registry hydrates after mount
-  }, [catalog, registryVersion]);
+  }, [catalog, registryVersion, sourceTypes]);
 
   // The connector the reader picked, if it is still in the catalog. A stale id
   // (the registry rehydrated without it) falls back to the list rather than

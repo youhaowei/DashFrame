@@ -376,7 +376,7 @@ function Page({
 }
 
 const nameInput = () =>
-  screen.getByRole("textbox", { name: "Data source name" }) as HTMLInputElement;
+  screen.getByRole("textbox", { name: "Source name" }) as HTMLInputElement;
 const tabs = () => within(screen.getByRole("tablist", { name: "Tables" }));
 const inspector = () => screen.queryByRole("textbox", { name: "Display name" });
 

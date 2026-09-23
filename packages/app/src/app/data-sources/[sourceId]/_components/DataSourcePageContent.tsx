@@ -65,6 +65,7 @@ import {
 const TABLE_PANEL_ID = "data-source-table-panel";
 const PREVIEW_ROW_LIMIT = 50;
 const NO_TABLES: DataTable[] = [];
+const FILE_CONNECTORS = ["file"] as const;
 
 interface DataSourcePageContentProps {
   sourceId: string;
@@ -400,7 +401,7 @@ export default function DataSourcePageContent({
           />
           <Link
             to="/data-sources"
-            className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+            className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
           >
             Data Sources
           </Link>
@@ -782,6 +783,9 @@ function SourceImportDialog({
         title="Import a file"
         showInsights={false}
         showSources={false}
+        // Files always land in Local Files, the one file-backed source, so
+        // only file connectors keep the import in this source.
+        connectorSourceTypes={FILE_CONNECTORS}
         onTableSelect={(tableId) => {
           onClose();
           onImported(tableId as UUID);
@@ -839,27 +843,25 @@ function SourceNameInput({
   };
 
   return (
-    <>
-      <label className="sr-only" htmlFor="data-source-name">
-        Data source name
-      </label>
-      <input
-        id="data-source-name"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        onBlur={() => void commit()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-          if (event.key === "Escape") {
-            cancelledRef.current = true;
-            setName(savedName);
-            event.currentTarget.blur();
-          }
-        }}
-        placeholder="Untitled source"
-        className="min-w-16 flex-1 truncate rounded-sm bg-transparent px-1 py-0.5 text-sm font-semibold text-neutral-fg outline-none placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary"
-      />
-    </>
+    <Input
+      variant="ghost"
+      size="sm"
+      aria-label="Source name"
+      value={name}
+      onChange={(event) => setName(event.target.value)}
+      onBlur={() => void commit()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          cancelledRef.current = true;
+          setName(savedName);
+          event.currentTarget.blur();
+        }
+      }}
+      placeholder="Untitled source"
+      // An inline title: the ghost well at title weight, shrinking with the header.
+      className="w-auto min-w-16 flex-1 truncate font-semibold motion-reduce:transition-none"
+    />
   );
 }
 
