@@ -4,6 +4,7 @@ import {
   SortableList,
   WorkbenchAddRow,
   WorkbenchChip,
+  WorkbenchChipLabel,
   type SortableListItem,
 } from "@dashframe/ui";
 import {
@@ -147,10 +148,10 @@ function FieldRenameEditor({
             render={
               <button
                 type="button"
-                className="min-w-0 flex-1 truncate text-left font-medium focus-visible:outline-none"
+                className="flex min-w-0 flex-1 focus-visible:outline-none"
                 aria-label={`Rename ${field.displayName}`}
               >
-                {field.displayName}
+                <WorkbenchChipLabel title={field.displayName} />
               </button>
             }
           />
