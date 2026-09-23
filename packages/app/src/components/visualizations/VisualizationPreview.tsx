@@ -48,7 +48,9 @@ function encodingLabel(
   }
   if (parsed?.type === "metric") {
     const metric = metrics.find((candidate) => candidate.id === parsed.id);
-    return metric ? getMetricDisplayLabel(metric, [...fields]) : undefined;
+    return metric
+      ? getMetricDisplayLabel(metric, [...fields], columnDisplayNames)
+      : undefined;
   }
   return undefined;
 }

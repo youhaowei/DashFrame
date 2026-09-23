@@ -394,6 +394,56 @@ describe("VisualizationPreview — (c) encoding-missing branch", () => {
   });
 });
 
+it("titles a measure from its source column's display name", () => {
+  const metricId = "40000000-0000-4000-8000-000000000001";
+  const sourceAlias = "field_50000000_0000_4000_8000_000000000001";
+  const metricInsight = {
+    ...insight,
+    metrics: [
+      {
+        id: metricId,
+        name: "",
+        sourceTable: "t1",
+        columnName: sourceAlias,
+        aggregation: "sum",
+      },
+    ],
+  } as import("@dashframe/types").Insight;
+  mockChart.mockClear();
+  mockResolveEncoding.mockReturnValueOnce({ y: "metric_y" });
+  mockUseInsightPagination.mockReturnValueOnce({
+    dataFrameId: "frame-presentation",
+    isReady: true,
+    error: null,
+    resolvedFields: [],
+  });
+
+  render(
+    <VisualizationPreview
+      visualization={{
+        ...visualization,
+        encoding: { y: `metric:${metricId}` },
+      }}
+      thumbnail={false}
+      columnDisplayNames={{ [sourceAlias]: "Revenue" }}
+      materialization={{
+        insight: metricInsight,
+        dataTable,
+        dataFrameId: "frame-shared",
+        isReady: true,
+        error: null,
+        resolvedFields: [],
+      }}
+    />,
+  );
+
+  expect(mockChart).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      encoding: expect.objectContaining({ yLabel: "Sum of Revenue" }),
+    }),
+  );
+});
+
 describe("VisualizationPreview — chart chrome", () => {
   function renderReady(thumbnail?: boolean) {
     mockChart.mockClear();
