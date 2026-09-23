@@ -33,7 +33,7 @@ import {
 // Kind labels — human-readable kind names for the consent surface
 // ---------------------------------------------------------------------------
 
-const KIND_LABELS: Record<ArtifactKind, string> = {
+export const KIND_LABELS: Record<ArtifactKind, string> = {
   dataSource: "Data Source",
   dataTable: "Data Table",
   insight: "Insight",
@@ -42,13 +42,13 @@ const KIND_LABELS: Record<ArtifactKind, string> = {
   dashboard: "Dashboard",
 };
 
-const CHANGE_LABELS: Record<PreviewDirectNode["change"], string> = {
+export const CHANGE_LABELS: Record<PreviewDirectNode["change"], string> = {
   create: "New",
   update: "Changed",
   noop: "Unchanged",
 };
 
-const CHANGE_COLORS: Record<
+export const CHANGE_COLORS: Record<
   PreviewDirectNode["change"],
   "success" | "primary" | "secondary"
 > = {
@@ -57,7 +57,7 @@ const CHANGE_COLORS: Record<
   noop: "secondary",
 };
 
-const FLAG_COLORS: Record<
+export const FLAG_COLORS: Record<
   PreviewDownstreamNode["flag"],
   "warning" | "secondary" | "danger"
 > = {
@@ -66,7 +66,7 @@ const FLAG_COLORS: Record<
   orphaned: "danger",
 };
 
-const FLAG_LABELS: Record<PreviewDownstreamNode["flag"], string> = {
+export const FLAG_LABELS: Record<PreviewDownstreamNode["flag"], string> = {
   recompute: "Will recompute",
   stale: "Stale",
   orphaned: "Orphaned",
@@ -241,7 +241,7 @@ interface PreviewDiffRendererProps {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-type ChangeDetail = {
+export type ChangeDetail = {
   key: string;
   before: unknown;
   after: unknown;
@@ -296,7 +296,7 @@ function redactSecretRefs(value: unknown): unknown {
   );
 }
 
-function formatValue(value: unknown): string {
+export function formatValue(value: unknown): string {
   if (value === undefined) return "—";
   const redacted = redactSecretRefs(value);
   const serialized =
@@ -389,7 +389,7 @@ function fallbackUpdateDetails(
   }));
 }
 
-function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
+export function getChangeDetails(node: PreviewDirectNode): ChangeDetail[] {
   if (node.before === null || node.change === "noop") return [];
 
   const { before, proposedDefinition: proposed } = node;

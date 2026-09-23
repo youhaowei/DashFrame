@@ -33,10 +33,6 @@ vi.mock("./_components/OnboardingView", () => ({
   ),
 }));
 
-vi.mock("@/components/drafts/DraftListItem", () => ({
-  DraftListItem: () => <div>Draft</div>,
-}));
-
 import HomePage from "./page";
 
 function mockProjectPresence(values: {

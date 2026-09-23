@@ -45,6 +45,11 @@ export interface PreviewIntent {
   command: string;
   /** Human-readable summary of the change ("Rename to \"Q1 Revenue\""). */
   summary: string;
+  /**
+   * 0-based index of the command in its batch, so a reviewer can act on the
+   * command behind a line (remove it, fill in its late-bound value).
+   */
+  commandIndex: number;
 }
 
 /**

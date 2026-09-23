@@ -123,6 +123,8 @@ it("isolates draft owners, permits operator review of service drafts, and reject
       commandCount: 1,
       kinds: { renameNode: 1 },
       paths: ["renameNode"],
+      title: 'Rename to "Bot"',
+      createdBy: "service",
     }),
   );
   const foreign = await user("w", "other").mutation(api.app.draftBatch, {
@@ -144,9 +146,21 @@ it("keeps review intent lines for sequential edits of one artifact", async () =>
   });
   const review = await user().query(api.app.draftPublishReview, { draftId });
   expect(review.diff.directNodes[0]?.intent).toEqual([
-    { command: "RenameNode", summary: 'Rename to "First name"' },
-    { command: "RenameNode", summary: 'Rename to "Second name"' },
-    { command: "RenameNode", summary: 'Rename to "Final name"' },
+    {
+      command: "RenameNode",
+      summary: 'Rename to "First name"',
+      commandIndex: 0,
+    },
+    {
+      command: "RenameNode",
+      summary: 'Rename to "Second name"',
+      commandIndex: 1,
+    },
+    {
+      command: "RenameNode",
+      summary: 'Rename to "Final name"',
+      commandIndex: 2,
+    },
   ]);
 });
 

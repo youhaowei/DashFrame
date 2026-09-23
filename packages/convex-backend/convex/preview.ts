@@ -159,7 +159,9 @@ function nestedName(value: Json | undefined): string | null {
  * describes the typed command rather than exposing registry paths or
  * executing a preview.
  */
-export function describeCommand(command: Command): PreviewIntent {
+export function describeCommand(
+  command: Command,
+): Omit<PreviewIntent, "commandIndex"> {
   const args = record(command.args);
   const commandName =
     Object.entries(COMMAND_PATHS).find(
@@ -401,7 +403,10 @@ export async function preview(
           : changed || existing?.change === "update"
             ? "update"
             : "noop",
-        intent: [...(existing?.intent ?? []), describeCommand(command)],
+        intent: [
+          ...(existing?.intent ?? []),
+          { ...describeCommand(command), commandIndex: index },
+        ],
         before: base ? record(redact(publicRow(target, base))) : null,
         proposedDefinition:
           !changed && existing?.change !== "update"

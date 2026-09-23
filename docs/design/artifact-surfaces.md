@@ -31,9 +31,9 @@ Interface labels use sentence case, not decorative uppercase or widely spaced ca
 ## First slice
 
 - Shared artifact page identity, description, navigation, actions, and optional tools row.
-- Shared content grids across Reports, Data Sources, and Drafts, with the same card and empty-state components.
+- Shared content grids across Reports and Data Sources, with the same card and empty-state components. Drafts open on the workbench instead (see below).
 - Reports use the existing Dashboard collection and routes. Questions and their saved Visualization views are reached from the Report context; the project-level Questions view remains a secondary entry from Reports.
-- Draft cards retain explicit discard confirmation and show the change count, update time, and affected command paths.
+- Each draft is a workbench tab; discarding one keeps its explicit confirmation.
 - Data Frames have no navigation root. Their existing inspection route remains available from source and question detail.
 - Source detail uses transient source/table selectors instead of a permanent table rail. Source switching navigates to another artifact; it never rewrites an Insight's source.
 - The first available table is visible by default. A selection not present in the current source falls back to that source's first table, including after deletion.
@@ -53,7 +53,7 @@ Each collection has an explicit content budget:
 | ------------ | ------------------------------------------------------------------------------------------ |
 | Reports      | Name, question count, saved-view count; an empty Report prompts adding its first question. |
 | Data Sources | Connector logo or file-type icon, source name, format or connector, table count.           |
-| Drafts       | Change count, update time, affected command paths, and review action.                      |
+| Drafts       | One workbench tab per draft, titled by its first change.                                   |
 
 ### What this rule does not yet describe
 
@@ -68,24 +68,24 @@ The budget above is the target, not a report on the shipped cards. Two gaps rema
   "Edit Data Frame" sit beside "Save changes", "Clear search" and "Rename source". The
   sentence-case pass remains outstanding on those adjacent surfaces.
 
-## Draft collection content
+## Draft workbench content
 
-Draft cards are deliberately lightweight. The change count is the title; update time and affected command paths provide enough context to find the draft without reconstructing engine state in the collection query. The detailed review remains the place to inspect named artifacts and deterministic command intent.
+Drafts have no collection grid. Each draft waiting for review is a top-bar tab titled by its first change's summary; the left pane holds its origin, status, and scope, the centre lists the artifacts it changes, and the inspector shows the selected change. The review query is the place to inspect named artifacts and deterministic command intent.
 
-`listDrafts` returns stored draft identity, timestamps, command count, command kinds, and paths. It does not rebuild artifact targets or execute a preview for each collection card.
+`listDrafts` returns stored draft identity, timestamps, command count, command kinds, paths, the first change's `title`, and `createdBy` (`user` or `service`, the channel it arrived through). It does not rebuild artifact targets or execute a preview for each tab.
 
 ## Verified data availability
 
 A display field must map to a saved field, a deterministic derivation, or an explicitly identified implementation dependency. The mocks are illustrative, not live project data.
 
-| Display content                       | Current evidence                                                                                              | Delivery constraint                                                                                                                                                                                          |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Source identity and table count       | `DataSource.name`/`type`, connector metadata, related DataTables                                              | Available through existing list queries. File format must come from known import metadata; otherwise use the connector name.                                                                                 |
-| Insight configuration summary         | `Insight.selectedFields`, `metrics`, `filters`, `joins`; field names resolved from metadata                   | Format values mechanically. No AI-authored business narrative.                                                                                                                                               |
-| Visualization identity and provenance | `Visualization.name`/`visualizationType`/`insightId`/`encoding`                                               | Existing list metadata. Saved types are barY, barX, line, areaY, dot, hexbin, heatmap, and raster; Table is not a saved type.                                                                                |
-| Visualization thumbnail               | Saved encoding/spec plus actual Insight result data                                                           | Feasible only with result loading and rendering; no thumbnail field exists. Show an unavailable state until real content can be rendered, and do not execute every visualization eagerly on collection load. |
-| Dashboard layout and counts           | `Dashboard.items[].type`/`x`/`y`/`width`/`height`/`visualizationId`                                           | Geometry and typed counts are direct. Chart images require rendering with saved per-widget overrides, never reusing an unrelated chart.                                                                      |
-| Draft identities and changes          | `listDrafts` identity, timestamps, `commandCount`, `kinds`, and `paths`; `draftPublishReview.diff` for detail | Collection cards stay lightweight; named artifacts and deterministic command intent remain in the detailed review.                                                                                           |
+| Display content                       | Current evidence                                                                                                                    | Delivery constraint                                                                                                                                                                                          |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Source identity and table count       | `DataSource.name`/`type`, connector metadata, related DataTables                                                                    | Available through existing list queries. File format must come from known import metadata; otherwise use the connector name.                                                                                 |
+| Insight configuration summary         | `Insight.selectedFields`, `metrics`, `filters`, `joins`; field names resolved from metadata                                         | Format values mechanically. No AI-authored business narrative.                                                                                                                                               |
+| Visualization identity and provenance | `Visualization.name`/`visualizationType`/`insightId`/`encoding`                                                                     | Existing list metadata. Saved types are barY, barX, line, areaY, dot, hexbin, heatmap, and raster; Table is not a saved type.                                                                                |
+| Visualization thumbnail               | Saved encoding/spec plus actual Insight result data                                                                                 | Feasible only with result loading and rendering; no thumbnail field exists. Show an unavailable state until real content can be rendered, and do not execute every visualization eagerly on collection load. |
+| Dashboard layout and counts           | `Dashboard.items[].type`/`x`/`y`/`width`/`height`/`visualizationId`                                                                 | Geometry and typed counts are direct. Chart images require rendering with saved per-widget overrides, never reusing an unrelated chart.                                                                      |
+| Draft identities and changes          | `listDrafts` identity, timestamps, `commandCount`, `kinds`, `paths`, `title`, and `createdBy`; `draftPublishReview.diff` for detail | Tabs stay lightweight; named artifacts and deterministic command intent remain in the review.                                                                                                                |
 
 ## Remaining v0.3 work
 
