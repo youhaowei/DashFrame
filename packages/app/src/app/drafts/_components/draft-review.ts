@@ -139,7 +139,8 @@ function baseLabel(draft: DraftSummary): string {
 
 /**
  * Each draft's tab label, keyed by id. A label two drafts share gets the time
- * each was created ("… · 4:27 PM"), and the date too when the times collide.
+ * each was created ("… · 4:27 PM"), the date too when the times collide, and
+ * a short piece of the id when even those match.
  */
 export function draftLabels(drafts: DraftSummary[]): Map<string, string> {
   const withSuffix = (
@@ -165,5 +166,16 @@ export function draftLabels(drafts: DraftSummary[]): Map<string, string> {
   const base = new Map(
     drafts.map((draft) => [draft.draftId, baseLabel(draft)]),
   );
-  return withSuffix(withSuffix(base, TIME), DATE_TIME);
+  const dated = withSuffix(withSuffix(base, TIME), DATE_TIME);
+  // Drafts made in the same minute still match; a short piece of each id
+  // tells them apart and stays the same across renders.
+  const counts = new Map<string, number>();
+  for (const label of dated.values())
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  return new Map(
+    [...dated].map(([id, label]) => [
+      id,
+      (counts.get(label) ?? 0) > 1 ? `${label} · ${id.slice(0, 6)}` : label,
+    ]),
+  );
 }

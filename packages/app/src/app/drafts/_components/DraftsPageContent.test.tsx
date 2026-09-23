@@ -525,10 +525,82 @@ describe("DraftsPageContent — centre and lifecycle", () => {
     });
     await waitFor(() =>
       expect(mockNavigate).toHaveBeenCalledWith({
-        to: "/drafts",
+        to: "/drafts/$draftId",
+        params: { draftId: NEWER.draftId },
         replace: true,
       }),
     );
+  });
+
+  it("never reopens a published draft the list still shows", async () => {
+    givenDrafts([OLDER, NEWER]);
+    // Both the subscription and the refresh still list the published draft.
+    mockClientQuery.mockResolvedValue([OLDER, NEWER]);
+    // Make the most recent draft publishable.
+    mockReview.mockImplementation((draftId: string) => ({
+      data:
+        draftId === NEWER.draftId
+          ? { ...newerReview(), lateBound: [], publishBlocked: false }
+          : olderReview(),
+    }));
+    render(<Page />);
+    screen.getByRole("tabpanel", { name: NEWER.title });
+    // Opening /drafts pinned NEWER into the URL; only later calls matter.
+    mockNavigate.mockClear();
+
+    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    await screen.findByRole("tabpanel", { name: OLDER.title });
+    expect(
+      tabs()
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual([OLDER.title]);
+    const pinnedBack = mockNavigate.mock.calls.filter(
+      ([to]) => to.params?.draftId === NEWER.draftId,
+    );
+    expect(pinnedBack).toHaveLength(0);
+  });
+
+  it("shows the empty state after discarding the only draft the list still shows", async () => {
+    const user = userEvent.setup();
+    givenDrafts([NEWER]);
+    mockClientQuery.mockResolvedValue([NEWER]);
+    render(<Page />);
+
+    await user.click(
+      screen.getByRole("button", { name: "More draft actions" }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: /Discard draft/ }),
+    );
+    mockNavigate.mockClear();
+    await act(async () => {
+      await user.click(screen.getByRole("button", { name: "Discard draft" }));
+    });
+
+    await screen.findByRole("heading", {
+      name: "No changes waiting for review",
+    });
+    expect(mockNavigate).toHaveBeenCalledWith({ to: "/drafts", replace: true });
+    expect(
+      mockNavigate.mock.calls.some(
+        ([to]) => to.params?.draftId === NEWER.draftId,
+      ),
+    ).toBe(false);
+  });
+
+  it("tells apart drafts that share a label and a creation minute", () => {
+    const twin = { ...NEWER, draftId: "twin-draft" };
+    givenDrafts([NEWER, twin]);
+    render(<Page />);
+
+    const labels = tabs()
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent);
+    expect(new Set(labels).size).toBe(2);
+    expect(labels.some((label) => label?.endsWith(" · draft-"))).toBe(true);
+    expect(labels.some((label) => label?.endsWith(" · twin-d"))).toBe(true);
   });
 
   it("goes home after publishing the last draft", async () => {

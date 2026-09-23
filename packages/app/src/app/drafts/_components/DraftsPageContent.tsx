@@ -117,7 +117,14 @@ export default function DraftsPageContent({ draftId }: DraftsPageContentProps) {
     isLoading: isLoadingDrafts,
     isError: isDraftsError,
   } = queryStatus(useQuery({ query: api.app.listDrafts, args: {} }));
-  const drafts = sortDrafts(loadedDrafts ?? NO_DRAFTS);
+  // Drafts this page published or discarded. The subscription can list one
+  // for a moment after its mutation returns (or for as long as the
+  // connection is down); skipping them keeps a finished draft from being
+  // chosen, and pinned back into the URL, as the next draft.
+  const [finished, setFinished] = useState<ReadonlySet<string>>(new Set());
+  const drafts = sortDrafts(loadedDrafts ?? NO_DRAFTS).filter(
+    (draft) => !finished.has(draft.draftId),
+  );
   const closed = useClosedDraftTabs((state) => state.closed);
   const closeTab = useClosedDraftTabs((state) => state.close);
   const reopenAll = useClosedDraftTabs((state) => state.reopenAll);
@@ -238,6 +245,29 @@ export default function DraftsPageContent({ draftId }: DraftsPageContentProps) {
     }
   };
 
+  /**
+   * After a publish or discard: remember the draft as finished and open the
+   * most recent draft still waiting, by id. Resolves to that id, or null when
+   * none is left.
+   */
+  const leaveFinishedDraft = async (id: string): Promise<string | null> => {
+    const done = new Set(finished).add(id);
+    setFinished(done);
+    let remaining = drafts;
+    try {
+      remaining = await getConvexClient().query(api.app.listDrafts, {});
+    } catch {
+      // The mutation has already succeeded, so a failed refresh must not fail
+      // the action. Fall through on the drafts already in hand.
+    }
+    const next = mostRecentDraft(
+      remaining.filter((draft) => !done.has(draft.draftId)),
+    );
+    if (!next) return null;
+    void selectDraft(next.draftId);
+    return next.draftId;
+  };
+
   const handlePublish = async () => {
     if (!review || review.publishBlocked) return;
     const publishedId = review.draftId;
@@ -250,17 +280,8 @@ export default function DraftsPageContent({ draftId }: DraftsPageContentProps) {
         expectedLogSignature: review.logSignature,
       });
       toast.success("Draft published");
-      let remaining = drafts.filter((draft) => draft.draftId !== publishedId);
-      try {
-        remaining = await getConvexClient().query(api.app.listDrafts, {});
-      } catch {
-        // Publishing has already succeeded, so a failed refresh must not fail
-        // the action. Fall through on the drafts already in hand.
-      }
-      void navigate({
-        to: remaining.length > 0 ? "/drafts" : "/",
-        replace: true,
-      });
+      const next = await leaveFinishedDraft(publishedId);
+      if (!next) void navigate({ to: "/", replace: true });
     } catch (error) {
       const message = lifecycleMessage(error);
       setReviewError({ draftId: publishedId, message });
@@ -286,7 +307,8 @@ export default function DraftsPageContent({ draftId }: DraftsPageContentProps) {
         try {
           await discard({ draftId: discardedId });
           toast.success("Draft discarded");
-          void navigate({ to: "/drafts", replace: true });
+          const next = await leaveFinishedDraft(discardedId);
+          if (!next) void navigate({ to: "/drafts", replace: true });
         } catch (error) {
           toast.error("Failed to discard draft", {
             description: lifecycleMessage(error),
