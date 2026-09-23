@@ -20,6 +20,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -288,8 +289,7 @@ describe("DashboardsPage – delete confirmation", () => {
     expect(screen.getByText("Customer overview")).not.toBeNull();
   });
 
-  it("shows unique question and saved-view counts and links to Questions", async () => {
-    const user = userEvent.setup();
+  it("shows unique question and saved-view counts", () => {
     mockUseQuery.mockImplementation((ref: { _path: string }) => {
       if (ref._path === "listDashboards") {
         return {
@@ -334,8 +334,7 @@ describe("DashboardsPage – delete confirmation", () => {
         name: /Quarterly plan 2 questions 2 saved views/,
       }),
     ).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "Questions" }));
-    expect(mockNavigate).toHaveBeenCalledWith({ to: "/insights" });
+    expect(screen.queryByRole("button", { name: "Questions" })).toBeNull();
   });
 
   it("does not present false zero counts when report contents fail to load", () => {
@@ -474,4 +473,180 @@ describe("DashboardsPage – delete confirmation", () => {
       expect(mockNavigate).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("DashboardsPage – empty state", () => {
+  const NOW = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  const REPORT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  function mockProject({
+    insights = [],
+    visualizations = [],
+    dataSources = [{ id: "source-1", type: "csv" }],
+  }: {
+    insights?: unknown[];
+    visualizations?: unknown[];
+    dataSources?: unknown[];
+  }) {
+    mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      const data: Record<string, unknown[]> = {
+        listDashboards: [],
+        listVisualizations: visualizations,
+        listInsights: insights,
+        listDataTables: [
+          { id: "table-1", name: "sales_data", dataSourceId: "source-1" },
+        ],
+        listDataSources: dataSources,
+      };
+      return { data: data[ref._path] ?? [], isLoading: false };
+    });
+  }
+
+  function question(id: string, name: string, updatedAt: number) {
+    return {
+      id,
+      name,
+      source: { sourceType: "dataTable", sourceId: "table-1" },
+      createdAt: updatedAt - DAY,
+      updatedAt,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(REPORT_ID);
+    mockCommit.mockResolvedValue({ results: [] });
+  });
+
+  it("starts a report from a recent question that is on no report", async () => {
+    const user = userEvent.setup();
+    mockProject({
+      insights: [
+        question("q-recent", "Revenue by region", NOW - DAY),
+        question("q-old", "Last year's churn", NOW - 60 * DAY),
+        question("q-unsaved", "Scratch question", NOW),
+      ],
+      visualizations: [
+        { id: "view-early", insightId: "q-recent", createdAt: NOW - 3 * DAY },
+        { id: "view-latest", insightId: "q-recent", createdAt: NOW - DAY },
+        { id: "view-old", insightId: "q-old", createdAt: NOW - 60 * DAY },
+      ],
+    });
+
+    render(<DashboardsPage />);
+
+    screen.getByRole("heading", { name: "No reports yet" });
+    const card = screen
+      .getByRole("heading", { name: "Revenue by region" })
+      .closest("article")!;
+    expect(card.textContent).toContain("sales_data");
+    // Stale questions and questions with no saved view are not offered.
+    expect(screen.queryByText("Last year's churn")).toBeNull();
+    expect(screen.queryByText("Scratch question")).toBeNull();
+
+    await user.click(
+      within(card).getByRole("button", { name: "Start report" }),
+    );
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: `/dashboards/${REPORT_ID}`,
+      }),
+    );
+    expect(mockCommit).toHaveBeenCalledWith({
+      commands: [
+        {
+          path: "createDashboardCmd",
+          args: { id: REPORT_ID, name: "Untitled report" },
+        },
+        {
+          path: "addDashboardItemCmd",
+          args: {
+            dashboardId: REPORT_ID,
+            item: expect.objectContaining({
+              type: "visualization",
+              visualizationId: "view-latest",
+            }),
+          },
+        },
+      ],
+    });
+  });
+
+  it("creates an empty report from the blank card", async () => {
+    const user = userEvent.setup();
+    mockProject({
+      insights: [question("q-recent", "Revenue by region", NOW)],
+      visualizations: [{ id: "view-1", insightId: "q-recent", createdAt: NOW }],
+    });
+
+    render(<DashboardsPage />);
+    await user.click(screen.getByRole("button", { name: "Blank report" }));
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: `/dashboards/${REPORT_ID}`,
+      }),
+    );
+    expect(mockCommit).toHaveBeenCalledWith({
+      commands: [
+        {
+          path: "createDashboardCmd",
+          args: { id: REPORT_ID, name: "Untitled report" },
+        },
+      ],
+    });
+  });
+
+  it("offers one create action when no question is ready to place", async () => {
+    const user = userEvent.setup();
+    mockProject({});
+
+    render(<DashboardsPage />);
+
+    screen.getByRole("heading", { name: "No reports yet" });
+    expect(screen.queryByRole("button", { name: "Start report" })).toBeNull();
+    expect(screen.queryByRole("link", { name: /connect data/ })).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", { name: "Create your first report" }),
+    );
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: `/dashboards/${REPORT_ID}`,
+      }),
+    );
+    expect(mockCommit).toHaveBeenCalledWith({
+      commands: [
+        {
+          path: "createDashboardCmd",
+          args: { id: REPORT_ID, name: "Untitled report" },
+        },
+      ],
+    });
+  });
+
+  it("points to connecting data only when the project has none", () => {
+    mockProject({ dataSources: [] });
+
+    render(<DashboardsPage />);
+
+    expect(
+      screen
+        .getByRole("link", { name: "or connect data first" })
+        .getAttribute("href"),
+    ).toBe("/data-sources");
+  });
+
+  it("keeps asking for a name from the header", () => {
+    mockProject({});
+
+    render(<DashboardsPage />);
+    openCreateDialog();
+
+    // The report page has no rename yet, so the header still names the report.
+    screen.getByPlaceholderText(/sales overview/i);
+    expect(mockCommit).not.toHaveBeenCalled();
+  });
 });
