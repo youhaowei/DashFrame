@@ -7,6 +7,10 @@ VITE_PID=""
 
 cleanup() {
   if [[ -n "${VITE_PID}" ]] && kill -0 "${VITE_PID}" 2>/dev/null; then
+    # The command is usually a wrapper (`bunx vp dev`) whose Vite runs as its
+    # child; outside portless nothing else reaps that child, so signal it too.
+    # This reaches one level down, which covers `bunx vp dev` (vite-plus 0.3.2).
+    pkill -TERM -P "${VITE_PID}" 2>/dev/null || true
     kill -TERM "${VITE_PID}" 2>/dev/null || true
     wait "${VITE_PID}" 2>/dev/null || true
   fi
