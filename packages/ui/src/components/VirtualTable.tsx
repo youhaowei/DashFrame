@@ -155,9 +155,22 @@ export function VirtualTable({
   // The overlay scroll area starts its top fade and scrollbar under the
   // sticky header, so track the header's height.
   const [headerHeight, setHeaderHeight] = useState(0);
+  // Rows are absolutely positioned, so the body has no content width of its
+  // own. When the header grows past the viewport (min-w-max), the body must
+  // match it, or the shared column template resolves against two different
+  // widths and the cells drift away from their headers.
+  const [headerWidth, setHeaderWidth] = useState(0);
   const measureHeader = useCallback(() => {
     setHeaderHeight(headerRef.current?.offsetHeight ?? 0);
+    setHeaderWidth(headerRef.current?.offsetWidth ?? 0);
   }, []);
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measureHeader);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [measureHeader]);
 
   // Track loaded page ranges for infinite scroll
   const loadedPagesRef = useRef<Set<number>>(new Set());
@@ -660,8 +673,14 @@ export function VirtualTable({
 
         {/* Body */}
         <div
-          className="relative min-w-max bg-neutral-bg"
-          style={{ height: `${totalSize + 4}px` }}
+          className="relative min-w-(--virtual-table-header-width) bg-neutral-bg"
+          style={
+            {
+              height: `${totalSize + 4}px`,
+              "--virtual-table-header-width":
+                headerWidth > 0 ? `${headerWidth}px` : "max-content",
+            } as React.CSSProperties
+          }
         >
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
             const rowData = getRowData(virtualRow.index);
