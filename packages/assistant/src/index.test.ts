@@ -13,7 +13,7 @@ const packageDir = dirname(fileURLToPath(import.meta.url)).replace(
 );
 const builtEntry = resolve(packageDir, "dist/index.js");
 
-describe("pi dependency smoke", () => {
+describe("package export smoke", () => {
   it("imports this package through its package export", async () => {
     const assistant = await import("@dashframe/assistant");
     expect(assistant.createReadTools).toBeDefined();
@@ -41,10 +41,5 @@ describe("pi dependency smoke", () => {
       `import(${JSON.stringify(pathToFileURL(builtEntry).href)}).then((m) => console.log(typeof m.createReadTools))`,
     ]);
     expect(stdout.trim()).toBe("function");
-  }, 30_000);
-
-  it("imports Agent from @earendil-works/pi-agent-core", async () => {
-    const { Agent } = await import("@earendil-works/pi-agent-core");
-    expect(Agent).toBeDefined();
   }, 30_000);
 });
