@@ -26,12 +26,13 @@ export interface TopBarTabs extends Omit<WorkbenchTabsProps, "className"> {
 }
 
 interface TopBarTabsRegistry {
-  claim: (tabs: TopBarTabs, owner: symbol, claim: boolean) => void;
+  register: (tabs: TopBarTabs | null, owner: symbol) => void;
   release: (owner: symbol) => void;
 }
 
 interface RegisteredTopBarTabs {
-  tabs: TopBarTabs;
+  /** `null` while the page shows no tabs; it keeps its place meanwhile. */
+  tabs: TopBarTabs | null;
   owner: symbol;
 }
 
@@ -43,28 +44,34 @@ const TopBarTabsContext = createContext<TopBarTabs | null | undefined>(
 );
 
 export function TopBarTabsProvider({ children }: { children: ReactNode }) {
-  const [registered, setRegistered] = useState<RegisteredTopBarTabs | null>(
-    null,
-  );
+  // Every mounted page that uses the slot, in the order they mounted. The
+  // newest one with tabs is shown. Keeping the older ones means a later page
+  // that unmounts first (an aborted navigation, a Suspense retry) hands the
+  // slot back to the page still on screen instead of leaving it empty.
+  const [registered, setRegistered] = useState<RegisteredTopBarTabs[]>([]);
 
-  const claim = useCallback(
-    (tabs: TopBarTabs, owner: symbol, isClaim: boolean) => {
-      setRegistered((current) => {
-        // A page that was superseded — the next route mounted its tabs before
-        // this one unmounted — may not take the slot back on a late update.
-        if (!isClaim && current && current.owner !== owner) return current;
-        return { tabs, owner };
-      });
-    },
-    [],
-  );
-
-  const release = useCallback((owner: symbol) => {
-    setRegistered((current) => (current?.owner === owner ? null : current));
+  const register = useCallback((tabs: TopBarTabs | null, owner: symbol) => {
+    setRegistered((current) => {
+      const index = current.findIndex((entry) => entry.owner === owner);
+      if (index === -1) return [...current, { tabs, owner }];
+      // Updates replace the entry in place, including a switch to or from
+      // `null`, so a page that was superseded never moves back on top of a
+      // newer one.
+      const next = [...current];
+      next[index] = { tabs, owner };
+      return next;
+    });
   }, []);
 
-  const registry = useMemo(() => ({ claim, release }), [claim, release]);
-  const tabs = registered?.tabs ?? null;
+  const release = useCallback((owner: symbol) => {
+    setRegistered((current) => {
+      const next = current.filter((entry) => entry.owner !== owner);
+      return next.length === current.length ? current : next;
+    });
+  }, []);
+
+  const registry = useMemo(() => ({ register, release }), [register, release]);
+  const tabs = registered.findLast((entry) => entry.tabs)?.tabs ?? null;
 
   const { isMacOS } = usePlatform();
   useTopBarTabShortcuts(tabs, isMacOS);
@@ -91,29 +98,23 @@ export function useRegisteredTopBarTabs(): TopBarTabs | null {
 
 /**
  * Show `tabs` in the top bar while the calling component is mounted. Pass
- * `null` to show none. The latest registration wins; unmounting clears the
- * slot only if this component still holds it.
+ * `null` to show none. The most recently mounted page with tabs is shown;
+ * unmounting removes only this page's registration, so an earlier page that
+ * is still mounted gets the slot back.
  */
 export function useTopBarTabs(tabs: TopBarTabs | null): void {
   const registry = useContext(TopBarTabsRegistryContext);
   if (!registry) {
     throw new Error("useTopBarTabs must be used inside TopBarTabsProvider");
   }
-  const { claim, release } = registry;
+  const { register, release } = registry;
   // One identity for the component's lifetime, so an update replaces the
-  // registration in place instead of releasing and re-claiming it.
+  // registration in place and the page keeps its place in mount order.
   const [owner] = useState(() => Symbol("top-bar-tabs"));
-  const hasClaimedRef = useRef(false);
 
   useEffect(() => {
-    if (!tabs) {
-      if (hasClaimedRef.current) release(owner);
-      hasClaimedRef.current = false;
-      return;
-    }
-    claim(tabs, owner, !hasClaimedRef.current);
-    hasClaimedRef.current = true;
-  }, [claim, release, owner, tabs]);
+    register(tabs, owner);
+  }, [register, owner, tabs]);
 
   useEffect(() => () => release(owner), [release, owner]);
 }

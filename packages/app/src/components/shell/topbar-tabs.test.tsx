@@ -136,6 +136,88 @@ describe("useTopBarTabs", () => {
   });
 });
 
+describe("useTopBarTabs with overlapping pages", () => {
+  const shell = (children: React.ReactNode) => (
+    <PlatformProvider>
+      <TopBarTabsProvider>
+        <Slot />
+        {children}
+      </TopBarTabsProvider>
+    </PlatformProvider>
+  );
+
+  it("gives the slot back to the page still mounted when a later one unmounts first", () => {
+    const onSelectA = vi.fn();
+    const { rerender } = render(
+      shell(
+        <Binder key="a" tabs={tabsOf({ label: "A", onSelect: onSelectA })} />,
+      ),
+    );
+    rerender(
+      shell(
+        <>
+          <Binder key="a" tabs={tabsOf({ label: "A", onSelect: onSelectA })} />
+          <Binder key="b" tabs={tabsOf({ label: "B" })} />
+        </>,
+      ),
+    );
+    expect(slot()).toBe("B:data");
+
+    // B goes away (an aborted navigation) while A stays on screen.
+    rerender(
+      shell(
+        <Binder key="a" tabs={tabsOf({ label: "A", onSelect: onSelectA })} />,
+      ),
+    );
+    expect(slot()).toBe("A:data");
+
+    // A's shortcuts are live again too.
+    fireEvent.keyDown(window, { key: "Tab", ctrlKey: true });
+    expect(onSelectA).toHaveBeenCalledWith("a");
+  });
+
+  it("does not let a superseded page retake the slot after passing null", () => {
+    const pages = (a: TopBarTabs | null) =>
+      shell(
+        <>
+          <Binder key="a" tabs={a} />
+          <Binder key="b" tabs={tabsOf({ label: "B" })} />
+        </>,
+      );
+    const { rerender } = render(pages(tabsOf({ label: "A" })));
+    rerender(pages(null));
+    rerender(pages(tabsOf({ label: "A" })));
+    expect(slot()).toBe("B:data");
+    // …and A's unmount leaves B in place.
+    rerender(shell(<Binder key="b" tabs={tabsOf({ label: "B" })} />));
+    expect(slot()).toBe("B:data");
+  });
+
+  it("keeps showing A's latest update once B is gone", () => {
+    const { rerender } = render(
+      shell(
+        <>
+          <Binder key="a" tabs={tabsOf({ label: "A" })} />
+          <Binder key="b" tabs={tabsOf({ label: "B" })} />
+        </>,
+      ),
+    );
+    rerender(
+      shell(
+        <>
+          <Binder key="a" tabs={tabsOf({ label: "A", activeId: "b" })} />
+          <Binder key="b" tabs={tabsOf({ label: "B" })} />
+        </>,
+      ),
+    );
+    expect(slot()).toBe("B:data");
+    rerender(
+      shell(<Binder key="a" tabs={tabsOf({ label: "A", activeId: "b" })} />),
+    );
+    expect(slot()).toBe("A:b");
+  });
+});
+
 describe("tab shortcuts", () => {
   const key = (
     k: string,
