@@ -5,8 +5,8 @@
 # branch-based and detached-HEAD worktrees both run without route conflicts;
 # `portless list` shows which route maps to which port.
 # - No PORT env (terminal): portless auto-assigns a random free port.
-# - PORT env set (Preview MCP): forward as --app-port so portless binds
-#   where Preview will iframe.
+# - PORT env set (Preview MCP): skip portless and serve Vite on that port, the
+#   address Preview opens, so the server's access check accepts its origin.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
