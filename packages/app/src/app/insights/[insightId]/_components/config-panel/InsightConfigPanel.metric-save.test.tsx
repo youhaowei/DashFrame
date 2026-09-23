@@ -85,12 +85,32 @@ vi.mock("./MetricsSection", () => ({
     onAdd,
     onEdit,
     onRemove,
+    savedMeasures,
+    onReuse,
+    onSaveToSource,
   }: {
     onAdd: (metric: InsightMetric) => Promise<void>;
     onEdit: (metric: InsightMetric) => Promise<void>;
     onRemove: (metricId: string) => void;
+    savedMeasures?: { id: string; name: string }[];
+    onReuse?: (id: string) => Promise<void>;
+    onSaveToSource?: (metricId: string) => Promise<void>;
   }) => (
     <>
+      {savedMeasures?.map((saved) => (
+        <button
+          key={saved.id}
+          type="button"
+          onClick={() => onReuse?.(saved.id)}
+        >
+          Reuse {saved.name}
+        </button>
+      ))}
+      {onSaveToSource && (
+        <button type="button" onClick={() => onSaveToSource(revenue.id)}>
+          Save revenue to source
+        </button>
+      )}
       <button type="button" onClick={() => onRemove(margin.id)}>
         Remove margin
       </button>
@@ -188,11 +208,7 @@ describe("InsightConfigPanel metric saves", () => {
       ...insight,
       reporting: { measureIds: [revenue.id], totals: true },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Reuse measure" }));
-    fireEvent.click(
-      await screen.findByRole("checkbox", { name: "Saved orders" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Apply", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Reuse Saved orders" }));
     await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
     const commands = commitBatch.mock.calls[0][0].commands;
     expect(commands).toHaveLength(2);
@@ -215,12 +231,8 @@ describe("InsightConfigPanel metric saves", () => {
     commitBatch.mockResolvedValue({});
     renderPanel();
     fireEvent.click(
-      screen.getByRole("button", { name: "Save measure to source" }),
+      screen.getByRole("button", { name: "Save revenue to source" }),
     );
-    fireEvent.click(
-      await screen.findByRole("checkbox", { name: "Revenue", exact: true }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Apply", exact: true }));
     await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
     const commands = commitBatch.mock.calls[0][0].commands;
     expect(commands).toHaveLength(1);

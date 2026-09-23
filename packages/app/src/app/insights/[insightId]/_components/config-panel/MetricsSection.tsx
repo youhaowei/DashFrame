@@ -15,6 +15,9 @@ import {
   Alert,
   AlertDescription,
   Button,
+  Field,
+  FieldLabel,
+  FieldSeparator,
   Input,
   Label,
   Popover,
@@ -25,6 +28,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Tooltip,
 } from "@wystack/ui-react";
 import {
   fieldIdToColumnAlias,
@@ -142,7 +146,15 @@ function MetricEditor({
   onRemove,
   viewerChoice = false,
   onViewerChange,
+  savedMeasures = [],
+  onReuse,
+  onSaveToSource,
 }: {
+  /** Definitions saved on the source that a new metric can start from. */
+  savedMeasures?: readonly { id: string; name: string }[];
+  onReuse?: (savedMeasureId: string) => Promise<void>;
+  /** Saves a copy of this metric on the source for other reports. */
+  onSaveToSource?: (metricId: string) => Promise<void>;
   /** Whether viewers can show or hide this metric. */
   viewerChoice?: boolean;
   onViewerChange?: (metricId: string, enabled: boolean) => Promise<void>;
@@ -239,6 +251,20 @@ function MetricEditor({
     }
   };
 
+  const runAction = async (action: () => Promise<void>, failure: string) => {
+    setIsSaving(true);
+    setError(null);
+    try {
+      await action();
+      setOpen(false);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Unknown error";
+      setError(`${failure}: ${message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const definitionChanged =
     metric === undefined ||
     JSON.stringify(options) !==
@@ -310,6 +336,38 @@ function MetricEditor({
           <Alert color="danger">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
+        )}
+        {!metric && onReuse && savedMeasures.length > 0 && (
+          <>
+            <Field>
+              <FieldLabel htmlFor="metric-reuse-saved">
+                Start from a saved measure
+              </FieldLabel>
+              <Select
+                value={null}
+                disabled={isSaving}
+                onValueChange={(id) => {
+                  if (id)
+                    void runAction(
+                      () => onReuse(id),
+                      "Failed to add saved measure",
+                    );
+                }}
+              >
+                <SelectTrigger id="metric-reuse-saved">
+                  <SelectValue placeholder="Choose a measure" />
+                </SelectTrigger>
+                <SelectContent>
+                  {savedMeasures.map((saved) => (
+                    <SelectItem key={saved.id} value={saved.id}>
+                      {saved.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <FieldSeparator>or define a new one</FieldSeparator>
+          </>
         )}
         <MeasureCalculationFields
           value={options}
@@ -397,7 +455,24 @@ function MetricEditor({
             kind="metrics"
           />
         )}
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-end gap-2">
+          {metric && onSaveToSource && (
+            <Tooltip content="Keep a copy on the source for other reports">
+              <Button
+                label="Save to source"
+                variant="ghost"
+                size="sm"
+                disabled={isSaving || definitionChanged}
+                onClick={() =>
+                  void runAction(
+                    () => onSaveToSource(metric.id),
+                    "Failed to save measure to source",
+                  )
+                }
+              />
+            </Tooltip>
+          )}
+          <span className="flex-1" />
           <Button
             label="Cancel"
             variant="ghost"
@@ -432,7 +507,13 @@ export function MetricsSection({
   onEdit,
   viewerMetricIds = [],
   onViewerChange,
+  savedMeasures,
+  onReuse,
+  onSaveToSource,
 }: {
+  savedMeasures?: readonly { id: string; name: string }[];
+  onReuse?: (savedMeasureId: string) => Promise<void>;
+  onSaveToSource?: (metricId: string) => Promise<void>;
   /** Metrics viewers can show or hide. */
   viewerMetricIds?: readonly string[];
   onViewerChange?: (metricId: string, enabled: boolean) => Promise<void>;
@@ -470,6 +551,7 @@ export function MetricsSection({
               onSave={onEdit}
               viewerChoice={viewerMetricIds.includes(item.id)}
               onViewerChange={onViewerChange}
+              onSaveToSource={onSaveToSource}
               onRemove={() => onRemove(item.id)}
             />
           )}
@@ -480,6 +562,8 @@ export function MetricsSection({
         dataTable={dataTable}
         columnDisplayNames={columnDisplayNames}
         onSave={onAdd}
+        savedMeasures={savedMeasures}
+        onReuse={onReuse}
       />
     </div>
   );

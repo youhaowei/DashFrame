@@ -44,9 +44,6 @@ vi.mock("./ReportSettings", () => ({
   ReportPeriodControl: () => null,
   ReportResultOptions: () => null,
 }));
-vi.mock("./MeasureLibraryControls", () => ({
-  MeasureLibraryControls: () => null,
-}));
 vi.mock("@/components/visualizations/ReportSwitchers", () => ({
   ReportSelectionMenu: () => null,
 }));
