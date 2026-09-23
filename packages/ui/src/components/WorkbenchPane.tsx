@@ -203,6 +203,8 @@ export interface WorkbenchChipProps {
   icon: ReactNode;
   title?: ReactNode;
   description?: ReactNode;
+  /** Put the description on its own line; for long qualifiers. */
+  stacked?: boolean;
   /** Optional complete main-content trigger, used by anchored popovers. */
   content?: ReactNode;
   trailing?: ReactNode;
@@ -213,24 +215,43 @@ export interface WorkbenchChipProps {
 }
 
 /**
- * A chip's text on one line: a short qualifier reads after the title, as
- * filter chips read "region equals North", instead of hanging on a second
- * line. Use it inside a custom chip trigger too, so every chip reads alike.
+ * A chip's text. A short qualifier reads after the title on one line, as
+ * filter chips read "region equals North". `stacked` moves a long qualifier,
+ * such as a join condition, onto its own line so neither part truncates the
+ * other. Use it inside a custom chip trigger too, so every chip reads alike.
  */
 export function WorkbenchChipLabel({
   title,
   description,
+  stacked = false,
 }: {
   title?: ReactNode;
   description?: ReactNode;
+  stacked?: boolean;
 }) {
+  const hasDescription = description != null && description !== "";
   return (
-    <span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
-      <span className="min-w-0 shrink truncate font-medium text-neutral-fg">
+    <span
+      className={cn(
+        "flex min-w-0 flex-1 text-left",
+        stacked ? "flex-col" : "items-baseline gap-1.5",
+      )}
+    >
+      <span
+        className={cn(
+          "min-w-0 truncate font-medium text-neutral-fg",
+          !stacked && "shrink",
+        )}
+      >
         {title}
       </span>
-      {description && (
-        <span className="min-w-0 shrink-[2] truncate text-[11px] text-neutral-fg-subtle group-hover:text-neutral-fg group-focus-within:text-neutral-fg group-data-[open]:text-neutral-fg">
+      {hasDescription && (
+        <span
+          className={cn(
+            "min-w-0 truncate text-[11px] text-neutral-fg-subtle group-hover:text-neutral-fg group-focus-within:text-neutral-fg group-data-[open]:text-neutral-fg",
+            stacked ? "leading-4" : "shrink-[2]",
+          )}
+        >
           {description}
         </span>
       )}
@@ -243,6 +264,7 @@ export function WorkbenchChip({
   icon,
   title,
   description,
+  stacked,
   content,
   trailing,
   open = false,
@@ -265,7 +287,11 @@ export function WorkbenchChip({
         {icon}
       </span>
       {content ?? (
-        <WorkbenchChipLabel title={title} description={description} />
+        <WorkbenchChipLabel
+          title={title}
+          description={description}
+          stacked={stacked}
+        />
       )}
       {trailing}
       {removeLabel && onRemove && (
