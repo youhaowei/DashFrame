@@ -44,6 +44,23 @@ const insight: Insight = {
 describe("report reader switchers", () => {
   beforeEach(() => vi.stubGlobal("PointerEvent", MouseEvent));
   afterEach(() => vi.unstubAllGlobals());
+  it("lets a viewer hide every field to see the metrics alone", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onChange = vi.fn();
+    render(
+      <ReportSwitchers insight={insight} fields={fields} onChange={onChange} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Fields · 2 of 3" }));
+    await user.click(screen.getByRole("checkbox", { name: "Month" }));
+    await user.click(screen.getByRole("checkbox", { name: "Channel" }));
+    await user.click(
+      screen.getByRole("button", { name: "Apply", exact: true }),
+    );
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({ dimensions: [] }),
+    );
+  });
+
   it("changes channel to country while retaining the monthly dimension", async () => {
     const user = userEvent.setup({ delay: null });
     const onChange = vi.fn();

@@ -49,18 +49,22 @@ export function currentViewerRuntime(
   for (const [kind, saved] of kinds) {
     const picks = runtime[kind];
     if (!picks) continue;
-    const allowed = insight.runtimeControls?.[kind]?.allowedIds;
-    if (!allowed) {
+    const control = insight.runtimeControls?.[kind];
+    if (!control) {
       delete next[kind];
       continue;
     }
-    const rebuilt = withFixedIds(
-      saved,
-      fixedRuntimeIds(insight, kind),
-      picks.filter((id) => allowed.includes(id)),
-    );
-    // Nothing the viewer picked is left, so fall back to the saved report.
-    if (rebuilt.length === 0) delete next[kind];
+    const fixed = fixedRuntimeIds(insight, kind);
+    // The author may have lowered the cap, or turned a fixed field the viewer
+    // kept into a choice, since the viewer picked.
+    const optional = picks
+      .filter((id) => control.allowedIds.includes(id) && !fixed.includes(id))
+      .slice(0, control.maxSelected);
+    const rebuilt = withFixedIds(saved, fixed, optional);
+    // A viewer who hid every field sees the metrics alone. Otherwise nothing
+    // the viewer picked is left, so fall back to the saved report.
+    const hidAllFields = kind === "dimensions" && picks.length === 0;
+    if (rebuilt.length === 0 && !hidAllFields) delete next[kind];
     else next[kind] = rebuilt;
   }
   return next;

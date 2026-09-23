@@ -216,6 +216,46 @@ describe("currentViewerRuntime", () => {
     expect(currentViewerRuntime(report, { measures: ["a"] })).toEqual({});
   });
 
+  it("keeps a viewer's picks within the cap after the author lowers it", () => {
+    const optional = Array.from({ length: 16 }, (_, index) => `f${index}`);
+    const report = {
+      ...saved,
+      selectedFields: ["fixed", ...optional],
+      runtimeControls: {
+        dimensions: { allowedIds: optional, maxSelected: 16 },
+      },
+    } as unknown as Insight;
+    const runtime = { dimensions: ["fixed", ...optional] };
+    // The author makes the fixed field a choice too, keeping the cap at 16.
+    const widened = {
+      ...report,
+      runtimeControls: {
+        dimensions: { allowedIds: ["fixed", ...optional], maxSelected: 16 },
+      },
+    } as unknown as Insight;
+    expect(currentViewerRuntime(widened, runtime)?.dimensions).toHaveLength(16);
+    // The author lowers the cap below what the viewer picked.
+    const lowered = {
+      ...report,
+      runtimeControls: { dimensions: { allowedIds: optional, maxSelected: 2 } },
+    } as unknown as Insight;
+    expect(currentViewerRuntime(lowered, runtime)).toEqual({
+      dimensions: ["fixed", "f0", "f1"],
+    });
+  });
+
+  it("keeps a viewer's choice to hide every field", () => {
+    const report = {
+      ...saved,
+      runtimeControls: {
+        dimensions: { allowedIds: ["region", "date"], maxSelected: 2 },
+      },
+    } as unknown as Insight;
+    expect(currentViewerRuntime(report, { dimensions: [] })).toEqual({
+      dimensions: [],
+    });
+  });
+
   it("drops picks that are no longer viewer choices", () => {
     const runtime = { dimensions: ["region", "date", "product"] };
     const narrowed = {

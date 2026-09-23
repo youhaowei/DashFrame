@@ -153,7 +153,6 @@ export function ReportSwitchers({
           selected={(runtime?.dimensions ?? insight.selectedFields).filter(
             (id) => dimensions.allowedIds.includes(id),
           )}
-          minimum={fixedRuntimeIds(insight, "dimensions").length ? 0 : 1}
           maximum={dimensions.maxSelected}
           onApply={(ids) =>
             onChange({

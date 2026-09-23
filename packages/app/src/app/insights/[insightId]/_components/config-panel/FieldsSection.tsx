@@ -515,7 +515,9 @@ export function FieldsSection({
   const pickField = (fieldId: string) => {
     if (viewerOnly) onViewerChange?.(fieldId, true).catch(ignoreRejection);
     else onAdd(fieldId);
+    // Closing here skips onOpenChange, which resets the toggle.
     setAddOpen(false);
+    setViewerOnly(false);
   };
   const addableFields = viewerOnly
     ? availableFields.filter((field) => !viewerFieldIds.includes(field.id))
