@@ -31,6 +31,7 @@ export {
 export {
   WorkbenchAddRow,
   WorkbenchChip,
+  WorkbenchChipLabel,
   WorkbenchJumpBar,
   WorkbenchPaneHeader,
   WorkbenchCheckbox,

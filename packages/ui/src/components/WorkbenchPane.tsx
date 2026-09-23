@@ -212,6 +212,32 @@ export interface WorkbenchChipProps {
   className?: string;
 }
 
+/**
+ * A chip's text on one line: a short qualifier reads after the title, as
+ * filter chips read "region equals North", instead of hanging on a second
+ * line. Use it inside a custom chip trigger too, so every chip reads alike.
+ */
+export function WorkbenchChipLabel({
+  title,
+  description,
+}: {
+  title?: ReactNode;
+  description?: ReactNode;
+}) {
+  return (
+    <span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left">
+      <span className="min-w-0 shrink truncate font-medium text-neutral-fg">
+        {title}
+      </span>
+      {description && (
+        <span className="min-w-0 shrink-[2] truncate text-[11px] text-neutral-fg-subtle group-hover:text-neutral-fg group-focus-within:text-neutral-fg group-data-[open]:text-neutral-fg">
+          {description}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function WorkbenchChip({
   dragHandle,
   icon,
@@ -239,16 +265,7 @@ export function WorkbenchChip({
         {icon}
       </span>
       {content ?? (
-        <div className="min-w-0 flex-1 text-left">
-          <span className="block truncate font-medium text-neutral-fg">
-            {title}
-          </span>
-          {description && (
-            <span className="block truncate text-[11px] leading-4 text-neutral-fg-subtle group-hover:text-neutral-fg group-focus-within:text-neutral-fg group-data-[open]:text-neutral-fg">
-              {description}
-            </span>
-          )}
-        </div>
+        <WorkbenchChipLabel title={title} description={description} />
       )}
       {trailing}
       {removeLabel && onRemove && (

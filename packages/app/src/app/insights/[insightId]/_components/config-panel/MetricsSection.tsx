@@ -8,6 +8,7 @@ import {
   SortableList,
   WorkbenchAddRow,
   WorkbenchChip,
+  WorkbenchChipLabel,
   type SortableListItem,
 } from "@dashframe/ui";
 import {
@@ -236,13 +237,17 @@ function MetricEditor({
           render={
             <button
               type="button"
-              className="min-w-0 flex-1 text-left focus-visible:outline-none"
+              className="flex min-w-0 flex-1 focus-visible:outline-none"
               aria-label={`Edit ${metric.name}`}
             >
-              <span className="block truncate font-medium">{metric.name}</span>
-              <span className="block truncate text-[11px] leading-4 text-neutral-fg-subtle">
-                {metricDescription(metric, fields, columnDisplayNames)}
-              </span>
+              <WorkbenchChipLabel
+                title={metric.name}
+                description={metricDescription(
+                  metric,
+                  fields,
+                  columnDisplayNames,
+                )}
+              />
             </button>
           }
         />
