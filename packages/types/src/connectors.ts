@@ -2,6 +2,13 @@ import type { UseRetryableQueryResult } from "./repository-base";
 
 export type ConnectorAuthKind = "none" | "credential" | "oauth";
 
+/**
+ * Host error message for a connector whose stored OAuth grant is unusable
+ * (missing, revoked, expired past refresh). Only a new sign-in fixes it, so the
+ * UI matches this exact message instead of parsing provider error text.
+ */
+export const CONNECTOR_SIGN_IN_EXPIRED = "CONNECTOR_SIGN_IN_EXPIRED";
+
 export type ConnectorFormFieldType =
   | "text"
   | "password"

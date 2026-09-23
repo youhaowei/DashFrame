@@ -70,6 +70,7 @@ export type {
   ConnectorFormFieldType,
   UseConnectorCatalogResult,
 } from "./connectors";
+export { CONNECTOR_SIGN_IN_EXPIRED } from "./connectors";
 
 export type {
   ConnectorConfig,

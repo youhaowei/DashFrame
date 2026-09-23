@@ -1,5 +1,6 @@
 export {
   Ga4Connector,
+  GoogleAuthorizationError,
   makeGa4Connector,
   type Ga4ConnectorDependencies,
   type Ga4ReportVersion,

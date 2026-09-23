@@ -1,6 +1,9 @@
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { MAX_LOCAL_ARROW_BYTES } from "@dashframe/types";
+import {
+  CONNECTOR_SIGN_IN_EXPIRED,
+  MAX_LOCAL_ARROW_BYTES,
+} from "@dashframe/types";
 import type { ApplicationOperations } from "./application";
 import { hostOperationByName } from "./registry";
 import { HostBatchOutcomeUnknownError } from "./commands";
@@ -158,6 +161,10 @@ async function executeHostedOperation(
       );
     if (error instanceof Error && error.message === "FORBIDDEN")
       return c.json({ error: "Forbidden" }, 403);
+    // A stable code, not provider text: safe to forward so the UI can ask the
+    // user to sign in again instead of showing a generic failure.
+    if (error instanceof Error && error.message === CONNECTOR_SIGN_IN_EXPIRED)
+      return c.json({ error: CONNECTOR_SIGN_IN_EXPIRED }, 400);
     return c.json({ error: "Host operation failed" }, 400);
   }
 }

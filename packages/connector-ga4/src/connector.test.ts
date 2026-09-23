@@ -1,7 +1,11 @@
 import { tableFromIPC } from "apache-arrow";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { makeGa4Connector, type GoogleOAuthTokenBundle } from "./connector";
+import {
+  GoogleAuthorizationError,
+  makeGa4Connector,
+  type GoogleOAuthTokenBundle,
+} from "./connector";
 
 function resolver(bundle: GoogleOAuthTokenBundle) {
   return async <T>(use: (plaintext: string) => Promise<T>) =>
@@ -422,6 +426,27 @@ describe("GA4 connector", () => {
         /different OAuth client/,
       );
       expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it("marks a revoked grant as needing a new sign-in, but not a Google outage", async () => {
+      const refreshWith = (status: number) =>
+        makeGa4Connector(resolver(bundle(expired)), {
+          fetch: vi.fn(
+            async () =>
+              new Response(JSON.stringify({ error: "invalid_grant" }), {
+                status,
+              }),
+          ) as unknown as typeof fetch,
+          now,
+          oauthClient,
+        }).connect();
+
+      await expect(refreshWith(400)).rejects.toBeInstanceOf(
+        GoogleAuthorizationError,
+      );
+      const outage = await refreshWith(503).catch((error: unknown) => error);
+      expect(outage).toBeInstanceOf(Error);
+      expect(outage).not.toBeInstanceOf(GoogleAuthorizationError);
     });
   });
 });

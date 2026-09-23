@@ -1,6 +1,7 @@
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
 import { ArtifactSwitcher } from "@/components/artifacts/ArtifactSwitcher";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { Ga4PropertyPicker } from "@/components/data-sources/Ga4PropertyPicker";
 import { RefreshTableButton } from "@/components/data-sources/RefreshTableButton";
 import { queryStatus } from "@/data/query-status";
 import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
@@ -128,6 +129,59 @@ export function buildAnalysisByFieldId(
 }
 
 /**
+ * What a source with no tables offers next. A connected Google Analytics
+ * source picks its first property inline; other connectors name where their
+ * import lives.
+ */
+function EmptyTablesState({
+  sourceId,
+  sourceType,
+  isFileSource,
+  onImported,
+  onImportingChange,
+  onOpenDataSources,
+}: {
+  sourceId: UUID;
+  sourceType: string;
+  isFileSource: boolean;
+  onImported: (tableId: UUID) => void;
+  onImportingChange: (importing: boolean) => void;
+  onOpenDataSources: () => void;
+}) {
+  // Keyed on the stored type, not the registry entry: the registry hydrates
+  // asynchronously and would briefly render the generic state for GA4.
+  if (sourceType === "googleAnalytics") {
+    return (
+      <Ga4PropertyPicker
+        key={sourceId}
+        sourceId={sourceId}
+        onImported={onImported}
+        onImportingChange={onImportingChange}
+        onOpenDataSources={onOpenDataSources}
+      />
+    );
+  }
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="text-center">
+        <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
+        <h2 className="mb-2 text-lg font-semibold">No tables yet</h2>
+        <p className="mb-4 text-sm text-neutral-fg-subtle">
+          {isFileSource
+            ? "Add a file from the Data Sources page."
+            : "Choose tables from Add Source on the Data Sources page."}
+        </p>
+        <Button
+          variant="outline"
+          label="Go to Data Sources"
+          onClick={onOpenDataSources}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
  * Data Source Detail Page
  *
  * Shows a single data source with:
@@ -179,6 +233,8 @@ export default function DataSourcePageContent({
 
   // Local state for selected table - use null to indicate "not yet selected by user"
   const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
+  // Holds the first-property picker on screen while its import runs.
+  const [isImportingFirstTable, setIsImportingFirstTable] = useState(false);
 
   // Use the user's live selection when it still exists; otherwise fall back to
   // the first table so a source with tables never needs a separate selection state.
@@ -328,20 +384,14 @@ export default function DataSourcePageContent({
 
   // This is confirmed-empty only while pending/error table queries are intercepted below.
   const emptyTableState = (
-    <div className="flex h-full items-center justify-center">
-      <div className="text-center">
-        <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
-        <h2 className="mb-2 text-lg font-semibold">No tables yet</h2>
-        <p className="mb-4 text-sm text-neutral-fg-subtle">
-          Use Add Source on the Data Sources page to import a table.
-        </p>
-        <Button
-          variant="outline"
-          label="Go to Data Sources"
-          onClick={() => navigate({ to: "/data-sources" } as never)}
-        />
-      </div>
-    </div>
+    <EmptyTablesState
+      sourceId={sourceId as UUID}
+      sourceType={dataSource.type}
+      isFileSource={connector?.sourceType === "file"}
+      onImported={setSelectedTableId}
+      onImportingChange={setIsImportingFirstTable}
+      onOpenDataSources={() => navigate({ to: "/data-sources" } as never)}
+    />
   );
   const dataTablesQueryState = renderDataTablesQueryState(
     isLoadingDataTables,
@@ -427,7 +477,7 @@ export default function DataSourcePageContent({
           </ArtifactPageHeader>
         }
       >
-        {effectiveSelectedTableId && tableDetails ? (
+        {effectiveSelectedTableId && tableDetails && !isImportingFirstTable ? (
           <div className="space-y-6 p-4 sm:p-6">
             {/* Table header */}
             <div className="flex flex-wrap items-center justify-between gap-3">

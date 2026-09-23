@@ -2,7 +2,6 @@ import { useHostMutation, requestHost } from "@/data/host";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { getConnectorById } from "@/lib/connectors/registry";
-import { makeDefaultCountMetric } from "@/lib/data-access/data-tables";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
   connectRemoteSource,
@@ -16,11 +15,7 @@ import type {
   FileSourceConnector,
   RemoteApiConnector,
 } from "@dashframe/engine";
-import type {
-  CreateDataSourceInput,
-  InsightFetchDefinition,
-  UUID,
-} from "@dashframe/types";
+import type { CreateDataSourceInput, UUID } from "@dashframe/types";
 import { cmd, COMMAND_PATHS, resultValueByCommandPath } from "@dashframe/types";
 
 import { Button, SectionList } from "@wystack/ui-react";
@@ -30,6 +25,11 @@ import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
 import { InsightList, type InsightDisplayInfo } from "./InsightList";
+import {
+  RemoteImportUserError,
+  RemoteResourceList,
+  useRemoteResourceImport,
+} from "./RemoteResourceImport";
 
 const FILE_TABLE_NAME_EXTENSION = /\.(csv|xlsx?|json)$/i;
 
@@ -104,53 +104,6 @@ interface RemoteResourceState {
   resources: RemoteResource[];
 }
 
-class RemoteImportUserError extends Error {}
-
-export async function importRemoteResource(args: {
-  sourceId: UUID;
-  resource: { id: string; title: string };
-  addDataTable: (input: {
-    dataSourceId: UUID;
-    name: string;
-    table: string;
-  }) => Promise<{ id: UUID }>;
-  prepareRemoteDataTable: (input: { id: UUID }) => Promise<unknown>;
-  fetchData: (input: {
-    insight: InsightFetchDefinition;
-  }) => Promise<{ status: "ready" } | { status: "failed"; message: string }>;
-  removeDataTable: (input: { id: UUID }) => Promise<unknown>;
-}): Promise<UUID> {
-  let tableId: UUID | null = null;
-  try {
-    tableId = (
-      await args.addDataTable({
-        dataSourceId: args.sourceId,
-        name: args.resource.title,
-        table: args.resource.id,
-      })
-    ).id;
-    await args.prepareRemoteDataTable({ id: tableId });
-    const result = await args.fetchData({
-      insight: { baseTableId: tableId, selectedFields: [], metrics: [] },
-    });
-    if (result.status === "failed")
-      throw new RemoteImportUserError(result.message);
-    return tableId;
-  } catch (cause) {
-    if (tableId) {
-      try {
-        await args.removeDataTable({ id: tableId });
-      } catch (cleanupError) {
-        console.error(
-          "Failed to clean up remote table onboarding",
-          cleanupError,
-        );
-      }
-    }
-    throw cause;
-  }
-}
-
 /**
  * Reusable data picker content for selecting insights or tables.
  *
@@ -188,10 +141,6 @@ export function DataPickerContent({
     useQuery({ query: api.app.listDataFrames, args: {} }),
   );
   const commitBatch = useMutation(api.app.commitBatch);
-  const { mutateAsync: prepareRemoteDataTable } = useHostMutation(
-    "prepareRemoteDataTable",
-  );
-  const { mutateAsync: fetchData } = useHostMutation("fetchData");
   const { mutateAsync: listNotionDatabasesMutation } = useHostMutation(
     "listNotionDatabases",
   );
@@ -206,13 +155,6 @@ export function DataPickerContent({
   const [error, setError] = useState<string | null>(null);
   const [remoteResourceState, setRemoteResourceState] =
     useState<RemoteResourceState | null>(null);
-  const [importingResourceId, setImportingResourceId] = useState<string | null>(
-    null,
-  );
-  const [
-    locallyImportedRemoteResourceKeys,
-    setLocallyImportedRemoteResourceKeys,
-  ] = useState<ReadonlySet<string>>(() => new Set());
   const isMountedRef = useRef(true);
   const retainOnboardingActivityRef = useRef(false);
 
@@ -275,6 +217,24 @@ export function DataPickerContent({
     });
   }, [allDataTables, selectedSourceId, excludeTableIds, dataSources]);
 
+  const {
+    importResource: handleRemoteResourceSelect,
+    importingResourceId,
+    error: remoteImportError,
+    isImported: isRemoteResourceImported,
+  } = useRemoteResourceImport({
+    sourceId: remoteResourceState?.sourceId ?? null,
+    onImported: async (tableId, resource) => {
+      retainOnboardingActivityRef.current = true;
+      const selection = await onTableSelect(tableId, resource.title);
+      if (selection === null) {
+        throw new RemoteImportUserError(
+          "Couldn't create a question from the imported table. Try again.",
+        );
+      }
+    },
+  });
+
   const excludedRemoteResourceIds = useMemo(
     () =>
       new Set(
@@ -301,14 +261,12 @@ export function DataPickerContent({
         (resource) =>
           !excludedRemoteResourceIds.has(resource.id) &&
           !importedRemoteResourceIds.has(resource.id) &&
-          !locallyImportedRemoteResourceKeys.has(
-            `${remoteResourceState?.sourceId}:${resource.id}`,
-          ),
+          !isRemoteResourceImported(resource.id),
       ),
     [
       excludedRemoteResourceIds,
       importedRemoteResourceIds,
-      locallyImportedRemoteResourceKeys,
+      isRemoteResourceImported,
       remoteResourceState,
     ],
   );
@@ -545,71 +503,6 @@ export function DataPickerContent({
     [listGa4PropertiesMutation],
   );
 
-  const handleRemoteResourceSelect = useCallback(
-    async (resource: { id: string; title: string }) => {
-      if (!remoteResourceState) return;
-      setImportingResourceId(resource.id);
-      setError(null);
-      try {
-        const tableId = await importRemoteResource({
-          sourceId: remoteResourceState.sourceId,
-          resource,
-          addDataTable: async (input) => {
-            const id = crypto.randomUUID() as UUID;
-            await commitBatch({
-              commands: [
-                cmd("CreateDataTable", {
-                  id,
-                  ...input,
-                  metrics: [makeDefaultCountMetric(id)],
-                }),
-              ],
-            });
-            return { id };
-          },
-          prepareRemoteDataTable,
-          fetchData,
-          removeDataTable: async ({ id }) => {
-            await commitBatch({
-              commands: [cmd("DeleteNode", { id })],
-            });
-          },
-        });
-        // The table now exists even if question creation fails. Remove this
-        // resource from the import choices immediately, before subscriptions
-        // catch up, so retry goes through the existing table instead of
-        // creating a duplicate DataTable.
-        setLocallyImportedRemoteResourceKeys((current) => {
-          const next = new Set(current);
-          next.add(`${remoteResourceState.sourceId}:${resource.id}`);
-          return next;
-        });
-        retainOnboardingActivityRef.current = true;
-        const selection = await onTableSelect(tableId, resource.title);
-        if (selection === null) {
-          throw new RemoteImportUserError(
-            "Couldn't create a question from the imported table. Try again.",
-          );
-        }
-      } catch (cause) {
-        const stableError =
-          cause instanceof RemoteImportUserError
-            ? cause.message
-            : "Couldn't fetch this table. Check the connection and try again.";
-        setError(stableError);
-      } finally {
-        setImportingResourceId(null);
-      }
-    },
-    [
-      commitBatch,
-      onTableSelect,
-      fetchData,
-      prepareRemoteDataTable,
-      remoteResourceState,
-    ],
-  );
-
   const hasInsights =
     showInsights && insightsForDisplay.length > 0 && onInsightSelect;
   const hasDataSources = dataSourcesInfo.length > 0;
@@ -681,30 +574,13 @@ export function DataPickerContent({
               icon={ArrowLeftIcon}
             />
             <SectionList title="Choose data to import">
-              <div className="space-y-2">
-                {error && (
-                  <p role="alert" className="text-sm text-palette-danger">
-                    {error}
-                  </p>
-                )}
-                {selectableRemoteResources.length === 0 ? (
-                  <p className="text-sm text-neutral-fg-subtle">
-                    The connection succeeded, but no databases or tables were
-                    found.
-                  </p>
-                ) : (
-                  selectableRemoteResources.map((resource) => (
-                    <Button
-                      key={resource.id}
-                      label={resource.title}
-                      variant="outline"
-                      className="w-full justify-start"
-                      disabled={importingResourceId !== null}
-                      onClick={() => handleRemoteResourceSelect(resource)}
-                    />
-                  ))
-                )}
-              </div>
+              <RemoteResourceList
+                resources={selectableRemoteResources}
+                importingResourceId={importingResourceId}
+                onSelect={handleRemoteResourceSelect}
+                error={remoteImportError}
+                emptyMessage="The connection succeeded, but no databases or tables were found."
+              />
             </SectionList>
           </>
         )}

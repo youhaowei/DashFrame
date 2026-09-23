@@ -1,4 +1,5 @@
 import {
+  GoogleAuthorizationError,
   makeGa4Connector,
   type Ga4ReportVersion,
   type GoogleOAuthTokenBundle,
@@ -13,7 +14,10 @@ import type {
   DataTableRow,
 } from "@dashframe/convex-backend/model";
 import type { Field, UUID } from "@dashframe/types";
-import { getFieldSensitivity } from "@dashframe/types";
+import {
+  CONNECTOR_SIGN_IN_EXPIRED,
+  getFieldSensitivity,
+} from "@dashframe/types";
 import {
   isSecretRef,
   type SecretRef,
@@ -629,8 +633,25 @@ export const listGa4Properties = hostOperation({
     ctx,
     { dataSourceId },
   ): Promise<{ id: string; title: string }[]> => {
+    const row = (await ctx.metadata.getDataSource(dataSourceId)) as
+      | DataSourceRow
+      | undefined;
+    const apiKey = (row?.config as DataSourceConfig | undefined)?.apiKey;
+    // A Google Analytics source without a stored grant (e.g. its credential
+    // was removed) needs the same fix as a revoked one: sign in again.
+    if (row?.kind === "googleAnalytics" && (!apiKey || !isSecretRef(apiKey))) {
+      throw new Error(CONNECTOR_SIGN_IN_EXPIRED);
+    }
     const connector = await ga4ConnectorFor(ctx, dataSourceId);
-    const properties = await connector.connect();
+    let properties: Awaited<ReturnType<typeof connector.connect>>;
+    try {
+      properties = await connector.connect();
+    } catch (error) {
+      if (error instanceof GoogleAuthorizationError) {
+        throw new Error(CONNECTOR_SIGN_IN_EXPIRED, { cause: error });
+      }
+      throw error;
+    }
     return properties.map((property) => ({
       id: property.id,
       title: property.name,

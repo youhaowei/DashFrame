@@ -49,6 +49,13 @@ const { mockCommitBatch } = vi.hoisted(() => ({
   mockCommitBatch: vi.fn(),
 }));
 
+const { mockListGa4Properties, mockPrepareRemoteDataTable, mockInitialFetch } =
+  vi.hoisted(() => ({
+    mockListGa4Properties: vi.fn(),
+    mockPrepareRemoteDataTable: vi.fn(),
+    mockInitialFetch: vi.fn(),
+  }));
+
 const { mockUseDataTables } = vi.hoisted(() => ({
   mockUseDataTables: vi.fn(),
 }));
@@ -88,6 +95,11 @@ vi.mock("@/data/host", () => ({
   }),
   useHostMutation: hostMutationMock((ref: { _path: string }) => {
     if (ref._path === "refreshDataTable") return { mutateAsync: mockFetchData };
+    if (ref._path === "listGa4Properties")
+      return { mutateAsync: mockListGa4Properties };
+    if (ref._path === "prepareRemoteDataTable")
+      return { mutateAsync: mockPrepareRemoteDataTable };
+    if (ref._path === "fetchData") return { mutateAsync: mockInitialFetch };
     if (ref._path === "commitBatch") {
       return { mutateAsync: mockCommitBatch };
     }
@@ -111,6 +123,8 @@ vi.mock("@/lib/connectors/registry", () => ({
       return { name: "PostgreSQL", sourceType: "remote-api" };
     if (id === "csv")
       return { name: "CSV", sourceType: "file", icon: "<svg>csv</svg>" };
+    if (id === "googleAnalytics")
+      return { name: "Google Analytics", sourceType: "remote-api" };
     return null;
   },
   useRegistryVersion: () => 0,
@@ -216,8 +230,23 @@ vi.mock("@wystack/ui-react", async () => {
     Badge: ({ children }: { children: React.ReactNode }) => (
       <span>{children}</span>
     ),
-    Button: ({ label, onClick }: { label: string; onClick?: () => void }) => (
-      <button type="button" onClick={onClick}>
+    Button: ({
+      label,
+      onClick,
+      disabled,
+      loading,
+    }: {
+      label: string;
+      onClick?: () => void;
+      disabled?: boolean;
+      loading?: boolean;
+    }) => (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled || loading}
+        aria-busy={loading || undefined}
+      >
         {label}
       </button>
     ),
@@ -368,6 +397,7 @@ vi.mock("@/components/data-sources/SensitivityBadge", () => ({
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialogStore } from "@/lib/stores";
 import { extractColumnAliasComponents } from "@dashframe/engine";
+import { CONNECTOR_SIGN_IN_EXPIRED } from "@dashframe/types";
 import React from "react";
 import DataSourcePageContent, {
   buildAnalysisByFieldId,
@@ -785,9 +815,7 @@ describe("DataSourcePageContent — loading state contract", () => {
     });
     expect(screen.queryByRole("button", { name: "Delete Table" })).toBeNull();
     screen.getByRole("heading", { name: "No tables yet" });
-    screen.getByText(
-      "Use Add Source on the Data Sources page to import a table.",
-    );
+    screen.getByText("Add a file from the Data Sources page.");
   });
 
   it("shows the real import path when a source has no tables", () => {
@@ -800,11 +828,24 @@ describe("DataSourcePageContent — loading state contract", () => {
     render(<DataSourcePageContent sourceId={SOURCE_ID} />);
 
     screen.getByRole("heading", { name: "No tables yet" });
-    screen.getByText(
-      "Use Add Source on the Data Sources page to import a table.",
-    );
+    screen.getByText("Add a file from the Data Sources page.");
     screen.getByRole("button", { name: "Go to Data Sources" });
     expect(screen.queryByText(/sidebar/i)).toBeNull();
+  });
+
+  it("points a remote source with no tables at Add Source", () => {
+    mockUseDataSources.mockReturnValue({
+      data: [{ ...DATA_SOURCE, type: "postgres" }],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [] });
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    screen.getByRole("heading", { name: "No tables yet" });
+    screen.getByText("Choose tables from Add Source on the Data Sources page.");
+    screen.getByRole("button", { name: "Go to Data Sources" });
+    expect(mockListGa4Properties).not.toHaveBeenCalled();
   });
 
   it("never asks for a table selection when tables exist, including after a stale selection", async () => {
@@ -1000,3 +1041,163 @@ function makeCol(
     sampleValues: [],
   };
 }
+
+describe("DataSourcePageContent — connected GA4 source with no tables", () => {
+  const GA4_SOURCE = {
+    ...DATA_SOURCE,
+    name: "Web analytics",
+    type: "googleAnalytics",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseDataSources.mockReturnValue({
+      data: [GA4_SOURCE],
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [] });
+    mockUseDataFrames.mockReturnValue({ data: [] });
+    mockCommitBatch.mockResolvedValue({ results: [] });
+    mockPrepareRemoteDataTable.mockResolvedValue({ fields: [] });
+    mockInitialFetch.mockResolvedValue({ status: "ready" });
+  });
+
+  it("lists the account's properties and imports the chosen one as a table", async () => {
+    mockListGa4Properties.mockResolvedValue([
+      { id: "properties/111", title: "Marketing site" },
+      { id: "properties/222", title: "Store" },
+    ]);
+    let finishFetch: (value: { status: "ready" }) => void = () => {};
+    mockInitialFetch.mockReturnValue(
+      new Promise((resolve) => {
+        finishFetch = resolve;
+      }),
+    );
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    screen.getByRole("heading", { name: "Choose a property to import" });
+    screen.getByText("Each property becomes a table you can build reports on.");
+    expect(mockListGa4Properties).toHaveBeenCalledWith({
+      dataSourceId: SOURCE_ID,
+    });
+    const store = await screen.findByRole("button", { name: "Store" });
+    expect(screen.queryByText("No tables yet")).toBeNull();
+
+    fireEvent.click(store);
+
+    await waitFor(() =>
+      expect(mockCommitBatch).toHaveBeenCalledWith({
+        commands: [
+          expect.objectContaining({
+            args: expect.objectContaining({
+              dataSourceId: SOURCE_ID,
+              name: "Store",
+              table: "properties/222",
+            }),
+          }),
+        ],
+      }),
+    );
+    const tableId = mockCommitBatch.mock.calls[0][0].commands[0].args.id;
+    await waitFor(() =>
+      expect(mockInitialFetch).toHaveBeenCalledWith({
+        insight: { baseTableId: tableId, selectedFields: [], metrics: [] },
+      }),
+    );
+    expect(mockPrepareRemoteDataTable).toHaveBeenCalledWith({ id: tableId });
+    // Progress stays on the chosen row; the other row cannot start a second import.
+    expect(
+      screen.getByRole("button", { name: "Store" }).getAttribute("aria-busy"),
+    ).toBe("true");
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Marketing site",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => finishFetch({ status: "ready" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps the picker and shows the failure when an import's table appears and is rolled back", async () => {
+    mockListGa4Properties.mockResolvedValue([
+      { id: "properties/222", title: "Store" },
+    ]);
+    let finishFetch: (value: {
+      status: "failed";
+      message: string;
+    }) => void = () => {};
+    mockInitialFetch.mockReturnValue(
+      new Promise((resolve) => {
+        finishFetch = resolve;
+      }),
+    );
+
+    const view = render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Store" }));
+    await waitFor(() => expect(mockInitialFetch).toHaveBeenCalled());
+
+    // The subscription shows the in-flight table before the import settles.
+    const tableId = mockCommitBatch.mock.calls[0][0].commands[0].args.id;
+    mockUseDataTables.mockReturnValue({
+      data: [
+        {
+          id: tableId,
+          name: "Store",
+          dataSourceId: SOURCE_ID,
+          fields: [],
+          metrics: [],
+        },
+      ],
+    });
+    view.rerender(<DataSourcePageContent sourceId={SOURCE_ID} />);
+    screen.getByRole("heading", { name: "Choose a property to import" });
+
+    // The fetch fails; the import removes its table again.
+    mockUseDataTables.mockReturnValue({ data: [] });
+    await act(async () =>
+      finishFetch({ status: "failed", message: "Google Analytics is busy." }),
+    );
+    view.rerender(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Google Analytics is busy.",
+    );
+    expect(
+      (screen.getByRole("button", { name: "Store" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("asks for a new Google sign-in when the stored grant is unusable", async () => {
+    mockListGa4Properties.mockRejectedValue(
+      new Error(CONNECTOR_SIGN_IN_EXPIRED),
+    );
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    await screen.findByText("Google sign-in expired.");
+    screen.getByRole("button", { name: "Go to Data Sources" });
+    expect(screen.queryByText(CONNECTOR_SIGN_IN_EXPIRED)).toBeNull();
+  });
+
+  it("offers a retry, not raw error text, when properties fail to load", async () => {
+    mockListGa4Properties
+      .mockRejectedValueOnce(
+        new Error("[GA4Connector] Google API request failed (503)"),
+      )
+      .mockResolvedValueOnce([
+        { id: "properties/111", title: "Marketing site" },
+      ]);
+
+    render(<DataSourcePageContent sourceId={SOURCE_ID} />);
+
+    await screen.findByText("Couldn't load your Google Analytics properties.");
+    expect(screen.queryByText(/GA4Connector/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("button", { name: "Marketing site" });
+  });
+});

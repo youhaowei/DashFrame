@@ -165,7 +165,8 @@ vi.mock("@wystack/ui-react/icons", async (importOriginal) => {
 
 import { ConfirmDialog } from "../confirm-dialog";
 import { AddDataSourceModal } from "./AddDataSourceModal";
-import { DataPickerContent, importRemoteResource } from "./DataPickerContent";
+import { DataPickerContent } from "./DataPickerContent";
+import { importRemoteResource } from "./RemoteResourceImport";
 import { DataPickerModal } from "./DataPickerModal";
 
 const FILE_SOURCE_ID = "file-source-id" as UUID;

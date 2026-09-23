@@ -29,6 +29,19 @@ export interface GoogleOAuthTokenBundle {
 }
 
 /**
+ * The stored Google grant can no longer be used: it is missing, malformed,
+ * revoked, expired past refresh, or minted for another OAuth client. Only a new
+ * Google sign-in fixes it, so hosts can tell the user that instead of showing a
+ * generic failure.
+ */
+export class GoogleAuthorizationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GoogleAuthorizationError";
+  }
+}
+
+/**
  * Client credentials the host supplies at call time, read from server config
  * and never persisted alongside a token bundle.
  */
@@ -133,7 +146,9 @@ function parseTokenBundle(raw: string): GoogleOAuthTokenBundle {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error("[GA4Connector] Stored Google credential is malformed");
+    throw new GoogleAuthorizationError(
+      "[GA4Connector] Stored Google credential is malformed",
+    );
   }
   if (
     parsed === null ||
@@ -145,11 +160,13 @@ function parseTokenBundle(raw: string): GoogleOAuthTokenBundle {
     typeof (parsed as { clientId?: unknown }).clientId !== "string" ||
     !Array.isArray((parsed as { scopes?: unknown }).scopes)
   ) {
-    throw new Error("[GA4Connector] Stored Google credential is incomplete");
+    throw new GoogleAuthorizationError(
+      "[GA4Connector] Stored Google credential is incomplete",
+    );
   }
   const bundle = parsed as GoogleOAuthTokenBundle;
   if (!bundle.scopes.every((scope) => typeof scope === "string")) {
-    throw new Error(
+    throw new GoogleAuthorizationError(
       "[GA4Connector] Stored Google credential scopes are invalid",
     );
   }
@@ -166,7 +183,9 @@ async function refreshAccessToken(
   signal?: AbortSignal,
 ): Promise<GoogleOAuthTokenBundle> {
   if (!bundle.refreshToken) {
-    throw new Error("[GA4Connector] Google authorization must be renewed");
+    throw new GoogleAuthorizationError(
+      "[GA4Connector] Google authorization must be renewed",
+    );
   }
   // Fail closed rather than attempting an unauthenticated refresh: Google
   // rejects it anyway, and a clear message points at the missing server config.
@@ -180,7 +199,7 @@ async function refreshAccessToken(
   // the new one — say so instead of sending a mismatched pair and surfacing an
   // opaque provider error.
   if (bundle.clientId !== oauthClient.clientId) {
-    throw new Error(
+    throw new GoogleAuthorizationError(
       "[GA4Connector] Google authorization was issued for a different OAuth client and must be renewed",
     );
   }
@@ -197,9 +216,13 @@ async function refreshAccessToken(
     body,
   });
   if (!response.ok) {
-    throw new Error(
-      `[GA4Connector] Google token refresh failed (${response.status})`,
-    );
+    const message = `[GA4Connector] Google token refresh failed (${response.status})`;
+    // Google answers a revoked or expired refresh token with 400
+    // `invalid_grant` (401 for a rejected client). Anything else is transient.
+    if (response.status === 400 || response.status === 401) {
+      throw new GoogleAuthorizationError(message);
+    }
+    throw new Error(message);
   }
   const token = (await response.json()) as GoogleTokenResponse;
   if (typeof token.access_token !== "string" || !token.access_token) {
@@ -273,9 +296,9 @@ async function fetchJson(
     },
   });
   if (!response.ok) {
-    throw new Error(
-      `[GA4Connector] Google API request failed (${response.status})`,
-    );
+    const message = `[GA4Connector] Google API request failed (${response.status})`;
+    if (response.status === 401) throw new GoogleAuthorizationError(message);
+    throw new Error(message);
   }
   if (maxResponseBytes === undefined) return response.json();
   if (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes <= 0)
