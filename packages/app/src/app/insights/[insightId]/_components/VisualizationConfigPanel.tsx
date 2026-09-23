@@ -66,6 +66,8 @@ interface VisualizationConfigPanelProps {
   activeSuggestionEncoding?: ChartEncoding;
   activeVisualization?: Visualization;
   compiledInsight: CompiledInsight;
+  /** Color the chart takes from a pivoted field while its own color is unset. */
+  pivotColor?: string;
   dataTable: DataTable;
   availableFields: Field[];
   metricLabelFields?: Field[];
@@ -223,6 +225,7 @@ function UnsavedEncodings({
 function SavedEncodings({
   visualization,
   compiledInsight,
+  pivotColor,
   availableFields,
   metricLabelFields,
   availableColumns,
@@ -232,6 +235,7 @@ function SavedEncodings({
 }: Pick<
   VisualizationConfigPanelProps,
   | "compiledInsight"
+  | "pivotColor"
   | "availableFields"
   | "metricLabelFields"
   | "availableColumns"
@@ -284,6 +288,10 @@ function SavedEncodings({
     compiledInsight.metrics,
   ]);
 
+  const pivotLabel = options.find(
+    (option) => option.value === pivotColor,
+  )?.label;
+
   return (
     <>
       <EncodingMap
@@ -295,7 +303,7 @@ function SavedEncodings({
               onChange={(value) => onEncodingChange("color", value)}
               onClear={() => onEncodingChange("color", "")}
               options={options}
-              placeholder="None"
+              placeholder={pivotLabel ?? "None"}
               emptyDashed
               disabled={!encodingsReady}
             />
@@ -310,6 +318,11 @@ function SavedEncodings({
                 emptyDashed
                 disabled={!encodingsReady}
               />
+            )}
+            {pivotLabel && !visualization.encoding?.color && (
+              <p className="col-span-2 text-xs text-neutral-fg-subtle">
+                Color follows the {pivotLabel} pivot.
+              </p>
             )}
           </>
         }
@@ -368,6 +381,7 @@ export function VisualizationConfigPanel({
   activeSuggestionEncoding,
   activeVisualization,
   compiledInsight,
+  pivotColor,
   dataTable,
   availableFields,
   metricLabelFields,
@@ -463,6 +477,7 @@ export function VisualizationConfigPanel({
       <SavedEncodings
         visualization={{ ...activeVisualization, ...effectiveVisualization }}
         compiledInsight={compiledInsight}
+        pivotColor={pivotColor}
         availableFields={availableFields}
         metricLabelFields={metricLabelFields}
         availableColumns={availableColumns}

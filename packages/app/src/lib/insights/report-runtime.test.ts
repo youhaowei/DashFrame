@@ -319,3 +319,62 @@ describe("reportEncoding with fixed selections", () => {
     });
   });
 });
+
+describe("reportEncoding with a pivot", () => {
+  it("splits the chart by the pivot when color is free", () => {
+    expect(
+      reportEncoding(
+        { x: "field:date", y: "metric:orders" },
+        insight,
+        undefined,
+        fields,
+      ),
+    ).toEqual({ x: "field:date", y: "metric:orders", color: "field:channel" });
+  });
+
+  it("keeps a chosen color and a pivot already on an axis", () => {
+    expect(
+      reportEncoding(
+        { x: "field:date", y: "metric:orders", color: "field:date" },
+        insight,
+        undefined,
+        fields,
+      ).color,
+    ).toBe("field:date");
+    expect(
+      reportEncoding(
+        { x: "field:channel", y: "metric:orders" },
+        insight,
+        undefined,
+        fields,
+      ).color,
+    ).toBeUndefined();
+  });
+
+  it("colors by the pivot the table nests first", () => {
+    const twoPivots = {
+      ...insight,
+      selectedFields: ["date", "region", "channel"],
+      reporting: { pivotFields: ["channel", "region"] },
+    } as Insight;
+    expect(
+      reportEncoding(
+        { x: "field:date", y: "metric:orders" },
+        twoPivots,
+        undefined,
+        fields,
+      ).color,
+    ).toBe("field:region");
+  });
+
+  it("ignores a pivot the viewer's run leaves out", () => {
+    expect(
+      reportEncoding(
+        { x: "field:date", y: "metric:orders" },
+        insight,
+        { dimensions: ["date"] },
+        fields,
+      ).color,
+    ).toBeUndefined();
+  });
+});

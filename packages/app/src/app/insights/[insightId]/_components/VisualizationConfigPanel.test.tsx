@@ -156,6 +156,26 @@ describe("VisualizationConfigPanel", () => {
     );
   });
 
+  it("names the pivot a chart takes its color from", () => {
+    render(
+      <VisualizationConfigPanel
+        activeChartType="barY"
+        availableChartTypes={new Set(["barY"])}
+        activeVisualization={visualization}
+        compiledInsight={compiledInsight}
+        pivotColor={fieldEncoding(fieldId)}
+        dataTable={table}
+        availableFields={[field]}
+        availableColumns={[{ name: fieldAlias, type: "number" }]}
+        columnDisplayNames={{ [fieldAlias]: "Revenue" }}
+        columnAnalysis={analysis}
+        onSelectChartType={vi.fn()}
+        updateVisualization={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Color follows the Revenue pivot.")).toBeTruthy();
+  });
+
   it("uses a pending bar orientation when editing an axis before its echo", async () => {
     let resolveTypeChange: (() => void) | undefined;
     const updateVisualization = vi.fn().mockImplementationOnce(

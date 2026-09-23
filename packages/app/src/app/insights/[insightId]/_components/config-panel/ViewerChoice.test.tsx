@@ -75,7 +75,7 @@ describe("viewer choices on chips", () => {
     const onRename = vi.fn();
     render(fields({ onViewerChange, onRename }));
 
-    await user.click(screen.getByRole("button", { name: "Rename Amount" }));
+    await user.click(screen.getByRole("button", { name: "Edit Amount" }));
     await user.click(
       screen.getByRole("checkbox", { name: "Viewers can show or hide" }),
     );

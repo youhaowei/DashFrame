@@ -4,6 +4,7 @@ import {
   currentViewerRuntime,
   reportPresentation,
   reportEncoding,
+  reportPivotColor,
 } from "@/lib/insights/report-runtime";
 import {
   ReportDataTable,
@@ -2300,6 +2301,12 @@ export function InsightView({
               activeSuggestionEncoding={activeChartSuggestion?.encoding}
               activeVisualization={activeVisualization}
               compiledInsight={compiledInsightForEncodings}
+              pivotColor={reportPivotColor(
+                activeVisualization?.encoding,
+                insight,
+                viewerRuntime,
+                modelResolvedFields,
+              )}
               dataTable={authoringTable}
               availableFields={encodingAvailableFields}
               metricLabelFields={modelResolvedFields}

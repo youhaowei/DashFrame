@@ -164,7 +164,31 @@ function rebindRemovedMetric(
   if (replacement) usedMeasures.add(replacement);
 }
 
-/** Rebind removed encodings to the viewer's replacement without changing saved charts. */
+/**
+ * Splits the chart by the first pivoted field when the chart leaves color
+ * free, so the chart shows the same breakdown as the pivoted table.
+ */
+function withPivotColor(
+  result: VisualizationEncoding,
+  insight: Insight,
+  runtime: InsightRuntimeInput | undefined,
+) {
+  if (result.color) return;
+  const selected = runtime?.dimensions ?? insight.selectedFields;
+  const drawn = new Set(
+    [result.x, result.y, result.size].map((value) => parseEncoding(value)?.id),
+  );
+  // Selected order, which is how the table nests its pivot columns.
+  const pivots = new Set(insight.reporting?.pivotFields);
+  const pivot = selected.find((id) => pivots.has(id) && !drawn.has(id));
+  if (pivot) result.color = fieldEncoding(pivot);
+}
+
+/**
+ * The encoding a report chart draws for this run: removed fields rebound to
+ * the viewer's replacement, and a pivot shown as color. Saved charts stay as
+ * they are.
+ */
 export function reportEncoding(
   encoding: VisualizationEncoding,
   insight: Insight,
@@ -222,5 +246,17 @@ export function reportEncoding(
       );
     }
   }
+  withPivotColor(result, insight, runtime);
   return result;
+}
+
+/** The field a saved chart takes its color from because of a pivot, if any. */
+export function reportPivotColor(
+  encoding: VisualizationEncoding | undefined,
+  insight: Insight,
+  runtime: InsightRuntimeInput | undefined,
+  fields: Field[],
+): string | undefined {
+  if (!encoding || encoding.color) return undefined;
+  return reportEncoding(encoding, insight, runtime, fields).color;
 }
