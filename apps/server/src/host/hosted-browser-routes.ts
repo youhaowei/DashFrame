@@ -125,7 +125,11 @@ export function mountHostedBrowserRoutes(
   );
   app.get("/api/connectors/oauth/callback", (c) =>
     authenticated(c.req.raw, async (hosted) =>
-      handleConnectorOAuthCallback(c, hosted.application),
+      handleConnectorOAuthCallback(
+        c,
+        hosted.application,
+        (dataSourceId) => `/data-sources/${encodeURIComponent(dataSourceId)}`,
+      ),
     ),
   );
   app.get("/api/connectors/setup/:sessionId/resume", (c) =>

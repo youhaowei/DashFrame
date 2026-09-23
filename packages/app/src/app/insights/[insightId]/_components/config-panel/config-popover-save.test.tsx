@@ -160,13 +160,13 @@ describe("insight config popover saves", () => {
         onAdd={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Rename Amount" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Amount" }));
     fireEvent.change(screen.getByLabelText("Display name"), {
       target: { value: "Revenue" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(
-      await screen.findByText("Failed to rename field: write failed"),
+      await screen.findByText("Failed to save field: write failed"),
     ).toBeTruthy();
     expect(screen.getByLabelText("Display name")).toBeTruthy();
   });
@@ -185,7 +185,7 @@ describe("insight config popover saves", () => {
       />,
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Rename Orders · Amount" }),
+      screen.getByRole("button", { name: "Edit Orders · Amount" }),
     );
     expect(
       (screen.getByLabelText("Display name") as HTMLInputElement).value,
@@ -397,7 +397,7 @@ describe("insight config popover saves", () => {
         onAdd={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Rename Amount" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Amount" }));
     fireEvent.change(screen.getByLabelText("Display name"), {
       target: { value: "Revenue" },
     });

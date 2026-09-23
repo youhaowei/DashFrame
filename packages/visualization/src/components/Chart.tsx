@@ -1,6 +1,10 @@
 "use client";
 
-import type { ChartEncoding, VisualizationType } from "@dashframe/types";
+import type {
+  ChartEncoding,
+  VisualizationType,
+  MeasureFormat,
+} from "@dashframe/types";
 import { useContainerDimensions } from "@dashframe/ui";
 import { Spinner, cn } from "@wystack/ui-react";
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
@@ -73,6 +77,10 @@ function useChartColors(): string {
 // ============================================================================
 
 export interface ChartProps {
+  /** Exclude canonical subtotal rows from chart marks and domains. */
+  detailRowsOnly?: boolean;
+  /** Saved measure formats keyed by canonical result column. */
+  measureFormats?: Record<string, MeasureFormat>;
   /** DuckDB table name to render data from */
   tableName: string;
 
@@ -176,6 +184,8 @@ export interface ChartProps {
  * for table type.
  */
 export function Chart({
+  detailRowsOnly = false,
+  measureFormats,
   tableName,
   visualizationType,
   encoding,
@@ -193,6 +203,7 @@ export function Chart({
   // the serialized value instead of object identity so those renders do not
   // tear down a healthy chart and briefly leave its container empty.
   const serializedEncoding = JSON.stringify(encoding);
+  const serializedMeasureFormats = JSON.stringify(measureFormats ?? {});
 
   // Track chart colors to detect theme changes
   const chartColors = useChartColors();
@@ -283,6 +294,11 @@ export function Chart({
 
     // Build config with resolved dimensions
     const config: ChartConfig = {
+      detailRowsOnly,
+      measureFormats: JSON.parse(serializedMeasureFormats) as Record<
+        string,
+        MeasureFormat
+      >,
       tableName,
       encoding: JSON.parse(serializedEncoding) as ChartEncoding,
       width: resolvedWidth,
@@ -319,9 +335,11 @@ export function Chart({
     tableName,
     visualizationType,
     serializedEncoding,
+    serializedMeasureFormats,
     resolvedWidth,
     resolvedHeight,
     preview,
+    detailRowsOnly,
     theme,
     chartColors, // Re-render when theme changes
     canRender,

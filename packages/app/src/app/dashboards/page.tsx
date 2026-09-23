@@ -172,7 +172,7 @@ export default function DashboardsPage() {
       )
     : dashboards;
   const reportContentIndexes = useMemo(
-    () => indexReportContents(visualizations, []),
+    () => indexReportContents(visualizations),
     [visualizations],
   );
   const hasLoadError = dashboardsLoadError || visualizationsLoadError;

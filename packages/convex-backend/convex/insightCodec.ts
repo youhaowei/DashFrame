@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   InsightSource,
+  InsightReporting,
   InsightRuntimeDeclaration,
   UUID,
   InsightMetric,
@@ -17,6 +18,7 @@ export interface StoredInsightDefinition {
   sorts?: unknown[];
   joins?: unknown[];
   runtimeControls?: InsightRuntimeDeclaration;
+  reporting?: InsightReporting;
 }
 
 /**
@@ -55,6 +57,7 @@ export type InsightDefinition = {
   sorts?: InsightSort[];
   joins?: InsightJoinConfig[];
   runtimeControls?: InsightRuntimeDeclaration;
+  reporting?: InsightReporting;
 };
 
 // ---------------------------------------------------------------------------
@@ -72,8 +75,79 @@ export const insightSourceSchema = z.object({
   sourceId: z.string(),
 });
 
+const reportDateRangeSchema = z.union([
+  z
+    .object({
+      type: z.literal("absolute"),
+      start: z.string().datetime({ offset: true }),
+      end: z.string().datetime({ offset: true }),
+    })
+    .strict()
+    .refine((range) => Date.parse(range.start) <= Date.parse(range.end), {
+      message: "Date range start must not follow its end",
+    }),
+  z
+    .object({
+      type: z.enum([
+        "this_month",
+        "previous_month",
+        "this_quarter",
+        "previous_quarter",
+        "this_year",
+        "previous_year",
+        "month_to_date",
+        "year_to_date",
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.enum([
+        "last_complete_days",
+        "last_complete_weeks",
+        "last_complete_months",
+      ]),
+      count: z.number().int().positive().max(10000),
+    })
+    .strict(),
+]);
+
+export const reportingSchema = z
+  .object({
+    comparison: z.enum(["previous_period", "previous_year"]).optional(),
+    measureIds: z.array(z.string().min(1)).min(1).optional(),
+    dateRange: z
+      .object({ fieldId: z.string().min(1), range: reportDateRangeSchema })
+      .strict()
+      .optional(),
+    dateGrains: z
+      .record(z.string(), z.enum(["day", "week", "month", "quarter", "year"]))
+      .optional(),
+    pivotFields: z.array(z.string()).optional(),
+    totals: z.boolean().optional(),
+    topN: z
+      .object({
+        fieldId: z.string(),
+        measureId: z.string(),
+        count: z.number().int().positive().max(10000),
+        direction: z.enum(["asc", "desc"]),
+      })
+      .optional(),
+    limit: z.number().int().positive().max(100000).optional(),
+  })
+  .strict();
+
+const runtimeSelectionSchema = z
+  .object({
+    allowedIds: z.array(z.string().min(1)).min(1),
+    maxSelected: z.number().int().positive().max(16),
+  })
+  .strict();
+
 export const runtimeControlsSchema = z
   .object({
+    dimensions: runtimeSelectionSchema.optional(),
+    measures: runtimeSelectionSchema.optional(),
     filters: z
       .array(
         z
@@ -156,6 +230,7 @@ export const storedInsightDefinitionSchema = z
       .array(z.unknown())
       .nullish()
       .transform((v) => v ?? undefined),
+    reporting: reportingSchema.optional(),
     runtimeControls: runtimeControlsSchema
       .nullish()
       .transform((v) => v ?? undefined),

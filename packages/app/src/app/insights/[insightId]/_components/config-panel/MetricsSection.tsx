@@ -8,6 +8,7 @@ import {
   SortableList,
   WorkbenchAddRow,
   WorkbenchChip,
+  WorkbenchChipLabel,
   type SortableListItem,
 } from "@dashframe/ui";
 import {
@@ -24,6 +25,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Tooltip,
 } from "@wystack/ui-react";
 import {
   fieldIdToColumnAlias,
@@ -31,7 +33,12 @@ import {
 } from "@dashframe/engine";
 import { Sigma } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  MeasureCalculationFields,
+  type MeasureOptions,
+} from "./MeasureCalculationFields";
 import { metricColumnNameForSave } from "./metric-formula";
+import { ViewerChoiceCheckbox, ViewerChoiceMark } from "./ViewerChoice";
 import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
 interface MetricSortableItem extends SortableListItem {
@@ -78,11 +85,17 @@ export function metricFieldLabel(
   return label && !isGeneratedColumnLabel(label) ? label : undefined;
 }
 
-function metricDescription(
+export function metricDescription(
   metric: InsightMetric,
   fields: readonly MetricField[],
   columnDisplayNames: ColumnDisplayNames,
 ): string {
+  if (metric.expression) {
+    return metric.expression.kind === "binary" &&
+      metric.expression.operator === "divide"
+      ? "ratio"
+      : "formula";
+  }
   if (metric.aggregation === "count" && !metric.columnName) return "count";
   const resolved = metricFieldLabel(
     metric.columnName,
@@ -121,13 +134,28 @@ function autoMetricName(
 }
 
 function MetricEditor({
+  metrics,
   metric,
   dataTable,
   columnDisplayNames = {},
   dragHandle,
   onSave,
   onRemove,
+  viewerChoice = false,
+  onViewerChange,
+  savedMeasures = [],
+  onReuse,
+  onSaveToSource,
 }: {
+  /** Definitions saved on the source that a new metric can start from. */
+  savedMeasures?: readonly { id: string; name: string }[];
+  onReuse?: (savedMeasureId: string) => Promise<void>;
+  /** Saves a copy of this metric on the source for other reports. */
+  onSaveToSource?: (metricId: string) => Promise<void>;
+  /** Whether viewers can show or hide this metric. */
+  viewerChoice?: boolean;
+  onViewerChange?: (metricId: string, enabled: boolean) => Promise<void>;
+  metrics: InsightMetric[];
   metric?: InsightMetric;
   dataTable: DataTable;
   /** Result column labels, used only to name a metric's column. */
@@ -136,6 +164,11 @@ function MetricEditor({
   onSave: (metric: InsightMetric) => Promise<void> | void;
   onRemove?: () => void;
 }) {
+  const [options, setOptions] = useState<MeasureOptions>({
+    expression: metric?.expression,
+    filters: metric?.filters,
+    format: metric?.format,
+  });
   const [open, setOpen] = useState(false);
   const [aggregation, setAggregation] = useState<AggregationType>(
     metric?.aggregation ?? "count",
@@ -143,7 +176,11 @@ function MetricEditor({
   const [columnName, setColumnName] = useState(metric?.columnName ?? "");
   const [nameDraft, setNameDraft] = useState(metric?.name ?? "");
   const [nameEdited, setNameEdited] = useState(Boolean(metric));
+  const [viewer, setViewer] = useState(viewerChoice);
   const [error, setError] = useState<string | null>(null);
+  const [measureValidationError, setMeasureValidationError] = useState<
+    string | null
+  >(null);
   const { setPending, isPending } = useSaveDismissGuard();
   const [isSaving, setIsSaving] = useSavingFlag(setPending);
   const fields = useMemo(
@@ -160,14 +197,21 @@ function MetricEditor({
   const name = nameEdited
     ? nameDraft
     : autoMetricName(aggregation, columnName, dataTable);
-  const needsField = aggregation !== "count";
+  const needsField = !options.expression && aggregation !== "count";
 
   const reset = () => {
+    setOptions({
+      expression: metric?.expression,
+      filters: metric?.filters,
+      format: metric?.format,
+    });
     setAggregation(metric?.aggregation ?? "count");
     setColumnName(metric?.columnName ?? "");
     setNameDraft(metric?.name ?? "");
     setNameEdited(Boolean(metric));
+    setViewer(viewerChoice);
     setError(null);
+    setMeasureValidationError(null);
   };
   const close = () => {
     if (isPending()) return;
@@ -176,16 +220,25 @@ function MetricEditor({
   };
   const save = async () => {
     if (!name.trim() || (needsField && !columnName)) return;
+    if (measureValidationError) {
+      setError(measureValidationError);
+      return;
+    }
     setIsSaving(true);
     setError(null);
     try {
-      await onSave({
-        id: metric?.id ?? (crypto.randomUUID() as UUID),
-        name: name.trim(),
-        sourceTable: metric?.sourceTable ?? dataTable.id,
-        columnName: metricColumnNameForSave(aggregation, columnName),
-        aggregation,
-      });
+      if (!metric || definitionChanged) {
+        await onSave({
+          id: metric?.id ?? (crypto.randomUUID() as UUID),
+          name: name.trim(),
+          sourceTable: metric?.sourceTable ?? dataTable.id,
+          columnName: metricColumnNameForSave(aggregation, columnName),
+          aggregation,
+          ...options,
+        });
+      }
+      if (metric && viewer !== viewerChoice)
+        await onViewerChange?.(metric.id, viewer);
       setOpen(false);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Unknown error";
@@ -194,6 +247,54 @@ function MetricEditor({
       setIsSaving(false);
     }
   };
+
+  // Which secondary action is running, so only its control shows progress.
+  const [activeAction, setActiveAction] = useState<"reuse" | "source" | null>(
+    null,
+  );
+  const runAction = async (
+    kind: "reuse" | "source",
+    action: () => Promise<void>,
+    failure: string,
+  ) => {
+    setActiveAction(kind);
+    setIsSaving(true);
+    setError(null);
+    try {
+      await action();
+      setOpen(false);
+    } catch (cause) {
+      // Keep the raw error for diagnosis, but never surface it directly —
+      // it can be a WASM/Emscripten or other low-level runtime string.
+      console.error(`${failure}:`, cause);
+      setError(`${failure}. Try again.`);
+    } finally {
+      setIsSaving(false);
+      setActiveAction(null);
+    }
+  };
+
+  const definitionChanged =
+    metric === undefined ||
+    JSON.stringify(options) !==
+      JSON.stringify({
+        expression: metric.expression,
+        filters: metric.filters,
+        format: metric.format,
+      }) ||
+    name.trim() !== metric.name ||
+    aggregation !== metric.aggregation ||
+    metricColumnNameForSave(aggregation, columnName) !==
+      (metric.columnName || undefined);
+
+  // Closing after Save to source would drop edits the user hasn't saved.
+  const hasUnsavedChanges =
+    metric !== undefined &&
+    (definitionChanged ||
+      viewer !== viewerChoice ||
+      // A cleared or invalid draft value is an edit the definition can't
+      // hold yet; saving the old definition would silently drop it.
+      measureValidationError !== null);
 
   const trigger = metric ? (
     <WorkbenchChip
@@ -205,16 +306,25 @@ function MetricEditor({
           render={
             <button
               type="button"
-              className="min-w-0 flex-1 text-left focus-visible:outline-none"
+              className="flex min-w-0 flex-1 focus-visible:outline-none"
               aria-label={`Edit ${metric.name}`}
             >
-              <span className="block truncate font-medium">{metric.name}</span>
-              <span className="block truncate text-[11px] leading-4 text-neutral-fg-subtle">
-                {metricDescription(metric, fields, columnDisplayNames)}
-              </span>
+              <WorkbenchChipLabel
+                title={metric.name}
+                description={metricDescription(
+                  metric,
+                  fields,
+                  columnDisplayNames,
+                )}
+              />
             </button>
           }
         />
+      }
+      trailing={
+        viewerChoice ? (
+          <ViewerChoiceMark label={`Viewers can show or hide ${metric.name}`} />
+        ) : undefined
       }
       removeLabel={`Remove ${metric.name}`}
       onRemove={onRemove}
@@ -245,62 +355,111 @@ function MetricEditor({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <div className="flex gap-2">
-          <Select
-            value={aggregation}
-            onValueChange={(value) => {
-              const next = value as AggregationType;
-              setAggregation(next);
-              const nextFields =
-                next === "sum" || next === "avg"
-                  ? fields.filter(isNumericMetricField)
-                  : fields;
-              if (
-                next === "count" ||
-                !nextFields.some((field) => field.columnName === columnName)
-              ) {
-                setColumnName("");
-              }
-            }}
-          >
-            <SelectTrigger aria-label="Aggregation" className="w-32">
-              <SelectValue>
-                {AGGREGATIONS.find((item) => item.value === aggregation)
-                  ?.label ?? aggregation}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {AGGREGATIONS.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={columnName}
-            onValueChange={(value) => {
-              setColumnName(value ?? "");
-            }}
-            disabled={!needsField}
-          >
-            <SelectTrigger aria-label="Column" className="min-w-0 flex-1">
-              <SelectValue placeholder={needsField ? "Column" : "All rows"}>
-                {columnName
-                  ? (metricFieldLabel(columnName, fields, columnDisplayNames) ??
-                    columnName)
-                  : undefined}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {filteredFields.map((field) => (
-                <SelectItem key={field.id} value={field.columnName!}>
-                  {field.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {!metric && onReuse && savedMeasures.length > 0 && (
+          <>
+            <div className="space-y-1.5">
+              <Label htmlFor="metric-reuse-saved">
+                Start from a saved measure
+              </Label>
+              <Select
+                value={null}
+                disabled={isSaving}
+                onValueChange={(id) => {
+                  if (id)
+                    void runAction(
+                      "reuse",
+                      () => onReuse(id),
+                      "Failed to add saved measure",
+                    );
+                }}
+              >
+                {/* Always unset: picking imports a new metric, so the slot
+                    reads as a choice, as the shared emptyDashed Select does. */}
+                <SelectTrigger
+                  id="metric-reuse-saved"
+                  className="border-dashed"
+                >
+                  <SelectValue placeholder="Choose a measure" />
+                </SelectTrigger>
+                <SelectContent>
+                  {savedMeasures.map((saved) => (
+                    <SelectItem key={saved.id} value={saved.id}>
+                      {saved.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        )}
+        <MeasureCalculationFields
+          value={options}
+          onChange={setOptions}
+          metrics={metrics.filter((candidate) => candidate.id !== metric?.id)}
+          dataTable={dataTable}
+          onValidationErrorChange={setMeasureValidationError}
+        />
+        {!options.expression && (
+          <div className="flex gap-2">
+            <Select
+              value={aggregation}
+              onValueChange={(value) => {
+                const next = value as AggregationType;
+                setAggregation(next);
+                const nextFields =
+                  next === "sum" || next === "avg"
+                    ? fields.filter(isNumericMetricField)
+                    : fields;
+                if (
+                  next === "count" ||
+                  !nextFields.some((field) => field.columnName === columnName)
+                ) {
+                  setColumnName("");
+                }
+              }}
+            >
+              <SelectTrigger aria-label="Aggregation" className="w-32">
+                <SelectValue>
+                  {AGGREGATIONS.find((item) => item.value === aggregation)
+                    ?.label ?? aggregation}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {AGGREGATIONS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={columnName}
+              onValueChange={(value) => {
+                setColumnName(value ?? "");
+              }}
+              disabled={!needsField}
+            >
+              <SelectTrigger aria-label="Column" className="min-w-0 flex-1">
+                <SelectValue placeholder={needsField ? "Column" : "All rows"}>
+                  {columnName
+                    ? (metricFieldLabel(
+                        columnName,
+                        fields,
+                        columnDisplayNames,
+                      ) ?? columnName)
+                    : undefined}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {filteredFields.map((field) => (
+                  <SelectItem key={field.id} value={field.columnName!}>
+                    {field.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <div className="space-y-1.5">
           <Label htmlFor={`metric-name-${metric?.id ?? "new"}`}>Name</Label>
           <Input
@@ -312,7 +471,39 @@ function MetricEditor({
             }}
           />
         </div>
-        <div className="flex justify-end gap-2">
+        {metric && onViewerChange && (
+          <ViewerChoiceCheckbox
+            checked={viewer}
+            onCheckedChange={setViewer}
+            kind="metrics"
+          />
+        )}
+        <div className="flex items-center justify-end gap-2">
+          {metric && onSaveToSource && (
+            <Tooltip
+              content={
+                hasUnsavedChanges
+                  ? "Save your changes first"
+                  : "Keep a copy on the source for other reports"
+              }
+            >
+              <Button
+                label="Save to source"
+                variant="ghost"
+                size="sm"
+                loading={activeAction === "source"}
+                disabled={isSaving || hasUnsavedChanges}
+                onClick={() =>
+                  void runAction(
+                    "source",
+                    () => onSaveToSource(metric.id),
+                    "Failed to save measure to source",
+                  )
+                }
+              />
+            </Tooltip>
+          )}
+          <span className="flex-1" />
           <Button
             label="Cancel"
             variant="ghost"
@@ -323,15 +514,12 @@ function MetricEditor({
           <Button
             label={metric ? "Save" : "Add"}
             size="sm"
-            loading={isSaving}
+            loading={isSaving && activeAction === null}
             disabled={
+              isSaving ||
               !name.trim() ||
               (needsField && !columnName) ||
-              (metric !== undefined &&
-                name.trim() === metric.name &&
-                aggregation === metric.aggregation &&
-                metricColumnNameForSave(aggregation, columnName) ===
-                  (metric.columnName || undefined))
+              (!definitionChanged && viewer === viewerChoice)
             }
             onClick={() => void save()}
           />
@@ -349,7 +537,18 @@ export function MetricsSection({
   onRemove,
   onAdd,
   onEdit,
+  viewerMetricIds = [],
+  onViewerChange,
+  savedMeasures,
+  onReuse,
+  onSaveToSource,
 }: {
+  savedMeasures?: readonly { id: string; name: string }[];
+  onReuse?: (savedMeasureId: string) => Promise<void>;
+  onSaveToSource?: (metricId: string) => Promise<void>;
+  /** Metrics viewers can show or hide. */
+  viewerMetricIds?: readonly string[];
+  onViewerChange?: (metricId: string, enabled: boolean) => Promise<void>;
   metrics: InsightMetric[];
   dataTable: DataTable;
   columnDisplayNames?: ColumnDisplayNames;
@@ -376,20 +575,27 @@ export function MetricsSection({
           unstyledItems
           renderItem={(item, _index, { dragHandle }) => (
             <MetricEditor
+              metrics={metrics}
               metric={item.metric}
               dataTable={dataTable}
               columnDisplayNames={columnDisplayNames}
               dragHandle={dragHandle}
               onSave={onEdit}
+              viewerChoice={viewerMetricIds.includes(item.id)}
+              onViewerChange={onViewerChange}
+              onSaveToSource={onSaveToSource}
               onRemove={() => onRemove(item.id)}
             />
           )}
         />
       )}
       <MetricEditor
+        metrics={metrics}
         dataTable={dataTable}
         columnDisplayNames={columnDisplayNames}
         onSave={onAdd}
+        savedMeasures={savedMeasures}
+        onReuse={onReuse}
       />
     </div>
   );

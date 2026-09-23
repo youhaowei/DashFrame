@@ -235,6 +235,26 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     });
   });
 
+  it("closes the byte source when registration fails before any batch is read", async () => {
+    engine = new NativeDuckDBEngine();
+    const ipc = tableToIPC(new Table({}), "stream");
+    let closed = false;
+    const source = (async function* () {
+      try {
+        yield ipc;
+        yield new Uint8Array(0);
+      } finally {
+        closed = true;
+      }
+    })();
+
+    await expect(
+      engine.registerArrowStream("df_no_columns", source),
+    ).rejects.toThrow("has no columns");
+
+    await vi.waitFor(() => expect(closed).toBe(true));
+  });
+
   it("keeps the previous table when a raw IPC stream fails", async () => {
     engine = new NativeDuckDBEngine();
     const original = tableToIPC(

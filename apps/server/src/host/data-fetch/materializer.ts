@@ -9,6 +9,7 @@ import type {
   Field,
   InsightFetchDefinition,
   InsightFetchReady,
+  InsightPresentation,
   InsightSourceGeneration,
   UUID,
 } from "@dashframe/types";
@@ -26,6 +27,12 @@ import { CoalescedOperation, supportsStreaming } from "./streaming";
 export type EffectiveInsightDefinition = InsightFetchDefinition & {
   limit?: number;
   source?: { sourceType: "dataTable" | "insight"; sourceId: UUID };
+  /** Internal provenance: runtime controls changed the saved dimension selection. */
+  runtimeDimensionsChanged?: true;
+  /** Internal provenance: runtime controls explicitly replaced the saved sort. */
+  runtimeSortOverride?: true;
+  /** Transient chart grouping for this invocation only. Never persisted. */
+  presentation?: InsightPresentation;
 };
 
 export type MaterializationTarget =
@@ -64,6 +71,19 @@ function assertPersistedSourceRefreshable(target: MaterializationTarget): void {
   if (target.kind === "refresh") throw new Error("SOURCE_NOT_REFRESHABLE");
 }
 
+function recordExistingSourceGeneration(
+  generations: InsightSourceGeneration[],
+  source: SourceGeneration,
+): void {
+  if (!source.existingFrameId || typeof source.table.lastFetchedAt !== "number")
+    return;
+  generations.push({
+    tableId: source.table.id,
+    dataFrameId: source.existingFrameId,
+    lastFetchedAt: source.table.lastFetchedAt,
+  });
+}
+
 export function fieldsFromInsightResult(
   schema: InsightFetchReady["schema"],
   tableId: UUID,
@@ -92,6 +112,7 @@ export interface InsightMaterializerDependencies {
     tableId: UUID,
     signal?: AbortSignal,
     batchBytes?: number,
+    preferPublished?: boolean,
   ): Promise<SourceGeneration>;
   resolveInsight(
     ctx: HostContext,
@@ -254,6 +275,7 @@ export function createInsightMaterializer(
             [],
             [],
             transfer,
+            operationArgs.insight.presentation !== undefined,
           );
         })()
           .then(
@@ -332,6 +354,7 @@ async function materializeOnce(
   transientResults: Array<{ id: UUID; registered: boolean }> = [],
   publishedSourceGenerations: InsightSourceGeneration[] = [],
   transfer: TransferBudget,
+  preferPublishedSources = false,
 ): Promise<InsightFetchReady> {
   const storage = dependencies.storage(args.ctx);
   const runtime = dependencies.runtime(args.ctx);
@@ -353,6 +376,7 @@ async function materializeOnce(
           transientResults,
           publishedSourceGenerations,
           transfer,
+          preferPublishedSources,
         ),
       );
     for (const source of sources) {
@@ -378,6 +402,7 @@ async function materializeOnce(
           source.arrow,
         );
         tables.set(source.table.id, source.table);
+        recordExistingSourceGeneration(publishedSourceGenerations, source);
         continue;
       }
       const frameId = dependencies.uuid();
@@ -559,6 +584,7 @@ async function resolveMaterializationSource(
   transientResults: Array<{ id: UUID; registered: boolean }>,
   publishedSourceGenerations: InsightSourceGeneration[],
   transfer: TransferBudget,
+  preferPublishedSources: boolean,
 ): Promise<SourceGeneration> {
   if (
     tableId !== args.insight.baseTableId ||
@@ -569,6 +595,7 @@ async function resolveMaterializationSource(
       tableId,
       transfer.signal,
       transfer.limits.batchBytes,
+      preferPublishedSources,
     );
   if (ancestry.includes(tableId) || ancestry.length >= 16)
     throw new Error("TARGET_NOT_READY");
@@ -580,6 +607,7 @@ async function resolveMaterializationSource(
     transientResults,
     publishedSourceGenerations,
     transfer,
+    preferPublishedSources,
   );
   const arrow = await loadFallback(
     dependencies.storage(args.ctx),

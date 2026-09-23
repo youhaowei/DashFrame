@@ -26,11 +26,12 @@ import type { ChangeEvent } from "react";
 // Helpers — reuse field-type detection from filter-value
 // ---------------------------------------------------------------------------
 
-type FilterInputType = "text" | "number" | "date";
+type FilterInputType = "text" | "number" | "date" | "boolean";
 
 function inputTypeForColumnType(type: CombinedField["type"]): FilterInputType {
   if (type === "number") return "number";
   if (type === "date") return "date";
+  if (type === "boolean") return "boolean";
   return "text";
 }
 
@@ -137,7 +138,9 @@ function ControlInput({
       : "";
   const label = control.label ?? control.field;
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (
+    e: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => {
     const raw = e.target.value;
     // Coerce to number for numeric controls so downstream filters get the
     // right type (buildInsightSQL compares typefully for numeric columns).
@@ -146,6 +149,7 @@ function ControlInput({
       const n = Number(raw);
       if (isFinite(n)) coerced = n;
     }
+    if (inputType === "boolean" && raw !== "") coerced = raw === "true";
     onTransientChange(setTransientValue(transientValues, control.id, coerced));
   };
 
@@ -157,15 +161,29 @@ function ControlInput({
       >
         {label}
       </Label>
-      <Input
-        id={`control-${control.id}`}
-        type={inputType}
-        value={displayValue}
-        onChange={handleChange}
-        placeholder={`Filter ${label}…`}
-        className="h-7 w-36 text-sm"
-        aria-label={`Control: ${label}`}
-      />
+      {inputType === "boolean" ? (
+        <select
+          id={`control-${control.id}`}
+          value={displayValue}
+          onChange={handleChange}
+          className="h-7 w-36 rounded-md border border-neutral-border bg-neutral-bg px-2 text-sm"
+          aria-label={`Control: ${label}`}
+        >
+          <option value="">Include all</option>
+          <option value="true">True</option>
+          <option value="false">False</option>
+        </select>
+      ) : (
+        <Input
+          id={`control-${control.id}`}
+          type={inputType}
+          value={displayValue}
+          onChange={handleChange}
+          placeholder={`Filter ${label}…`}
+          className="h-7 w-36 text-sm"
+          aria-label={`Control: ${label}`}
+        />
+      )}
     </div>
   );
 }

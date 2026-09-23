@@ -205,6 +205,7 @@ export default function VisualizationPageContent({
     sampleRows: renderedRows = [],
     totalCount: renderedRowCount = 0,
     isReady: isRenderedDataReady,
+    error: renderedDataError,
   } = useInsightPagination({
     insight: insightForView,
     showModelPreview: false,
@@ -271,7 +272,10 @@ export default function VisualizationPageContent({
   }, [compiledInsight, dataTable?.fields]);
 
   // Include the live saved-Insight run to prevent a data-unavailable flash.
-  const isLoading = isVizLoading || (visualization && !dataFrame);
+  // A failed run leaves `dataFrame` null forever: exclude it here so the
+  // "Data not available" state below can render the error instead of spinning.
+  const isLoading =
+    isVizLoading || (visualization && !dataFrame && !renderedDataError);
 
   // Local edit buffer for the visualization name. While the user has not
   // typed an override, we render whatever is on the visualization itself.
@@ -770,8 +774,9 @@ export default function VisualizationPageContent({
               </div>
               <h3 className="mb-2 text-lg font-semibold">Data not available</h3>
               <p className="mb-4 text-sm text-neutral-fg-subtle">
-                The data for this visualization is not available. Please refresh
-                from the source insight.
+                {renderedDataError ??
+                  "The data for this visualization is not available."}{" "}
+                Please refresh from the source insight.
               </p>
               {visualization.insightId && (
                 <Button

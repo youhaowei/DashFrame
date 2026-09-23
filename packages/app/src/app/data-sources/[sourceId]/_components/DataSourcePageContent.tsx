@@ -363,12 +363,6 @@ export default function DataSourcePageContent({
             description={`${connector?.name ?? dataSource.type}${tableCountLabel ?? ""}`}
             actions={
               <>
-                <Button
-                  variant="outline"
-                  icon={TableIcon}
-                  label="Inspect data frames"
-                  onClick={() => navigate({ to: "/data-frames" })}
-                />
                 <Popover>
                   <PopoverTrigger
                     render={

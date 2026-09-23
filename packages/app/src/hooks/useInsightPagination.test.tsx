@@ -1,6 +1,12 @@
 import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
-import type { DataTable, Insight, UUID } from "@dashframe/types";
+import type {
+  DataTable,
+  Insight,
+  InsightPresentation,
+  UUID,
+} from "@dashframe/types";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { HostOperationError } from "@/data/host";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
@@ -26,7 +32,9 @@ vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
   useQuery_experimental: nativeQueryMock(useQuery),
 }));
-vi.mock("@/data/host", () => ({
+vi.mock("@/data/host", async (importOriginal) => ({
+  HostOperationError: (await importOriginal<typeof import("@/data/host")>())
+    .HostOperationError,
   requestHost: (operation: string, args: unknown) =>
     client.mutate({ _path: operation }, args),
   useHostQuery: hostQueryMock(useQuery),
@@ -138,7 +146,7 @@ describe("useInsightPagination", () => {
         },
       ],
       rows: [],
-      totalCount: 12,
+      totalCount: 5,
       page: {},
     });
     const runtime = {
@@ -182,6 +190,189 @@ describe("useInsightPagination", () => {
       ).resolves.toEqual({ rows: [], totalCount: 5 });
     });
     expect(queryDataFrame).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends presentation to runInsight and rematerializes for dimension and transform changes", async () => {
+    client.mutate
+      .mockResolvedValueOnce({ status: "ready", dataFrameId: "frame-product" })
+      .mockResolvedValueOnce({ status: "ready", dataFrameId: "frame-date" })
+      .mockResolvedValueOnce({
+        status: "ready",
+        dataFrameId: "frame-date-month",
+      });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 1,
+      page: {},
+    });
+    const productId = "10000000-0000-4000-8000-000000000001";
+    const dateId = "10000000-0000-4000-8000-000000000002";
+    const { result, rerender } = renderHook(
+      ({ presentation }) => useInsightPagination({ insight, presentation }),
+      {
+        initialProps: {
+          presentation: {
+            dimensions: [productId],
+          } as InsightPresentation,
+        },
+      },
+    );
+
+    await waitFor(() =>
+      expect(result.current.dataFrameId).toBe("frame-product"),
+    );
+    expect(client.mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _path: "runInsight" }),
+      {
+        insightId: insight.id,
+        presentation: { dimensions: [productId] },
+      },
+    );
+
+    rerender({ presentation: { dimensions: [dateId] } });
+    await waitFor(() => expect(result.current.dataFrameId).toBe("frame-date"));
+    expect(client.mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _path: "runInsight" }),
+      {
+        insightId: insight.id,
+        presentation: { dimensions: [dateId] },
+      },
+    );
+
+    rerender({
+      presentation: {
+        dimensions: [dateId],
+        transforms: {
+          [dateId]: { kind: "temporal", aggregation: "yearMonth" },
+        },
+      },
+    });
+    await waitFor(() =>
+      expect(result.current.dataFrameId).toBe("frame-date-month"),
+    );
+    expect(client.mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _path: "runInsight" }),
+      {
+        insightId: insight.id,
+        presentation: {
+          dimensions: [dateId],
+          transforms: {
+            [dateId]: { kind: "temporal", aggregation: "yearMonth" },
+          },
+        },
+      },
+    );
+    expect(client.mutate).toHaveBeenCalledTimes(3);
+  });
+
+  it("restarts an identical presentation after it is disabled and ignores the stale response", async () => {
+    let settleStale!: (value: unknown) => void;
+    client.mutate
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            settleStale = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        status: "ready",
+        dataFrameId: "frame-current",
+      });
+    queryDataFrame.mockResolvedValue({
+      status: "ready",
+      schema: [],
+      rows: [],
+      totalCount: 1,
+      page: {},
+    });
+    const presentation: InsightPresentation = {
+      dimensions: ["10000000-0000-4000-8000-000000000001"],
+    };
+    const runtime = { measures: ["revenue"] };
+    const { result, rerender } = renderHook(
+      ({ value }) =>
+        useInsightPagination({ insight: value, runtime, presentation }),
+      { initialProps: { value: insight as Insight | null } },
+    );
+
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(1));
+    rerender({ value: null });
+    await act(async () => Promise.resolve());
+    rerender({ value: insight });
+
+    await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(result.current.dataFrameId).toBe("frame-current"),
+    );
+    act(() => {
+      settleStale({ status: "ready", dataFrameId: "frame-stale" });
+    });
+    await act(async () => Promise.resolve());
+
+    expect(result.current.dataFrameId).toBe("frame-current");
+    expect(queryDataFrame).toHaveBeenCalledTimes(1);
+    expect(queryDataFrame).toHaveBeenCalledWith("frame-current", {
+      offset: 0,
+      limit: 100,
+    });
+  });
+
+  it("pages every presentation cell when a pivot runtime limit is one", async () => {
+    const pivotId = "10000000-0000-4000-8000-000000000001";
+    client.mutate.mockResolvedValue({
+      status: "ready",
+      dataFrameId: "frame-pivot",
+    });
+    queryDataFrame.mockImplementation(
+      async (
+        _dataFrameId: string,
+        params: { offset: number; limit: number; sort?: unknown },
+      ) => ({
+        status: "ready",
+        schema: [],
+        rows:
+          params.offset === 0
+            ? [{ [pivotId]: "US" }, { [pivotId]: "CA" }]
+            : [{ [pivotId]: "CA" }],
+        totalCount: 2,
+        page: params,
+      }),
+    );
+    const pivotInsight = {
+      ...insight,
+      reporting: { pivotFields: [pivotId] },
+    } as Insight;
+    const runtime = { limit: 1 };
+    const presentation = { dimensions: [pivotId] };
+    const { result } = renderHook(() =>
+      useInsightPagination({
+        insight: pivotInsight,
+        runtime,
+        presentation,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.isReady).toBe(true));
+    expect(result.current.totalCount).toBe(2);
+    expect(client.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ _path: "runInsight" }),
+      {
+        insightId: insight.id,
+        runtime,
+        presentation,
+      },
+    );
+
+    await expect(
+      result.current.fetchData({ offset: 1, limit: 1 }),
+    ).resolves.toEqual({ rows: [{ [pivotId]: "CA" }], totalCount: 2 });
+    expect(queryDataFrame).toHaveBeenLastCalledWith("frame-pivot", {
+      offset: 1,
+      limit: 1,
+      sort: undefined,
+    });
   });
 
   it("uses fetchData only for ephemeral previews and exposes fetch failure", async () => {
@@ -284,13 +475,29 @@ describe("useInsightPagination", () => {
       status: "ready",
       dataFrameId: "frame-1",
     });
-    queryDataFrame.mockRejectedValue(new Error("Frame disappeared"));
+    queryDataFrame.mockRejectedValue(
+      new HostOperationError("Frame disappeared", undefined, undefined, true),
+    );
 
     const { result } = renderHook(() => useInsightPagination({ insight }));
 
     await waitFor(() => expect(result.current.error).toBe("Frame disappeared"));
     expect(result.current.isReady).toBe(false);
     expect(result.current.dataFrameId).toBeNull();
+  });
+
+  it("does not show a raw exception message to the user", async () => {
+    client.mutate.mockResolvedValue({
+      status: "ready",
+      dataFrameId: "frame-1",
+    });
+    queryDataFrame.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    const { result } = renderHook(() => useInsightPagination({ insight }));
+
+    await waitFor(() =>
+      expect(result.current.error).toBe("Live data could not be fetched."),
+    );
   });
 
   it("discards a page that resolves after the Insight generation changes", async () => {

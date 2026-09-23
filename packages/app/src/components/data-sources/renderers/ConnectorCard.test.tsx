@@ -50,6 +50,28 @@ describe("ConnectorCard file input", () => {
   });
 });
 
+describe("ConnectorCard sign-in link", () => {
+  it("offers the sign-in page as a link when no window opened for it", () => {
+    const { rerender } = render(
+      <ConnectorCard connector={connector} expanded />,
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+
+    rerender(
+      <ConnectorCard
+        connector={connector}
+        expanded
+        isLoading
+        signInUrl="https://accounts.google.com/auth"
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "Open Google sign-in" });
+    expect(link.getAttribute("href")).toBe("https://accounts.google.com/auth");
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+});
+
 describe("ConnectorCard disclosure", () => {
   it("keeps the setup form closed until the header is opened", async () => {
     const user = userEvent.setup();

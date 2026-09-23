@@ -165,6 +165,7 @@ export function DashboardItem({
               <VisualizationDisplay
                 visualizationId={item.visualizationId}
                 overrides={effectiveOverrides ?? item.overrides}
+                reportId={dashboardId}
               />
             </div>
           )}

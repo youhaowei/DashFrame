@@ -10,7 +10,10 @@ import { getConnectorCatalog } from "./connector-catalog";
 import { queryDataFrame } from "./data-frame-query";
 import { ingestLocalDataFrame } from "./local-ingest";
 import { removeDataFrameEntry, clearAllData } from "./frame-cleanup";
-import { createDataFetchFunctions } from "./data-fetch";
+import {
+  createDataFetchFunctions,
+  insightPresentationSchema,
+} from "./data-fetch";
 import { createProductionFetchExecutor } from "./data-fetch/production";
 
 const empty = z.object({}).strict();
@@ -100,7 +103,12 @@ export const hostOperations = {
   removeDataFrameEntry: operation(id, removeDataFrameEntry),
   clearAllData: operation(empty, clearAllData),
   fetchData: operation(
-    z.object({ insight: z.unknown() }).strict(),
+    z
+      .object({
+        insight: z.unknown(),
+        presentation: insightPresentationSchema.optional(),
+      })
+      .strict(),
     fetchOperations.fetchData,
   ),
   refreshDataTable: operation(
@@ -109,7 +117,11 @@ export const hostOperations = {
   ),
   runInsight: operation(
     z
-      .object({ insightId: z.string().uuid(), runtime: z.unknown().optional() })
+      .object({
+        insightId: z.string().uuid(),
+        runtime: z.unknown().optional(),
+        presentation: insightPresentationSchema.optional(),
+      })
       .strict(),
     fetchOperations.runInsight,
   ),

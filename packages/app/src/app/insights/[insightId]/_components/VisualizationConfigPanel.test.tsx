@@ -102,7 +102,6 @@ describe("VisualizationConfigPanel", () => {
           x: fieldAlias,
           y: `sum(${fieldAlias})`,
         }}
-        visualizations={[]}
         compiledInsight={compiledInsight}
         dataTable={table}
         availableFields={[field]}
@@ -110,7 +109,6 @@ describe("VisualizationConfigPanel", () => {
         columnDisplayNames={{ [fieldAlias]: "Revenue" }}
         columnAnalysis={analysis}
         onSelectChartType={vi.fn()}
-        onSelectVisualization={vi.fn()}
         updateVisualization={vi.fn()}
       />,
     );
@@ -132,7 +130,6 @@ describe("VisualizationConfigPanel", () => {
         activeChartType="dot"
         availableChartTypes={new Set(["dot"])}
         activeVisualization={dotVisualization}
-        visualizations={[dotVisualization]}
         compiledInsight={compiledInsight}
         dataTable={table}
         availableFields={[field]}
@@ -140,7 +137,6 @@ describe("VisualizationConfigPanel", () => {
         columnDisplayNames={{ [fieldAlias]: "Revenue" }}
         columnAnalysis={analysis}
         onSelectChartType={vi.fn()}
-        onSelectVisualization={vi.fn()}
         updateVisualization={updateVisualization}
       />,
     );
@@ -158,6 +154,26 @@ describe("VisualizationConfigPanel", () => {
         },
       }),
     );
+  });
+
+  it("names the pivot a chart takes its color from", () => {
+    render(
+      <VisualizationConfigPanel
+        activeChartType="barY"
+        availableChartTypes={new Set(["barY"])}
+        activeVisualization={visualization}
+        compiledInsight={compiledInsight}
+        pivotColor={fieldEncoding(fieldId)}
+        dataTable={table}
+        availableFields={[field]}
+        availableColumns={[{ name: fieldAlias, type: "number" }]}
+        columnDisplayNames={{ [fieldAlias]: "Revenue" }}
+        columnAnalysis={analysis}
+        onSelectChartType={vi.fn()}
+        updateVisualization={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Color follows the Revenue pivot.")).toBeTruthy();
   });
 
   it("uses a pending bar orientation when editing an axis before its echo", async () => {
@@ -200,7 +216,6 @@ describe("VisualizationConfigPanel", () => {
         activeChartType="barY"
         availableChartTypes={new Set(["barY", "barX"])}
         activeVisualization={barVisualization}
-        visualizations={[barVisualization]}
         compiledInsight={insightWithMetric}
         dataTable={{ ...table, fields: [field, dimension] }}
         availableFields={[field, dimension]}
@@ -226,7 +241,6 @@ describe("VisualizationConfigPanel", () => {
           },
         ]}
         onSelectChartType={vi.fn()}
-        onSelectVisualization={vi.fn()}
         updateVisualization={updateVisualization}
       />,
     );
@@ -264,7 +278,6 @@ describe("VisualizationConfigPanel", () => {
         activeChartType="barY"
         availableChartTypes={new Set(["barY"])}
         activeVisualization={visualization}
-        visualizations={[visualization]}
         compiledInsight={compiledInsight}
         dataTable={table}
         availableFields={[field]}
@@ -272,7 +285,6 @@ describe("VisualizationConfigPanel", () => {
         columnDisplayNames={{ [fieldAlias]: "Revenue" }}
         columnAnalysis={[]}
         onSelectChartType={vi.fn()}
-        onSelectVisualization={vi.fn()}
         updateVisualization={updateVisualization}
       />,
     );
@@ -291,7 +303,6 @@ describe("VisualizationConfigPanel", () => {
         activeChartType="barY"
         availableChartTypes={new Set(["barY"])}
         activeVisualization={visualization}
-        visualizations={[visualization]}
         compiledInsight={compiledInsight}
         dataTable={table}
         availableFields={[field]}
@@ -301,7 +312,6 @@ describe("VisualizationConfigPanel", () => {
         encodingsError
         onRetryEncodings={retry}
         onSelectChartType={vi.fn()}
-        onSelectVisualization={vi.fn()}
         updateVisualization={vi.fn()}
       />,
     );
@@ -320,7 +330,6 @@ describe("VisualizationConfigPanel", () => {
         activeChartType="barY"
         availableChartTypes={new Set(["barY", "line"])}
         activeVisualization={visualization}
-        visualizations={[visualization]}
         compiledInsight={compiledInsight}
         dataTable={table}
         availableFields={[field]}
@@ -328,7 +337,6 @@ describe("VisualizationConfigPanel", () => {
         columnDisplayNames={{ [fieldAlias]: "Revenue" }}
         columnAnalysis={analysis}
         onSelectChartType={onSelectChartType}
-        onSelectVisualization={vi.fn()}
         updateVisualization={updateVisualization}
       />,
     );
@@ -342,12 +350,8 @@ describe("VisualizationConfigPanel", () => {
         updates: { visualizationType: "line" },
       }),
     );
+    // Editing the saved chart never switches the canvas to an unsaved one.
     expect(onSelectChartType).not.toHaveBeenCalled();
-    expect(
-      screen
-        .getByRole("button", { name: "Revenue chart" })
-        .getAttribute("aria-pressed"),
-    ).toBe("true");
   });
 
   it("switches the preview type for an unsaved chart", () => {
@@ -358,7 +362,6 @@ describe("VisualizationConfigPanel", () => {
         activeChartType="barY"
         availableChartTypes={new Set(["barY", "line"])}
         activeSuggestionEncoding={{ x: fieldAlias }}
-        visualizations={[visualization]}
         compiledInsight={compiledInsight}
         dataTable={table}
         availableFields={[field]}
@@ -366,7 +369,6 @@ describe("VisualizationConfigPanel", () => {
         columnDisplayNames={{ [fieldAlias]: "Revenue" }}
         columnAnalysis={analysis}
         onSelectChartType={onSelectChartType}
-        onSelectVisualization={vi.fn()}
         updateVisualization={updateVisualization}
       />,
     );

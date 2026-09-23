@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SERVER_LOG="$(mktemp "${TMPDIR:-/tmp}/dashframe-web-server.XXXXXX")"
 SERVER_PID=""
-PORTLESS_PID=""
+CHILD_PID=""
 DEV_NAME="$(node "${ROOT}/scripts/dev-worktree.mjs" name "${ROOT}")"
 DEV_MANIFEST="$(node "${ROOT}/scripts/dev-worktree.mjs" manifest "${ROOT}")"
 
@@ -16,9 +16,9 @@ DEV_MANIFEST="$(node "${ROOT}/scripts/dev-worktree.mjs" manifest "${ROOT}")"
 export DASHFRAME_PROJECT_DIR="${DASHFRAME_PROJECT_DIR:-${ROOT}/.data/web-project}"
 
 cleanup() {
-  if [[ -n "${PORTLESS_PID}" ]] && kill -0 "${PORTLESS_PID}" 2>/dev/null; then
-    kill -TERM "${PORTLESS_PID}" 2>/dev/null || true
-    wait "${PORTLESS_PID}" 2>/dev/null || true
+  if [[ -n "${CHILD_PID}" ]] && kill -0 "${CHILD_PID}" 2>/dev/null; then
+    kill -TERM "${CHILD_PID}" 2>/dev/null || true
+    wait "${CHILD_PID}" 2>/dev/null || true
   fi
   if [[ -n "${SERVER_PID}" ]] && kill -0 "${SERVER_PID}" 2>/dev/null; then
     kill -TERM "${SERVER_PID}" 2>/dev/null || true
@@ -49,7 +49,13 @@ trap 'exit 143' TERM
 #
 # Do NOT gate this on `portless list`: that command loads stored routes and
 # exits 0 even when no proxy is running, so it is not a liveness probe.
-if ! portless proxy start --https; then
+# Claude Preview sets PORT and opens `http://localhost:$PORT` itself, so that is
+# the one address the server must accept there. Routing it through portless as
+# well would advertise the https route instead, and the access check the
+# Preview tab makes would fail as "Couldn't check access".
+PREVIEW_PORT="${PORT:-}"
+
+if [[ -z "${PREVIEW_PORT}" ]] && ! portless proxy start --https; then
   echo "[dev-web] could not start a portless proxy; start one yourself with:" >&2
   echo "[dev-web]   portless proxy start --https" >&2
   exit 1
@@ -70,10 +76,14 @@ fi
 # `portless get` applies its own worktree-subdomain logic to the HOSTNAME, so
 # only its port is reliable here; the hostname is the one this launcher passes
 # to `portless --name` below.
-DEV_ORIGIN="https://${DEV_NAME}.localhost"
-PROXY_PORT="$(portless get "${DEV_NAME}" 2>/dev/null | sed -n 's|^https\{0,1\}://[^/]*:\([0-9]\{1,\}\).*$|\1|p' | tail -n 1)"
-if [[ -n "${PROXY_PORT}" && "${PROXY_PORT}" != "443" ]]; then
-  DEV_ORIGIN="${DEV_ORIGIN}:${PROXY_PORT}"
+if [[ -n "${PREVIEW_PORT}" ]]; then
+  DEV_ORIGIN="http://localhost:${PREVIEW_PORT}"
+else
+  DEV_ORIGIN="https://${DEV_NAME}.localhost"
+  PROXY_PORT="$(portless get "${DEV_NAME}" 2>/dev/null | sed -n 's|^https\{0,1\}://[^/]*:\([0-9]\{1,\}\).*$|\1|p' | tail -n 1)"
+  if [[ -n "${PROXY_PORT}" && "${PROXY_PORT}" != "443" ]]; then
+    DEV_ORIGIN="${DEV_ORIGIN}:${PROXY_PORT}"
+  fi
 fi
 
 (cd "${ROOT}" && exec bun run apps/server/src/index.ts --port 0 --cors-origin "${DEV_ORIGIN}" --public-origin "${DEV_ORIGIN}") >"${SERVER_LOG}" 2>&1 &
@@ -104,18 +114,30 @@ export DASHFRAME_DEV_ROOT="${ROOT}"
 export DASHFRAME_DEV_LAUNCHER_PID="$$"
 export DASHFRAME_DEV_SERVER_PID="${SERVER_PID}"
 echo "[dev-web] API proxy: ${VITE_DASHFRAME_URL}"
-echo "[dev-web] route: ${DEV_NAME}"
-echo "[dev-web] runtime manifest: ${DEV_MANIFEST} (created when the route is ready)"
+if [[ -n "${PREVIEW_PORT}" ]]; then
+  echo "[dev-web] serving ${DEV_ORIGIN} for Preview (no portless route)"
+else
+  echo "[dev-web] route: ${DEV_NAME}"
+fi
+echo "[dev-web] runtime manifest: ${DEV_MANIFEST} (created when the app is ready)"
 
 cd "${ROOT}/apps/web"
+if [[ -n "${PREVIEW_PORT}" ]]; then
+  # Bind where the child's readiness probe looks, as portless would, and let
+  # the manifest record the address the app is served at.
+  export HOST=127.0.0.1
+  export PORTLESS_URL="${DEV_ORIGIN}"
+  "${ROOT}/scripts/dev-web-child.sh" "$@" &
+  CHILD_PID=$!
+  wait "${CHILD_PID}"
+  exit $?
+fi
+
 PORTLESS_ARGS=(--name "${DEV_NAME}")
 if [[ "${PORTLESS_FORCE:-0}" == "1" ]]; then
   PORTLESS_ARGS+=(--force)
 fi
-if [[ -n "${PORT:-}" ]]; then
-  PORTLESS_ARGS+=(--app-port "${PORT}")
-fi
 
 portless "${PORTLESS_ARGS[@]}" "${ROOT}/scripts/dev-web-child.sh" "$@" &
-PORTLESS_PID=$!
-wait "${PORTLESS_PID}"
+CHILD_PID=$!
+wait "${CHILD_PID}"

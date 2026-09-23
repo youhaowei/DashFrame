@@ -72,6 +72,15 @@ function isAccessResult<TConfig>(
  *
  * The caller owns the single React root and maps each published view into it.
  */
+// A close failure is still recorded for teardown; logging it here keeps it
+// from replacing an access outcome that already resolved.
+function logCloseFailure(closeError: unknown): void {
+  console.error(
+    "Failed to close the previous runtime after access resolved:",
+    closeError,
+  );
+}
+
 export function startHostBootstrap<TConfig, TRuntime extends ClientRuntime>(
   dependencies: HostBootstrapDependencies<TConfig, TRuntime>,
 ): HostBootstrapController {
@@ -196,7 +205,7 @@ export function startHostBootstrap<TConfig, TRuntime extends ClientRuntime>(
           runtimeOwner = attempt;
           try {
             if (previousRuntime !== nextRuntime)
-              await closeRuntime(previousRuntime);
+              await closeRuntime(previousRuntime).catch(logCloseFailure);
           } finally {
             if (!isCurrent(attempt)) {
               if (nextRuntime === runtime && runtimeOwner === attempt) {
@@ -244,7 +253,7 @@ export function startHostBootstrap<TConfig, TRuntime extends ClientRuntime>(
         await publishUnavailable(attempt, result.error);
         return;
       }
-      await releaseRuntime();
+      await releaseRuntime().catch(logCloseFailure);
       if (!isCurrent(attempt)) return;
       switch (result.status) {
         case "signed-out":

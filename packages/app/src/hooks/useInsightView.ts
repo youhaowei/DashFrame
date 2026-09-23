@@ -1,8 +1,13 @@
 import { useInsightPagination } from "@/hooks/useInsightPagination";
-import type { Insight, InsightRuntimeInput } from "@dashframe/types";
+import type {
+  Insight,
+  InsightRuntimeInput,
+  InsightPresentation,
+} from "@dashframe/types";
 
 export interface UseInsightViewOptions {
   runtime?: InsightRuntimeInput;
+  presentation?: InsightPresentation;
 }
 
 /**
@@ -21,6 +26,7 @@ export function useInsightView(
     showModelPreview: false,
     enabled: Boolean(insight?.id && insight.source?.sourceId),
     runtime: options.runtime,
+    presentation: options.presentation,
   });
 
   return {

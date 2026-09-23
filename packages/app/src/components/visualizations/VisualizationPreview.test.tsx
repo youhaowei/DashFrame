@@ -13,24 +13,43 @@ import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
  * Scope: VisualizationPreview.tsx only.
  */
 import { render, screen } from "@testing-library/react";
+import type { UseInsightPaginationOptions } from "@/hooks/useInsightPagination";
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { VisualizationPreview } from "./VisualizationPreview";
 
+type PaginationMockResult = {
+  dataFrameId?: string | null;
+  isReady?: boolean;
+  error?: string | null;
+  resolvedFields: import("@dashframe/types").Field[];
+};
+
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-const { mockUseInsightView, mockUseInsightPagination, mockResolveEncoding } =
-  vi.hoisted(() => ({
-    mockUseInsightView: vi.fn(),
-    mockUseInsightPagination: vi.fn(() => ({ resolvedFields: [] })),
-    mockResolveEncoding: vi.fn().mockReturnValue({}),
-  }));
+const {
+  mockUseInsightView,
+  mockUseInsightPagination,
+  mockResolveEncoding,
+  mockChart,
+} = vi.hoisted(() => ({
+  mockUseInsightView: vi.fn(),
+  mockUseInsightPagination: vi.fn(
+    (_options?: UseInsightPaginationOptions): PaginationMockResult => ({
+      resolvedFields: [],
+    }),
+  ),
+  mockResolveEncoding: vi.fn().mockReturnValue({}),
+  mockChart: vi.fn(),
+}));
 
 vi.mock("@/hooks/useInsightView", () => ({
   useInsightView: () => mockUseInsightView(),
 }));
 
 vi.mock("@/hooks/useInsightPagination", () => ({
-  useInsightPagination: () => mockUseInsightPagination(),
+  useInsightPagination: (options: UseInsightPaginationOptions) =>
+    mockUseInsightPagination(options),
 }));
 
 const { mockUseInsight, mockUseDataTables } = vi.hoisted(() => ({
@@ -64,7 +83,10 @@ vi.mock("@dashframe/engine", async (importOriginal) => {
 
 // Chart is a heavy dependency — stub it out so tests focus on guard logic.
 vi.mock("@dashframe/visualization", () => ({
-  Chart: () => <div data-testid="chart" />,
+  Chart: (props: { tableName: string; detailRowsOnly: boolean }) => {
+    mockChart(props);
+    return <div data-testid="chart" />;
+  },
 }));
 
 // ── Shared fixture ───────────────────────────────────────────────────────────
@@ -128,6 +150,81 @@ it("renders from a supplied materialization without starting preview hooks", () 
   expect(mockUseDataTables).not.toHaveBeenCalled();
   expect(mockUseInsightView).not.toHaveBeenCalled();
   expect(mockUseInsightPagination).not.toHaveBeenCalled();
+  expect(screen.getByTestId("chart")).toBeTruthy();
+});
+
+it("requests and renders a presentation frame for a supplied metric materialization", () => {
+  const fieldId = "10000000-0000-4000-8000-000000000001";
+  const metricId = "20000000-0000-4000-8000-000000000001";
+  const metricInsight = {
+    ...insight,
+    selectedFields: [fieldId],
+    metrics: [
+      {
+        id: metricId,
+        name: "Revenue",
+        sourceTable: "t1",
+        columnName: "revenue",
+        aggregation: "sum",
+      },
+    ],
+    reporting: { totals: true },
+  } as import("@dashframe/types").Insight;
+  const metricVisualization = {
+    ...visualization,
+    encoding: { x: `field:${fieldId}`, y: `metric:${metricId}` },
+  } as import("@dashframe/types").Visualization;
+  const metricTable = {
+    ...dataTable,
+    fields: [
+      {
+        id: fieldId,
+        tableId: "t1",
+        name: "Product",
+        columnName: "product",
+        type: "string",
+      },
+    ],
+  } as import("@dashframe/types").DataTable;
+  mockResolveEncoding.mockReturnValueOnce({
+    x: `field_${fieldId.replaceAll("-", "_")}`,
+    y: `metric_${metricId.replaceAll("-", "_")}`,
+  });
+  mockUseInsightPagination.mockReturnValueOnce({
+    dataFrameId: "frame-presentation",
+    isReady: true,
+    error: null,
+    resolvedFields: metricTable.fields,
+  });
+
+  render(
+    <VisualizationPreview
+      visualization={metricVisualization}
+      materialization={{
+        insight: metricInsight,
+        dataTable: metricTable,
+        dataFrameId: "frame-canonical",
+        isReady: true,
+        error: null,
+        resolvedFields: metricTable.fields,
+        runtime: { limit: 1 },
+      }}
+    />,
+  );
+
+  expect(mockUseInsightPagination).toHaveBeenCalledWith({
+    insight: metricInsight,
+    showModelPreview: false,
+    enabled: true,
+    runtime: { limit: 1 },
+    presentation: { dimensions: [fieldId] },
+  });
+  expect(mockChart).toHaveBeenCalledWith(
+    expect.objectContaining({
+      tableName: "frame-presentation",
+      detailRowsOnly: false,
+    }),
+  );
   expect(screen.getByTestId("chart")).toBeTruthy();
 });
 
@@ -294,5 +391,148 @@ describe("VisualizationPreview — (c) encoding-missing branch", () => {
       }),
     );
     expect(screen.getByTestId("chart")).not.toBeNull();
+  });
+});
+
+it("titles a measure from its source column's display name", () => {
+  const metricId = "40000000-0000-4000-8000-000000000001";
+  const sourceAlias = "field_50000000_0000_4000_8000_000000000001";
+  const metricInsight = {
+    ...insight,
+    metrics: [
+      {
+        id: metricId,
+        name: "",
+        sourceTable: "t1",
+        columnName: sourceAlias,
+        aggregation: "sum",
+      },
+    ],
+  } as import("@dashframe/types").Insight;
+  mockChart.mockClear();
+  mockResolveEncoding.mockReturnValueOnce({ y: "metric_y" });
+  mockUseInsightPagination.mockReturnValueOnce({
+    dataFrameId: "frame-presentation",
+    isReady: true,
+    error: null,
+    resolvedFields: [],
+  });
+
+  render(
+    <VisualizationPreview
+      visualization={{
+        ...visualization,
+        encoding: { y: `metric:${metricId}` },
+      }}
+      thumbnail={false}
+      columnDisplayNames={{ [sourceAlias]: "Revenue" }}
+      materialization={{
+        insight: metricInsight,
+        dataTable,
+        dataFrameId: "frame-shared",
+        isReady: true,
+        error: null,
+        resolvedFields: [],
+      }}
+    />,
+  );
+
+  expect(mockChart).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      encoding: expect.objectContaining({ yLabel: "Sum of Revenue" }),
+    }),
+  );
+});
+
+describe("VisualizationPreview — chart chrome", () => {
+  function renderReady(thumbnail?: boolean) {
+    mockChart.mockClear();
+    mockUseInsight.mockReturnValue({
+      data: {
+        ...insight,
+        source: { sourceType: "insight", sourceId: "upstream" },
+      },
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [] });
+    mockUseInsightPagination.mockReturnValue({
+      resolvedFields: [{ id: "f1", name: "Revenue", tableId: "upstream" }],
+    });
+    mockResolveEncoding.mockReturnValue({ x: "field_f1" });
+    mockUseInsightView.mockReturnValue({
+      viewName: "frame-ready",
+      isReady: true,
+      error: null,
+    });
+    render(
+      <VisualizationPreview
+        visualization={visualization}
+        {...(thumbnail === undefined ? {} : { thumbnail })}
+      />,
+    );
+  }
+
+  it("draws a card thumbnail without axes by default", () => {
+    renderReady();
+    expect(screen.getByTestId("chart")).toBeTruthy();
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({ preview: true }),
+    );
+  });
+
+  it("draws the full chart, axes included, when it is not a thumbnail", () => {
+    renderReady(false);
+    expect(screen.getByTestId("chart")).toBeTruthy();
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        preview: false,
+        // Axis titles name the field, not its column alias.
+        encoding: expect.objectContaining({ xLabel: "Revenue" }),
+      }),
+    );
+  });
+
+  it("titles repeat-join fields with their instance-aware display names", () => {
+    const userNameId = "30000000-0000-4000-8000-000000000001";
+    const approverNameId = `${userNameId}_j1`;
+    mockChart.mockClear();
+    mockResolveEncoding.mockReturnValueOnce({ x: "field_x", color: "field_c" });
+
+    render(
+      <VisualizationPreview
+        visualization={{
+          ...visualization,
+          encoding: {
+            x: `field:${userNameId}`,
+            color: `field:${approverNameId}`,
+          },
+        }}
+        thumbnail={false}
+        columnDisplayNames={{
+          [fieldIdToColumnAlias(userNameId)]: "User Name (created_by)",
+          [fieldIdToColumnAlias(approverNameId)]: "User Name (approved_by)",
+        }}
+        materialization={{
+          insight,
+          dataTable,
+          dataFrameId: "frame-shared",
+          isReady: true,
+          error: null,
+          resolvedFields: [
+            { id: userNameId, name: "User Name", tableId: "users" },
+            { id: approverNameId, name: "User Name", tableId: "users" },
+          ] as import("@dashframe/types").Field[],
+        }}
+      />,
+    );
+
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        encoding: expect.objectContaining({
+          xLabel: "User Name (created_by)",
+          colorLabel: "User Name (approved_by)",
+        }),
+      }),
+    );
   });
 });

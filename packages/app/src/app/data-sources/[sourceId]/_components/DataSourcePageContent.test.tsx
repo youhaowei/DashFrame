@@ -588,6 +588,10 @@ describe("DataSourcePageContent — loading state contract", () => {
     const renameTrigger = screen.getByRole("button", {
       name: "Rename source",
     });
+    // Data frames are internal storage, not something a source page offers.
+    expect(
+      screen.queryByRole("button", { name: "Inspect data frames" }),
+    ).toBeNull();
     expect(renameTrigger.getAttribute("aria-haspopup")).toBe("dialog");
     expect(renameTrigger.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(renameTrigger);

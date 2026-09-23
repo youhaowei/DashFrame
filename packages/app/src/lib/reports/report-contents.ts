@@ -1,18 +1,14 @@
-import type { Dashboard, Insight, Visualization } from "@dashframe/types";
+import type { Dashboard, Visualization } from "@dashframe/types";
 
-export function indexReportContents(
-  visualizations: readonly Visualization[],
-  insights: readonly Insight[],
-) {
+export function indexReportContents(visualizations: readonly Visualization[]) {
   return {
     visualizationById: new Map(
       visualizations.map((visualization) => [visualization.id, visualization]),
     ),
-    insightById: new Map(insights.map((insight) => [insight.id, insight])),
   };
 }
 
-/** Resolve saved views and their questions in first-widget order. */
+/** Resolve saved views, and the ids of their questions, in first-widget order. */
 export function resolveReportContents(
   report: Dashboard,
   indexes: ReturnType<typeof indexReportContents>,
@@ -29,22 +25,6 @@ export function resolveReportContents(
   }
 
   const questionIds = [...new Set(savedViews.map((view) => view.insightId))];
-  const questions = questionIds.flatMap((id) => {
-    const insight = indexes.insightById.get(id);
-    return insight ? [insight] : [];
-  });
 
-  return { savedViews, questionIds, questions };
-}
-
-export function reportQuestionListState(
-  contents: Pick<
-    ReturnType<typeof resolveReportContents>,
-    "questionIds" | "questions"
-  >,
-): "available" | "unavailable" | "empty" {
-  if (contents.questionIds.length === 0) return "empty";
-  return contents.questions.length === contents.questionIds.length
-    ? "available"
-    : "unavailable";
+  return { savedViews, questionIds };
 }

@@ -1,3 +1,6 @@
+import { measureFilterFields } from "@/lib/insights/measure-filter-fields";
+import type { PivotSortOption } from "@/lib/insights/pivot-sort-options";
+import { ReportPeriodControl, ReportResultOptions } from "./ReportSettings";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import {
@@ -8,12 +11,17 @@ import {
 import { reorderVisibleMetrics } from "@/lib/insights/reorder-visible-metrics";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
-import { metricIdToColumnAlias } from "@dashframe/engine";
+import {
+  metricIdToColumnAlias,
+  saveReusableMeasure,
+  importReusableMeasure,
+} from "@dashframe/engine";
 import type {
   Command,
   DataTable,
   Insight,
   InsightMetric,
+  MeasureExpression,
   InsightRuntimeDeclaration,
   InsightSort,
   UUID,
@@ -57,7 +65,7 @@ import {
   removeFromEncoding,
   type DeleteItemType,
 } from "./DeleteConfirmDialog";
-import { FieldsSection } from "./FieldsSection";
+import { FieldsSection, withFieldGrouping } from "./FieldsSection";
 import {
   applyFilterSave,
   stripFilterClientMetadata,
@@ -69,10 +77,17 @@ import {
   type RuntimeFilterControl,
 } from "./FiltersSection";
 import { MetricsSection } from "./MetricsSection";
-import { pruneRuntimeControls, stableValueSignature } from "./runtime-controls";
+import {
+  pruneRuntimeControls,
+  stableValueSignature,
+  withoutViewerField,
+} from "./runtime-controls";
 import { SortSection } from "./SortSection";
 
 interface InsightConfigPanelProps {
+  pivotSortOptions?: PivotSortOption[];
+  pivotSortError?: string;
+  onPivotSortRetry?: () => void;
   insight: Insight;
   dataTable: DataTable;
   allDataTables: DataTable[];
@@ -165,7 +180,21 @@ const CONFIG_SECTION_IDS: ConfigSection[] = CONFIG_SECTIONS.map(
   (section) => section.id,
 );
 
+function referencesMeasure(
+  expression: MeasureExpression | undefined,
+  id: string,
+): boolean {
+  if (!expression || expression.kind === "constant") return false;
+  return expression.kind === "measure"
+    ? expression.measureId === id
+    : referencesMeasure(expression.left, id) ||
+        referencesMeasure(expression.right, id);
+}
+
 export function InsightConfigPanel({
+  pivotSortOptions,
+  pivotSortError,
+  onPivotSortRetry,
   insight,
   dataTable,
   allDataTables,
@@ -296,9 +325,20 @@ export function InsightConfigPanel({
   // resolve. Offered in the filter popover picker so a saved filter always
   // produces a working predicate. FiltersSection also receives combinedFields
   // so excluded or stale selections retain their display treatment.
+  const aggregateFilterFields = useMemo(
+    () => measureFilterFields(insight, combinedFields),
+    [insight, combinedFields],
+  );
   const filterableFields = useMemo(
-    () => computeFilterableFields(combinedFields, insight.joins),
-    [combinedFields, insight.joins],
+    () => [
+      ...computeFilterableFields(combinedFields, insight.joins),
+      ...aggregateFilterFields,
+    ],
+    [combinedFields, insight.joins, aggregateFilterFields],
+  );
+  const filterDisplayFields = useMemo(
+    () => [...combinedFields, ...aggregateFilterFields],
+    [combinedFields, aggregateFilterFields],
   );
 
   // Get selected fields in order (preserving insight.selectedFields order)
@@ -356,6 +396,32 @@ export function InsightConfigPanel({
     },
     [commitBatch, insight, rollbackRuntimeControls, stageRuntimeControls],
   );
+
+  const saveViewerChoices = async (
+    kind: "dimensions" | "measures",
+    ids: string[],
+  ) => {
+    // Build on the staged value so a change made before the last echo lands
+    // is not overwritten.
+    const controls = {
+      ...runtimeControlsRef.current,
+      [kind]: ids.length
+        ? { allowedIds: ids, maxSelected: Math.min(16, ids.length) }
+        : undefined,
+    };
+    if (!(await handleRuntimeControlsChange(controls)))
+      throw new Error("Could not save viewer choices.");
+  };
+  const setViewerChoice = (
+    kind: "dimensions" | "measures",
+    id: string,
+    enabled: boolean,
+  ) => {
+    const current = runtimeControlsRef.current?.[kind]?.allowedIds ?? [];
+    const next = current.filter((value) => value !== id);
+    if (enabled) next.push(id as UUID);
+    return saveViewerChoices(kind, next);
+  };
 
   /**
    * Stable client-side ids for filters, used for SortableList keying and for
@@ -524,6 +590,58 @@ export function InsightConfigPanel({
     [writeMetrics],
   );
 
+  const handleSaveReusableMeasure = useCallback(
+    async (metricId: string) => {
+      await metricWriteQueueRef.current;
+      const current = latestInsightRef.current;
+      const saved = saveReusableMeasure(
+        succeededMetricsRef.current ?? current.metrics,
+        metricId,
+        dataTable.id,
+      );
+      await commitBatch({
+        commands: saved.map((metric) =>
+          cmd("AddMetric", { nodeId: dataTable.id, metric }),
+        ),
+      });
+      toast.success("Measure saved to source");
+    },
+    [commitBatch, dataTable.id],
+  );
+
+  const measureLibraryAvailable =
+    insight.source.sourceType === "dataTable" && !insight.joins?.length;
+
+  const handleReuseMeasure = useCallback(
+    async (metricId: string) => {
+      const imported = importReusableMeasure(
+        dataTable.metrics ?? [],
+        metricId,
+        dataTable.id,
+      );
+      await writeMetrics(
+        (metrics) => [...metrics, ...imported],
+        () => {
+          const current = latestInsightRef.current;
+          if (!current.reporting?.measureIds) return [];
+          return [
+            cmd("SetInsightReporting", {
+              id: current.id,
+              reporting: {
+                ...current.reporting,
+                measureIds: [
+                  ...current.reporting.measureIds,
+                  imported.at(-1)!.id,
+                ],
+              },
+            }),
+          ];
+        },
+      );
+    },
+    [dataTable.id, dataTable.metrics, writeMetrics],
+  );
+
   const handleEditMetric = useCallback(
     (updatedMetric: InsightMetric) =>
       writeMetrics((metrics) => {
@@ -680,7 +798,9 @@ export function InsightConfigPanel({
         const nextRuntimeControls =
           runtimeControls.filters ||
           runtimeControls.sort ||
-          runtimeControls.limit
+          runtimeControls.limit ||
+          runtimeControls.dimensions ||
+          runtimeControls.measures
             ? runtimeControls
             : undefined;
         const updates: Partial<Omit<Insight, "id" | "createdAt">> = {
@@ -819,13 +939,16 @@ export function InsightConfigPanel({
             return fields.filter((id) => id !== itemId);
           },
           (current, fields) => {
-            const nextRuntimeControls = pruneRuntimeControls(
-              runtimeControlsRef.current,
-              current.filters ?? [],
-              [
-                ...fields,
-                ...(current.metrics ?? []).map((metric) => metric.id),
-              ],
+            const nextRuntimeControls = withoutViewerField(
+              pruneRuntimeControls(
+                runtimeControlsRef.current,
+                current.filters ?? [],
+                [
+                  ...fields,
+                  ...(current.metrics ?? []).map((metric) => metric.id),
+                ],
+              ),
+              itemId as UUID,
             );
             if (
               pendingRuntimeControlsSignatureRef.current === null &&
@@ -842,8 +965,11 @@ export function InsightConfigPanel({
               }),
             ];
           },
-        ).catch(() => {
+        ).catch((error: unknown) => {
           if (signature) rollbackRuntimeControls(signature);
+          toast.error(
+            error instanceof Error ? error.message : "Unable to remove field",
+          );
         });
       } else {
         // Prune viewer controls when the queued removal runs, so it builds on
@@ -857,6 +983,17 @@ export function InsightConfigPanel({
               writeStatus.generation !== requestedWriteGeneration
             ) {
               throw new Error("Visualization update still pending");
+            }
+            const dependent = metrics.find(
+              (metric) =>
+                metric.id !== itemId &&
+                referencesMeasure(metric.expression, itemId),
+            );
+            if (dependent) {
+              const removed = metrics.find((metric) => metric.id === itemId);
+              throw new Error(
+                `Cannot remove "${removed?.name ?? "measure"}" because "${dependent.name}" depends on it. Remove or update "${dependent.name}" first.`,
+              );
             }
             return metrics.filter((metric) => metric.id !== itemId);
           },
@@ -885,8 +1022,11 @@ export function InsightConfigPanel({
               }),
             ];
           },
-        ).catch(() => {
+        ).catch((error: unknown) => {
           if (signature) rollbackRuntimeControls(signature);
+          toast.error(
+            error instanceof Error ? error.message : "Unable to remove measure",
+          );
         });
       }
     },
@@ -999,6 +1139,22 @@ export function InsightConfigPanel({
     ),
   );
   const viewerControls = [
+    ...(localRuntimeControls?.dimensions
+      ? [
+          {
+            label: "Dimensions",
+            target: `${localRuntimeControls.dimensions.allowedIds.length} choices`,
+          },
+        ]
+      : []),
+    ...(localRuntimeControls?.measures
+      ? [
+          {
+            label: "Measures",
+            target: `${localRuntimeControls.measures.allowedIds.length} choices`,
+          },
+        ]
+      : []),
     ...(localRuntimeControls?.filters ?? []).map((control) => ({
       label: control.label,
       target: `${filterLabelById.get(control.filterId) ?? "Filter"} filter`,
@@ -1098,55 +1254,115 @@ export function InsightConfigPanel({
           )}
           {renderSection(
             "fields",
-            <FieldsSection
-              selectedFields={selectedFields}
-              availableFields={availableFields}
-              tables={[
-                dataTable,
-                ...allDataTables.filter((table) => table.id !== dataTable.id),
-              ]}
-              baseTableId={dataTable.id}
-              onReorder={handleFieldsReorder}
-              onRemove={handleRemoveField}
-              onRename={handleRenameField}
-              onAdd={handleAddField}
-            />,
+            <>
+              <FieldsSection
+                reporting={insight.reporting}
+                onConfigure={async (fieldId, grouping) => {
+                  const current = latestInsightRef.current;
+                  await updateInsight(current.id, {
+                    reporting: withFieldGrouping(
+                      current.reporting,
+                      fieldId,
+                      grouping,
+                    ),
+                  });
+                }}
+                measures={insight.metrics}
+                selectedFields={selectedFields}
+                availableFields={availableFields}
+                tables={[
+                  dataTable,
+                  ...allDataTables.filter((table) => table.id !== dataTable.id),
+                ]}
+                baseTableId={dataTable.id}
+                onReorder={handleFieldsReorder}
+                onRemove={handleRemoveField}
+                onRename={handleRenameField}
+                onAdd={handleAddField}
+                viewerFieldIds={
+                  localRuntimeControls?.dimensions?.allowedIds ?? []
+                }
+                onViewerChange={(id, enabled) =>
+                  setViewerChoice("dimensions", id, enabled)
+                }
+              />
+            </>,
           )}
           {renderSection(
             "metrics",
-            <MetricsSection
-              metrics={visibleMetrics}
-              dataTable={dataTable}
-              columnDisplayNames={columnDisplayNames}
-              onReorder={handleMetricsReorder}
-              onRemove={handleRemoveMetric}
-              onAdd={handleAddMetric}
-              onEdit={handleEditMetric}
-            />,
+            <>
+              <MetricsSection
+                metrics={visibleMetrics}
+                dataTable={dataTable}
+                columnDisplayNames={columnDisplayNames}
+                onReorder={handleMetricsReorder}
+                onRemove={handleRemoveMetric}
+                onAdd={handleAddMetric}
+                onEdit={handleEditMetric}
+                viewerMetricIds={
+                  localRuntimeControls?.measures?.allowedIds ?? []
+                }
+                onViewerChange={(id, enabled) =>
+                  setViewerChoice("measures", id, enabled)
+                }
+                // The measure library holds single-source definitions only.
+                {...(measureLibraryAvailable && {
+                  savedMeasures: dataTable.metrics ?? [],
+                  onReuse: handleReuseMeasure,
+                  onSaveToSource: handleSaveReusableMeasure,
+                })}
+              />
+            </>,
           )}
           {renderSection(
             "filters",
-            <FiltersSection
-              filters={filtersWithIds}
-              combinedFields={filterableFields}
-              displayFields={combinedFields}
-              runtimeControls={localRuntimeControls}
-              onReorder={handleFiltersReorder}
-              onRemove={handleRemoveFilter}
-              onSave={handleSaveFilter}
-              onDraftChange={handleFilterDraftChange}
-            />,
+            <>
+              <FiltersSection
+                filters={filtersWithIds}
+                combinedFields={filterableFields}
+                displayFields={filterDisplayFields}
+                runtimeControls={localRuntimeControls}
+                onReorder={handleFiltersReorder}
+                onRemove={handleRemoveFilter}
+                onSave={handleSaveFilter}
+                onDraftChange={handleFilterDraftChange}
+              />
+              <ReportPeriodControl
+                insight={insight}
+                fields={combinedFields}
+                onChange={async (patch) => {
+                  const current = latestInsightRef.current;
+                  await updateInsight(current.id, {
+                    reporting: { ...current.reporting, ...patch },
+                  });
+                }}
+              />
+            </>,
           )}
           {renderSection(
             "sort",
-            <SortSection
-              sorts={sorts}
-              fields={selectedFields}
-              metrics={visibleMetrics}
-              runtimeControls={localRuntimeControls}
-              onChange={handleSortsChange}
-              onRuntimeChange={handleRuntimeControlsChange}
-            />,
+            <>
+              <SortSection
+                pivotOptions={pivotSortOptions}
+                pivotError={pivotSortError}
+                onPivotRetry={onPivotSortRetry}
+                sorts={sorts}
+                fields={selectedFields}
+                metrics={visibleMetrics}
+                runtimeControls={localRuntimeControls}
+                onChange={handleSortsChange}
+                onRuntimeChange={handleRuntimeControlsChange}
+              />
+              <ReportResultOptions
+                insight={insight}
+                onChange={async (patch) => {
+                  const current = latestInsightRef.current;
+                  await updateInsight(current.id, {
+                    reporting: { ...current.reporting, ...patch },
+                  });
+                }}
+              />
+            </>,
           )}
           {renderSection(
             "viewer",

@@ -24,7 +24,13 @@ export {
   isFieldRestricted,
 } from "./field";
 
-export type { AggregationType, InsightMetric, Metric } from "./metric";
+export type {
+  AggregationType,
+  InsightMetric,
+  Metric,
+  MeasureExpression,
+  MeasureFormat,
+} from "./metric";
 
 export {
   mergeReplacementFields,
@@ -88,11 +94,13 @@ export type {
   InsightJoinConfig,
   InsightRuntimeDeclaration,
   InsightRuntimeInput,
+  InsightPivotValue,
+  InsightPresentation,
   InsightSort,
   InsightSource,
 } from "./insights";
 
-export { isUnmodifiedDraft } from "./insights";
+export { fixedRuntimeIds, isUnmodifiedDraft } from "./insights";
 
 export type {
   AxisType,
@@ -248,3 +256,13 @@ export {
   cmd,
   resultValueByCommandPath,
 } from "./commands";
+
+export { isMeasureExpression } from "./metric";
+
+export type {
+  InsightReporting,
+  DateGrain,
+  RelativeDateRange,
+} from "./insights";
+
+export type { MeasureFilter } from "./metric";

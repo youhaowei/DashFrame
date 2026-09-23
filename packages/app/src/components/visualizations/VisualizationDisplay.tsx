@@ -1,3 +1,14 @@
+import {
+  buildChartPresentation,
+  resolveReportChartEncoding,
+} from "@/lib/insights/chart-presentation";
+import { ReportSwitchers } from "./ReportSwitchers";
+import {
+  currentViewerRuntime,
+  reportPresentation,
+  reportEncoding,
+} from "@/lib/insights/report-runtime";
+import { ReportDataTable, hasReportTable } from "./ReportDataTable";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { useChartEngine } from "@/components/providers/ChartEngineProvider";
@@ -6,10 +17,12 @@ import {
   useInsightPagination,
 } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
+import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
 import { api } from "@dashframe/convex-backend/api";
 import {
+  fieldIdToColumnAlias,
   getMetricDisplayLabel,
-  resolveEncodingToResultFrame,
+  reportMeasureFormats,
 } from "@dashframe/engine";
 import type {
   ChartEncoding,
@@ -22,6 +35,7 @@ import type {
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Chart, useVisualization } from "@dashframe/visualization";
+import { Link } from "@tanstack/react-router";
 
 import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui-react";
 import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-react/icons";
@@ -37,16 +51,53 @@ type DashboardRuntimeResolution = {
   error?: string;
 };
 
+function resolveVisualizationDataFailure(input: {
+  canonicalReady: boolean;
+  canonicalError?: string | null;
+  retryCanonical: () => void;
+  presentationError?: string | null;
+}) {
+  if (!input.canonicalReady && input.canonicalError) {
+    return {
+      description: input.canonicalError,
+      retryAction: { label: "Retry", onClick: input.retryCanonical },
+    };
+  }
+  if (input.presentationError) {
+    return { description: input.presentationError, retryAction: undefined };
+  }
+  return undefined;
+}
+
 function resolveRuntimeFilters(
   insight: Insight,
+  availableFields: ReturnType<typeof resolveInsightAvailableFields>,
   overrides: NonNullable<DashboardItemOverrides["filters"]>,
 ): DashboardRuntimeResolution {
   const values: Record<string, unknown> = {};
   for (const override of overrides) {
-    const declaration = insight.runtimeControls?.filters?.find(
-      (candidate) => candidate.filterId === override.id,
+    // Shared controls target a field across Insights, whose saved filter IDs
+    // differ. Resolve only a unique declared predicate with the same semantics.
+    const declarations = (insight.runtimeControls?.filters ?? []).filter(
+      (candidate) => {
+        if (override.id !== undefined)
+          return candidate.filterId === override.id;
+        const filter = (insight.filters ?? []).find(
+          (saved) => saved.id === candidate.filterId,
+        );
+        const aliasedField = availableFields.find(
+          (field) => fieldIdToColumnAlias(field.id) === filter?.field,
+        );
+        return (
+          (filter?.field === override.field ||
+            (aliasedField?.columnName ?? aliasedField?.name) ===
+              override.field) &&
+          (override.cleared || filter?.operator === override.operator)
+        );
+      },
     );
-    if (!declaration) {
+    const declaration = declarations[0];
+    if (declarations.length !== 1 || !declaration) {
       return { error: "This dashboard filter is not declared by the Insight." };
     }
     values[declaration.key] = override.cleared ? null : override.value;
@@ -95,13 +146,23 @@ export function resolveDashboardRuntime(
   insight: Insight,
   dataTables: readonly DataTable[],
   overrides: DashboardItemOverrides | undefined,
+  insights: readonly Insight[] = [],
 ): DashboardRuntimeResolution {
   if (!overrides) return {};
   const controls = insight.runtimeControls;
   const runtime: InsightRuntimeInput = {};
 
   if (overrides.filters !== undefined) {
-    const resolution = resolveRuntimeFilters(insight, overrides.filters);
+    const availableFields = resolveInsightAvailableFields(
+      insight,
+      [...dataTables],
+      [...insights],
+    );
+    const resolution = resolveRuntimeFilters(
+      insight,
+      availableFields,
+      overrides.filters,
+    );
     if (resolution.error) return resolution;
     runtime.filters = resolution.runtime?.filters;
   }
@@ -138,12 +199,19 @@ export function VisualizationDisplay(props: VisualizationDisplayProps) {
   // card until the user navigated away. The query is the one the content
   // component already issues, so this shares its cache rather than adding a
   // fetch.
-  const { data: visualizations = [] } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
-  );
+  const {
+    data: visualizations = [],
+    isLoading,
+    isError,
+  } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
   const active = visualizations.find(
     (candidate) => candidate.id === props.visualizationId,
   );
+  // A report can keep an item whose saved view was deleted; say so instead of
+  // waiting for data that will never arrive.
+  if (!isLoading && !isError && props.visualizationId && !active) {
+    return <MissingSavedViewState />;
+  }
 
   return (
     <VisualizationErrorBoundary
@@ -163,11 +231,149 @@ interface VisualizationDisplayProps {
    * behaviour, satisfying the no-override no-regression constraint).
    */
   overrides?: DashboardItemOverrides;
+  /**
+   * Set when this is a tile on a report. A tile carries the chart and what a
+   * reader needs to trust it: its title and the question it came from. The
+   * row and column count and the chart/table switch are workbench controls
+   * and stay off it.
+   */
+  reportId?: string;
+}
+
+function SavedResultTable({
+  insight,
+  fetchData,
+  totalCount,
+  columns,
+  columnDisplayNames,
+  columnConfigs,
+}: {
+  insight?: Insight;
+  columnConfigs: VirtualTableColumnConfig[];
+} & Pick<
+  ReturnType<typeof useInsightPagination>,
+  "fetchData" | "totalCount" | "columns" | "columnDisplayNames"
+>) {
+  if (hasReportTable(insight))
+    return (
+      <ReportDataTable
+        insight={insight}
+        fetchData={fetchData}
+        totalCount={totalCount}
+        columnDisplayNames={columnDisplayNames}
+      />
+    );
+  return (
+    <VirtualTable
+      columns={columns}
+      onFetchData={fetchData}
+      columnConfigs={columnConfigs}
+      height="100%"
+      className="flex-1"
+    />
+  );
+}
+
+function useViewerRuntime(visualizationId?: string) {
+  const [state, setState] = useState<{
+    id?: string;
+    runtime?: InsightRuntimeInput;
+  }>({ id: visualizationId });
+  const runtime = state.id === visualizationId ? state.runtime : undefined;
+  const onChange = (next: InsightRuntimeInput | undefined) =>
+    setState({ id: visualizationId, runtime: next });
+  return { runtime, onChange };
+}
+
+function MissingSavedViewState() {
+  return (
+    <div className="flex h-full w-full items-center justify-center px-6">
+      <p className="text-center text-sm text-neutral-fg-subtle">
+        This saved view was deleted. Remove it from the report or add another
+        saved view.
+      </p>
+    </div>
+  );
+}
+
+/** A tile is its chart; the table is a workbench view. */
+function displayView(reportId: string | undefined, activeTab: string) {
+  return reportId === undefined ? activeTab : "chart";
+}
+
+/** A report tile gets its trust header; the workbench gets the view switch. */
+function DisplayHeader({
+  name,
+  insight,
+  reportId,
+  summary,
+  colorDisplayName,
+  activeTab,
+  onTabChange,
+  canShowBoth,
+  bothTooltip,
+}: {
+  name: string;
+  insight?: Insight;
+  reportId?: string;
+  summary: string;
+  colorDisplayName?: string;
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  canShowBoth: boolean;
+  bothTooltip: string;
+}) {
+  if (reportId !== undefined)
+    return <TileHeader name={name} insight={insight} reportId={reportId} />;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <p className="text-xl font-semibold text-neutral-fg">{name}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-neutral-fg-subtle">{summary}</p>
+          {colorDisplayName && (
+            <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
+              Color: {colorDisplayName}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <Toggle
+          variant="outline"
+          size="sm"
+          value={activeTab}
+          onValueChange={onTabChange}
+          className="shrink-0"
+          options={[
+            {
+              value: "chart",
+              icon: <ChartIcon className="h-3.5 w-3.5" />,
+              label: "Chart",
+            },
+            {
+              value: "table",
+              icon: <TableIcon className="h-3.5 w-3.5" />,
+              label: "Table",
+            },
+            {
+              value: "both",
+              icon: <LayersIcon className="h-3.5 w-3.5" />,
+              label: "Both",
+              disabled: !canShowBoth,
+              tooltip: bothTooltip,
+            },
+          ]}
+        />
+      </div>
+    </div>
+  );
 }
 
 function VisualizationDisplayContent({
   visualizationId,
   overrides,
+  reportId,
 }: VisualizationDisplayProps) {
   // Whole-engine-down signals. `engineError` is the native bootstrap failure
   // (connector never came up); `visualizationError` is the provider failing to
@@ -217,14 +423,85 @@ function VisualizationDisplayContent({
     return resolveInsightSourceDataTable(insight, dataTables, insights);
   }, [insight, dataTables, insights]);
 
+  // Result fields only describe the current projection. Reader controls need
+  // the complete author-declared catalog so a dimension remains available
+  // after it is switched out of the result schema.
+  const switcherFields = useMemo(
+    () =>
+      insight
+        ? resolveInsightAvailableFields(insight, dataTables, insights)
+        : [],
+    [dataTables, insight, insights],
+  );
+
   const dashboardRuntime = useMemo(
     () =>
       insight
-        ? resolveDashboardRuntime(insight, dataTables, overrides)
+        ? resolveDashboardRuntime(insight, dataTables, overrides, insights)
         : ({} satisfies DashboardRuntimeResolution),
-    [dataTables, insight, overrides],
+    [dataTables, insight, insights, overrides],
   );
 
+  const { runtime: storedViewerRuntime, onChange: setViewerRuntime } =
+    useViewerRuntime(visualizationId);
+  const viewerRuntime = useMemo(
+    () =>
+      insight
+        ? currentViewerRuntime(insight, storedViewerRuntime)
+        : storedViewerRuntime,
+    [insight, storedViewerRuntime],
+  );
+  const effectiveRuntime = useMemo(
+    () =>
+      viewerRuntime
+        ? { ...dashboardRuntime.runtime, ...viewerRuntime }
+        : dashboardRuntime.runtime,
+    [dashboardRuntime.runtime, viewerRuntime],
+  );
+  const displayInsight = useMemo(
+    () => (insight ? reportPresentation(insight, effectiveRuntime) : undefined),
+    [insight, effectiveRuntime],
+  );
+
+  // Materialize the canonical table first. The chart then reaggregates its
+  // displayed dimensions from the published sources using the same runtime.
+  const {
+    fetchData,
+    totalCount,
+    columns,
+    isReady: isPaginationReady,
+    error: paginationError,
+    retry: retryPagination,
+    columnDisplayNames,
+    resolvedFields: instanceAwareFields,
+  } = useInsightPagination({
+    insight,
+    showModelPreview: false,
+    enabled: Boolean(insight && !dashboardRuntime.error),
+    runtime: effectiveRuntime,
+  });
+
+  const chartStorageEncoding = useMemo(
+    () =>
+      activeViz && insight
+        ? reportEncoding(
+            activeViz.encoding ?? {},
+            insight,
+            effectiveRuntime,
+            instanceAwareFields,
+          )
+        : {},
+    [activeViz, insight, effectiveRuntime, instanceAwareFields],
+  );
+  const chartPresentation = useMemo(
+    () =>
+      buildChartPresentation(
+        displayInsight,
+        chartStorageEncoding,
+        activeViz?.visualizationType,
+      ),
+    [displayInsight, chartStorageEncoding, activeViz?.visualizationType],
+  );
   // Use insight view hook to get the proper table name (handles joins).
   // `error` surfaces a post-bootstrap failure (e.g. native upload failed because
   // the loopback server stopped or returned 500). Without consuming it here the
@@ -234,25 +511,13 @@ function VisualizationDisplayContent({
     viewName: insightViewName,
     isReady: isInsightViewReady,
     error: insightViewError,
-  } = useInsightView(dashboardRuntime.error ? null : insight, {
-    runtime: dashboardRuntime.runtime,
-  });
-
-  // The table reads the same saved execution generation and declared runtime
-  // values as the chart; neither surface reconstructs query semantics locally.
-  const {
-    fetchData,
-    totalCount,
-    columns,
-    isReady: isPaginationReady,
-    columnDisplayNames,
-    resolvedFields: instanceAwareFields,
-  } = useInsightPagination({
-    insight,
-    showModelPreview: false,
-    enabled: Boolean(insight && !dashboardRuntime.error),
-    runtime: dashboardRuntime.runtime,
-  });
+  } = useInsightView(
+    dashboardRuntime.error || !isPaginationReady ? null : insight,
+    {
+      runtime: effectiveRuntime,
+      presentation: chartPresentation,
+    },
+  );
 
   // Helper to calculate visible rows from container dimensions
   const calculateVisibleRows = () => {
@@ -343,7 +608,13 @@ function VisualizationDisplayContent({
     };
 
     // Resolve prefixed IDs to SQL expressions
-    const resolved = resolveEncodingToResultFrame(activeViz.encoding, context);
+    const storageEncoding = chartStorageEncoding;
+    const resolved = resolveReportChartEncoding(
+      storageEncoding,
+      context,
+      Boolean(chartPresentation),
+      activeViz.visualizationType,
+    );
     const resolveColumnReference = (value: string | undefined) => {
       if (!value) return undefined;
       if (columns.some((column) => column.name === value)) return value;
@@ -398,17 +669,17 @@ function VisualizationDisplayContent({
       y,
       color,
       size,
-      xType: activeViz.encoding.xType,
-      yType: activeViz.encoding.yType,
+      xType: storageEncoding.xType,
+      yType: storageEncoding.yType,
       // Pass through date transforms for temporal bar charts
       // These tell the renderer to use band scale (suppresses vgplot warning)
-      xTransform: activeViz.encoding.xTransform,
-      yTransform: activeViz.encoding.yTransform,
+      xTransform: storageEncoding.xTransform,
+      yTransform: storageEncoding.yTransform,
       // Include human-readable axis labels for chart display
-      xLabel: getEncodingDisplayLabel(activeViz.encoding.x, x),
-      yLabel: getEncodingDisplayLabel(activeViz.encoding.y, y),
-      colorLabel: getEncodingDisplayLabel(activeViz.encoding.color, color),
-      sizeLabel: getEncodingDisplayLabel(activeViz.encoding.size, size),
+      xLabel: getEncodingDisplayLabel(storageEncoding.x, x),
+      yLabel: getEncodingDisplayLabel(storageEncoding.y, y),
+      colorLabel: getEncodingDisplayLabel(storageEncoding.color, color),
+      sizeLabel: getEncodingDisplayLabel(storageEncoding.size, size),
     };
   }, [
     activeViz,
@@ -417,6 +688,8 @@ function VisualizationDisplayContent({
     columns,
     columnDisplayNames,
     instanceAwareFields,
+    chartStorageEncoding,
+    chartPresentation,
   ]);
 
   // Build column configs for VirtualTable to show human-readable headers
@@ -427,35 +700,17 @@ function VisualizationDisplayContent({
     }));
   }, [columns, columnDisplayNames]);
 
-  // Get human-readable display name for color encoding
-  const colorDisplayName = useMemo(() => {
-    const colorEncoding = activeViz?.encoding?.color;
-    const parsed = parseEncoding(colorEncoding);
-    if (parsed?.type === "field") {
-      const effectiveFields =
-        instanceAwareFields.length > 0
-          ? instanceAwareFields
-          : (dataTable?.fields ?? []);
-      const field = effectiveFields.find((f) => f.id === parsed.id);
-      return field?.name ?? columnDisplayNames[resolvedEncoding.color ?? ""];
-    }
-    if (parsed?.type === "metric") {
-      const metric = insight?.metrics?.find((m) => m.id === parsed.id);
-      return metric
-        ? getMetricDisplayLabel(metric, dataTable?.fields)
-        : undefined;
-    }
-    if (!resolvedEncoding.color) return null;
-    return columnDisplayNames[resolvedEncoding.color] ?? resolvedEncoding.color;
-  }, [
-    activeViz?.encoding?.color,
-    dataTable?.fields,
-    insight?.metrics,
-    resolvedEncoding.color,
-    columnDisplayNames,
-    instanceAwareFields,
-  ]);
+  const colorDisplayName =
+    resolvedEncoding.colorLabel ??
+    columnDisplayNames[resolvedEncoding.color ?? ""];
+  const dataFailure = resolveVisualizationDataFailure({
+    canonicalReady: isPaginationReady,
+    canonicalError: paginationError,
+    retryCanonical: retryPagination,
+    presentationError: insightViewError,
+  });
 
+  const view = displayView(reportId, activeTab);
   // Check if there's enough space to show both views
   const canShowBoth = visibleRows >= MIN_VISIBLE_ROWS_FOR_BOTH;
   const bothTooltip = canShowBoth
@@ -500,17 +755,16 @@ function VisualizationDisplayContent({
     );
   }
 
-  // Surface a post-bootstrap insight-view failure instead of spinning forever.
-  // When the native upload fails at runtime (loopback server stopped, auth
-  // expired, native registration 500), useInsightView sets `error` and never
-  // flips `isReady` — without this branch isWaitingForData stays true and the
-  // user sees an indefinite spinner. Show the error so the failure is visible.
-  if (isMounted && insightViewError) {
+  // Prefer canonical rematerialization failures while that request is unready;
+  // the presentation stays disabled in that state. Presentation upload errors
+  // use the same surface after the canonical result succeeds.
+  if (isMounted && dataFailure) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
         <ErrorState
           title="Failed to load visualization data"
-          description={insightViewError}
+          description={dataFailure.description}
+          retryAction={dataFailure.retryAction}
           className="w-full max-w-lg"
         />
       </div>
@@ -575,89 +829,76 @@ function VisualizationDisplayContent({
         ref={headerRef}
         className="border-b border-neutral-border/60 px-4 py-2"
       >
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xl font-semibold text-neutral-fg">
-              {activeViz.name}
-            </p>
-            <div className="flex items-center gap-2">
-              <p className="text-sm text-neutral-fg-subtle">
-                {totalCount.toLocaleString()} rows • {columns.length} columns
-              </p>
-              {colorDisplayName && (
-                <span className="rounded-full bg-neutral-bg-muted px-2 py-0.5 text-xs text-neutral-fg-subtle">
-                  Color: {colorDisplayName}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Toggle
-              variant="outline"
-              size="sm"
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className="shrink-0"
-              options={[
-                {
-                  value: "chart",
-                  icon: <ChartIcon className="h-3.5 w-3.5" />,
-                  label: "Chart",
-                },
-                {
-                  value: "table",
-                  icon: <TableIcon className="h-3.5 w-3.5" />,
-                  label: "Table",
-                },
-                {
-                  value: "both",
-                  icon: <LayersIcon className="h-3.5 w-3.5" />,
-                  label: "Both",
-                  disabled: !canShowBoth,
-                  tooltip: bothTooltip,
-                },
-              ]}
-            />
-          </div>
-        </div>
+        <ReportSwitchers
+          insight={insight}
+          fields={switcherFields}
+          runtime={viewerRuntime}
+          onChange={(runtime) => setViewerRuntime(runtime)}
+        />
+        <DisplayHeader
+          name={activeViz.name}
+          insight={insight}
+          reportId={reportId}
+          summary={`${totalCount.toLocaleString()} rows • ${columns.length} columns`}
+          colorDisplayName={colorDisplayName}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          canShowBoth={canShowBoth}
+          bothTooltip={bothTooltip}
+        />
       </div>
 
-      {activeTab === "chart" && tableName && (
+      {view === "chart" && tableName && (
         <div className="mt-3 min-h-0 flex-1 overflow-hidden px-4 pb-8">
           <Chart
+            detailRowsOnly={Boolean(
+              !chartPresentation &&
+              displayInsight?.reporting?.totals &&
+              displayInsight.selectedFields.length &&
+              displayInsight.metrics.length,
+            )}
             tableName={tableName}
             visualizationType={activeViz.visualizationType}
             encoding={resolvedEncoding}
+            measureFormats={reportMeasureFormats(displayInsight)}
             className="h-full w-full"
           />
         </div>
       )}
 
-      {activeTab === "table" && (
+      {view === "table" && (
         <div className="mt-3 flex min-h-0 flex-1 flex-col px-4">
           <Surface
             elevation="inset"
             className="flex min-h-0 flex-1 flex-col p-4"
           >
-            <VirtualTable
+            <SavedResultTable
+              insight={displayInsight}
+              fetchData={fetchData}
+              totalCount={totalCount}
               columns={columns}
-              onFetchData={fetchData}
+              columnDisplayNames={columnDisplayNames}
               columnConfigs={columnConfigs}
-              height="100%"
-              className="flex-1"
             />
           </Surface>
         </div>
       )}
 
-      {activeTab === "both" && tableName && (
+      {view === "both" && tableName && (
         <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Chart takes 60% of space */}
           <div className="h-[60%] min-h-[200px] overflow-hidden px-4 pb-4">
             <Chart
+              detailRowsOnly={Boolean(
+                !chartPresentation &&
+                displayInsight?.reporting?.totals &&
+                displayInsight.selectedFields.length &&
+                displayInsight.metrics.length,
+              )}
               tableName={tableName}
               visualizationType={activeViz.visualizationType}
               encoding={resolvedEncoding}
+              measureFormats={reportMeasureFormats(displayInsight)}
               className="h-full w-full"
             />
           </div>
@@ -667,16 +908,47 @@ function VisualizationDisplayContent({
               elevation="inset"
               className="flex min-h-0 flex-1 flex-col p-4"
             >
-              <VirtualTable
+              <SavedResultTable
+                insight={displayInsight}
+                fetchData={fetchData}
+                totalCount={totalCount}
                 columns={columns}
-                onFetchData={fetchData}
+                columnDisplayNames={columnDisplayNames}
                 columnConfigs={columnConfigs}
-                height="100%"
-                className="flex-1"
               />
             </Surface>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** A report tile's heading: the view's name and the question it came from. */
+function TileHeader({
+  name,
+  insight,
+  reportId,
+}: {
+  name: string;
+  insight: Insight | null | undefined;
+  reportId: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate text-sm font-semibold text-neutral-fg">{name}</p>
+      {insight && (
+        <p className="truncate text-xs text-neutral-fg-subtle">
+          from{" "}
+          <Link
+            to="/insights/$insightId"
+            params={{ insightId: insight.id }}
+            search={{ reportId, visualize: false }}
+            className="text-neutral-fg-subtle underline-offset-2 transition-colors duration-150 hover:text-neutral-fg hover:underline motion-reduce:transition-none"
+          >
+            {insight.name}
+          </Link>
+        </p>
       )}
     </div>
   );

@@ -79,6 +79,7 @@ export const DataModelSection = memo(function DataModelSection({
               icon={<Table2 className="h-3.5 w-3.5" />}
               title={item.title}
               description={item.description}
+              stacked={item.joinIndex !== undefined}
               removeLabel={
                 item.joinIndex === undefined
                   ? undefined

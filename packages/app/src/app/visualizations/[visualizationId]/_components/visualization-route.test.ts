@@ -1,6 +1,5 @@
 import { validateVisualizationSearch } from "@/routes/visualizations/$visualizationId";
 import { describe, expect, it } from "vite-plus/test";
-import { reportSavedViewLink } from "@/app/dashboards/[dashboardId]/_components/DashboardDetailContent";
 import {
   visualizationDetailLink,
   visualizationSourceQuestionLink,
@@ -19,9 +18,9 @@ describe("validateVisualizationSearch", () => {
     });
   });
 
-  it("round trips from the second report through a saved view to its source question", () => {
+  it("carries a report id from a saved view to its source question", () => {
     const reportIds = ["report-a", "report-b"];
-    const savedViewLink = reportSavedViewLink("view-1", reportIds[1]);
+    const savedViewLink = visualizationDetailLink("view-1", reportIds[1]);
     const { reportId } = validateVisualizationSearch(savedViewLink.search);
 
     expect(visualizationSourceQuestionLink("question-1", reportId)).toEqual({
