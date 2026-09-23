@@ -14,6 +14,7 @@ import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
  */
 import { render, screen } from "@testing-library/react";
 import type { UseInsightPaginationOptions } from "@/hooks/useInsightPagination";
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { VisualizationPreview } from "./VisualizationPreview";
 
@@ -437,6 +438,50 @@ describe("VisualizationPreview — chart chrome", () => {
         preview: false,
         // Axis titles name the field, not its column alias.
         encoding: expect.objectContaining({ xLabel: "Revenue" }),
+      }),
+    );
+  });
+
+  it("titles repeat-join fields with their instance-aware display names", () => {
+    const userNameId = "30000000-0000-4000-8000-000000000001";
+    const approverNameId = `${userNameId}_j1`;
+    mockChart.mockClear();
+    mockResolveEncoding.mockReturnValueOnce({ x: "field_x", color: "field_c" });
+
+    render(
+      <VisualizationPreview
+        visualization={{
+          ...visualization,
+          encoding: {
+            x: `field:${userNameId}`,
+            color: `field:${approverNameId}`,
+          },
+        }}
+        thumbnail={false}
+        columnDisplayNames={{
+          [fieldIdToColumnAlias(userNameId)]: "User Name (created_by)",
+          [fieldIdToColumnAlias(approverNameId)]: "User Name (approved_by)",
+        }}
+        materialization={{
+          insight,
+          dataTable,
+          dataFrameId: "frame-shared",
+          isReady: true,
+          error: null,
+          resolvedFields: [
+            { id: userNameId, name: "User Name", tableId: "users" },
+            { id: approverNameId, name: "User Name", tableId: "users" },
+          ] as import("@dashframe/types").Field[],
+        }}
+      />,
+    );
+
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        encoding: expect.objectContaining({
+          xLabel: "User Name (created_by)",
+          colorLabel: "User Name (approved_by)",
+        }),
       }),
     );
   });

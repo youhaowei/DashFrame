@@ -7,7 +7,11 @@ import { queryStatus } from "@/data/query-status";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@dashframe/convex-backend/api";
-import { getMetricDisplayLabel, reportMeasureFormats } from "@dashframe/engine";
+import {
+  fieldIdToColumnAlias,
+  getMetricDisplayLabel,
+  reportMeasureFormats,
+} from "@dashframe/engine";
 import type {
   ChartEncoding,
   DataTable,
@@ -25,15 +29,22 @@ import { useMemo } from "react";
 
 import { VisualizationErrorBoundary } from "./VisualizationErrorBoundary";
 
-/** Axis and legend titles: the field or measure name, never a column alias. */
+/**
+ * Axis and legend titles: the field or measure name, never a column alias.
+ * `columnDisplayNames` (keyed by column alias) carries the instance-aware
+ * names a repeat join needs, such as "User Name (approved_by)".
+ */
 function encodingLabel(
   value: string | undefined,
   fields: readonly Field[],
   metrics: Insight["metrics"],
+  columnDisplayNames: Readonly<Record<string, string>> | undefined,
 ): string | undefined {
   const parsed = parseEncoding(value);
   if (parsed?.type === "field") {
-    return fields.find((field) => field.id === parsed.id)?.name;
+    const field = fields.find((candidate) => candidate.id === parsed.id);
+    if (!field) return undefined;
+    return columnDisplayNames?.[fieldIdToColumnAlias(field.id)] ?? field.name;
   }
   if (parsed?.type === "metric") {
     const metric = metrics.find((candidate) => candidate.id === parsed.id);
@@ -65,6 +76,11 @@ interface VisualizationPreviewProps {
    * the insight workbench canvas.
    */
   thumbnail?: boolean;
+  /**
+   * Display names keyed by column alias, used for axis and legend titles so
+   * repeat-join fields read distinctly. Falls back to the field name.
+   */
+  columnDisplayNames?: Readonly<Record<string, string>>;
   /** Reuse a parent materialization when the preview sits beside its table. */
   materialization?: {
     insight: Insight;
@@ -169,6 +185,7 @@ function VisualizationPreviewContent({
   height = PREVIEW_HEIGHT,
   fallback = null,
   thumbnail = true,
+  columnDisplayNames,
 }: VisualizationPreviewProps) {
   // Fetch the insight for this visualization
   const { data: insight, isLoading: isLoadingInsight } = queryStatus(
@@ -232,6 +249,7 @@ function VisualizationPreviewContent({
       height={height}
       fallback={fallback}
       thumbnail={thumbnail}
+      columnDisplayNames={columnDisplayNames}
       insight={insight}
       dataTable={dataTable}
       instanceAwareFields={instanceAwareFields}
@@ -249,6 +267,7 @@ function ResolvedVisualizationPreview({
   height = PREVIEW_HEIGHT,
   fallback = null,
   thumbnail = true,
+  columnDisplayNames,
   insight,
   dataTable,
   instanceAwareFields,
@@ -259,7 +278,7 @@ function ResolvedVisualizationPreview({
   presentationApplied = false,
 }: Pick<
   VisualizationPreviewProps,
-  "visualization" | "height" | "fallback" | "thumbnail"
+  "visualization" | "height" | "fallback" | "thumbnail" | "columnDisplayNames"
 > & {
   insight: Insight | null | undefined;
   dataTable: DataTable | undefined;
@@ -314,21 +333,25 @@ function ResolvedVisualizationPreview({
         visualization.encoding.x,
         context.fields,
         context.metrics,
+        columnDisplayNames,
       ),
       yLabel: encodingLabel(
         visualization.encoding.y,
         context.fields,
         context.metrics,
+        columnDisplayNames,
       ),
       colorLabel: encodingLabel(
         visualization.encoding.color,
         context.fields,
         context.metrics,
+        columnDisplayNames,
       ),
       sizeLabel: encodingLabel(
         visualization.encoding.size,
         context.fields,
         context.metrics,
+        columnDisplayNames,
       ),
     };
   }, [
@@ -338,6 +361,7 @@ function ResolvedVisualizationPreview({
     insight,
     instanceAwareFields,
     presentationApplied,
+    columnDisplayNames,
   ]);
 
   // Error state — checked BEFORE the loading guard so that view-creation errors

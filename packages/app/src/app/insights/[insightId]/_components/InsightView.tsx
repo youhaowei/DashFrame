@@ -2250,6 +2250,7 @@ export function InsightView({
                 }}
                 height="container"
                 thumbnail={false}
+                columnDisplayNames={encodingColumnDisplayNames}
                 // Same primitive and host message as the result table below, so
                 // both halves of the workbench agree. Only set on error — the
                 // encoding-missing case keeps the preview's own terminal text.
