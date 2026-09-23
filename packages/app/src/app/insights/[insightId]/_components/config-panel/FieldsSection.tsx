@@ -123,12 +123,12 @@ export function withFieldGrouping(
   const dateGrains = { ...next.dateGrains };
   if (grain) dateGrains[fieldId] = grain;
   else delete dateGrains[fieldId];
-  const current = next.pivotFields ?? [];
-  const pivotFields = pivot
-    ? current.includes(fieldId)
-      ? current
-      : [...current, fieldId]
-    : current.filter((id) => id !== fieldId);
+  // A pivoted field keeps its place; only a newly pivoted field is appended.
+  let pivotFields = (next.pivotFields ?? []).filter(
+    (id) => pivot || id !== fieldId,
+  );
+  if (pivot && !pivotFields.includes(fieldId))
+    pivotFields = [...pivotFields, fieldId];
   // A report ranks one field, so ranking this one replaces the other.
   if (rank) next.topN = { fieldId, ...rank };
   else if (next.topN?.fieldId === fieldId) delete next.topN;

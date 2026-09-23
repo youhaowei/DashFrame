@@ -245,3 +245,14 @@ export function reportEncoding(
   withPivotColor(result, insight, runtime);
   return result;
 }
+
+/** The field a saved chart takes its color from because of a pivot, if any. */
+export function reportPivotColor(
+  encoding: VisualizationEncoding | undefined,
+  insight: Insight,
+  runtime: InsightRuntimeInput | undefined,
+  fields: Field[],
+): string | undefined {
+  if (!encoding || encoding.color) return undefined;
+  return reportEncoding(encoding, insight, runtime, fields).color;
+}
