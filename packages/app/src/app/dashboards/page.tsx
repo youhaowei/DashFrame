@@ -12,11 +12,15 @@ import {
   ArtifactGrid,
 } from "@/components/artifacts/ArtifactCollection";
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
-import { StartFromData } from "@/components/data-sources/StartFromData";
-import { useCreateInsight } from "@/hooks/useCreateInsight";
+import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
 import { api } from "@dashframe/convex-backend/api";
-import { cmd, type UUID } from "@dashframe/types";
-import { useNavigate } from "@tanstack/react-router";
+import {
+  cmd,
+  type Dashboard,
+  type UUID,
+  type Visualization,
+} from "@dashframe/types";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Button,
   Dialog,
@@ -34,22 +38,213 @@ import {
   DashboardIcon,
   DeleteIcon,
   ExternalLinkIcon,
+  FileIcon,
   PlusIcon,
-  SparklesIcon,
 } from "@wystack/ui-react/icons";
 import { type ReactNode, useMemo, useState } from "react";
+
+const RECENT_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_START_QUESTIONS = 5;
+const UNTITLED_REPORT = "Untitled report";
+
+type CreateReport = (
+  name: string,
+  firstVisualizationId?: UUID,
+) => Promise<boolean>;
+
+function touchedAt(row: { createdAt: number; updatedAt?: number }) {
+  return Math.max(row.createdAt, row.updatedAt ?? 0);
+}
+
+/**
+ * Recent questions that are on no report, each paired with the saved view that
+ * would become the report's first tile. A report item places a saved view, so
+ * a question without one has nothing to place and is left out.
+ */
+function useUnplacedRecentQuestions(
+  dashboards: readonly Dashboard[],
+  visualizations: readonly Visualization[],
+) {
+  const insightsQuery = queryStatus(
+    useQuery({ query: api.app.listInsights, args: {} }),
+  );
+  const tablesQuery = queryStatus(
+    useQuery({ query: api.app.listDataTables, args: {} }),
+  );
+  const sourcesQuery = queryStatus(
+    useQuery({ query: api.app.listDataSources, args: {} }),
+  );
+  const insights = insightsQuery.data;
+  const dataTables = tablesQuery.data;
+  const dataSources = sourcesQuery.data;
+  // "Recent" is judged once, when the empty state opens.
+  const [openedAt] = useState(() => Date.now());
+
+  const candidates = useMemo(() => {
+    if (!insights) return [];
+    const indexes = indexReportContents(visualizations);
+    const placed = new Set(
+      dashboards.flatMap(
+        (dashboard) => resolveReportContents(dashboard, indexes).questionIds,
+      ),
+    );
+    const latestViewByQuestion = new Map<string, Visualization>();
+    for (const view of visualizations) {
+      const current = latestViewByQuestion.get(view.insightId);
+      if (!current || touchedAt(view) > touchedAt(current)) {
+        latestViewByQuestion.set(view.insightId, view);
+      }
+    }
+    const cutoff = openedAt - RECENT_WINDOW_MS;
+
+    return insights
+      .filter(
+        (insight) =>
+          !placed.has(insight.id) &&
+          latestViewByQuestion.has(insight.id) &&
+          touchedAt(insight) >= cutoff,
+      )
+      .sort((a, b) => touchedAt(b) - touchedAt(a))
+      .slice(0, MAX_START_QUESTIONS)
+      .map((insight) => {
+        const table = resolveInsightSourceDataTable(
+          insight,
+          dataTables ?? [],
+          insights,
+        );
+        return {
+          insight,
+          viewId: latestViewByQuestion.get(insight.id)!.id,
+          tableName: table?.name,
+          sourceType: dataSources?.find(
+            (source) => source.id === table?.dataSourceId,
+          )?.type,
+        };
+      });
+  }, [dashboards, visualizations, insights, dataTables, dataSources, openedAt]);
+
+  return {
+    isLoading: insightsQuery.isLoading || sourcesQuery.isLoading,
+    candidates,
+    // Unknown is not zero: a failed load must not claim there is no data.
+    hasNoDataSources: !sourcesQuery.isError && dataSources?.length === 0,
+  };
+}
+
+/**
+ * The empty reports list. A recent question that is not on a report yet is the
+ * likeliest first tile, so those come first; otherwise one action creates the
+ * report and the first chart is added from inside it.
+ */
+function ReportsStart({
+  dashboards,
+  visualizations,
+  isCreating,
+  onCreate,
+}: {
+  dashboards: readonly Dashboard[];
+  visualizations: readonly Visualization[];
+  isCreating: boolean;
+  onCreate: CreateReport;
+}) {
+  const { isLoading, candidates, hasNoDataSources } =
+    useUnplacedRecentQuestions(dashboards, visualizations);
+
+  if (isLoading) return null;
+
+  if (candidates.length === 0) {
+    return (
+      <ArtifactEmptyState
+        title="No reports yet"
+        description="A report is a page of charts and tables over your data. Create one and add the first chart from inside it."
+        action={
+          <div className="flex flex-col items-center gap-3">
+            <Button
+              icon={PlusIcon}
+              label="Create your first report"
+              loading={isCreating}
+              onClick={() => onCreate(UNTITLED_REPORT)}
+            />
+            {hasNoDataSources && (
+              <Link
+                to="/data-sources"
+                className="text-sm text-neutral-fg-subtle underline-offset-4 transition-colors hover:text-neutral-fg hover:underline motion-reduce:transition-none"
+              >
+                or connect data first
+              </Link>
+            )}
+          </div>
+        }
+      />
+    );
+  }
+
+  return (
+    <section aria-labelledby="reports-start-title" className="space-y-4">
+      <div>
+        <h2 id="reports-start-title" className="text-lg font-semibold">
+          No reports yet
+        </h2>
+        <p className="mt-1 text-sm text-neutral-fg-subtle">
+          Start one from a recent question, or from a blank page.
+        </p>
+      </div>
+      <ArtifactGrid>
+        {candidates.map(({ insight, viewId, tableName, sourceType }) => (
+          <ArtifactCard
+            key={insight.id}
+            name={insight.name}
+            headingLevel={3}
+            icon={<FileIcon className="h-5 w-5" />}
+            metadata={
+              <>
+                {tableName || "Unknown table"}
+                {sourceType && (
+                  <>
+                    <span aria-hidden="true"> · </span> {sourceType}
+                  </>
+                )}
+              </>
+            }
+            footer={
+              <Button
+                size="sm"
+                variant="outline"
+                label="Start report"
+                disabled={isCreating}
+                onClick={() => onCreate(UNTITLED_REPORT, viewId)}
+              />
+            }
+          />
+        ))}
+        {/* Dashed: an unset report, the house mark for "choose". */}
+        <button
+          type="button"
+          disabled={isCreating}
+          onClick={() => onCreate(UNTITLED_REPORT)}
+          className="flex min-h-30 items-center justify-center gap-2 rounded-lg border border-dashed border-neutral-border p-4 text-sm text-neutral-fg-subtle transition-colors hover:bg-neutral-bg-subtle hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-bg focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none"
+        >
+          <PlusIcon aria-hidden className="h-4 w-4" />
+          Blank report
+        </button>
+      </ArtifactGrid>
+    </section>
+  );
+}
 
 function ReportsCollectionContent({
   hasLoadError,
   isEmpty,
   searchQuery,
   onClearSearch,
+  emptyState,
   children,
 }: {
   hasLoadError: boolean;
   isEmpty: boolean;
   searchQuery: string;
   onClearSearch: () => void;
+  emptyState: ReactNode;
   children: ReactNode;
 }) {
   if (hasLoadError) {
@@ -79,35 +274,7 @@ function ReportsCollectionContent({
     );
   }
 
-  return <ReportsStart />;
-}
-
-/**
- * The empty reports list, as a starting point rather than a notice.
- *
- * What a report holds is questions, so the useful move from an empty list is
- * the same one onboarding offers: pick data and get a question. This branch
- * says nothing about what else the project contains — questions and saved
- * views exist independently of reports — so the copy stays neutral about
- * whether this is the reader's first. Naming an empty report is still one
- * click away in the collection header, which is why that path is named here
- * rather than repeated as a second button.
- */
-function ReportsStart() {
-  const { createInsightFromTable, createInsightFromInsight } =
-    useCreateInsight();
-
-  return (
-    <div className="mx-auto w-full max-w-2xl py-8">
-      <StartFromData
-        title="No reports yet"
-        description="Pick data to start a question, or use New report above to name an empty one."
-        headingLevel={2}
-        onTableSelect={createInsightFromTable}
-        onInsightSelect={(id, name) => createInsightFromInsight(id, name)}
-      />
-    </div>
-  );
+  return emptyState;
 }
 
 export default function DashboardsPage() {
@@ -127,6 +294,7 @@ export default function DashboardsPage() {
   const { confirm } = useConfirmDialogStore();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -148,22 +316,50 @@ export default function DashboardsPage() {
     });
   };
 
-  const handleCreate = async () => {
-    if (!newDashboardName.trim()) return;
-
+  /** Create a report, optionally with a saved view as its first tile, and open it. */
+  const createReport: CreateReport = async (name, firstVisualizationId) => {
     const id = crypto.randomUUID() as UUID;
+    setIsCreating(true);
     try {
       await commitBatch({
-        commands: [cmd("CreateDashboard", { id, name: newDashboardName })],
+        commands: [
+          cmd("CreateDashboard", { id, name }),
+          ...(firstVisualizationId
+            ? [
+                cmd("AddDashboardItem", {
+                  dashboardId: id,
+                  item: {
+                    id: crypto.randomUUID() as UUID,
+                    type: "visualization",
+                    visualizationId: firstVisualizationId,
+                    x: 0,
+                    y: 0,
+                    width: 6,
+                    height: 6,
+                  },
+                }),
+              ]
+            : []),
+        ],
       });
     } catch {
       showError("Failed to create report. Please try again.");
-      return;
+      return false;
+    } finally {
+      setIsCreating(false);
     }
 
+    navigate({ to: `/dashboards/${id}` } as never);
+    return true;
+  };
+
+  // The report page has no inline rename yet, so the header keeps asking for
+  // a name; the empty state creates "Untitled report" directly.
+  const handleCreateNamed = async () => {
+    if (!newDashboardName.trim()) return;
+    if (!(await createReport(newDashboardName))) return;
     setIsCreateOpen(false);
     setNewDashboardName("");
-    navigate({ to: `/dashboards/${id}` } as never);
   };
 
   const filteredDashboards = searchQuery.trim()
@@ -196,19 +392,11 @@ export default function DashboardsPage() {
         )
       }
       actions={
-        <>
-          <Button
-            variant="outline"
-            icon={SparklesIcon}
-            label="Questions"
-            onClick={() => navigate({ to: "/insights" })}
-          />
-          <Button
-            icon={PlusIcon}
-            label="New report"
-            onClick={() => setIsCreateOpen(true)}
-          />
-        </>
+        <Button
+          icon={PlusIcon}
+          label="New report"
+          onClick={() => setIsCreateOpen(true)}
+        />
       }
       searchLabel="Search reports"
       searchPlaceholder="Search reports..."
@@ -221,6 +409,14 @@ export default function DashboardsPage() {
         isEmpty={filteredDashboards.length === 0}
         searchQuery={searchQuery}
         onClearSearch={() => setSearchQuery("")}
+        emptyState={
+          <ReportsStart
+            dashboards={dashboards}
+            visualizations={visualizations}
+            isCreating={isCreating}
+            onCreate={createReport}
+          />
+        }
       >
         <ArtifactGrid>
           {filteredDashboards.map((dashboard) => {
@@ -293,7 +489,7 @@ export default function DashboardsPage() {
               placeholder="e.g., Sales overview"
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreate();
+                if (e.key === "Enter") handleCreateNamed();
               }}
             />
           </div>
@@ -305,8 +501,8 @@ export default function DashboardsPage() {
             />
             <Button
               label="Create"
-              onClick={handleCreate}
-              disabled={!newDashboardName.trim()}
+              onClick={handleCreateNamed}
+              disabled={!newDashboardName.trim() || isCreating}
             />
           </DialogFooter>
         </DialogContent>
