@@ -227,6 +227,26 @@ describe("InsightConfigPanel metric saves", () => {
     );
   });
 
+  it("offers the measure library only on a single-table source", () => {
+    renderPanel({
+      ...insight,
+      joins: [
+        {
+          type: "left",
+          rightTableId: "20000000-0000-4000-8000-000000000002" as UUID,
+          leftKey: "customer_id",
+          rightKey: "id",
+        },
+      ],
+    } as Insight);
+    expect(
+      screen.queryByRole("button", { name: "Reuse Saved orders" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Save revenue to source" }),
+    ).toBeNull();
+  });
+
   it("saves a reusable source definition without mutating the report", async () => {
     commitBatch.mockResolvedValue({});
     renderPanel();

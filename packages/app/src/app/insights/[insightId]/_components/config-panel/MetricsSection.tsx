@@ -15,7 +15,6 @@ import {
   Alert,
   AlertDescription,
   Button,
-  FieldSeparator,
   Input,
   Label,
   Popover,
@@ -249,7 +248,16 @@ function MetricEditor({
     }
   };
 
-  const runAction = async (action: () => Promise<void>, failure: string) => {
+  // Which secondary action is running, so only its control shows progress.
+  const [activeAction, setActiveAction] = useState<"reuse" | "source" | null>(
+    null,
+  );
+  const runAction = async (
+    kind: "reuse" | "source",
+    action: () => Promise<void>,
+    failure: string,
+  ) => {
+    setActiveAction(kind);
     setIsSaving(true);
     setError(null);
     try {
@@ -260,6 +268,7 @@ function MetricEditor({
       setError(`${failure}: ${message}`);
     } finally {
       setIsSaving(false);
+      setActiveAction(null);
     }
   };
 
@@ -275,6 +284,10 @@ function MetricEditor({
     aggregation !== metric.aggregation ||
     metricColumnNameForSave(aggregation, columnName) !==
       (metric.columnName || undefined);
+
+  // Closing after Save to source would drop edits the user hasn't saved.
+  const hasUnsavedChanges =
+    metric !== undefined && (definitionChanged || viewer !== viewerChoice);
 
   const trigger = metric ? (
     <WorkbenchChip
@@ -347,6 +360,7 @@ function MetricEditor({
                 onValueChange={(id) => {
                   if (id)
                     void runAction(
+                      "reuse",
                       () => onReuse(id),
                       "Failed to add saved measure",
                     );
@@ -363,11 +377,6 @@ function MetricEditor({
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            {/* The separator's own negative margins suit field groups; this
-                popover spaces its rows, so give it room back. */}
-            <div className="py-1">
-              <FieldSeparator>or define a new one</FieldSeparator>
             </div>
           </>
         )}
@@ -459,14 +468,22 @@ function MetricEditor({
         )}
         <div className="flex items-center justify-end gap-2">
           {metric && onSaveToSource && (
-            <Tooltip content="Keep a copy on the source for other reports">
+            <Tooltip
+              content={
+                hasUnsavedChanges
+                  ? "Save your changes first"
+                  : "Keep a copy on the source for other reports"
+              }
+            >
               <Button
                 label="Save to source"
                 variant="ghost"
                 size="sm"
-                disabled={isSaving || definitionChanged}
+                loading={activeAction === "source"}
+                disabled={isSaving || hasUnsavedChanges}
                 onClick={() =>
                   void runAction(
+                    "source",
                     () => onSaveToSource(metric.id),
                     "Failed to save measure to source",
                   )
@@ -485,8 +502,9 @@ function MetricEditor({
           <Button
             label={metric ? "Save" : "Add"}
             size="sm"
-            loading={isSaving}
+            loading={isSaving && activeAction === null}
             disabled={
+              isSaving ||
               !name.trim() ||
               (needsField && !columnName) ||
               (!definitionChanged && viewer === viewerChoice)

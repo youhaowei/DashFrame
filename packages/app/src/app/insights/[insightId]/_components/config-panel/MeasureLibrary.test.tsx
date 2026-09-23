@@ -96,7 +96,7 @@ describe("measure library in the metric editor", () => {
     );
   });
 
-  it("offers no library actions where the source can't hold them", async () => {
+  it("shows no saved-measure picker without library actions", async () => {
     const user = userEvent.setup({ delay: null });
     render(section());
 
@@ -104,5 +104,51 @@ describe("measure library in the metric editor", () => {
     expect(
       screen.queryByRole("combobox", { name: "Start from a saved measure" }),
     ).toBeNull();
+  });
+
+  it("keeps the editor open and explains a failed import", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onReuse = vi.fn().mockRejectedValue(new Error("write failed"));
+    render(
+      section({
+        savedMeasures: [{ id: "saved-orders", name: "Saved orders" }],
+        onReuse,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add metric" }));
+    await user.click(
+      screen.getByRole("combobox", { name: "Start from a saved measure" }),
+    );
+    await user.click(
+      await screen.findByRole("option", { name: "Saved orders" }),
+    );
+
+    expect(
+      await screen.findByText("Failed to add saved measure: write failed"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: "Start from a saved measure" }),
+    ).toBeTruthy();
+  });
+
+  it("waits for an unsaved viewer choice before saving to the source", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(
+      section({
+        onSaveToSource: vi.fn(),
+        onViewerChange: vi.fn(),
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Revenue" }));
+    await user.click(
+      screen.getByRole("checkbox", { name: "Viewers can show or hide" }),
+    );
+    expect(
+      screen
+        .getByRole("button", { name: "Save to source" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 });
