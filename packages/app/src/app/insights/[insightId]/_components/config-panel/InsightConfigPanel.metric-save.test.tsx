@@ -247,6 +247,22 @@ describe("InsightConfigPanel metric saves", () => {
     ).toBeNull();
   });
 
+  it("offers no measure library on an insight built on another insight", () => {
+    renderPanel({
+      ...insight,
+      source: {
+        sourceType: "insight",
+        sourceId: "30000000-0000-4000-8000-000000000003" as UUID,
+      },
+    } as Insight);
+    expect(
+      screen.queryByRole("button", { name: "Reuse Saved orders" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Save revenue to source" }),
+    ).toBeNull();
+  });
+
   it("saves a reusable source definition without mutating the report", async () => {
     commitBatch.mockResolvedValue({});
     renderPanel();

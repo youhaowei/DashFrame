@@ -287,7 +287,12 @@ function MetricEditor({
 
   // Closing after Save to source would drop edits the user hasn't saved.
   const hasUnsavedChanges =
-    metric !== undefined && (definitionChanged || viewer !== viewerChoice);
+    metric !== undefined &&
+    (definitionChanged ||
+      viewer !== viewerChoice ||
+      // A cleared or invalid draft value is an edit the definition can't
+      // hold yet; saving the old definition would silently drop it.
+      measureValidationError !== null);
 
   const trigger = metric ? (
     <WorkbenchChip
@@ -366,7 +371,12 @@ function MetricEditor({
                     );
                 }}
               >
-                <SelectTrigger id="metric-reuse-saved">
+                {/* Always unset: picking imports a new metric, so the slot
+                    reads as a choice, as the shared emptyDashed Select does. */}
+                <SelectTrigger
+                  id="metric-reuse-saved"
+                  className="border-dashed"
+                >
                   <SelectValue placeholder="Choose a measure" />
                 </SelectTrigger>
                 <SelectContent>

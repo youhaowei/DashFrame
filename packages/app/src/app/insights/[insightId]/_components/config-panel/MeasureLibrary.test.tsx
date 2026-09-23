@@ -151,4 +151,29 @@ describe("measure library in the metric editor", () => {
         .hasAttribute("disabled"),
     ).toBe(true);
   });
+
+  it("waits for an invalid draft before saving to the source", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(
+      section({
+        metrics: [
+          {
+            ...revenue,
+            filters: [
+              { id: "f1", field: "amount", operator: "gte", value: 10 },
+            ],
+          } as InsightMetric,
+        ],
+        onSaveToSource: vi.fn(),
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Revenue" }));
+    await user.clear(screen.getByDisplayValue("10"));
+    expect(
+      screen
+        .getByRole("button", { name: "Save to source" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
+  });
 });
