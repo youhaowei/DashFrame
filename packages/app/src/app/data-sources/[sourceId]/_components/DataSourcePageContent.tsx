@@ -1,12 +1,14 @@
-import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
-import { ArtifactSwitcher } from "@/components/artifacts/ArtifactSwitcher";
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import { Ga4PropertyPicker } from "@/components/data-sources/Ga4PropertyPicker";
 import { RefreshTableButton } from "@/components/data-sources/RefreshTableButton";
-import { queryStatus } from "@/data/query-status";
-import { SensitivityBadge } from "@/components/data-sources/SensitivityBadge";
-import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { AppLayout } from "@/components/layouts/AppLayout";
+import { useTopBarTabs } from "@/components/shell/topbar-tabs";
+import {
+  Workbench,
+  WorkbenchPaneToggle,
+  useWorkbenchPanes,
+} from "@/components/workbench/Workbench";
+import { queryStatus } from "@/data/query-status";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
@@ -17,74 +19,67 @@ import { PerfStage, withPerfAsync } from "@/lib/perf";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@dashframe/convex-backend/api";
 import { extractColumnAliasComponents } from "@dashframe/engine";
-import type { ColumnAnalysis, FieldSensitivity, UUID } from "@dashframe/types";
-import {
-  buildSensitivityUpdate,
-  cmd,
-  getFieldSensitivity,
-  suggestSensitivityReasons,
+import type {
+  ColumnAnalysis,
+  DataSource,
+  DataTable,
+  Field,
+  FieldSensitivity,
+  UUID,
 } from "@dashframe/types";
-import { Breadcrumb, VirtualTable } from "@dashframe/ui";
+import { buildSensitivityUpdate, cmd } from "@dashframe/types";
 import { Link, useNavigate } from "@tanstack/react-router";
-
 import {
-  Badge,
   Button,
-  ButtonPrimitive,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  Toggle,
 } from "@wystack/ui-react";
 import {
+  DashboardIcon,
   DeleteIcon,
-  MoreIcon as LuMoreHorizontal,
+  ListIcon,
+  MoreIcon,
   PlusIcon,
+  SearchIcon,
   TableIcon,
 } from "@wystack/ui-react/icons";
-import { useMemo, useState } from "react";
+import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ColumnInspector } from "./ColumnInspector";
+import {
+  ImportTablesDialog,
+  isListableRemoteConnector,
+} from "./ImportTablesDialog";
+import { SourceConfigPane } from "./SourceConfigPane";
+import {
+  TablePreview,
+  sampleColumnValues,
+  type TablePreviewView,
+} from "./TablePreview";
+
+const TABLE_PANEL_ID = "data-source-table-panel";
+const PREVIEW_ROW_LIMIT = 50;
+const NO_TABLES: DataTable[] = [];
+const FILE_CONNECTORS = ["file"] as const;
 
 interface DataSourcePageContentProps {
   sourceId: string;
+  /** The open table tab from the URL; the first table when absent or stale. */
+  tableId: string | null;
+  /** Opens a table tab, or clears the choice with `null`. */
+  onSelectTable: (tableId: string | null) => void;
 }
 
 const SENSITIVITY_TOASTS: Record<FieldSensitivity, string> = {
-  sensitive: "Field marked sensitive",
-  cleared: "Field marked as not sensitive",
-  unclassified: "Field reset to unclassified",
+  sensitive: "Column marked sensitive",
+  cleared: "Column marked as not sensitive",
+  unclassified: "Column reset to unclassified",
 };
-
-function renderDataTablesQueryState(isLoading: boolean, isError: boolean) {
-  if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-neutral-fg-subtle">Loading tables…</p>
-      </div>
-    );
-  }
-  if (isError) {
-    return (
-      <div role="alert" className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-lg font-semibold">Couldn&apos;t load tables</h2>
-          <p className="mt-2 text-sm text-neutral-fg-subtle">
-            Something went wrong. Check your connection and try again.
-          </p>
-        </div>
-      </div>
-    );
-  }
-  return null;
-}
 
 /**
  * Build a lookup map from field ID → column analysis.
@@ -128,70 +123,38 @@ export function buildAnalysisByFieldId(
   return map;
 }
 
-/**
- * What a source with no tables offers next. A connected Google Analytics
- * source picks its first property inline; other connectors name where their
- * import lives.
- */
-function EmptyTablesState({
-  sourceId,
-  sourceType,
-  isFileSource,
-  onImported,
-  onImportingChange,
-  onOpenDataSources,
+function CentreMessage({
+  title,
+  line,
+  action,
+  role,
 }: {
-  sourceId: UUID;
-  sourceType: string;
-  isFileSource: boolean;
-  onImported: (tableId: UUID) => void;
-  onImportingChange: (importing: boolean) => void;
-  onOpenDataSources: () => void;
+  title: string;
+  line: string;
+  action?: React.ReactNode;
+  role?: "alert";
 }) {
-  // Keyed on the stored type, not the registry entry: the registry hydrates
-  // asynchronously and would briefly render the generic state for GA4.
-  if (sourceType === "googleAnalytics") {
-    return (
-      <Ga4PropertyPicker
-        key={sourceId}
-        sourceId={sourceId}
-        onImported={onImported}
-        onImportingChange={onImportingChange}
-        onOpenDataSources={onOpenDataSources}
-      />
-    );
-  }
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="text-center">
-        <TableIcon className="mx-auto mb-4 h-12 w-12 text-neutral-fg-subtle" />
-        <h2 className="mb-2 text-lg font-semibold">No tables yet</h2>
-        <p className="mb-4 text-sm text-neutral-fg-subtle">
-          {isFileSource
-            ? "Add a file from the Data Sources page."
-            : "Choose tables from Add Source on the Data Sources page."}
-        </p>
-        <Button
-          variant="outline"
-          label="Go to Data Sources"
-          onClick={onOpenDataSources}
-        />
-      </div>
+    <div
+      role={role}
+      className="flex h-full flex-col items-center justify-center gap-1 p-6 text-center"
+    >
+      <h2 className="text-base font-semibold text-neutral-fg">{title}</h2>
+      <p className="text-sm text-neutral-fg-subtle">{line}</p>
+      {action && <div className="mt-3">{action}</div>}
     </div>
   );
 }
 
 /**
- * Data Source Detail Page
- *
- * Shows a single data source with:
- * - Source name and type
- * - List of tables within the source
- * - Selected table details (fields, metrics, preview)
- * - Actions to create insights from tables
+ * Data source page: the source's tables as top-bar tabs, the source's own
+ * configuration on the left, the open table in the centre, and the selected
+ * column's inspector on the right.
  */
 export default function DataSourcePageContent({
   sourceId,
+  tableId,
+  onSelectTable,
 }: DataSourcePageContentProps) {
   const navigate = useNavigate();
   const { createInsightFromTable } = useCreateInsight();
@@ -211,12 +174,10 @@ export default function DataSourcePageContent({
   const { data: allDataFrames = [] } = queryStatus(
     useQuery({ query: api.app.listDataFrames, args: {} }),
   );
-
-  // Find the data source
   const dataSource = allDataSources.find((s) => s.id === sourceId);
 
   const {
-    data: dataTables = [],
+    data: loadedTables,
     isLoading: isLoadingDataTables,
     isError: isDataTablesError,
   } = queryStatus(
@@ -225,126 +186,112 @@ export default function DataSourcePageContent({
       args: { dataSourceId: sourceId },
     }),
   );
-  const tableCountUnit = dataTables.length === 1 ? "table" : "tables";
-  const tableCountLabel =
-    isLoadingDataTables || isDataTablesError
-      ? null
-      : ` · ${dataTables.length} ${tableCountUnit}`;
 
-  // Local state for selected table - use null to indicate "not yet selected by user"
-  const [selectedTableId, setSelectedTableId] = useState<UUID | null>(null);
+  // A stable empty list keeps the tab list below memoized while loading.
+  const dataTables = loadedTables ?? NO_TABLES;
+
   // Holds the first-property picker on screen while its import runs.
   const [isImportingFirstTable, setIsImportingFirstTable] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isStartingReport, setIsStartingReport] = useState(false);
+  const [view, setView] = useState<TablePreviewView>("grid");
+  // Selections belong to the table they were made on; switching tabs starts
+  // the next table clean instead of carrying a column that is not there.
+  const [columnFind, setColumnFind] = useState({ tableId: "", query: "" });
+  const [selection, setSelection] = useState({ tableId: "", fieldId: "" });
 
-  // Use the user's live selection when it still exists; otherwise fall back to
-  // the first table so a source with tables never needs a separate selection state.
+  // A stale or absent tab in the URL falls back to the first table, so a
+  // source with tables never needs a separate selection state.
   const selectedTable =
-    dataTables.find((table) => table.id === selectedTableId) ??
-    dataTables[0] ??
-    null;
-  const effectiveSelectedTableId = selectedTable?.id ?? null;
-  const tableDetails = selectedTable
-    ? {
-        dataTable: selectedTable,
-        fields: selectedTable.fields,
-        metrics: selectedTable.metrics,
-      }
-    : null;
+    dataTables.find((table) => table.id === tableId) ?? dataTables[0] ?? null;
+  const showTable = selectedTable !== null && !isImportingFirstTable;
+  const columnQuery =
+    columnFind.tableId === selectedTable?.id ? columnFind.query : "";
+  const selectedField =
+    selection.tableId === selectedTable?.id
+      ? (selectedTable.fields.find((field) => field.id === selection.fieldId) ??
+        null)
+      : null;
 
-  // Use source name directly - mutations update database which triggers re-render
-  const sourceName = dataSource?.name ?? "";
   const connector = dataSource ? getConnectorById(dataSource.type) : null;
+  const isFileSource = connector?.sourceType === "file";
+  const isRemoteSource = connector?.sourceType === "remote-api";
+  const canImport =
+    isFileSource ||
+    (dataSource !== undefined && isListableRemoteConnector(dataSource.type));
 
-  // Get DataFrame entry for metadata (row/column counts).
-  const dataFrameId = selectedTable?.dataFrameId;
-  const dataFrameEntry = dataFrameId
-    ? (allDataFrames.find((entry) => entry.id === dataFrameId) ?? null)
+  const dataFrameEntry = selectedTable?.dataFrameId
+    ? (allDataFrames.find((entry) => entry.id === selectedTable.dataFrameId) ??
+      null)
     : null;
+  const preview = useDataFrameData(selectedTable?.dataFrameId, {
+    limit: PREVIEW_ROW_LIMIT,
+  });
 
-  // Load a bounded preview page through the host queryDataFrame operation.
-  const {
-    data: previewData,
-    isLoading: isLoadingPreview,
-    error: previewError,
-    reload: reloadPreview,
-  } = useDataFrameData(tableDetails?.dataTable?.dataFrameId, { limit: 50 });
-
-  // Handle name change - directly update database, triggers re-render via hook
-  const handleNameChange = async (newName: string) => {
-    // Command-apply boundary: a direct mutation on the artifact. Instrumented so
-    // the dev HUD can hold it against the <100ms perceived budget. Wrapped so a
-    // failed mutation surfaces a toast instead of rejecting out of the input
-    // event path (unhandled rejection).
-    try {
-      await withPerfAsync(
-        PerfStage.CommandApply,
-        () =>
-          commitBatch({
-            commands: [cmd("RenameNode", { id: sourceId, name: newName })],
-          }),
-        `data-source:${sourceId}`,
-      );
-    } catch {
-      toast.error("Failed to rename data source");
-    }
-  };
-
-  // Handle explicit visualize intent from the table detail surface.
-  const handleCreateInsight = async (tableId: UUID) => {
-    const table = dataTables.find((item) => item.id === tableId);
-    await createInsightFromTable(tableId, table?.name ?? "Untitled table", {
-      visualize: true,
-    });
-  };
-
-  // Cached column analysis keyed by field ID, for data-driven sensitivity
-  // signals (email-shaped values, free text) beyond name heuristics.
+  // Cached column analysis keyed by field ID, for the inspector's profile and
+  // data-driven sensitivity signals beyond name heuristics.
   const analysisByFieldId = useMemo(
     () => buildAnalysisByFieldId(dataFrameEntry?.analysis?.columns ?? []),
     [dataFrameEntry],
   );
 
-  // One-click sensitivity marking. Confirming a classifier suggestion keeps
-  // its reasons; deliberate marking/clearing is recorded as a user decision.
-  const handleSetFieldSensitivity = async (
-    fieldId: UUID,
-    sensitivity: FieldSensitivity,
-    reasons?: string[],
-  ) => {
-    if (!effectiveSelectedTableId) return;
+  const { leftOpen, rightOpen, setRightOpen, toggleLeft, toggleRight } =
+    useWorkbenchPanes("data-source");
+
+  const selectTable = (id: string) => onSelectTable(id);
+  useTableTabs(dataTables, showTable ? selectedTable.id : null, onSelectTable);
+
+  // Command-apply boundary: a direct mutation on the artifact. Instrumented
+  // so the dev HUD can hold it against the <100ms perceived budget.
+  const renameSource = async (name: string) => {
     try {
-      await commitBatch({
-        commands: [
-          cmd("UpdateField", {
-            nodeId: effectiveSelectedTableId,
-            fieldId,
-            updates: buildSensitivityUpdate(sensitivity, reasons),
+      await withPerfAsync(
+        PerfStage.CommandApply,
+        () =>
+          commitBatch({
+            commands: [cmd("RenameNode", { id: sourceId as UUID, name })],
           }),
-        ],
-      });
+        `data-source:${sourceId}`,
+      );
+      return true;
     } catch {
-      toast.error("Failed to update field sensitivity");
-      return;
+      toast.error("Failed to rename data source");
+      return false;
     }
-    toast.success(SENSITIVITY_TOASTS[sensitivity]);
   };
 
-  // Handle delete table
+  const selectField = (fieldId: string) => {
+    if (!selectedTable) return;
+    setSelection({ tableId: selectedTable.id, fieldId });
+    // Choosing a column asks to inspect it, even if the pane was collapsed.
+    setRightOpen(true);
+  };
+
+  // A report has no table tile yet, so a new report starts with this table's
+  // question open in that report's context; "Add to report" places the view.
+  // A question that cannot be opened takes its new, empty report with it.
+  const handleStartReport = async () => {
+    if (!selectedTable || isStartingReport) return;
+    setIsStartingReport(true);
+    try {
+      await startReport(commitBatch, createInsightFromTable, selectedTable);
+    } finally {
+      setIsStartingReport(false);
+    }
+  };
+
   const handleDeleteTable = () => {
-    if (!effectiveSelectedTableId || !tableDetails?.dataTable) return;
-    const tableId = effectiveSelectedTableId;
-    const tableName = tableDetails.dataTable.name;
+    if (!selectedTable) return;
+    const { id, name } = selectedTable;
     confirm({
       title: "Delete data table",
-      description: `Are you sure you want to delete "${tableName}"? This deletes the data table. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.`,
+      description: `Are you sure you want to delete "${name}"? This deletes the data table. Related DataFrame metadata and storage, and dependent insights, may remain. This action cannot be undone.`,
       confirmLabel: "Delete",
       variant: "destructive",
       onConfirm: async () => {
         try {
-          await commitBatch({
-            commands: [cmd("DeleteNode", { id: tableId })],
-          });
-          setSelectedTableId(null);
+          await commitBatch({ commands: [cmd("DeleteNode", { id })] });
+          onSelectTable(null);
         } catch {
           toast.error("Failed to delete data table");
         }
@@ -352,379 +299,619 @@ export default function DataSourcePageContent({
     });
   };
 
-  // Wait for the subscription before deciding whether the source exists.
-  if ((isLoading || isFetching) && !dataSource) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <p className="text-sm text-neutral-fg-subtle">Loading data source…</p>
-        </div>
-      </div>
-    );
-  }
+  const openDataSources = () => navigate({ to: "/data-sources" } as never);
+  const tablesStatus = tablesStatusOf(isLoadingDataTables, isDataTablesError);
 
-  // Not found state
   if (!dataSource) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-xl font-semibold">Data source not found</h2>
-          <p className="mt-2 text-sm text-neutral-fg-subtle">
-            The data source you&apos;re looking for doesn&apos;t exist.
-          </p>
-          <Button
-            label="Go to Data Sources"
-            onClick={() => navigate({ to: "/data-sources" })}
-            className="mt-4"
-          />
-        </div>
-      </div>
+      <SourceUnavailable
+        // A pending subscription is not a confirmed absence.
+        pending={isLoading || isFetching}
+        onOpenDataSources={openDataSources}
+      />
     );
   }
 
-  // This is confirmed-empty only while pending/error table queries are intercepted below.
-  const emptyTableState = (
-    <EmptyTablesState
+  const importButton = (variant: "solid" | "outline") =>
+    canImport ? (
+      <Button
+        size="sm"
+        variant={variant}
+        icon={PlusIcon}
+        label={isFileSource ? "Import file" : "Import table"}
+        onClick={() => setIsImportOpen(true)}
+      />
+    ) : null;
+
+  const centre = showTable ? (
+    <>
+      <TableToolbar
+        columnQuery={columnQuery}
+        onColumnQueryChange={(query) =>
+          setColumnFind({ tableId: selectedTable.id, query })
+        }
+        rowCount={dataFrameEntry?.rowCount}
+        columnCount={selectedTable.fields.length}
+        view={view}
+        onViewChange={setView}
+      />
+      <div className="min-h-0 flex-1 overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg">
+        <TablePreview
+          fields={selectedTable.fields}
+          view={view}
+          columnQuery={columnQuery}
+          selectedFieldId={selectedField?.id ?? null}
+          onSelectField={selectField}
+          hasFrame={selectedTable.dataFrameId !== undefined}
+          preview={preview}
+        />
+      </div>
+    </>
+  ) : (
+    <NoTableCentre
+      tablesStatus={tablesStatus}
       sourceId={sourceId as UUID}
       sourceType={dataSource.type}
-      isFileSource={connector?.sourceType === "file"}
-      onImported={setSelectedTableId}
+      isFileSource={isFileSource}
+      importAction={importButton("solid")}
+      onImported={selectTable}
       onImportingChange={setIsImportingFirstTable}
-      onOpenDataSources={() => navigate({ to: "/data-sources" } as never)}
+      onOpenDataSources={openDataSources}
     />
   );
-  const dataTablesQueryState = renderDataTablesQueryState(
-    isLoadingDataTables,
-    isDataTablesError,
-  );
-  const noSelectedTableState = dataTablesQueryState ?? emptyTableState;
 
   return (
-    <>
-      <AppLayout
-        pageHeader={
-          <ArtifactPageHeader
-            title={sourceName || "Untitled Source"}
-            titleIcon={
-              connector ? (
-                <ConnectorIcon svg={connector.icon} className="h-6 w-6" />
-              ) : undefined
-            }
-            description={`${connector?.name ?? dataSource.type}${tableCountLabel ?? ""}`}
-            actions={
-              <>
-                <Popover>
-                  <PopoverTrigger
-                    render={
-                      <ButtonPrimitive
-                        type="button"
-                        variant="outline"
-                        aria-label="Rename source"
-                      >
-                        Rename source
-                      </ButtonPrimitive>
-                    }
-                  />
-                  <PopoverContent align="end">
-                    <label className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-neutral-fg-subtle">
-                      Source name
-                      <Input
-                        aria-label="Data source name"
-                        value={sourceName}
-                        onChange={(e) => handleNameChange(e.target.value)}
-                        placeholder="Data source name"
-                        className="w-52 max-w-full"
-                      />
-                    </label>
-                  </PopoverContent>
-                </Popover>
-              </>
-            }
-            navigation={
-              <Breadcrumb
-                LinkComponent={Link}
-                items={[
-                  { label: "Data Sources", to: "/data-sources" },
-                  { label: sourceName || "Untitled Source" },
-                ]}
-              />
-            }
-          >
-            <ArtifactSwitcher
-              label="Sources"
-              selectedId={sourceId}
-              items={allDataSources.map((source) => ({
-                id: source.id,
-                name: source.name,
-                kind: getConnectorById(source.type)?.name ?? source.type,
-                description: getConnectorById(source.type)?.name ?? source.type,
-              }))}
-              onSelect={(id) => {
-                setSelectedTableId(null);
-                navigate({ to: `/data-sources/${id}` } as never);
-              }}
+    <AppLayout pageHeader={null} childrenClassName="overflow-hidden">
+      <Workbench
+        data-dashframe-source-id={sourceId}
+        leftOpen={leftOpen}
+        left={
+          <SourceConfigPane
+            source={dataSource}
+            connector={connector}
+            table={showTable ? selectedTable : null}
+            lastRefreshedAt={dataFrameEntry?.lastRefreshedAt}
+          />
+        }
+        rightOpen={rightOpen && selectedField !== null}
+        right={
+          selectedField ? (
+            <FieldInspectorPane
+              // Remount per column so the name field starts from its value.
+              key={selectedField.id}
+              tableId={selectedField.tableId}
+              field={selectedField}
+              analysis={analysisByFieldId.get(selectedField.id)}
+              sampleValues={sampleColumnValues(
+                preview.data?.rows ?? [],
+                selectedField,
+                5,
+              )}
             />
-            <ArtifactSwitcher
-              label="Tables"
-              selectedId={effectiveSelectedTableId}
-              items={dataTables.map((table) => ({
-                id: table.id,
-                name: table.name,
-                description: `${table.fields.length} fields`,
-              }))}
-              onSelect={(id) => setSelectedTableId(id as UUID)}
-            />
-          </ArtifactPageHeader>
+          ) : null
         }
       >
-        {effectiveSelectedTableId && tableDetails && !isImportingFirstTable ? (
-          <div className="space-y-6 p-4 sm:p-6">
-            {/* Table header */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-semibold">
-                  {tableDetails.dataTable?.name}
-                </h2>
-                <p className="mt-1 text-sm text-neutral-fg-subtle">
-                  {tableDetails.fields.length} fields •{" "}
-                  {tableDetails.metrics.length} metrics
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {connector?.sourceType === "remote-api" && (
-                  <RefreshTableButton
-                    key={effectiveSelectedTableId}
-                    tableId={effectiveSelectedTableId}
-                    tableName={tableDetails.dataTable.name}
-                  />
-                )}
-                <Button
-                  label="Visualize this data"
-                  onClick={() => handleCreateInsight(effectiveSelectedTableId)}
-                  icon={PlusIcon}
-                />
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        label="More options"
-                        variant="ghost"
-                        size="sm"
-                        iconOnly
-                        icon={LuMoreHorizontal}
-                      />
-                    }
-                  />
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onClick={handleDeleteTable}
-                      className="text-palette-danger focus:text-palette-danger"
-                    >
-                      <DeleteIcon className="mr-2 h-4 w-4" />
-                      Delete Table
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
+        {/* Collapses by the header's own width, as the insight header does. */}
+        <header className="@container flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto px-1 whitespace-nowrap [scrollbar-width:thin] [&>*]:shrink-0 [&>input]:shrink">
+          <WorkbenchPaneToggle
+            side="left"
+            open={leftOpen}
+            paneName="Source"
+            onToggle={toggleLeft}
+          />
+          <Link
+            to="/data-sources"
+            className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+          >
+            Data Sources
+          </Link>
+          <span
+            aria-hidden
+            className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
+          >
+            ›
+          </span>
+          <SourceNameInput
+            savedName={dataSource.name}
+            onRename={renameSource}
+          />
+          {showTable && (
+            <TableActions
+              table={selectedTable}
+              importAction={importButton("outline")}
+              canRefresh={isRemoteSource}
+              isStartingReport={isStartingReport}
+              onStartReport={() => void handleStartReport()}
+              onDelete={handleDeleteTable}
+            />
+          )}
+          {selectedField && (
+            <WorkbenchPaneToggle
+              side="right"
+              open={rightOpen}
+              paneName="Column"
+              onToggle={toggleRight}
+            />
+          )}
+        </header>
 
-            {/* Fields */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Fields</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {tableDetails.fields.length === 0 ? (
-                  <p className="text-sm text-neutral-fg-subtle">
-                    No fields defined
-                  </p>
-                ) : (
-                  <div className="grid gap-2">
-                    {tableDetails.fields.map((field) => {
-                      const sensitivity = getFieldSensitivity(field);
-                      const suggestedReasons =
-                        sensitivity === "unclassified"
-                          ? suggestSensitivityReasons({
-                              name: field.name,
-                              analysis: analysisByFieldId.get(field.id),
-                            })
-                          : [];
+        <div
+          id={TABLE_PANEL_ID}
+          role={showTable ? "tabpanel" : undefined}
+          aria-label={showTable ? selectedTable.name : undefined}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg-muted p-2 shadow-inner dark:bg-neutral-bg-dim"
+        >
+          {centre}
+        </div>
+      </Workbench>
 
-                      return (
-                        <div
-                          key={field.id}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-neutral-bg-muted/30 px-3 py-2"
-                        >
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="break-words text-sm font-medium">
-                              {field.name}
-                            </span>
-                            <SensitivityBadge
-                              field={field}
-                              suggestedReasons={suggestedReasons}
-                              onConfirmSuggestion={() =>
-                                handleSetFieldSensitivity(
-                                  field.id,
-                                  "sensitive",
-                                  suggestedReasons,
-                                )
-                              }
-                            />
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            {sensitivity === "cleared" ? (
-                              <Button
-                                label="Mark sensitive"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  handleSetFieldSensitivity(
-                                    field.id,
-                                    "sensitive",
-                                  )
-                                }
-                                className="h-7"
-                              />
-                            ) : (
-                              <Button
-                                label="Mark safe"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  handleSetFieldSensitivity(field.id, "cleared")
-                                }
-                                className="h-7"
-                              />
-                            )}
-                            <Badge variant="outline" className="text-xs">
-                              {field.type}
-                            </Badge>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+      <SourceImportDialog
+        open={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        source={dataSource}
+        isFileSource={isFileSource}
+        tables={dataTables}
+        onImported={selectTable}
+        onOpenDataSources={openDataSources}
+      />
+    </AppLayout>
+  );
+}
 
-            {/* Metrics */}
-            {tableDetails.metrics.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Metrics</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid gap-2">
-                    {tableDetails.metrics.map((metric) => (
-                      <div
-                        key={metric.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-neutral-bg-muted/30 px-3 py-2"
-                      >
-                        <span className="break-words text-sm font-medium">
-                          {metric.name}
-                        </span>
-                        <Badge variant="soft" className="font-mono text-xs">
-                          {/* A calculated measure's aggregation is unused. */}
-                          {metric.expression ? (
-                            "calculated"
-                          ) : (
-                            <>
-                              {metric.aggregation}
-                              {metric.columnName && `(${metric.columnName})`}
-                            </>
-                          )}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+type TablesStatus = "loading" | "error" | "ready";
 
-            {/* Data preview */}
-            {dataFrameEntry && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Data Preview</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="max-h-96 overflow-auto">
-                    {(() => {
-                      if (isLoadingPreview) {
-                        return (
-                          <div className="flex h-40 items-center justify-center">
-                            <div className="flex flex-col items-center gap-2">
-                              <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                              <p className="text-sm text-neutral-fg-subtle">
-                                Loading data...
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      }
+/**
+ * Creates an "Untitled report" and opens the table's question in its context,
+ * where "Add to report" places the view. Reports have no table tile yet, so
+ * this is the closest start from a table. Resolves once the question opens.
+ */
+async function startReport(
+  commitBatch: ReturnType<typeof useMutation<typeof api.app.commitBatch>>,
+  createInsightFromTable: ReturnType<
+    typeof useCreateInsight
+  >["createInsightFromTable"],
+  table: DataTable,
+) {
+  const reportId = crypto.randomUUID() as UUID;
+  try {
+    await commitBatch({
+      commands: [
+        cmd("CreateDashboard", { id: reportId, name: "Untitled report" }),
+      ],
+    });
+  } catch {
+    toast.error("Couldn't start a report");
+    return;
+  }
+  const insightId = await createInsightFromTable(table.id, table.name, {
+    visualize: true,
+    reportId,
+  });
+  if (insightId !== null) return;
+  // The question failed (already reported); leave no empty report behind.
+  try {
+    await commitBatch({ commands: [cmd("DeleteNode", { id: reportId })] });
+  } catch {
+    // The report stays listed and can be deleted from Reports.
+  }
+}
 
-                      // A failed load is not an empty table. Checked before
-                      // `previewData` because the hook clears rows on failure,
-                      // which would otherwise read as a genuine zero-row result.
-                      if (previewError) {
-                        return (
-                          <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
-                            <p className="text-sm font-medium text-neutral-fg">
-                              Couldn&apos;t load the preview
-                            </p>
-                            <p className="text-sm text-neutral-fg-subtle">
-                              Something went wrong. Check your connection and
-                              try again.
-                            </p>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              label="Try again"
-                              onClick={reloadPreview}
-                            />
-                          </div>
-                        );
-                      }
+/** Shows the source's tables as top-bar tabs while one is open. */
+function useTableTabs(
+  tables: DataTable[],
+  activeTableId: string | null,
+  onSelectTable: (tableId: string) => void,
+) {
+  const tabs = useMemo(
+    () =>
+      activeTableId
+        ? {
+            label: "Tables",
+            tabs: tables.map((table) => ({
+              id: table.id,
+              label: table.name,
+              icon: <TableIcon className="size-3.5" />,
+            })),
+            activeId: activeTableId,
+            onSelect: onSelectTable,
+            panelId: TABLE_PANEL_ID,
+            findLabel: "Find a table",
+            findEmptyLabel: "No matching tables.",
+          }
+        : null,
+    [activeTableId, tables, onSelectTable],
+  );
+  useTopBarTabs(tabs);
+}
 
-                      // A successful load with zero rows falls through to the
-                      // empty state below rather than rendering a header-only
-                      // table.
-                      if (previewData && previewData.rows.length > 0) {
-                        return (
-                          <VirtualTable
-                            rows={previewData.rows}
-                            columns={previewData.columns}
-                            // Frames keep source column names; head each
-                            // column with its field's name, as the list above.
-                            columnConfigs={tableDetails?.fields.map(
-                              (field) => ({
-                                id: field.columnName ?? field.name,
-                                label: field.name,
-                              }),
-                            )}
-                            height={300}
-                          />
-                        );
-                      }
+function tablesStatusOf(isLoading: boolean, isError: boolean): TablesStatus {
+  if (isLoading) return "loading";
+  return isError ? "error" : "ready";
+}
 
-                      return (
-                        <div className="flex h-40 items-center justify-center">
-                          <p className="text-sm text-neutral-fg-subtle">
-                            No data available
-                          </p>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        ) : (
-          noSelectedTableState
-        )}
-      </AppLayout>
+/** The source is still loading, or does not exist. */
+function SourceUnavailable({
+  pending,
+  onOpenDataSources,
+}: {
+  pending: boolean;
+  onOpenDataSources: () => void;
+}) {
+  if (pending) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-neutral-fg-subtle">Loading data source…</p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="text-center">
+        <h2 className="text-xl font-semibold">Data source not found</h2>
+        <p className="mt-2 text-sm text-neutral-fg-subtle">
+          The data source you&apos;re looking for doesn&apos;t exist.
+        </p>
+        <Button
+          label="Go to Data Sources"
+          onClick={onOpenDataSources}
+          className="mt-4"
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The centre when no table is open: tables still loading or failed, or a
+ * source with none yet — one heading, one line, one way forward.
+ */
+function NoTableCentre({
+  tablesStatus,
+  sourceId,
+  sourceType,
+  isFileSource,
+  importAction,
+  onImported,
+  onImportingChange,
+  onOpenDataSources,
+}: {
+  tablesStatus: TablesStatus;
+  sourceId: UUID;
+  sourceType: string;
+  isFileSource: boolean;
+  importAction: React.ReactNode;
+  onImported: (tableId: UUID) => void;
+  onImportingChange: (importing: boolean) => void;
+  onOpenDataSources: () => void;
+}) {
+  if (tablesStatus === "loading") {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-neutral-fg-subtle">Loading tables…</p>
+      </div>
+    );
+  }
+  if (tablesStatus === "error") {
+    return (
+      <CentreMessage
+        role="alert"
+        title="Couldn't load tables"
+        line="Something went wrong. Check your connection and try again."
+      />
+    );
+  }
+  // Keyed on the stored type, not the registry entry: the registry hydrates
+  // asynchronously and would briefly render the generic state for GA4.
+  if (sourceType === "googleAnalytics") {
+    return (
+      <Ga4PropertyPicker
+        key={sourceId}
+        sourceId={sourceId}
+        onImported={onImported}
+        onImportingChange={onImportingChange}
+        onOpenDataSources={onOpenDataSources}
+      />
+    );
+  }
+  if (importAction) {
+    return (
+      <CentreMessage
+        title="No tables yet"
+        line={
+          isFileSource
+            ? "Import a CSV, Excel, or JSON file to add a table."
+            : "Choose what to import from this source."
+        }
+        action={importAction}
+      />
+    );
+  }
+  return (
+    <CentreMessage
+      title="No tables yet"
+      line="Choose tables from Add Source on the Data Sources page."
+      action={
+        <Button
+          variant="outline"
+          label="Go to Data Sources"
+          onClick={onOpenDataSources}
+        />
+      }
+    />
+  );
+}
+
+/** Above the grid: find a column, the table's size, and grid or list. */
+function TableToolbar({
+  columnQuery,
+  onColumnQueryChange,
+  rowCount,
+  columnCount,
+  view,
+  onViewChange,
+}: {
+  columnQuery: string;
+  onColumnQueryChange: (query: string) => void;
+  rowCount: number | undefined;
+  columnCount: number;
+  view: TablePreviewView;
+  onViewChange: (view: TablePreviewView) => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-2 pb-2">
+      <div className="relative w-56 max-w-full min-w-0">
+        <SearchIcon
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-fg-subtle"
+        />
+        <Input
+          size="sm"
+          aria-label="Find column"
+          placeholder="Find column"
+          value={columnQuery}
+          onChange={(event) => onColumnQueryChange(event.target.value)}
+          className="pl-7"
+        />
+      </div>
+      <span className="min-w-0 flex-1 truncate text-xs text-neutral-fg-subtle">
+        {rowCount === undefined ? "" : `${rowCount.toLocaleString()} rows · `}
+        {columnCount} columns
+      </span>
+      <Toggle
+        size="sm"
+        value={view}
+        onValueChange={onViewChange}
+        options={[
+          { value: "grid", label: "Grid", icon: <TableIcon aria-hidden /> },
+          {
+            value: "columns",
+            label: "Columns",
+            icon: <ListIcon aria-hidden />,
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+/** The open table's actions in the header; "Start a report" leads. */
+function TableActions({
+  table,
+  importAction,
+  canRefresh,
+  isStartingReport,
+  onStartReport,
+  onDelete,
+}: {
+  table: DataTable;
+  importAction: React.ReactNode;
+  canRefresh: boolean;
+  isStartingReport: boolean;
+  onStartReport: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <>
+      {importAction}
+      {canRefresh && (
+        <RefreshTableButton
+          key={table.id}
+          size="sm"
+          tableId={table.id}
+          tableName={table.name}
+        />
+      )}
+      <Button
+        size="sm"
+        icon={DashboardIcon}
+        label="Start a report"
+        loading={isStartingReport}
+        onClick={onStartReport}
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              label="More table actions"
+              variant="ghost"
+              size="sm"
+              iconOnly
+              icon={MoreIcon}
+            />
+          }
+        />
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            onClick={onDelete}
+            className="text-palette-danger focus:text-palette-danger"
+          >
+            <DeleteIcon className="mr-2 h-4 w-4" />
+            Delete table
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </>
+  );
+}
+
+/**
+ * Where "Import" leads: a file for Local Files (it always lands in that
+ * source), or another table the remote source offers.
+ */
+function SourceImportDialog({
+  open,
+  onClose,
+  source,
+  isFileSource,
+  tables,
+  onImported,
+  onOpenDataSources,
+}: {
+  open: boolean;
+  onClose: () => void;
+  source: DataSource;
+  isFileSource: boolean;
+  tables: DataTable[];
+  onImported: (tableId: UUID) => void;
+  onOpenDataSources: () => void;
+}) {
+  if (isFileSource) {
+    return (
+      <DataPickerModal
+        isOpen={open}
+        onClose={onClose}
+        title="Import a file"
+        showInsights={false}
+        showSources={false}
+        // Files always land in Local Files, the one file-backed source, so
+        // only file connectors keep the import in this source.
+        connectorSourceTypes={FILE_CONNECTORS}
+        onTableSelect={(tableId) => {
+          onClose();
+          onImported(tableId as UUID);
+        }}
+      />
+    );
+  }
+  if (!isListableRemoteConnector(source.type)) return null;
+  return (
+    <ImportTablesDialog
+      open={open}
+      onClose={onClose}
+      sourceId={source.id}
+      sourceType={source.type}
+      importedResourceIds={new Set(tables.map((table) => table.table))}
+      onImported={onImported}
+      onOpenDataSources={onOpenDataSources}
+    />
+  );
+}
+
+/**
+ * The source's name, edited in place in the header. Saved when the field is
+ * left; Escape or a failed save puts the saved name back.
+ */
+function SourceNameInput({
+  savedName,
+  onRename,
+}: {
+  savedName: string;
+  onRename: (name: string) => Promise<boolean>;
+}) {
+  const [name, setName] = useState(savedName);
+  const [shownSavedName, setShownSavedName] = useState(savedName);
+  // Escape blurs the field before the reset above re-renders, so the blur's
+  // commit would still see the edit; the flag tells it to save nothing.
+  const cancelledRef = useRef(false);
+  // A rename from elsewhere replaces what the field shows.
+  if (shownSavedName !== savedName) {
+    setShownSavedName(savedName);
+    setName(savedName);
+  }
+
+  const commit = async () => {
+    if (cancelledRef.current) {
+      cancelledRef.current = false;
+      return;
+    }
+    const next = name.trim();
+    if (!next || next === savedName) {
+      setName(savedName);
+      return;
+    }
+    if (!(await onRename(next))) setName(savedName);
+  };
+
+  return (
+    <Input
+      variant="ghost"
+      size="sm"
+      aria-label="Source name"
+      value={name}
+      onChange={(event) => setName(event.target.value)}
+      onBlur={() => void commit()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") {
+          cancelledRef.current = true;
+          setName(savedName);
+          event.currentTarget.blur();
+        }
+      }}
+      placeholder="Untitled source"
+      // An inline title: the ghost well at title weight, shrinking with the header.
+      className="w-auto min-w-16 flex-1 truncate font-semibold motion-reduce:transition-none"
+    />
+  );
+}
+
+/** The column inspector, saving its edits to the column's field. */
+function FieldInspectorPane({
+  tableId,
+  field,
+  analysis,
+  sampleValues,
+}: {
+  tableId: UUID;
+  field: Field;
+  analysis?: ColumnAnalysis;
+  sampleValues: string[];
+}) {
+  const commitBatch = useMutation(api.app.commitBatch);
+  const updateField = async (updates: Partial<Field>) => {
+    try {
+      await commitBatch({
+        commands: [
+          cmd("UpdateField", { nodeId: tableId, fieldId: field.id, updates }),
+        ],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  return (
+    <ColumnInspector
+      field={field}
+      analysis={analysis}
+      sampleValues={sampleValues}
+      onRename={async (name) => {
+        const saved = await updateField({ name });
+        if (!saved) toast.error("Failed to rename column");
+        return saved;
+      }}
+      // Confirming a classifier suggestion keeps its reasons; deliberate
+      // marking or clearing is recorded as a user decision.
+      onSetSensitivity={async (sensitivity, reasons) => {
+        if (
+          !(await updateField(buildSensitivityUpdate(sensitivity, reasons)))
+        ) {
+          toast.error("Failed to update column sensitivity");
+          return;
+        }
+        toast.success(SENSITIVITY_TOASTS[sensitivity]);
+      }}
+    />
   );
 }

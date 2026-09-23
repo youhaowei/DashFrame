@@ -18,7 +18,7 @@ Support light and dark themes; follow the system by default. Brand colour is und
 
 ## Shared components and surfaces
 
-Tokens and utilities come from `@wystack/ui-core`; components from `@wystack/ui-react`; icons from `@wystack/ui-react/icons`. Both packages are vendored in `libs/stdui`. Local extensions belong in `packages/ui` (`@dashframe/ui`) — for example `SensitivityBadge`. Change shared primitives and tokens upstream, not through local restyling; generalize after three uses.
+Tokens and utilities come from `@wystack/ui-core`; components from `@wystack/ui-react`; icons from `@wystack/ui-react/icons`. Both packages are vendored in `libs/stdui`. Local extensions belong in `packages/ui` (`@dashframe/ui`) — for example `VirtualTable`. Change shared primitives and tokens upstream, not through local restyling; generalize after three uses.
 
 In active use from `@wystack/ui-react`: Button, Dialog, DropdownMenu, Tooltip, Breadcrumb, Card, and `cn`. Check here before building a primitive that may already exist.
 
@@ -94,7 +94,7 @@ Read order: state and next action → primary work → useful relationships/depe
 
 Before adding an element, name the user question or action, why this is the right surface and moment, and its data source and stale/unavailable behavior. If removing it changes no decision, remove it.
 
-**Worked example (GH #81, 2026-06-13).** A per-field sensitivity badge in the insight field picker was built, reviewed clean, and closed unmerged. At field-pick, sensitivity is informative but not decisive — a user who needs the field includes it regardless — and on a scan-list where most fields are unclassified, the marker is wallpaper. Sensitivity is classified on the field. Its user-facing flag belongs where it is decision-affecting — a column review before remote import, and the share/export boundary where data leaves the local context. Neither surface exists yet; today `SensitivityBadge` renders only on data-source detail.
+**Worked example (GH #81, 2026-06-13).** A per-field sensitivity badge in the insight field picker was built, reviewed clean, and closed unmerged. At field-pick, sensitivity is informative but not decisive — a user who needs the field includes it regardless — and on a scan-list where most fields are unclassified, the marker is wallpaper. Sensitivity is classified on the field. Its user-facing flag belongs where it is decision-affecting — a column review before remote import, and the share/export boundary where data leaves the local context. Neither surface exists yet; today sensitivity is shown and decided only in the data-source column inspector, one column at a time.
 
 ## Accessibility and copy
 
