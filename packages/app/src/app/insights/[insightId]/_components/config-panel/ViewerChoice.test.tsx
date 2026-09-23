@@ -119,6 +119,14 @@ describe("viewer choices on chips", () => {
 
     expect(onViewerChange).toHaveBeenCalledWith("field-2", true);
     expect(onAdd).not.toHaveBeenCalled();
+
+    // The next Add field adds to the report again.
+    await user.click(screen.getByRole("button", { name: "Add field" }));
+    expect(
+      screen
+        .getByRole("switch", { name: "Offer to viewers only" })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
   });
 
   it("changes only the viewer choice when the metric itself is unchanged", async () => {
