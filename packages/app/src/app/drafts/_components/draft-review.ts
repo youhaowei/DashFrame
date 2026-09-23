@@ -127,6 +127,43 @@ export function mostRecentDraft(
   );
 }
 
-export function draftLabel(draft: DraftSummary): string {
+const TIME = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
+const DATE_TIME = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+function baseLabel(draft: DraftSummary): string {
   return draft.title ?? "Empty draft";
+}
+
+/**
+ * Each draft's tab label, keyed by id. A label two drafts share gets the time
+ * each was created ("… · 4:27 PM"), and the date too when the times collide.
+ */
+export function draftLabels(drafts: DraftSummary[]): Map<string, string> {
+  const withSuffix = (
+    labels: Map<string, string>,
+    format: Intl.DateTimeFormat,
+  ): Map<string, string> => {
+    const counts = new Map<string, number>();
+    for (const label of labels.values())
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    return new Map(
+      drafts.map((draft) => {
+        const label = labels.get(draft.draftId)!;
+        const created = epoch(draft.createdAt);
+        return [
+          draft.draftId,
+          (counts.get(label) ?? 0) > 1 && created > 0
+            ? `${baseLabel(draft)} · ${format.format(created)}`
+            : label,
+        ];
+      }),
+    );
+  };
+  const base = new Map(
+    drafts.map((draft) => [draft.draftId, baseLabel(draft)]),
+  );
+  return withSuffix(withSuffix(base, TIME), DATE_TIME);
 }

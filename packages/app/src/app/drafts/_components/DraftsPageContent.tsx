@@ -14,7 +14,7 @@ import { queryStatus } from "@/data/query-status";
 import { getConvexClient } from "@/data/runtime";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
 import { api } from "@dashframe/convex-backend/api";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Button,
   DropdownMenu,
@@ -44,7 +44,7 @@ import { DraftChangeList } from "./DraftChangeList";
 import { DraftConfigPane } from "./DraftConfigPane";
 import {
   draftChanges,
-  draftLabel,
+  draftLabels,
   mostRecentDraft,
   sortDrafts,
   type DraftReview,
@@ -331,14 +331,20 @@ export default function DraftsPageContent({ draftId }: DraftsPageContentProps) {
     <ReviewUnavailable pending={isLoadingReview || !isReviewError} />
   );
 
-  const title = draftLabel(selectedDraft);
+  const title = draftLabels(drafts).get(selectedDraft.draftId) ?? "";
 
   return (
     <AppLayout pageHeader={null} childrenClassName="overflow-hidden">
       <Workbench
         data-dashframe-draft-id={selectedDraft.draftId}
         leftOpen={leftOpen}
-        left={<DraftConfigPane draft={selectedDraft} review={review} />}
+        left={
+          <DraftConfigPane
+            draft={selectedDraft}
+            review={review}
+            changeCount={review ? changes.length : undefined}
+          />
+        }
         rightOpen={rightOpen && selectedChange !== null}
         right={
           selectedChange ? (
@@ -362,12 +368,11 @@ export default function DraftsPageContent({ draftId }: DraftsPageContentProps) {
             paneName="Draft"
             onToggle={toggleLeft}
           />
-          <Link
-            to="/drafts"
-            className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
-          >
+          {/* A label, not a link: every draft is already a tab, and /drafts
+              would only open another one. */}
+          <span className="shrink-0 px-1 text-xs text-neutral-fg-subtle @max-2xl:hidden">
             Drafts
-          </Link>
+          </span>
           <span
             aria-hidden
             className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
@@ -521,9 +526,7 @@ function useDraftTabs(
   useLayoutEffect(() => {
     handlers.current = { onSelect, onClose };
   });
-  const shown = activeDraftId
-    ? JSON.stringify(drafts.map((draft) => [draft.draftId, draftLabel(draft)]))
-    : null;
+  const shown = activeDraftId ? JSON.stringify([...draftLabels(drafts)]) : null;
   const tabs = useMemo(() => {
     if (shown === null || activeDraftId === null) return null;
     const entries = JSON.parse(shown) as Array<[string, string]>;

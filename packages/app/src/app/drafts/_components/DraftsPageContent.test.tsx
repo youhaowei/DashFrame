@@ -338,6 +338,24 @@ describe("DraftsPageContent — draft tabs", () => {
     screen.getByRole("tabpanel", { name: NEWER.title });
   });
 
+  it("tells apart drafts that start with the same change", () => {
+    const twin = {
+      ...NEWER,
+      draftId: "draft-twin",
+      createdAt: "2026-09-02T15:30:00.000Z",
+    };
+    givenDrafts([NEWER, twin, OLDER]);
+    render(<Page />);
+
+    const labels = tabs()
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent);
+    expect(labels[0]).toBe(OLDER.title);
+    expect(labels[1]).toMatch(new RegExp(`^${NEWER.title} · `));
+    expect(labels[2]).toMatch(new RegExp(`^${NEWER.title} · `));
+    expect(labels[1]).not.toBe(labels[2]);
+  });
+
   it("closes a tab without discarding its draft", async () => {
     givenDrafts([OLDER, NEWER]);
     render(<Page />);
@@ -409,6 +427,9 @@ describe("DraftsPageContent — panes", () => {
     screen.getByRole("heading", { name: "Draft" });
     screen.getByText("The API, with an access key");
     screen.getByText("1 value to fill in");
+    // The pane counts the cards the centre lists, and the steps behind them.
+    screen.getByText("1 change");
+    screen.getByText("2 steps");
     expect(
       (screen.getByRole("button", { name: "Publish" }) as HTMLButtonElement)
         .disabled,

@@ -131,7 +131,8 @@ test.describe("draft review", () => {
       dashboardStep.getByText("Remove this change from the draft?"),
     ).toBeVisible();
     await dashboardStep.getByRole("button", { name: "Remove change" }).click();
-    await expect(page.getByText("4 changes", { exact: true })).toBeVisible();
+    await expect(page.getByText("3 changes", { exact: true })).toBeVisible();
+    await expect(page.getByText("4 steps", { exact: true })).toBeVisible();
 
     // Still nothing in canonical — revision is not publication.
     expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);

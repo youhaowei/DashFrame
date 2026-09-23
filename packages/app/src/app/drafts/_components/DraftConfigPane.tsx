@@ -42,13 +42,19 @@ export interface DraftConfigPaneProps {
   draft: DraftSummary;
   /** Undefined while the review loads; the list facts show meanwhile. */
   review: DraftReview | undefined;
+  /** How many changes the centre lists; undefined until the review loads. */
+  changeCount: number | undefined;
 }
 
 /**
  * The left pane of a draft: where it came from, what it touches, and whether
  * it can publish. Only facts that change the decision to publish are shown.
  */
-export function DraftConfigPane({ draft, review }: DraftConfigPaneProps) {
+export function DraftConfigPane({
+  draft,
+  review,
+  changeCount,
+}: DraftConfigPaneProps) {
   const status = review ? draftStatus(review) : null;
   const created = formatTime(draft.createdAt);
   const updated = formatTime(draft.updatedAt);
@@ -91,8 +97,15 @@ export function DraftConfigPane({ draft, review }: DraftConfigPaneProps) {
           )}
 
           <Setting label="Changes">
+            {/* Counts the cards the centre shows; the steps behind them are
+                what the inspector lists and removes. */}
+            {changeCount !== undefined && (
+              <span className="block">
+                {`${changeCount} change${changeCount === 1 ? "" : "s"}`}
+              </span>
+            )}
             <span className="block">
-              {`${draft.commandCount} change${draft.commandCount === 1 ? "" : "s"}`}
+              {`${draft.commandCount} step${draft.commandCount === 1 ? "" : "s"}`}
             </span>
             {kinds.length > 0 && (
               <span className="block text-neutral-fg-subtle">
