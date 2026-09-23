@@ -625,8 +625,15 @@ export default function DataSourcePageContent({
                           {metric.name}
                         </span>
                         <Badge variant="soft" className="font-mono text-xs">
-                          {metric.aggregation}
-                          {metric.columnName && `(${metric.columnName})`}
+                          {/* A calculated measure's aggregation is unused. */}
+                          {metric.expression ? (
+                            "calculated"
+                          ) : (
+                            <>
+                              {metric.aggregation}
+                              {metric.columnName && `(${metric.columnName})`}
+                            </>
+                          )}
                         </Badge>
                       </div>
                     ))}
@@ -688,6 +695,14 @@ export default function DataSourcePageContent({
                           <VirtualTable
                             rows={previewData.rows}
                             columns={previewData.columns}
+                            // Frames keep source column names; head each
+                            // column with its field's name, as the list above.
+                            columnConfigs={tableDetails?.fields.map(
+                              (field) => ({
+                                id: field.columnName ?? field.name,
+                                label: field.name,
+                              }),
+                            )}
                             height={300}
                           />
                         );

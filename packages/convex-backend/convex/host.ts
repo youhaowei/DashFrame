@@ -22,6 +22,7 @@ import { publicationMetadata } from "./publication";
 import { artifactTables } from "./model";
 import { byFreshness, frameHistory, pruneFrames } from "./frameRetention";
 import { LIMIT } from "./graph";
+import { validateMetric } from "./engine";
 import type { Doc } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
 import {
@@ -552,6 +553,7 @@ export const prepareRemoteDataTable = internalMutation({
     dataSourceId: v.string(),
     table: v.string(),
     fields: v.array(object),
+    metrics: v.optional(v.array(object)),
   },
   returns: v.array(object),
   handler: async (ctx, args) => {
@@ -573,9 +575,17 @@ export const prepareRemoteDataTable = internalMutation({
         throw new Error("SOURCE_SCHEMA_CHANGED");
       return row.fields;
     }
-    parseStoredDataTableState({ ...row, fields: args.fields }, "Remote fields");
+    // A connector's starting measures replace the generic Count only here, on
+    // the first discovery; a table that already has fields keeps its measures.
+    for (const metric of args.metrics ?? []) validateMetric(metric, false);
+    const metrics = args.metrics ?? row.metrics;
+    parseStoredDataTableState(
+      { ...row, fields: args.fields, metrics },
+      "Remote fields",
+    );
     await ctx.db.patch(row._id, {
       fields: args.fields,
+      metrics,
       revision: row.revision + 1,
       updatedAt: Date.now(),
     });

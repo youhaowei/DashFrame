@@ -1,5 +1,7 @@
 export {
+  acquisitionMeasures,
   Ga4Connector,
+  yearWeekStart,
   GoogleAuthorizationError,
   makeGa4Connector,
   type Ga4ConnectorDependencies,

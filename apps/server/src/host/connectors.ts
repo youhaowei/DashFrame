@@ -13,7 +13,7 @@ import type {
   DataSourceRow,
   DataTableRow,
 } from "@dashframe/convex-backend/model";
-import type { Field, UUID } from "@dashframe/types";
+import type { Field, Metric, UUID } from "@dashframe/types";
 import {
   CONNECTOR_SIGN_IN_EXPIRED,
   getFieldSensitivity,
@@ -726,6 +726,7 @@ export const prepareRemoteDataTable = hostOperation({
 
     const pagination = { pagination: { offset: 0, limit: 1 } };
     let result = null;
+    let metrics: Metric[] | undefined;
     if (source.kind === "notion") {
       result = await (
         await notionConnectorFor(ctx, source.id)
@@ -735,9 +736,10 @@ export const prepareRemoteDataTable = hostOperation({
         await postgresConnectorFor(ctx, source.id)
       ).query(table.table, table.id, pagination);
     } else if (source.kind === "googleAnalytics") {
-      result = await (
-        await ga4ConnectorFor(ctx, source.id)
-      ).query(table.table, table.id, pagination);
+      const connector = await ga4ConnectorFor(ctx, source.id);
+      result = await connector.query(table.table, table.id, pagination);
+      const measures = connector.defaultMeasures(id);
+      if (measures.length) metrics = measures;
     }
     if (!result) {
       throw new Error(`DataSource ${source.id} is not a remote connector`);
@@ -745,7 +747,7 @@ export const prepareRemoteDataTable = hostOperation({
 
     const discoveredFields = withCanonicalFieldOwnership(result.fields, id);
     parseStoredDataTableState(
-      { sourceSchema: null, fields: discoveredFields, metrics: [] },
+      { sourceSchema: null, fields: discoveredFields, metrics: metrics ?? [] },
       `Data table ${id} discovered fields`,
     );
     const preparedFields = await ctx.metadata.prepareRemoteDataTable({
@@ -753,6 +755,7 @@ export const prepareRemoteDataTable = hostOperation({
       dataSourceId: table.dataSourceId,
       table: table.table,
       fields: discoveredFields,
+      ...(metrics ? { metrics } : {}),
     });
     return { fields: preparedFields };
   },

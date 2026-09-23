@@ -2,8 +2,10 @@ import { tableFromIPC } from "apache-arrow";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  acquisitionMeasures,
   GoogleAuthorizationError,
   makeGa4Connector,
+  yearWeekStart,
   type GoogleOAuthTokenBundle,
 } from "./connector";
 
@@ -180,7 +182,7 @@ describe("GA4 connector", () => {
     );
     const arrow = tableFromIPC(Buffer.from(result.arrowBuffer, "base64"));
     expect(result.rowCount).toBe(1);
-    expect(result.fields.map((field) => field.name)).toEqual([
+    expect(result.fields.map((field) => field.columnName)).toEqual([
       "yearWeek",
       "sessionDefaultChannelGroup",
       "activeUsers",
@@ -191,8 +193,19 @@ describe("GA4 connector", () => {
       "keyEvents",
       "totalRevenue",
     ]);
+    expect(result.fields.map((field) => field.name)).toEqual([
+      "Week",
+      "Channel",
+      "Active users",
+      "New users",
+      "Sessions",
+      "Engaged sessions",
+      "Engagement rate",
+      "Key events",
+      "Revenue",
+    ]);
     expect(result.fields.map((field) => field.type)).toEqual([
-      "string",
+      "date",
       "string",
       "number",
       "number",
@@ -202,7 +215,12 @@ describe("GA4 connector", () => {
       "number",
       "number",
     ]);
-    expect(String(arrow.schema.fields[0]?.type)).toContain("Utf8");
+    expect(arrow.schema.fields[0]?.name).toBe("yearWeek");
+    expect(String(arrow.schema.fields[0]?.type)).toContain("Timestamp");
+    // GA4 week 31 of 2026 starts on Sunday 26 July.
+    expect(new Date(arrow.getChildAt(0)?.get(0) as number).toISOString()).toBe(
+      "2026-07-26T00:00:00.000Z",
+    );
     expect(arrow.numRows).toBe(1);
     expect(JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body))).toEqual({
       dateRanges: [{ startDate: "90daysAgo", endDate: "yesterday" }],
@@ -227,6 +245,96 @@ describe("GA4 connector", () => {
       ],
     });
     expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+  });
+
+  it("dates each GA4 week from its first day, across a year boundary", () => {
+    // GA4 weeks start on Sunday and January 1st is always in week 01, so the
+    // weeks around New Year are short and are not ISO weeks.
+    const day = (value: string) => yearWeekStart(value)?.toISOString();
+    expect(day("202552")).toBe("2025-12-21T00:00:00.000Z");
+    expect(day("202553")).toBe("2025-12-28T00:00:00.000Z");
+    expect(day("202601")).toBe("2026-01-01T00:00:00.000Z");
+    expect(day("202602")).toBe("2026-01-04T00:00:00.000Z");
+    // 2023 began on a Sunday: its week 01 is a full week.
+    expect(day("202301")).toBe("2023-01-01T00:00:00.000Z");
+    expect(day("202302")).toBe("2023-01-08T00:00:00.000Z");
+    // A week that would start in the next year does not exist.
+    expect(yearWeekStart("202654")).toBeNull();
+    expect(yearWeekStart("202300")).toBeNull();
+    expect(yearWeekStart("2026-01")).toBeNull();
+  });
+
+  it("starts an acquisition table with summed measures and a true engagement rate", () => {
+    const tableId = crypto.randomUUID();
+    const measures = acquisitionMeasures(tableId);
+    expect(
+      measures.map(({ name, columnName, aggregation, format }) => ({
+        name,
+        columnName,
+        aggregation,
+        format,
+      })),
+    ).toEqual([
+      {
+        name: "Sum of Active users",
+        columnName: "activeUsers",
+        aggregation: "sum",
+        format: undefined,
+      },
+      {
+        name: "Sum of New users",
+        columnName: "newUsers",
+        aggregation: "sum",
+        format: undefined,
+      },
+      {
+        name: "Sum of Sessions",
+        columnName: "sessions",
+        aggregation: "sum",
+        format: undefined,
+      },
+      {
+        name: "Sum of Engaged sessions",
+        columnName: "engagedSessions",
+        aggregation: "sum",
+        format: undefined,
+      },
+      {
+        name: "Sum of Key events",
+        columnName: "keyEvents",
+        aggregation: "sum",
+        format: undefined,
+      },
+      {
+        name: "Sum of Revenue",
+        columnName: "totalRevenue",
+        aggregation: "sum",
+        format: { style: "currency" },
+      },
+      {
+        name: "Engagement rate",
+        columnName: undefined,
+        aggregation: "sum",
+        format: { style: "percent" },
+      },
+    ]);
+    const byName = new Map(measures.map((measure) => [measure.name, measure]));
+    expect(byName.get("Engagement rate")?.expression).toEqual({
+      kind: "binary",
+      operator: "divide",
+      left: {
+        kind: "measure",
+        measureId: byName.get("Sum of Engaged sessions")?.id,
+      },
+      right: { kind: "measure", measureId: byName.get("Sum of Sessions")?.id },
+    });
+    expect(measures.every((measure) => measure.tableId === tableId)).toBe(true);
+    expect(new Set(measures.map((measure) => measure.id)).size).toBe(7);
+
+    const connector = (reportVersion: "v1" | "v2") =>
+      makeGa4Connector(resolver(bundle()), { reportVersion });
+    expect(connector("v2").defaultMeasures(tableId)).toHaveLength(7);
+    expect(connector("v1").defaultMeasures(tableId)).toEqual([]);
   });
 
   it("preserves the legacy v1 report shape unless acquisition is explicit", async () => {

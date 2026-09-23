@@ -40,6 +40,7 @@ export const prepareRemoteDataTable = mutation({
     dataSourceId: v.string(),
     table: v.string(),
     fields: v.array(object),
+    metrics: v.optional(v.array(object)),
   },
   returns: v.array(object),
   handler: async (ctx, args): Promise<(typeof object.type)[]> => {

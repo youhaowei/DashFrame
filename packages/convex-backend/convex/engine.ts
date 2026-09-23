@@ -499,7 +499,7 @@ async function prune(graph: Graph, def: ObjectValue) {
   if (Object.keys(next).length) def.runtimeControls = next;
   else delete def.runtimeControls;
 }
-function validateMetric(metric: ObjectValue, derived: boolean) {
+export function validateMetric(metric: ObjectValue, derived: boolean) {
   str(metric.id, "metric.id");
   str(metric.name, "metric.name");
   str(metric[derived ? "sourceTable" : "tableId"], "metric owner");

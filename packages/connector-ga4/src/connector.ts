@@ -7,6 +7,7 @@ import type {
   UUID,
   ValidationResult,
 } from "@dashframe/engine";
+import type { Metric } from "@dashframe/types";
 import { RemoteApiConnector, createFieldsFromColumns } from "@dashframe/engine";
 import { tableFromArrays, tableToIPC } from "apache-arrow";
 
@@ -108,6 +109,77 @@ const ACQUISITION_METRICS = [
   "keyEvents",
   "totalRevenue",
 ] as const;
+
+/** What people call each acquisition column; `columnName` keeps the API name. */
+const ACQUISITION_FIELD_NAMES: Readonly<
+  Record<
+    | (typeof ACQUISITION_DIMENSIONS)[number]
+    | (typeof ACQUISITION_METRICS)[number],
+    string
+  >
+> = {
+  yearWeek: "Week",
+  sessionDefaultChannelGroup: "Channel",
+  activeUsers: "Active users",
+  newUsers: "New users",
+  sessions: "Sessions",
+  engagedSessions: "Engaged sessions",
+  engagementRate: "Engagement rate",
+  keyEvents: "Key events",
+  totalRevenue: "Revenue",
+};
+
+const DATE_DIMENSIONS: ReadonlySet<string> = new Set(["date", "yearWeek"]);
+
+/**
+ * The measures a freshly imported acquisition table starts with, replacing the
+ * generic row Count, which means nothing for pre-aggregated weekly rows.
+ *
+ * Revenue carries no currency code: the report does not return the property's
+ * currency, so the formatter's default applies until someone sets it.
+ */
+export function acquisitionMeasures(
+  tableId: UUID,
+  makeId: () => string = () => crypto.randomUUID(),
+): Metric[] {
+  const sum = (
+    columnName: (typeof ACQUISITION_METRICS)[number],
+    format?: Metric["format"],
+  ): Metric => ({
+    id: makeId() as UUID,
+    name: `Sum of ${ACQUISITION_FIELD_NAMES[columnName]}`,
+    tableId,
+    columnName,
+    aggregation: "sum",
+    ...(format ? { format } : {}),
+  });
+  const sessions = sum("sessions");
+  const engagedSessions = sum("engagedSessions");
+  return [
+    sum("activeUsers"),
+    sum("newUsers"),
+    sessions,
+    engagedSessions,
+    sum("keyEvents"),
+    sum("totalRevenue", { style: "currency" }),
+    {
+      // A ratio of sums, not an average of weekly rates: a per-row rate
+      // averaged across channels would weight a 3-session week like a
+      // 3,000-session one.
+      id: makeId() as UUID,
+      name: "Engagement rate",
+      tableId,
+      aggregation: "sum",
+      expression: {
+        kind: "binary",
+        operator: "divide",
+        left: { kind: "measure", measureId: engagedSessions.id },
+        right: { kind: "measure", measureId: sessions.id },
+      },
+      format: { style: "percent" },
+    },
+  ];
+}
 
 const LEGACY_DATE_RANGE = {
   startDate: "30daysAgo",
@@ -369,8 +441,30 @@ async function listProperties(
   return properties;
 }
 
+/**
+ * The first day of a GA4 `yearWeek` such as "202601".
+ *
+ * GA4 weeks are not ISO weeks: they start on Sunday, and January 1st always
+ * falls in week 01, so the first (and usually last) week of a year is short.
+ * Week 01 therefore starts on January 1st and week n on the (n-1)th Sunday
+ * after it.
+ */
+export function yearWeekStart(value: string): Date | null {
+  const match = /^(\d{4})(\d{2})$/u.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  if (week < 1 || week > 53) return null;
+  const january1 = Date.UTC(year, 0, 1);
+  const offsetDays =
+    week === 1 ? 0 : 7 - new Date(january1).getUTCDay() + 7 * (week - 2);
+  const start = new Date(january1 + offsetDays * 86_400_000);
+  return start.getUTCFullYear() === year ? start : null;
+}
+
 function dimensionValue(name: string, value: unknown): string | Date | null {
   if (typeof value !== "string") return null;
+  if (name === "yearWeek") return yearWeekStart(value);
   if (name !== "date") return value;
   if (!/^\d{8}$/u.test(value)) return null;
   const date = new Date(
@@ -402,6 +496,11 @@ export class Ga4Connector extends RemoteApiConnector {
     this.#oauthClient = dependencies.oauthClient;
     this.#persistTokenBundle = dependencies.persistTokenBundle;
     this.#reportVersion = dependencies.reportVersion ?? "v1";
+  }
+
+  /** Measures a newly imported table of this source starts with. */
+  defaultMeasures(tableId: UUID): Metric[] {
+    return this.#reportVersion === "v2" ? acquisitionMeasures(tableId) : [];
   }
 
   getFormFields(): FormField[] {
@@ -487,11 +586,20 @@ export class Ga4Connector extends RemoteApiConnector {
       const columns = [
         ...dimensionNames.map((name) => ({
           name,
-          type: name === "date" ? ("date" as const) : ("string" as const),
+          type: DATE_DIMENSIONS.has(name)
+            ? ("date" as const)
+            : ("string" as const),
         })),
         ...metricNames.map((name) => ({ name, type: "number" as const })),
       ];
-      const fields = createFieldsFromColumns(columns, tableId);
+      const fields = createFieldsFromColumns(columns, tableId).map((field) => {
+        const label = acquisition
+          ? (ACQUISITION_FIELD_NAMES as Record<string, string | undefined>)[
+              field.name
+            ]
+          : undefined;
+        return label ? { ...field, name: label } : field;
+      });
       const arrays: Record<string, unknown[]> = Object.create(null) as Record<
         string,
         unknown[]
