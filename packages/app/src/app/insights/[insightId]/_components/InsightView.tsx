@@ -2298,6 +2298,16 @@ export function InsightView({
               activeSuggestionEncoding={activeChartSuggestion?.encoding}
               activeVisualization={activeVisualization}
               compiledInsight={compiledInsightForEncodings}
+              pivotColor={
+                activeVisualization && !activeVisualization.encoding?.color
+                  ? reportEncoding(
+                      activeVisualization.encoding ?? {},
+                      insight,
+                      viewerRuntime,
+                      modelResolvedFields,
+                    ).color
+                  : undefined
+              }
               dataTable={authoringTable}
               availableFields={encodingAvailableFields}
               metricLabelFields={modelResolvedFields}
