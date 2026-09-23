@@ -264,8 +264,10 @@ function MetricEditor({
       await action();
       setOpen(false);
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "Unknown error";
-      setError(`${failure}: ${message}`);
+      // Keep the raw error for diagnosis, but never surface it directly —
+      // it can be a WASM/Emscripten or other low-level runtime string.
+      console.error(`${failure}:`, cause);
+      setError(`${failure}. Try again.`);
     } finally {
       setIsSaving(false);
       setActiveAction(null);

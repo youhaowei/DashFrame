@@ -125,7 +125,7 @@ describe("measure library in the metric editor", () => {
     );
 
     expect(
-      await screen.findByText("Failed to add saved measure: write failed"),
+      await screen.findByText("Failed to add saved measure. Try again."),
     ).toBeTruthy();
     expect(
       screen.getByRole("combobox", { name: "Start from a saved measure" }),
