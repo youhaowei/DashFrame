@@ -25,8 +25,10 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  Field,
+  FieldError,
+  FieldLabel,
   Input,
-  Label,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -87,32 +89,35 @@ function ViewerLimitFields({
   };
 
   return (
-    <div className="space-y-1.5">
+    // Indented under its switch, as the sort choices are under theirs.
+    <div className="space-y-1.5 pl-1">
       <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label htmlFor="viewer-limit-min">Minimum</Label>
+        <Field>
+          <FieldLabel htmlFor="viewer-limit-min">Minimum</FieldLabel>
           <Input
             id="viewer-limit-min"
             inputMode="numeric"
+            size="sm"
             value={minimum}
             onChange={(event) => setMinimum(event.target.value)}
             onBlur={commit}
             onKeyDown={commitOnEnter}
           />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="viewer-limit-max">Maximum</Label>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="viewer-limit-max">Maximum</FieldLabel>
           <Input
             id="viewer-limit-max"
             inputMode="numeric"
+            size="sm"
             value={maximum}
             onChange={(event) => setMaximum(event.target.value)}
             onBlur={commit}
             onKeyDown={commitOnEnter}
           />
-        </div>
+        </Field>
       </div>
-      {error && <p className="text-[11px] text-palette-danger">{error}</p>}
+      {error && <FieldError>{error}</FieldError>}
     </div>
   );
 }

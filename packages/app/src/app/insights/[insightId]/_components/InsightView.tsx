@@ -2290,7 +2290,6 @@ export function InsightView({
               canChangeChartType={canChangeChartType}
               activeSuggestionEncoding={activeChartSuggestion?.encoding}
               activeVisualization={activeVisualization}
-              visualizations={insightVisualizations}
               compiledInsight={compiledInsightForEncodings}
               dataTable={authoringTable}
               availableFields={encodingAvailableFields}
@@ -2309,7 +2308,6 @@ export function InsightView({
                 handleVisualizationWritePendingChange
               }
               onSelectChartType={openDraftChart}
-              onSelectVisualization={handleSelectVisualization}
               updateVisualization={updateVisualization}
             />
           </div>
