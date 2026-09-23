@@ -46,6 +46,8 @@ export interface TablePreviewProps {
   columnQuery: string;
   selectedFieldId: string | null;
   onSelectField: (fieldId: string) => void;
+  /** Whether the table's data has been stored yet (it has a data frame). */
+  hasFrame: boolean;
   preview: {
     data: DataFrameData | null;
     isLoading: boolean;
@@ -73,6 +75,7 @@ export function TablePreview({
   columnQuery,
   selectedFieldId,
   onSelectField,
+  hasFrame,
   preview,
 }: TablePreviewProps) {
   const matchingFields = fields.filter((field) =>
@@ -86,6 +89,48 @@ export function TablePreview({
         <p className="text-sm text-neutral-fg-subtle">
           No columns match &ldquo;{columnQuery.trim()}&rdquo;.
         </p>
+      </CenteredStatus>
+    );
+  }
+
+  // A table whose data has not been stored yet is not an empty table.
+  if (!hasFrame) {
+    return (
+      <CenteredStatus>
+        <Spinner size="sm" />
+        <p className="text-sm text-neutral-fg-subtle">Preparing this table…</p>
+      </CenteredStatus>
+    );
+  }
+
+  // Both views read the preview rows, so its loading and failure states come
+  // before either: a failed preview must not read as a list without samples.
+  if (preview.isLoading) {
+    return (
+      <CenteredStatus>
+        <Spinner size="sm" />
+        <p className="text-sm text-neutral-fg-subtle">Loading rows…</p>
+      </CenteredStatus>
+    );
+  }
+
+  // A failed load is not an empty table. Checked before the rows because the
+  // hook clears them on failure, which would otherwise read as zero rows.
+  if (preview.error) {
+    return (
+      <CenteredStatus>
+        <p className="text-sm font-medium text-neutral-fg">
+          Couldn&apos;t load the preview
+        </p>
+        <p className="text-sm text-neutral-fg-subtle">
+          Something went wrong. Check your connection and try again.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          label="Try again"
+          onClick={preview.reload}
+        />
       </CenteredStatus>
     );
   }
@@ -124,36 +169,6 @@ export function TablePreview({
           })}
         </ul>
       </OverlayScrollArea>
-    );
-  }
-
-  if (preview.isLoading) {
-    return (
-      <CenteredStatus>
-        <Spinner size="sm" />
-        <p className="text-sm text-neutral-fg-subtle">Loading rows…</p>
-      </CenteredStatus>
-    );
-  }
-
-  // A failed load is not an empty table. Checked before the rows because the
-  // hook clears them on failure, which would otherwise read as zero rows.
-  if (preview.error) {
-    return (
-      <CenteredStatus>
-        <p className="text-sm font-medium text-neutral-fg">
-          Couldn&apos;t load the preview
-        </p>
-        <p className="text-sm text-neutral-fg-subtle">
-          Something went wrong. Check your connection and try again.
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          label="Try again"
-          onClick={preview.reload}
-        />
-      </CenteredStatus>
     );
   }
 

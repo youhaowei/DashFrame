@@ -15,7 +15,7 @@ import {
   formatNumeric,
 } from "@dashframe/ui";
 import { Badge, Button, Input, Label } from "@wystack/ui-react";
-import { useId, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 
 /**
  * A value as the grid shows it, short enough for a pane row. Dates arrive as
@@ -110,6 +110,9 @@ export function ColumnInspector({
   const nameId = useId();
   const [name, setName] = useState(field.name);
   const [shownSavedName, setShownSavedName] = useState(field.name);
+  // Escape blurs the field before its reset re-renders, so the blur's commit
+  // would still see the edit; the flag tells it to save nothing.
+  const cancelledRef = useRef(false);
   // A rename from elsewhere replaces what the field shows, so leaving the
   // field untouched never writes the old name back.
   if (shownSavedName !== field.name) {
@@ -117,6 +120,10 @@ export function ColumnInspector({
     setName(field.name);
   }
   const commitName = async () => {
+    if (cancelledRef.current) {
+      cancelledRef.current = false;
+      return;
+    }
     const next = name.trim();
     if (!next || next === field.name) {
       setName(field.name);
@@ -162,6 +169,7 @@ export function ColumnInspector({
               onKeyDown={(event) => {
                 if (event.key === "Enter") event.currentTarget.blur();
                 if (event.key === "Escape") {
+                  cancelledRef.current = true;
                   setName(field.name);
                   event.currentTarget.blur();
                 }

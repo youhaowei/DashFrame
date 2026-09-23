@@ -48,7 +48,7 @@ import {
   TableIcon,
 } from "@wystack/ui-react/icons";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ColumnInspector } from "./ColumnInspector";
 import {
@@ -341,6 +341,7 @@ export default function DataSourcePageContent({
           columnQuery={columnQuery}
           selectedFieldId={selectedField?.id ?? null}
           onSelectField={selectField}
+          hasFrame={selectedTable.dataFrameId !== undefined}
           preview={preview}
         />
       </div>
@@ -815,6 +816,9 @@ function SourceNameInput({
 }) {
   const [name, setName] = useState(savedName);
   const [shownSavedName, setShownSavedName] = useState(savedName);
+  // Escape blurs the field before the reset above re-renders, so the blur's
+  // commit would still see the edit; the flag tells it to save nothing.
+  const cancelledRef = useRef(false);
   // A rename from elsewhere replaces what the field shows.
   if (shownSavedName !== savedName) {
     setShownSavedName(savedName);
@@ -822,6 +826,10 @@ function SourceNameInput({
   }
 
   const commit = async () => {
+    if (cancelledRef.current) {
+      cancelledRef.current = false;
+      return;
+    }
     const next = name.trim();
     if (!next || next === savedName) {
       setName(savedName);
@@ -843,6 +851,7 @@ function SourceNameInput({
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
           if (event.key === "Escape") {
+            cancelledRef.current = true;
             setName(savedName);
             event.currentTarget.blur();
           }

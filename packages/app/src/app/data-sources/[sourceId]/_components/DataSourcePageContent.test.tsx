@@ -515,6 +515,19 @@ describe("DataSourcePageContent — source configuration pane", () => {
     });
   });
 
+  it("saves nothing when a source rename is cancelled with Escape", async () => {
+    givenSource(FILE_SOURCE, [ORDERS]);
+    render(<Page />);
+
+    // Focused, so the handler's own blur() fires onBlur synchronously.
+    act(() => nameInput().focus());
+    fireEvent.change(nameInput(), { target: { value: "My uploads" } });
+    await act(async () => fireEvent.keyDown(nameInput(), { key: "Escape" }));
+
+    expect(mockCommitBatch).not.toHaveBeenCalled();
+    expect(nameInput().value).toBe("Local Files");
+  });
+
   it("restores the saved name and says so when a rename fails", async () => {
     givenSource(FILE_SOURCE, [ORDERS]);
     mockCommitBatch.mockRejectedValue(new Error("write failed"));
@@ -728,6 +741,18 @@ describe("DataSourcePageContent — preview and column inspector", () => {
     });
   });
 
+  it("saves nothing when a column rename is cancelled with Escape", async () => {
+    render(<Page />);
+    fireEvent.click(screen.getByRole("button", { name: "Amount" }));
+
+    act(() => inspector()!.focus());
+    fireEvent.change(inspector()!, { target: { value: "Order total" } });
+    await act(async () => fireEvent.keyDown(inspector()!, { key: "Escape" }));
+
+    expect(mockCommitBatch).not.toHaveBeenCalled();
+    expect((inspector() as HTMLInputElement).value).toBe("Amount");
+  });
+
   it("puts the saved column name back when a rename fails", async () => {
     mockCommitBatch.mockRejectedValue(new Error("write failed"));
     render(<Page />);
@@ -799,6 +824,27 @@ describe("DataSourcePageContent — preview states", () => {
 
     screen.getByText("Couldn't load the preview");
     expect(screen.queryByText("This table has no rows.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(mockReloadPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("says a table without stored data is being prepared, not empty", () => {
+    givenSource(FILE_SOURCE, [{ ...ORDERS, dataFrameId: undefined }]);
+    render(<Page />);
+
+    screen.getByText("Preparing this table…");
+    expect(screen.queryByText("This table has no rows.")).toBeNull();
+  });
+
+  it("offers the retry in the Columns view too when the preview fails", () => {
+    mockUseDataFrameData.mockReturnValue(
+      previewResult({ error: "connection reset" }),
+    );
+    render(<Page />);
+    fireEvent.click(screen.getByRole("tab", { name: "Columns" }));
+
+    screen.getByText("Couldn't load the preview");
+    expect(screen.queryByRole("list", { name: "Columns" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(mockReloadPreview).toHaveBeenCalledTimes(1);
   });
