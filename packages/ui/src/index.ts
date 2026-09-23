@@ -45,6 +45,7 @@ export {
 
 export {
   WorkbenchTabs,
+  orderWorkbenchTabs,
   type WorkbenchTabItem,
   type WorkbenchTabsProps,
 } from "./components/WorkbenchTabs";

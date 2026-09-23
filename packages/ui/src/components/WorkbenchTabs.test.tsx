@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { WorkbenchTabs, type WorkbenchTabItem } from "./WorkbenchTabs";
+import {
+  WorkbenchTabs,
+  orderWorkbenchTabs,
+  type WorkbenchTabItem,
+} from "./WorkbenchTabs";
 
 // jsdom has no layout, so the strip is exactly as wide as these say it is.
 let scrollWidth = 0;
@@ -263,5 +267,22 @@ describe("WorkbenchTabs finder", () => {
     expect(
       screen.getByRole("option", { name: "Untitled chart Not saved" }),
     ).toBeDefined();
+  });
+});
+
+describe("orderWorkbenchTabs", () => {
+  it("matches the strip's visual order whatever order tabs arrive in", () => {
+    const tabs: WorkbenchTabItem[] = [
+      { id: "draft", label: "Chart", pinned: "end" },
+      { id: "one", label: "One" },
+      { id: "data", label: "Data", pinned: "start" },
+      { id: "two", label: "Two" },
+    ];
+    render(strip(tabs, "data"));
+    const shown = screen
+      .getAllByRole("tab")
+      .map((tab) => tab.getAttribute("data-tab-id"));
+    expect(orderWorkbenchTabs(tabs).map((tab) => tab.id)).toEqual(shown);
+    expect(shown).toEqual(["data", "one", "two", "draft"]);
   });
 });

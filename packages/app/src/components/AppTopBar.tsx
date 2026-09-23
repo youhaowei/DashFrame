@@ -1,5 +1,7 @@
+import { useRegisteredTopBarTabs } from "@/components/shell/topbar-tabs";
 import { usePlatform } from "@/lib/platform";
 import { useShellStore } from "@/lib/stores/shell-store";
+import { WorkbenchTabs } from "@dashframe/ui";
 import { Button, TopBar, cn } from "@wystack/ui-react";
 import {
   PaletteIcon,
@@ -19,6 +21,13 @@ const TRAFFIC_LIGHT_SPACER_PX = 64;
  * `-webkit-app-region` rules live in a raw <style> in the Electron host's
  * index.html (Lightning CSS strips that property). Buttons opt out of drag
  * automatically via the `button { app-region: no-drag }` rule there.
+ *
+ * The current page's workbench tabs (see `useTopBarTabs`) sit after the nav
+ * toggle. They ride in the left region rather than TopBar's `center` slot:
+ * that slot's wrapper cannot shrink below its content, so an overflowing
+ * strip would push the bar wider instead of scrolling and offering the
+ * finder. The strip is content-sized, so the rest of the bar stays a drag
+ * handle; each tab is a button and opts out of dragging.
  */
 export function AppTopBar() {
   const { isElectron, isMacOS } = usePlatform();
@@ -28,13 +37,14 @@ export function AppTopBar() {
   const toggleLeftNav = useShellStore((s) => s.toggleLeftNav);
   const appearanceOpen = useShellStore((s) => s.contextAppearanceOpen);
   const toggleAppearance = useShellStore((s) => s.toggleContextAppearance);
+  const tabs = useRegisteredTopBarTabs();
 
   return (
     <TopBar
       className="titlebar-drag-region shrink-0 px-[var(--surface-inset)]"
       height={40}
       left={
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {macDesktop && (
             <div
               className="shrink-0"
@@ -52,8 +62,20 @@ export function AppTopBar() {
             label={leftNavOpen ? "Hide sidebar" : "Show sidebar"}
             tooltip={leftNavOpen ? "Hide sidebar" : "Show sidebar"}
             onClick={toggleLeftNav}
-            className="hidden h-7 w-7 text-neutral-fg-subtle hover:text-neutral-fg lg:flex"
+            className="hidden h-7 w-7 shrink-0 text-neutral-fg-subtle hover:text-neutral-fg lg:flex"
           />
+          {tabs && (
+            <WorkbenchTabs
+              label={tabs.label}
+              tabs={tabs.tabs}
+              activeId={tabs.activeId}
+              onSelect={tabs.onSelect}
+              panelId={tabs.panelId}
+              findLabel={tabs.findLabel}
+              findEmptyLabel={tabs.findEmptyLabel}
+              className="min-w-0 shrink"
+            />
+          )}
         </div>
       }
       right={
