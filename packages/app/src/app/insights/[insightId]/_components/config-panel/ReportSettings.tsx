@@ -380,31 +380,20 @@ function validateResults(draft: InsightReporting) {
     throw new Error(
       "Limit must be a whole number from 1 to 100,000, or blank for all rows.",
     );
-  if (
-    draft.topN &&
-    (!Number.isInteger(draft.topN.count) ||
-      draft.topN.count < 1 ||
-      draft.topN.count > 10000)
-  )
-    throw new Error("Rank count must be a whole number from 1 to 10,000.");
 }
 export function ReportResultOptions({
   insight,
-  fields,
   onChange,
 }: {
   insight: Insight;
-  fields: Field[];
   onChange: (patch: Partial<InsightReporting>) => Promise<void>;
 }) {
   return (
     <SettingEditor
-      label="Ranking, limit & totals"
+      label="Limit & totals"
       reporting={insight.reporting}
       validate={validateResults}
-      onSave={(draft) =>
-        onChange({ topN: draft.topN, limit: draft.limit, totals: draft.totals })
-      }
+      onSave={(draft) => onChange({ limit: draft.limit, totals: draft.totals })}
     >
       {(draft, update) => (
         <>
@@ -422,64 +411,6 @@ export function ReportResultOptions({
             ]}
             onChange={(value) => update({ totals: value === "on" })}
           />
-          {fields.length > 0 && insight.metrics.length > 0 && (
-            <Choice
-              label="Rank groups"
-              value={draft.topN?.direction ?? "none"}
-              options={[
-                { value: "none", label: "No ranking" },
-                { value: "desc", label: "Top N" },
-                { value: "asc", label: "Bottom N" },
-              ]}
-              onChange={(value) =>
-                update({
-                  topN:
-                    value === "none"
-                      ? undefined
-                      : {
-                          fieldId: draft.topN?.fieldId ?? fields[0]!.id,
-                          measureId:
-                            draft.topN?.measureId ?? insight.metrics[0]!.id,
-                          count: draft.topN?.count ?? 10,
-                          direction: value as "asc" | "desc",
-                        },
-                })
-              }
-            />
-          )}
-          {draft.topN && (
-            <>
-              <Choice
-                label="Rank dimension"
-                value={draft.topN.fieldId}
-                options={fields.map((field) => ({
-                  value: field.id,
-                  label: field.name,
-                }))}
-                onChange={(fieldId) =>
-                  update({ topN: { ...draft.topN!, fieldId } })
-                }
-              />
-              <Choice
-                label="Rank by measure"
-                value={draft.topN.measureId}
-                options={insight.metrics.map((metric) => ({
-                  value: metric.id,
-                  label: metric.name,
-                }))}
-                onChange={(measureId) =>
-                  update({ topN: { ...draft.topN!, measureId } })
-                }
-              />
-              <NumberField
-                label="Number of groups"
-                value={draft.topN.count}
-                onChange={(count) =>
-                  update({ topN: { ...draft.topN!, count: count ?? 0 } })
-                }
-              />
-            </>
-          )}
         </>
       )}
     </SettingEditor>

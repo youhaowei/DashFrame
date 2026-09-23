@@ -65,7 +65,7 @@ import {
   removeFromEncoding,
   type DeleteItemType,
 } from "./DeleteConfirmDialog";
-import { FieldsSection } from "./FieldsSection";
+import { FieldsSection, withFieldGrouping } from "./FieldsSection";
 import {
   applyFilterSave,
   stripFilterClientMetadata,
@@ -1257,20 +1257,17 @@ export function InsightConfigPanel({
             <>
               <FieldsSection
                 reporting={insight.reporting}
-                onConfigure={async (fieldId, grain, pivot) => {
+                onConfigure={async (fieldId, grouping) => {
                   const current = latestInsightRef.current;
-                  const reporting = { ...current.reporting };
-                  const dateGrains = { ...reporting.dateGrains };
-                  if (grain) dateGrains[fieldId] = grain;
-                  else delete dateGrains[fieldId];
-                  const pivotFields = (reporting.pivotFields ?? []).filter(
-                    (id) => id !== fieldId,
-                  );
-                  if (pivot) pivotFields.push(fieldId);
                   await updateInsight(current.id, {
-                    reporting: { ...reporting, dateGrains, pivotFields },
+                    reporting: withFieldGrouping(
+                      current.reporting,
+                      fieldId,
+                      grouping,
+                    ),
                   });
                 }}
+                measures={visibleMetrics}
                 selectedFields={selectedFields}
                 availableFields={availableFields}
                 tables={[
@@ -1358,7 +1355,6 @@ export function InsightConfigPanel({
               />
               <ReportResultOptions
                 insight={insight}
-                fields={selectedFields}
                 onChange={async (patch) => {
                   const current = latestInsightRef.current;
                   await updateInsight(current.id, {

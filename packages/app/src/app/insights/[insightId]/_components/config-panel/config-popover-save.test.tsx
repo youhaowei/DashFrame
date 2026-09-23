@@ -160,7 +160,7 @@ describe("insight config popover saves", () => {
         onAdd={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Rename Amount" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Amount" }));
     fireEvent.change(screen.getByLabelText("Display name"), {
       target: { value: "Revenue" },
     });
@@ -185,7 +185,7 @@ describe("insight config popover saves", () => {
       />,
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Rename Orders · Amount" }),
+      screen.getByRole("button", { name: "Edit Orders · Amount" }),
     );
     expect(
       (screen.getByLabelText("Display name") as HTMLInputElement).value,
@@ -397,7 +397,7 @@ describe("insight config popover saves", () => {
         onAdd={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Rename Amount" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit Amount" }));
     fireEvent.change(screen.getByLabelText("Display name"), {
       target: { value: "Revenue" },
     });

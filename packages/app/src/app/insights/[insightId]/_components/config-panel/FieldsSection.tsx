@@ -21,6 +21,7 @@ import {
   Field,
   FieldContent,
   FieldDescription,
+  FieldError,
   FieldLabel,
   Input,
   Label,
@@ -32,6 +33,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Toggle,
 } from "@wystack/ui-react";
 import {
   BooleanTypeIcon,
@@ -69,11 +71,101 @@ interface FieldSortableItem extends SortableListItem {
   field: CombinedField;
 }
 
+/** How a field groups the report; the rank is the report's one Top N. */
+export interface FieldGrouping {
+  grain?: DateGrain;
+  pivot: boolean;
+  rank?: { direction: "asc" | "desc"; count: number; measureId: string };
+}
+
+const DATE_GRAINS: { value: DateGrain | "none"; label: string }[] = [
+  { value: "none", label: "Exact date" },
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+  { value: "quarter", label: "Quarter" },
+  { value: "year", label: "Year" },
+];
+
+const RANKS = [
+  { value: "all", label: "All values" },
+  { value: "desc", label: "Top" },
+  { value: "asc", label: "Bottom" },
+] as const;
+
+function groupingOf(
+  reporting: InsightReporting | undefined,
+  fieldId: string,
+): FieldGrouping {
+  const topN = reporting?.topN;
+  return {
+    grain: reporting?.dateGrains?.[fieldId],
+    pivot: Boolean(reporting?.pivotFields?.includes(fieldId)),
+    rank:
+      topN?.fieldId === fieldId
+        ? {
+            direction: topN.direction,
+            count: topN.count,
+            measureId: topN.measureId,
+          }
+        : undefined,
+  };
+}
+
+/** The report's grouping with one field's grouping replaced. */
+export function withFieldGrouping(
+  reporting: InsightReporting | undefined,
+  fieldId: string,
+  { grain, pivot, rank }: FieldGrouping,
+): InsightReporting {
+  const next = { ...reporting };
+  const dateGrains = { ...next.dateGrains };
+  if (grain) dateGrains[fieldId] = grain;
+  else delete dateGrains[fieldId];
+  const pivotFields = (next.pivotFields ?? []).filter((id) => id !== fieldId);
+  if (pivot) pivotFields.push(fieldId);
+  // A report ranks one field, so ranking this one replaces the other.
+  if (rank) next.topN = { fieldId, ...rank };
+  else if (next.topN?.fieldId === fieldId) delete next.topN;
+  return { ...next, dateGrains, pivotFields };
+}
+
+function sameGrouping(a: FieldGrouping, b: FieldGrouping) {
+  return (
+    a.grain === b.grain &&
+    a.pivot === b.pivot &&
+    a.rank?.direction === b.rank?.direction &&
+    a.rank?.count === b.rank?.count &&
+    a.rank?.measureId === b.rank?.measureId
+  );
+}
+
+function rankError(rank: FieldGrouping["rank"]) {
+  if (!rank) return null;
+  return Number.isInteger(rank.count) && rank.count >= 1 && rank.count <= 10000
+    ? null
+    : "Enter a whole number from 1 to 10,000.";
+}
+
+/** Short qualifier for a field chip, e.g. "by month · columns · top 10". */
+export function groupingSummary(grouping: FieldGrouping) {
+  const parts: string[] = [];
+  if (grouping.grain) parts.push(`by ${grouping.grain}`);
+  if (grouping.pivot) parts.push("columns");
+  if (grouping.rank)
+    parts.push(
+      `${grouping.rank.direction === "desc" ? "top" : "bottom"} ${grouping.rank.count}`,
+    );
+  return parts.join(" · ");
+}
+
 function FieldRenameEditor({
   field,
   dragHandle,
   onRename,
   reporting,
+  measures = [],
+  rankedFieldName,
   onConfigure,
   viewerChoice = false,
   onViewerChange,
@@ -84,32 +176,32 @@ function FieldRenameEditor({
   viewerChoice?: boolean;
   onViewerChange?: (fieldId: string, enabled: boolean) => Promise<void>;
   reporting?: InsightReporting;
-  onConfigure?: (
-    fieldId: string,
-    grain: DateGrain | undefined,
-    pivot: boolean,
-  ) => Promise<void>;
+  /** Measures a Top N can rank by. */
+  measures?: readonly { id: string; name: string }[];
+  /** Another field that holds the report's Top N, if any. */
+  rankedFieldName?: string;
+  onConfigure?: (fieldId: string, grouping: FieldGrouping) => Promise<void>;
   dragHandle: ReactNode;
   onRename: (field: CombinedField, name: string) => Promise<void> | void;
   onRemove: () => void;
 }) {
+  const saved = groupingOf(reporting, field.id);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(field.name);
-  const [grain, setGrain] = useState<DateGrain | "none">(
-    reporting?.dateGrains?.[field.id] ?? "none",
-  );
-  const [pivot, setPivot] = useState(
-    Boolean(reporting?.pivotFields?.includes(field.id)),
-  );
+  const [grouping, setGrouping] = useState(saved);
   const [viewer, setViewer] = useState(viewerChoice);
   const resetGrouping = () => {
-    setGrain(reporting?.dateGrains?.[field.id] ?? "none");
-    setPivot(Boolean(reporting?.pivotFields?.includes(field.id)));
+    setGrouping(saved);
     setViewer(viewerChoice);
   };
   const [error, setError] = useState<string | null>(null);
   const { setPending, isPending } = useSaveDismissGuard();
   const [isSaving, setIsSaving] = useSavingFlag(setPending);
+  const countError = rankError(grouping.rank);
+  const update = (patch: Partial<FieldGrouping>) =>
+    setGrouping((current) => ({ ...current, ...patch }));
+  const summary = groupingSummary(saved);
+  const countId = `field-rank-count-${field.id}`;
 
   const close = () => {
     if (isPending()) return;
@@ -120,20 +212,13 @@ function FieldRenameEditor({
   };
   const save = async () => {
     const next = name.trim();
-    if (!next) return;
+    if (!next || countError) return;
     setIsSaving(true);
     setError(null);
     try {
       if (next !== field.name) await onRename(field, next);
-      const groupingChanged =
-        grain !== (reporting?.dateGrains?.[field.id] ?? "none") ||
-        pivot !== Boolean(reporting?.pivotFields?.includes(field.id));
-      if (groupingChanged)
-        await onConfigure?.(
-          field.id,
-          grain === "none" ? undefined : grain,
-          pivot,
-        );
+      if (!sameGrouping(grouping, saved))
+        await onConfigure?.(field.id, grouping);
       if (viewer !== viewerChoice) await onViewerChange?.(field.id, viewer);
       setOpen(false);
     } catch (cause) {
@@ -167,9 +252,12 @@ function FieldRenameEditor({
               <button
                 type="button"
                 className="flex min-w-0 flex-1 focus-visible:outline-none"
-                aria-label={`Rename ${field.displayName}`}
+                aria-label={`Edit ${field.displayName}`}
               >
-                <WorkbenchChipLabel title={field.displayName} />
+                <WorkbenchChipLabel
+                  title={field.displayName}
+                  description={summary}
+                />
               </button>
             }
           />
@@ -185,7 +273,7 @@ function FieldRenameEditor({
         onRemove={onRemove}
       />
       <PopoverContent
-        aria-label="Rename field"
+        aria-label="Edit field"
         align="start"
         className="w-72 space-y-3"
       >
@@ -206,49 +294,151 @@ function FieldRenameEditor({
             autoFocus
           />
         </div>
-        {onConfigure && (
-          <div className="space-y-3">
-            {field.type === "date" && (
-              <div className="space-y-1.5">
-                <Label>Group date by</Label>
-                <Select
-                  value={grain}
-                  onValueChange={(value) =>
-                    setGrain((value ?? "none") as DateGrain | "none")
+        {onConfigure && field.type === "date" && (
+          <div className="space-y-1.5">
+            <Label>Group date by</Label>
+            <Select
+              value={grouping.grain ?? "none"}
+              onValueChange={(value) =>
+                update({
+                  grain:
+                    value && value !== "none"
+                      ? (value as DateGrain)
+                      : undefined,
+                })
+              }
+            >
+              <SelectTrigger aria-label="Group date by">
+                <SelectValue>
+                  {
+                    DATE_GRAINS.find(
+                      (item) => item.value === (grouping.grain ?? "none"),
+                    )?.label
                   }
-                >
-                  <SelectTrigger aria-label="Group date by">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {["none", "day", "week", "month", "quarter", "year"].map(
-                      (value) => (
-                        <SelectItem key={value} value={value}>
-                          {value === "none"
-                            ? "Exact date"
-                            : value[0]!.toUpperCase() + value.slice(1)}
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label>Pivot placement</Label>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {DATE_GRAINS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {onConfigure && (
+          <div className="space-y-1.5">
+            <Label>Show values as</Label>
+            <Toggle
+              size="sm"
+              value={grouping.pivot ? "columns" : "rows"}
+              options={[
+                { value: "rows", label: "Rows" },
+                { value: "columns", label: "Columns" },
+              ]}
+              onValueChange={(value) => update({ pivot: value === "columns" })}
+            />
+          </div>
+        )}
+        {onConfigure && measures.length > 0 && (
+          <div className="space-y-1.5">
+            <Label>Keep</Label>
+            <div className="flex gap-2">
               <Select
-                value={pivot ? "column" : "row"}
-                onValueChange={(value) => setPivot(value === "column")}
+                value={grouping.rank?.direction ?? "all"}
+                onValueChange={(value) =>
+                  update({
+                    rank:
+                      value === "asc" || value === "desc"
+                        ? {
+                            count: grouping.rank?.count ?? 10,
+                            measureId:
+                              grouping.rank?.measureId ?? measures[0]!.id,
+                            direction: value,
+                          }
+                        : undefined,
+                  })
+                }
               >
-                <SelectTrigger aria-label="Pivot placement">
-                  <SelectValue />
+                <SelectTrigger aria-label="Keep" className="flex-1">
+                  <SelectValue>
+                    {
+                      RANKS.find(
+                        (item) =>
+                          item.value === (grouping.rank?.direction ?? "all"),
+                      )?.label
+                    }
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="row">Rows</SelectItem>
-                  <SelectItem value="column">Columns</SelectItem>
+                  {RANKS.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              {grouping.rank && (
+                <Input
+                  id={countId}
+                  aria-label="Number of values"
+                  aria-invalid={countError !== null}
+                  aria-describedby={countError ? `${countId}-error` : undefined}
+                  inputMode="numeric"
+                  className="w-20"
+                  value={
+                    Number.isNaN(grouping.rank.count) ? "" : grouping.rank.count
+                  }
+                  onChange={(event) =>
+                    update({
+                      rank: {
+                        ...grouping.rank!,
+                        count:
+                          event.target.value.trim() === ""
+                            ? Number.NaN
+                            : Number(event.target.value),
+                      },
+                    })
+                  }
+                />
+              )}
             </div>
+            {countError && (
+              <FieldError id={`${countId}-error`}>{countError}</FieldError>
+            )}
+            {grouping.rank && (
+              <div className="space-y-1.5 pt-1.5">
+                <Label>Ranked by</Label>
+                <Select
+                  value={grouping.rank.measureId}
+                  onValueChange={(value) =>
+                    value &&
+                    update({ rank: { ...grouping.rank!, measureId: value } })
+                  }
+                >
+                  <SelectTrigger aria-label="Ranked by">
+                    <SelectValue>
+                      {measures.find(
+                        (measure) => measure.id === grouping.rank?.measureId,
+                      )?.name ?? "Choose a measure"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {measures.map((measure) => (
+                      <SelectItem key={measure.id} value={measure.id}>
+                        {measure.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {rankedFieldName && !saved.rank && (
+                  <FieldDescription>
+                    Replaces the ranking on {rankedFieldName}.
+                  </FieldDescription>
+                )}
+              </div>
+            )}
           </div>
         )}
         {onViewerChange && (
@@ -272,9 +462,9 @@ function FieldRenameEditor({
             loading={isSaving}
             disabled={
               !name.trim() ||
+              countError !== null ||
               (name.trim() === field.name &&
-                grain === (reporting?.dateGrains?.[field.id] ?? "none") &&
-                pivot === Boolean(reporting?.pivotFields?.includes(field.id)) &&
+                sameGrouping(grouping, saved) &&
                 viewer === viewerChoice)
             }
             onClick={() => void save()}
@@ -288,6 +478,7 @@ function FieldRenameEditor({
 export function FieldsSection({
   reporting,
   onConfigure,
+  measures,
   selectedFields,
   availableFields,
   tables,
@@ -303,11 +494,9 @@ export function FieldsSection({
   viewerFieldIds?: readonly string[];
   onViewerChange?: (fieldId: string, enabled: boolean) => Promise<void>;
   reporting?: InsightReporting;
-  onConfigure?: (
-    fieldId: string,
-    grain: DateGrain | undefined,
-    pivot: boolean,
-  ) => Promise<void>;
+  onConfigure?: (fieldId: string, grouping: FieldGrouping) => Promise<void>;
+  /** Measures a Top N can rank by. */
+  measures?: readonly { id: string; name: string }[];
   selectedFields: CombinedField[];
   availableFields: CombinedField[];
   tables: DataTable[];
@@ -344,6 +533,9 @@ export function FieldsSection({
     (items: FieldSortableItem[]) => onReorder(items.map((item) => item.id)),
     [onReorder],
   );
+  const rankedFieldName = selectedFields.find(
+    (field) => field.id === reporting?.topN?.fieldId,
+  )?.displayName;
   const tableById = new Map(tables.map((table) => [table.id, table]));
   const groupedFields = new Map<string, CombinedField[]>();
   for (const field of addableFields) {
@@ -371,6 +563,8 @@ export function FieldsSection({
               field={item.field}
               reporting={reporting}
               onConfigure={onConfigure}
+              measures={measures}
+              rankedFieldName={rankedFieldName}
               dragHandle={dragHandle}
               onRename={onRename}
               viewerChoice={viewerFieldIds.includes(item.id)}

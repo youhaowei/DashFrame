@@ -71,33 +71,14 @@ describe("report setting editors", () => {
       }),
     );
   });
-  it("saves ranking, row limits, and totals as one report update", async () => {
+  it("saves row limits and totals as one report update", async () => {
     const user = userEvent.setup({ delay: null });
     const onChange = vi.fn().mockResolvedValue(undefined);
-    const country: Field = {
-      ...field,
-      id: "country",
-      name: "Country",
-      columnName: "country",
-      type: "string",
-    };
-    render(
-      <ReportResultOptions
-        insight={{ ...insight, selectedFields: ["country"] }}
-        fields={[country]}
-        onChange={onChange}
-      />,
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Ranking, limit & totals" }),
-    );
+    render(<ReportResultOptions insight={insight} onChange={onChange} />);
+    await user.click(screen.getByRole("button", { name: "Limit & totals" }));
     fireEvent.change(screen.getByLabelText("Row limit (blank for all)"), {
       target: { value: "5" },
     });
-    await user.click(screen.getByRole("combobox", { name: "Rank groups" }));
-    await user.click(
-      await screen.findByRole("option", { name: "Top N", exact: true }),
-    );
     await user.click(
       screen.getByRole("combobox", { name: "Totals and KPI summary" }),
     );
@@ -107,12 +88,6 @@ describe("report setting editors", () => {
     await user.click(screen.getByRole("button", { name: "Save", exact: true }));
     await waitFor(() =>
       expect(onChange).toHaveBeenCalledWith({
-        topN: {
-          fieldId: "country",
-          measureId: "orders",
-          count: 10,
-          direction: "desc",
-        },
         limit: 5,
         totals: true,
       }),
@@ -122,16 +97,8 @@ describe("report setting editors", () => {
   it("rejects invalid limits and keeps an editor open when persistence fails", async () => {
     const user = userEvent.setup({ delay: null });
     const onChange = vi.fn().mockRejectedValue(new Error("write failed"));
-    render(
-      <ReportResultOptions
-        insight={insight}
-        fields={[field]}
-        onChange={onChange}
-      />,
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Ranking, limit & totals" }),
-    );
+    render(<ReportResultOptions insight={insight} onChange={onChange} />);
+    await user.click(screen.getByRole("button", { name: "Limit & totals" }));
     fireEvent.change(screen.getByLabelText("Row limit (blank for all)"), {
       target: { value: "0" },
     });
