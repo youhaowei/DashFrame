@@ -32,6 +32,12 @@ export interface WorkbenchTabItem {
   dashed?: boolean;
   /** Dot marking work that has not been saved yet. */
   unsaved?: boolean;
+  /**
+   * The tab can be closed from the keyboard (⌘W / Ctrl+W) by whatever hosts
+   * the strip. Hosts pair it with an `onClose` handler; a tab without it
+   * ignores the shortcut, so the window's own close keeps working.
+   */
+  closable?: boolean;
 }
 
 export interface WorkbenchTabsProps {
@@ -61,6 +67,21 @@ function prefersReducedMotion(): boolean {
     typeof globalThis.matchMedia === "function" &&
     globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
+}
+
+/**
+ * Tabs in the order the strip shows them: pinned-start, the scrolling middle,
+ * then pinned-end. Keyboard cycling that lives outside the strip uses this so
+ * it moves through tabs in the order the user sees.
+ */
+export function orderWorkbenchTabs(
+  tabs: WorkbenchTabItem[],
+): WorkbenchTabItem[] {
+  return [
+    ...tabs.filter((tab) => tab.pinned === "start"),
+    ...tabs.filter((tab) => !tab.pinned),
+    ...tabs.filter((tab) => tab.pinned === "end"),
+  ];
 }
 
 /**

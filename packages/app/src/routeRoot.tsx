@@ -16,6 +16,7 @@ import { StoreHydration } from "@/components/providers/StoreHydration";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ContextPanelProvider } from "@/components/shell/context-panel-outlet";
 import { ShellRails } from "@/components/shell/ShellRails";
+import { TopBarTabsProvider } from "@/components/shell/topbar-tabs";
 import { ThemeProvider } from "@/components/theme-provider";
 import { WebMCPProvider } from "@/components/webmcp/WebMCPProvider";
 import { PlatformProvider } from "@/lib/platform";
@@ -114,9 +115,11 @@ export function RouteRoot({
               <StoreHydration>
                 <ContextPanelProvider>
                   <PlatformProvider>
-                    <WebMCPProvider>
-                      <Shell />
-                    </WebMCPProvider>
+                    <TopBarTabsProvider>
+                      <WebMCPProvider>
+                        <Shell />
+                      </WebMCPProvider>
+                    </TopBarTabsProvider>
                   </PlatformProvider>
                 </ContextPanelProvider>
               </StoreHydration>

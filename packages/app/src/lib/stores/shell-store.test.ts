@@ -14,6 +14,22 @@ describe("useShellStore — shell rails", () => {
       leftNavOpen: true,
       contextAppearanceOpen: false,
       contextPanelWidth: CONTEXT_PANEL_DEFAULT_WIDTH,
+      workbenchPanes: {},
+    });
+  });
+
+  it("keeps workbench panes per artifact type and per side", () => {
+    const { setWorkbenchPaneOpen } = useShellStore.getState();
+    setWorkbenchPaneOpen("insight", "right", false);
+    setWorkbenchPaneOpen("insight", "left", false);
+    setWorkbenchPaneOpen("insight", "left", true);
+    expect(useShellStore.getState().workbenchPanes).toEqual({
+      insight: { left: true, right: false },
+    });
+    setWorkbenchPaneOpen("data-source", "left", false);
+    expect(useShellStore.getState().workbenchPanes.insight).toEqual({
+      left: true,
+      right: false,
     });
   });
 

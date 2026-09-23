@@ -13,6 +13,12 @@ import {
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { AppLayout } from "@/components/layouts/AppLayout";
+import { useTopBarTabs } from "@/components/shell/topbar-tabs";
+import {
+  Workbench,
+  WorkbenchPaneToggle,
+  useWorkbenchPanes,
+} from "@/components/workbench/Workbench";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import { visualizationDetailLink } from "@/components/visualizations/visualization-navigation";
 import { getVisualizationTypeChange } from "@/components/visualizations/visualization-type-change";
@@ -74,7 +80,6 @@ import {
   ControlTooltip,
   CHART_ICONS,
   VirtualTable,
-  WorkbenchTabs,
   type VirtualTableColumnConfig,
   type WorkbenchTabItem,
 } from "@dashframe/ui";
@@ -94,10 +99,6 @@ import {
 import {
   DashboardIcon,
   MoreIcon,
-  PanelLeftCloseIcon,
-  PanelLeftOpenIcon,
-  PanelRightCloseIcon,
-  PanelRightOpenIcon,
   PlusIcon,
   SparklesIcon,
   TableIcon,
@@ -1096,8 +1097,12 @@ export function InsightView({
   const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const [suggestionSeed, setSuggestionSeed] = useState(0);
-  const [insightPaneOpen, setInsightPaneOpen] = useState(true);
-  const [visualizationPaneOpen, setVisualizationPaneOpen] = useState(true);
+  const {
+    leftOpen: insightPaneOpen,
+    rightOpen: visualizationPaneOpen,
+    toggleLeft: toggleInsightPane,
+    toggleRight: toggleVisualizationPane,
+  } = useWorkbenchPanes("insight");
   const visualizationWriteStatusRef = useRef({
     pending: false,
     generation: 0,
@@ -2072,6 +2077,24 @@ export function InsightView({
     visualizationPaneOpen,
   );
 
+  const hasCanvas = Boolean(dataTable && authoringTable);
+  const topBarTabs = useMemo(
+    () =>
+      hasCanvas
+        ? {
+            label: "Canvas views",
+            tabs: canvasTabs,
+            activeId: activeTabId,
+            onSelect: handleSelectTab,
+            panelId: CANVAS_PANEL_ID,
+            findLabel: "Find a chart",
+            findEmptyLabel: "No matching charts.",
+          }
+        : null,
+    [hasCanvas, canvasTabs, activeTabId, handleSelectTab],
+  );
+  useTopBarTabs(topBarTabs);
+
   // Data table not found - check after all hooks are called
   if (!dataTable || !authoringTable) {
     return <NotFoundView type="dataTable" />;
@@ -2079,256 +2102,204 @@ export function InsightView({
 
   return (
     <AppLayout pageHeader={null} childrenClassName="overflow-hidden">
-      <div
+      <Workbench
         data-dashframe-insight-id={insightId}
-        className="flex h-full min-w-0 overflow-hidden"
-      >
-        <aside
-          inert={!insightPaneOpen}
-          aria-hidden={!insightPaneOpen}
-          className={cn(
-            // Shrinkable, so on a narrow window the panes give way before the
-            // canvas does: its header holds the only controls that collapse them.
-            "h-full min-w-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none",
-            insightPaneOpen ? "w-64" : "w-0",
-          )}
-        >
-          <div className="h-full w-64">
-            <InsightConfigPanel
-              pivotSortOptions={pivotSortOptions}
-              pivotSortError={pivotSortError}
-              onPivotSortRetry={retryPivotSort}
-              insight={insight}
-              dataTable={authoringTable}
-              allDataTables={allDataTables}
-              reportId={reportId}
-              columnDisplayNames={modelColumnDisplayNames}
-              getVisualizationWriteStatus={getVisualizationWriteStatus}
-            />
-          </div>
-        </aside>
-
-        <section className="flex min-w-[min(18rem,100%)] flex-1 flex-col gap-2 overflow-hidden px-1.5 py-2">
-          {/* Collapses by the header's own width: view labels below 48rem,
-              breadcrumb below 42rem, action labels below 36rem. Under ~23rem
-              (both panes open on a small window) it scrolls rather than clip. */}
-          <header className="@container flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto px-1 whitespace-nowrap [scrollbar-width:thin] [&>*]:shrink-0 [&>input]:shrink">
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={insightPaneOpen ? PanelLeftCloseIcon : PanelLeftOpenIcon}
-              iconOnly
-              label={
-                insightPaneOpen
-                  ? "Collapse Insight pane"
-                  : "Expand Insight pane"
-              }
-              onClick={() => setInsightPaneOpen((open) => !open)}
-            />
-            <Link
-              to="/insights"
-              className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
-            >
-              Insights
-            </Link>
-            <span
-              aria-hidden
-              className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
-            >
-              ›
-            </span>
-            <label className="sr-only" htmlFor="insight-name">
-              Insight name
-            </label>
-            <input
-              id="insight-name"
-              value={localName}
-              onChange={(event) => handleNameChange(event.target.value)}
-              placeholder="Untitled insight"
-              className="min-w-16 flex-1 truncate rounded-sm bg-transparent px-1 py-0.5 text-sm font-semibold text-neutral-fg outline-none placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary"
-            />
-            {canPinActiveChart && (
-              <ControlTooltip
-                label="Save chart"
-                description="Keep this chart as a reusable view for dashboards."
-              >
-                <Button
-                  size="sm"
-                  variant="outline"
-                  label="Save chart"
-                  onClick={handlePinActiveChart}
-                >
-                  <PlusIcon aria-hidden />
-                  <span className="@max-xl:sr-only">Save chart</span>
-                </Button>
-              </ControlTooltip>
+        leftOpen={insightPaneOpen}
+        rightOpen={visualizationPane.attached}
+        left={
+          <InsightConfigPanel
+            pivotSortOptions={pivotSortOptions}
+            pivotSortError={pivotSortError}
+            onPivotSortRetry={retryPivotSort}
+            insight={insight}
+            dataTable={authoringTable}
+            allDataTables={allDataTables}
+            reportId={reportId}
+            columnDisplayNames={modelColumnDisplayNames}
+            getVisualizationWriteStatus={getVisualizationWriteStatus}
+          />
+        }
+        right={
+          <VisualizationConfigPanel
+            activeChartType={visualizationPane.chartType}
+            availableChartTypes={availableVisualizationTypes}
+            canChangeChartType={canChangeChartType}
+            activeSuggestionEncoding={activeChartSuggestion?.encoding}
+            activeVisualization={activeVisualization}
+            compiledInsight={compiledInsightForEncodings}
+            pivotColor={reportPivotColor(
+              activeVisualization?.encoding,
+              insight,
+              viewerRuntime,
+              modelResolvedFields,
             )}
+            dataTable={authoringTable}
+            availableFields={encodingAvailableFields}
+            metricLabelFields={modelResolvedFields}
+            availableColumns={encodingColumns.map((column) => ({
+              name: column.name,
+              type: column.type ?? "unknown",
+            }))}
+            columnDisplayNames={encodingColumnDisplayNames}
+            columnAnalysis={encodingColumnAnalysis}
+            encodingsError={Boolean(encodingResultError)}
+            onRetryEncodings={() => {
+              retryEncodingResult();
+            }}
+            onPendingVisualizationChange={handleVisualizationWritePendingChange}
+            onSelectChartType={openDraftChart}
+            updateVisualization={updateVisualization}
+          />
+        }
+      >
+        {/* Collapses by the header's own width: view labels below 48rem,
+            breadcrumb below 42rem, action labels below 36rem. Under ~23rem
+            (both panes open on a small window) it scrolls rather than clip. */}
+        <header className="@container flex h-10 shrink-0 items-center gap-1.5 overflow-x-auto px-1 whitespace-nowrap [scrollbar-width:thin] [&>*]:shrink-0 [&>input]:shrink">
+          <WorkbenchPaneToggle
+            side="left"
+            open={insightPaneOpen}
+            paneName="Insight"
+            onToggle={toggleInsightPane}
+          />
+          <Link
+            to="/insights"
+            className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+          >
+            Insights
+          </Link>
+          <span
+            aria-hidden
+            className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
+          >
+            ›
+          </span>
+          <label className="sr-only" htmlFor="insight-name">
+            Insight name
+          </label>
+          <input
+            id="insight-name"
+            value={localName}
+            onChange={(event) => handleNameChange(event.target.value)}
+            placeholder="Untitled insight"
+            className="min-w-16 flex-1 truncate rounded-sm bg-transparent px-1 py-0.5 text-sm font-semibold text-neutral-fg outline-none placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary"
+          />
+          {canPinActiveChart && (
             <ControlTooltip
-              label="Add to report"
-              description="Place this view on a report."
+              label="Save chart"
+              description="Keep this chart as a reusable view for dashboards."
             >
               <Button
                 size="sm"
-                label="Add to report"
-                onClick={handleAddActiveViewToDashboard}
-                disabled={!canAddActiveViewToDashboard}
+                variant="outline"
+                label="Save chart"
+                onClick={handlePinActiveChart}
               >
-                <DashboardIcon aria-hidden />
-                <span className="@max-xl:sr-only">Add to report</span>
+                <PlusIcon aria-hidden />
+                <span className="@max-xl:sr-only">Save chart</span>
               </Button>
             </ControlTooltip>
-            {activeView.kind === "visualization" && activeVisualization && (
-              <InsightMoreActionsMenu
-                savedChart={activeVisualization}
-                onDuplicateChart={handleDuplicateVisualization}
-                onDeleteChart={handleDeleteVisualization}
-              />
-            )}
-            {visualizationPane.available && (
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={
-                  visualizationPane.attached
-                    ? PanelRightCloseIcon
-                    : PanelRightOpenIcon
-                }
-                iconOnly
-                label={
-                  visualizationPane.attached
-                    ? "Collapse Visualization pane"
-                    : "Expand Visualization pane"
-                }
-                onClick={() => setVisualizationPaneOpen((open) => !open)}
-              />
-            )}
-          </header>
-
-          <WorkbenchTabs
-            label="Canvas views"
-            tabs={canvasTabs}
-            activeId={activeTabId}
-            onSelect={handleSelectTab}
-            panelId={CANVAS_PANEL_ID}
-            findLabel="Find a chart"
-            findEmptyLabel="No matching charts."
-            className="shrink-0 px-1"
-          />
-
-          {activeView.kind !== "chart" && (
-            <ReportSwitchers
-              insight={insight}
-              fields={modelResolvedFields}
-              runtime={viewerRuntime}
-              onChange={(runtime) => setViewerState({ id: insightId, runtime })}
-            />
           )}
-          <InsightCanvasWell
-            insight={activeView.kind === "chart" ? undefined : displayInsight}
-            result={
-              activeView.kind === "chart"
-                ? chartSuggestionResult
-                : savedInsightResult
-            }
-            showChart={activeView.kind !== "table"}
+          <ControlTooltip
+            label="Add to report"
+            description="Place this view on a report."
           >
-            {activeView.kind === "chart" && (
-              <EphemeralChartCanvas
-                detailRowsOnly={chartSuggestionResult.schema.some(
-                  (column) => column.id === "__report_grouping",
-                )}
-                tableName={chartSuggestionFrameId ?? undefined}
-                suggestion={activeChartSuggestion}
-                isLoading={!areChartSuggestionsReady}
-                error={chartSuggestionResult.error}
-                onRetry={chartSuggestionResult.retry}
-                onRegenerate={handleRegenerate}
-              />
-            )}
-            {activeView.kind === "visualization" && activeVisualization && (
-              <VisualizationPreview
-                visualization={{
-                  ...activeVisualization,
-                  encoding: reportEncoding(
-                    activeVisualization.encoding ?? {},
-                    insight,
-                    viewerRuntime,
-                    modelResolvedFields,
-                  ),
-                }}
-                height="container"
-                thumbnail={false}
-                columnDisplayNames={encodingColumnDisplayNames}
-                // Same primitive and host message as the result table below, so
-                // both halves of the workbench agree. Only set on error — the
-                // encoding-missing case keeps the preview's own terminal text.
-                fallback={
-                  savedInsightResult.error ? (
-                    <InsightResultErrorState
-                      error={savedInsightResult.error}
-                      onRetry={savedInsightResult.retry}
-                      className="h-full"
-                    />
-                  ) : undefined
-                }
-                materialization={{
-                  insight: displayInsight,
-                  runtime: viewerRuntime,
-                  dataTable: authoringTable,
-                  dataFrameId: savedInsightResult.dataFrameId,
-                  isReady: savedInsightResult.isReady,
-                  error: savedInsightResult.error,
-                  resolvedFields: savedInsightResult.resolvedFields,
-                }}
-              />
-            )}
-          </InsightCanvasWell>
-        </section>
-
-        <aside
-          inert={!visualizationPane.attached}
-          aria-hidden={!visualizationPane.attached}
-          className={cn(
-            "h-full min-w-0 overflow-hidden transition-[width] duration-200 motion-reduce:transition-none",
-            visualizationPane.attached ? "w-60" : "w-0",
-          )}
-        >
-          <div className="h-full w-60 min-w-0">
-            <VisualizationConfigPanel
-              activeChartType={visualizationPane.chartType}
-              availableChartTypes={availableVisualizationTypes}
-              canChangeChartType={canChangeChartType}
-              activeSuggestionEncoding={activeChartSuggestion?.encoding}
-              activeVisualization={activeVisualization}
-              compiledInsight={compiledInsightForEncodings}
-              pivotColor={reportPivotColor(
-                activeVisualization?.encoding,
-                insight,
-                viewerRuntime,
-                modelResolvedFields,
-              )}
-              dataTable={authoringTable}
-              availableFields={encodingAvailableFields}
-              metricLabelFields={modelResolvedFields}
-              availableColumns={encodingColumns.map((column) => ({
-                name: column.name,
-                type: column.type ?? "unknown",
-              }))}
-              columnDisplayNames={encodingColumnDisplayNames}
-              columnAnalysis={encodingColumnAnalysis}
-              encodingsError={Boolean(encodingResultError)}
-              onRetryEncodings={() => {
-                retryEncodingResult();
-              }}
-              onPendingVisualizationChange={
-                handleVisualizationWritePendingChange
-              }
-              onSelectChartType={openDraftChart}
-              updateVisualization={updateVisualization}
+            <Button
+              size="sm"
+              label="Add to report"
+              onClick={handleAddActiveViewToDashboard}
+              disabled={!canAddActiveViewToDashboard}
+            >
+              <DashboardIcon aria-hidden />
+              <span className="@max-xl:sr-only">Add to report</span>
+            </Button>
+          </ControlTooltip>
+          {activeView.kind === "visualization" && activeVisualization && (
+            <InsightMoreActionsMenu
+              savedChart={activeVisualization}
+              onDuplicateChart={handleDuplicateVisualization}
+              onDeleteChart={handleDeleteVisualization}
             />
-          </div>
-        </aside>
-      </div>
+          )}
+          {visualizationPane.available && (
+            <WorkbenchPaneToggle
+              side="right"
+              open={visualizationPane.attached}
+              paneName="Visualization"
+              onToggle={toggleVisualizationPane}
+            />
+          )}
+        </header>
+
+        {activeView.kind !== "chart" && (
+          <ReportSwitchers
+            insight={insight}
+            fields={modelResolvedFields}
+            runtime={viewerRuntime}
+            onChange={(runtime) => setViewerState({ id: insightId, runtime })}
+          />
+        )}
+        <InsightCanvasWell
+          insight={activeView.kind === "chart" ? undefined : displayInsight}
+          result={
+            activeView.kind === "chart"
+              ? chartSuggestionResult
+              : savedInsightResult
+          }
+          showChart={activeView.kind !== "table"}
+        >
+          {activeView.kind === "chart" && (
+            <EphemeralChartCanvas
+              detailRowsOnly={chartSuggestionResult.schema.some(
+                (column) => column.id === "__report_grouping",
+              )}
+              tableName={chartSuggestionFrameId ?? undefined}
+              suggestion={activeChartSuggestion}
+              isLoading={!areChartSuggestionsReady}
+              error={chartSuggestionResult.error}
+              onRetry={chartSuggestionResult.retry}
+              onRegenerate={handleRegenerate}
+            />
+          )}
+          {activeView.kind === "visualization" && activeVisualization && (
+            <VisualizationPreview
+              visualization={{
+                ...activeVisualization,
+                encoding: reportEncoding(
+                  activeVisualization.encoding ?? {},
+                  insight,
+                  viewerRuntime,
+                  modelResolvedFields,
+                ),
+              }}
+              height="container"
+              thumbnail={false}
+              columnDisplayNames={encodingColumnDisplayNames}
+              // Same primitive and host message as the result table below, so
+              // both halves of the workbench agree. Only set on error — the
+              // encoding-missing case keeps the preview's own terminal text.
+              fallback={
+                savedInsightResult.error ? (
+                  <InsightResultErrorState
+                    error={savedInsightResult.error}
+                    onRetry={savedInsightResult.retry}
+                    className="h-full"
+                  />
+                ) : undefined
+              }
+              materialization={{
+                insight: displayInsight,
+                runtime: viewerRuntime,
+                dataTable: authoringTable,
+                dataFrameId: savedInsightResult.dataFrameId,
+                isReady: savedInsightResult.isReady,
+                error: savedInsightResult.error,
+                resolvedFields: savedInsightResult.resolvedFields,
+              }}
+            />
+          )}
+        </InsightCanvasWell>
+      </Workbench>
     </AppLayout>
   );
 }

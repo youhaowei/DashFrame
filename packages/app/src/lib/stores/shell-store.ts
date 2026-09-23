@@ -17,7 +17,16 @@ interface ShellState {
   contextAppearanceOpen: boolean;
   /** Width of the page-scoped context panel family, in px. */
   contextPanelWidth: number;
+  /**
+   * Collapsed workbench panes, keyed by the kind of artifact the workbench
+   * edits ("insight", "data-source", …). A missing entry means both panes
+   * open, so a new artifact type needs no registration here.
+   */
+  workbenchPanes: Record<string, WorkbenchPaneState>;
 }
+
+export type WorkbenchPaneSide = "left" | "right";
+export type WorkbenchPaneState = Partial<Record<WorkbenchPaneSide, boolean>>;
 
 interface ShellActions {
   toggleLeftNav: () => void;
@@ -25,6 +34,11 @@ interface ShellActions {
   toggleContextAppearance: () => void;
   setContextAppearanceOpen: (open: boolean) => void;
   setContextPanelWidth: (width: number) => void;
+  setWorkbenchPaneOpen: (
+    artifactType: string,
+    side: WorkbenchPaneSide,
+    open: boolean,
+  ) => void;
 }
 
 function clamp(width: number, min: number, max: number): number {
@@ -65,6 +79,7 @@ export const useShellStore = create<ShellState & ShellActions>()(
       leftNavOpen: true,
       contextAppearanceOpen: false,
       contextPanelWidth: CONTEXT_PANEL_DEFAULT_WIDTH,
+      workbenchPanes: {},
       toggleLeftNav: () => set((s) => ({ leftNavOpen: !s.leftNavOpen })),
       setLeftNavOpen: (open) => set({ leftNavOpen: open }),
       toggleContextAppearance: () =>
@@ -78,6 +93,13 @@ export const useShellStore = create<ShellState & ShellActions>()(
             CONTEXT_PANEL_MAX_WIDTH,
           ),
         }),
+      setWorkbenchPaneOpen: (artifactType, side, open) =>
+        set((s) => ({
+          workbenchPanes: {
+            ...s.workbenchPanes,
+            [artifactType]: { ...s.workbenchPanes[artifactType], [side]: open },
+          },
+        })),
     }),
     {
       name: "dashframe:shell",
