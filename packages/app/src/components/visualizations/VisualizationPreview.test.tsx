@@ -392,3 +392,52 @@ describe("VisualizationPreview — (c) encoding-missing branch", () => {
     expect(screen.getByTestId("chart")).not.toBeNull();
   });
 });
+
+describe("VisualizationPreview — chart chrome", () => {
+  function renderReady(thumbnail?: boolean) {
+    mockChart.mockClear();
+    mockUseInsight.mockReturnValue({
+      data: {
+        ...insight,
+        source: { sourceType: "insight", sourceId: "upstream" },
+      },
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [] });
+    mockUseInsightPagination.mockReturnValue({
+      resolvedFields: [{ id: "f1", name: "Revenue", tableId: "upstream" }],
+    });
+    mockResolveEncoding.mockReturnValue({ x: "field_f1" });
+    mockUseInsightView.mockReturnValue({
+      viewName: "frame-ready",
+      isReady: true,
+      error: null,
+    });
+    render(
+      <VisualizationPreview
+        visualization={visualization}
+        {...(thumbnail === undefined ? {} : { thumbnail })}
+      />,
+    );
+  }
+
+  it("draws a card thumbnail without axes by default", () => {
+    renderReady();
+    expect(screen.getByTestId("chart")).toBeTruthy();
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({ preview: true }),
+    );
+  });
+
+  it("draws the full chart, axes included, when it is not a thumbnail", () => {
+    renderReady(false);
+    expect(screen.getByTestId("chart")).toBeTruthy();
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        preview: false,
+        // Axis titles name the field, not its column alias.
+        encoding: expect.objectContaining({ xLabel: "Revenue" }),
+      }),
+    );
+  });
+});

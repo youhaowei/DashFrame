@@ -7,7 +7,7 @@ import { queryStatus } from "@/data/query-status";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { api } from "@dashframe/convex-backend/api";
-import { reportMeasureFormats } from "@dashframe/engine";
+import { getMetricDisplayLabel, reportMeasureFormats } from "@dashframe/engine";
 import type {
   ChartEncoding,
   DataTable,
@@ -17,12 +17,30 @@ import type {
   InsightPresentation,
   Visualization,
 } from "@dashframe/types";
+import { parseEncoding } from "@dashframe/types";
 import { Chart } from "@dashframe/visualization";
 
 import { Spinner } from "@wystack/ui-react";
 import { useMemo } from "react";
 
 import { VisualizationErrorBoundary } from "./VisualizationErrorBoundary";
+
+/** Axis and legend titles: the field or measure name, never a column alias. */
+function encodingLabel(
+  value: string | undefined,
+  fields: readonly Field[],
+  metrics: Insight["metrics"],
+): string | undefined {
+  const parsed = parseEncoding(value);
+  if (parsed?.type === "field") {
+    return fields.find((field) => field.id === parsed.id)?.name;
+  }
+  if (parsed?.type === "metric") {
+    const metric = metrics.find((candidate) => candidate.id === parsed.id);
+    return metric ? getMetricDisplayLabel(metric, [...fields]) : undefined;
+  }
+  return undefined;
+}
 
 const PREVIEW_HEIGHT = 200; // px
 
@@ -41,6 +59,12 @@ interface VisualizationPreviewProps {
   height?: number | "container";
   /** Fallback element to show when data can't be loaded */
   fallback?: React.ReactNode;
+  /**
+   * Draw the chart as a card thumbnail, without axes, legends or padding
+   * (default). Pass false where the chart is the thing being read, such as
+   * the insight workbench canvas.
+   */
+  thumbnail?: boolean;
   /** Reuse a parent materialization when the preview sits beside its table. */
   materialization?: {
     insight: Insight;
@@ -54,10 +78,10 @@ interface VisualizationPreviewProps {
 }
 
 /**
- * Renders a small preview of a visualization for use in cards and lists.
- *
- * Uses Chart with preview mode enabled for minimal chrome
- * (no axes, legends, or padding).
+ * Renders a visualization from its saved Insight. By default it is a card
+ * thumbnail: Chart's preview mode, with no axes, legends, or padding. Pass
+ * `thumbnail={false}` where the chart is read at full size, as on the insight
+ * workbench canvas, to draw axes with readable titles.
  *
  * This component is self-contained: it fetches the insight and creates
  * the DuckDB view if needed using useInsightView. This unifies the approach
@@ -144,6 +168,7 @@ function VisualizationPreviewContent({
   visualization,
   height = PREVIEW_HEIGHT,
   fallback = null,
+  thumbnail = true,
 }: VisualizationPreviewProps) {
   // Fetch the insight for this visualization
   const { data: insight, isLoading: isLoadingInsight } = queryStatus(
@@ -206,6 +231,7 @@ function VisualizationPreviewContent({
       visualization={visualization}
       height={height}
       fallback={fallback}
+      thumbnail={thumbnail}
       insight={insight}
       dataTable={dataTable}
       instanceAwareFields={instanceAwareFields}
@@ -222,6 +248,7 @@ function ResolvedVisualizationPreview({
   visualization,
   height = PREVIEW_HEIGHT,
   fallback = null,
+  thumbnail = true,
   insight,
   dataTable,
   instanceAwareFields,
@@ -230,7 +257,10 @@ function ResolvedVisualizationPreview({
   error,
   isLoadingInsight,
   presentationApplied = false,
-}: Pick<VisualizationPreviewProps, "visualization" | "height" | "fallback"> & {
+}: Pick<
+  VisualizationPreviewProps,
+  "visualization" | "height" | "fallback" | "thumbnail"
+> & {
   insight: Insight | null | undefined;
   dataTable: DataTable | undefined;
   instanceAwareFields: Field[];
@@ -280,6 +310,26 @@ function ResolvedVisualizationPreview({
       // Pass through date transforms for temporal bar charts
       xTransform: visualization.encoding.xTransform,
       yTransform: visualization.encoding.yTransform,
+      xLabel: encodingLabel(
+        visualization.encoding.x,
+        context.fields,
+        context.metrics,
+      ),
+      yLabel: encodingLabel(
+        visualization.encoding.y,
+        context.fields,
+        context.metrics,
+      ),
+      colorLabel: encodingLabel(
+        visualization.encoding.color,
+        context.fields,
+        context.metrics,
+      ),
+      sizeLabel: encodingLabel(
+        visualization.encoding.size,
+        context.fields,
+        context.metrics,
+      ),
     };
   }, [
     visualization.encoding,
@@ -349,7 +399,7 @@ function ResolvedVisualizationPreview({
         measureFormats={reportMeasureFormats(insight)}
         width="container"
         height="container"
-        preview
+        preview={thumbnail}
         className="h-full w-full"
       />
     </div>
