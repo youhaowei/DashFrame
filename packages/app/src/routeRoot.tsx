@@ -20,7 +20,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { WebMCPProvider } from "@/components/webmcp/WebMCPProvider";
 import { PlatformProvider } from "@/lib/platform";
 import { Outlet, useLocation } from "@tanstack/react-router";
-import { TooltipProvider } from "@wystack/ui-react";
+import { Stage, TooltipProvider } from "@wystack/ui-react";
 import { Toaster } from "sonner";
 
 /**
@@ -70,7 +70,9 @@ function Shell() {
         className="relative flex min-h-0 flex-1 flex-row gap-[var(--surface-inset)] px-[var(--surface-inset)] pb-[var(--surface-inset)]"
       >
         <Navigation />
-        <Outlet />
+        <Stage>
+          <Outlet />
+        </Stage>
         <ShellRails shellWidth={shellWidth} />
       </div>
     </div>
