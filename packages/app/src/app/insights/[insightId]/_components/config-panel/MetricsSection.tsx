@@ -15,8 +15,6 @@ import {
   Alert,
   AlertDescription,
   Button,
-  Field,
-  FieldLabel,
   FieldSeparator,
   Input,
   Label,
@@ -339,10 +337,10 @@ function MetricEditor({
         )}
         {!metric && onReuse && savedMeasures.length > 0 && (
           <>
-            <Field>
-              <FieldLabel htmlFor="metric-reuse-saved">
+            <div className="space-y-1.5">
+              <Label htmlFor="metric-reuse-saved">
                 Start from a saved measure
-              </FieldLabel>
+              </Label>
               <Select
                 value={null}
                 disabled={isSaving}
@@ -365,8 +363,12 @@ function MetricEditor({
                   ))}
                 </SelectContent>
               </Select>
-            </Field>
-            <FieldSeparator>or define a new one</FieldSeparator>
+            </div>
+            {/* The separator's own negative margins suit field groups; this
+                popover spaces its rows, so give it room back. */}
+            <div className="py-1">
+              <FieldSeparator>or define a new one</FieldSeparator>
+            </div>
           </>
         )}
         <MeasureCalculationFields
