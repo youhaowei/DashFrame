@@ -71,10 +71,9 @@ test.describe("Chart Editing", () => {
       await waitForChart();
     }
 
-    // The collapsed Saved charts header summarises the count.
-    const savedCharts = page.getByRole("button", { name: /^Saved charts/ });
-    await savedCharts.click();
-    await expect(savedCharts).toHaveAccessibleName(/1 saved/);
+    // Editing in place kept one saved chart: the canvas tabs are Data, that
+    // chart, and the new-chart slot.
+    await expect(page.getByRole("tab")).toHaveCount(3);
   });
 
   test("keeps an unsaved chart when switching canvas tabs", async ({

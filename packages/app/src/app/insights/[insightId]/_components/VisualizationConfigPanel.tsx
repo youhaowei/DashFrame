@@ -32,21 +32,16 @@ import {
   useWorkbenchPaneSections,
 } from "@dashframe/ui";
 import { Button, Tooltip, cn } from "@wystack/ui-react";
-import { BarChart3, Bookmark, Crosshair } from "lucide-react";
+import { BarChart3, Crosshair } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 
-const VISUALIZATION_SECTION_IDS = [
-  "chart-type",
-  "encodings",
-  "saved-charts",
-] as const;
+const VISUALIZATION_SECTION_IDS = ["chart-type", "encodings"] as const;
 type VisualizationSection = (typeof VISUALIZATION_SECTION_IDS)[number];
 
 const VISUALIZATION_SECTIONS = [
   { id: "chart-type", label: "Chart type", icon: BarChart3 },
   { id: "encodings", label: "Encodings", icon: Crosshair },
-  { id: "saved-charts", label: "Saved charts", icon: Bookmark },
 ] as const;
 
 export const INSIGHT_CANVAS_CHART_TYPES: VisualizationType[] = [
@@ -70,7 +65,6 @@ interface VisualizationConfigPanelProps {
   ) => boolean;
   activeSuggestionEncoding?: ChartEncoding;
   activeVisualization?: Visualization;
-  visualizations: Visualization[];
   compiledInsight: CompiledInsight;
   dataTable: DataTable;
   availableFields: Field[];
@@ -82,7 +76,6 @@ interface VisualizationConfigPanelProps {
   onRetryEncodings?: () => void;
   onPendingVisualizationChange?: (pending: boolean) => void;
   onSelectChartType: (chartType: VisualizationType) => void;
-  onSelectVisualization: (visualizationId: UUID) => void;
   updateVisualization: (args: {
     id: UUID;
     updates: Partial<
@@ -374,7 +367,6 @@ export function VisualizationConfigPanel({
   canChangeChartType,
   activeSuggestionEncoding,
   activeVisualization,
-  visualizations,
   compiledInsight,
   dataTable,
   availableFields,
@@ -386,7 +378,6 @@ export function VisualizationConfigPanel({
   onRetryEncodings,
   onPendingVisualizationChange,
   onSelectChartType,
-  onSelectVisualization,
   updateVisualization,
 }: VisualizationConfigPanelProps) {
   const {
@@ -558,41 +549,6 @@ export function VisualizationConfigPanel({
             "encodings",
             activeVisualization ? "Editable" : "Read-only",
             encodingContent,
-          )}
-          {renderSection(
-            "saved-charts",
-            `${visualizations.length} saved`,
-            visualizations.length > 0 ? (
-              <div className="space-y-1">
-                {visualizations.map((visualization) => {
-                  const Icon = CHART_ICONS[visualization.visualizationType];
-                  const selected = activeVisualization?.id === visualization.id;
-                  return (
-                    <Button
-                      key={visualization.id}
-                      size="sm"
-                      variant="ghost"
-                      active={selected}
-                      aria-pressed={selected}
-                      label={visualization.name}
-                      onClick={() => onSelectVisualization(visualization.id)}
-                      className={cn(
-                        "w-full justify-start",
-                        selected &&
-                          "bg-neutral-bg-emphasis hover:bg-neutral-bg-emphasis",
-                      )}
-                    >
-                      <Icon size={14} aria-hidden />
-                      <span className="truncate">{visualization.name}</span>
-                    </Button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="px-1 py-2 text-neutral-fg-subtle">
-                Save a chart to reuse it in reports.
-              </p>
-            ),
           )}
         </div>
       </OverlayScrollArea>
