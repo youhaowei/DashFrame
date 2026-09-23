@@ -2,7 +2,7 @@
  * Report item pane — the attached right pane for the item selected on a report.
  *
  * A chart item gets the same chart configuration as the insight workbench's
- * Visualization pane (chart type, encodings, saved charts). Edits made here are
+ * Visualization pane (chart type, encodings). Edits made here are
  * stored as this item's `visualization` override, so the saved chart and its
  * insight stay unchanged and other reports placing the chart are unaffected.
  * Runtime overrides (filters, sort, limit) stay on the chart cell itself.
@@ -219,9 +219,6 @@ function ChartItemPane({
       savedVisualization={savedVisualization}
       insight={insight}
       authoringTable={authoringTable}
-      insightVisualizations={visualizations.filter(
-        (candidate) => candidate.insightId === insight.id,
-      )}
     />
   );
 }
@@ -242,14 +239,12 @@ function ChartConfig({
   savedVisualization,
   insight,
   authoringTable,
-  insightVisualizations,
 }: {
   item: DashboardItem;
   dashboardId: UUID;
   savedVisualization: Visualization;
   insight: Insight;
   authoringTable: DataTable;
-  insightVisualizations: Visualization[];
 }) {
   const writeReport = useReportWrite();
   const override = item.overrides?.visualization;
@@ -316,24 +311,6 @@ function ChartConfig({
     ],
   );
 
-  const handleSelectVisualization = (visualizationId: UUID) => {
-    if (visualizationId === item.visualizationId) return;
-    writeReport({
-      commands: [
-        cmd("PatchDashboardItemOverride", {
-          dashboardId,
-          itemId: item.id,
-          patch: { kind: "visualization", value: null },
-        }),
-        cmd("UpdateDashboardItem", {
-          dashboardId,
-          itemId: item.id,
-          updates: { visualizationId },
-        }),
-      ],
-    }).catch(() => toast.error("Couldn't switch the chart"));
-  };
-
   const setDisplay = (display: DashboardItemDisplay) => {
     if (display === (item.display ?? "chart")) return;
     writeReport({
@@ -366,7 +343,6 @@ function ChartConfig({
           activeChartType={effectiveVisualization.visualizationType}
           availableChartTypes={availableChartTypes}
           activeVisualization={effectiveVisualization}
-          visualizations={insightVisualizations}
           compiledInsight={options.compiledInsight}
           dataTable={authoringTable}
           availableFields={options.availableFields}
@@ -381,7 +357,6 @@ function ChartConfig({
           // A saved chart is always active here, so the panel never asks for
           // an unsaved suggestion.
           onSelectChartType={() => {}}
-          onSelectVisualization={handleSelectVisualization}
           updateVisualization={updateVisualization}
           leadingSections={
             <ItemDisplaySection

@@ -1834,7 +1834,6 @@ export function InsightView({
               availableChartTypes={availableVisualizationTypes}
               activeSuggestionEncoding={activeChartSuggestion?.encoding}
               activeVisualization={activeVisualization}
-              visualizations={insightVisualizations}
               compiledInsight={compiledInsightForEncodings}
               dataTable={authoringTable}
               availableFields={encodingAvailableFields}
@@ -1849,9 +1848,6 @@ export function InsightView({
               onRetryEncodings={retryEncodings}
               onSelectChartType={(chartType) =>
                 handleSetActiveView(chartView(chartType))
-              }
-              onSelectVisualization={(visualizationId) =>
-                handleSetActiveView(visualizationView(visualizationId))
               }
               updateVisualization={updateVisualization}
             />
