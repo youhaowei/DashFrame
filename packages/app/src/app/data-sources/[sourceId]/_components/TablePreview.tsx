@@ -209,7 +209,6 @@ export function TablePreview({
       columnConfigs={columnConfigs}
       height="100%"
       className="h-full"
-      stickyFirstColumn
       onHeaderClick={(columnName) => {
         const field = fieldByColumn.get(columnName);
         if (field) onSelectField(field.id);

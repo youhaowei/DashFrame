@@ -643,8 +643,11 @@ export function VirtualTable({
                   // After fontSize, which would otherwise drop it. A whole-pixel
                   // line height keeps the sticky header off half-pixel offsets.
                   "leading-4",
-                  // Opaque, so scrolled columns pass under it.
-                  isSticky && "sticky left-0 z-10 bg-neutral-bg-muted",
+                  // Opaque, so scrolled columns pass under it. Its right rule
+                  // appears once columns have scrolled beneath (root > viewport
+                  // > header > cell), so the frozen edge is legible.
+                  isSticky &&
+                    "sticky left-0 z-10 border-r border-transparent bg-neutral-bg-muted transition-colors duration-150 motion-reduce:transition-none [[data-overflow-x-start]>*>*>&]:border-neutral-border",
                   isHighlighted && highlightHeaderStyles[highlightVariant],
                 )}
                 // A host that handles header clicks decides what they do, so
@@ -787,7 +790,7 @@ export function VirtualTable({
                     <div
                       key={col.name}
                       className={cn(
-                        "sticky left-0 z-[1] rounded-l bg-neutral-bg group-hover:bg-neutral-bg-muted",
+                        "sticky left-0 z-[1] rounded-l border-r border-transparent bg-neutral-bg transition-colors duration-150 group-hover:bg-neutral-bg-muted motion-reduce:transition-none [[data-overflow-x-start]>*>*>*>&]:border-neutral-border",
                         virtualRow.index % 2 === 1 && "bg-neutral-bg-subtle",
                       )}
                     >
