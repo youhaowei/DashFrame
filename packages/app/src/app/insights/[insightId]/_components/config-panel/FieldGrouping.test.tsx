@@ -160,6 +160,15 @@ describe("withFieldGrouping", () => {
     });
   });
 
+  it("keeps a pivoted field in place when only its ranking changes", () => {
+    expect(
+      withFieldGrouping({ pivotFields: ["region", "channel"] }, "region", {
+        pivot: true,
+        rank: { direction: "desc", count: 5, measureId: "orders" },
+      }).pivotFields,
+    ).toEqual(["region", "channel"]);
+  });
+
   it("clears only this field's grain, pivot and ranking", () => {
     expect(
       withFieldGrouping(

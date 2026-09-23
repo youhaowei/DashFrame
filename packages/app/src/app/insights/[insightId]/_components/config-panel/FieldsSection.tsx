@@ -123,8 +123,12 @@ export function withFieldGrouping(
   const dateGrains = { ...next.dateGrains };
   if (grain) dateGrains[fieldId] = grain;
   else delete dateGrains[fieldId];
-  const pivotFields = (next.pivotFields ?? []).filter((id) => id !== fieldId);
-  if (pivot) pivotFields.push(fieldId);
+  const current = next.pivotFields ?? [];
+  const pivotFields = pivot
+    ? current.includes(fieldId)
+      ? current
+      : [...current, fieldId]
+    : current.filter((id) => id !== fieldId);
   // A report ranks one field, so ranking this one replaces the other.
   if (rank) next.topN = { fieldId, ...rank };
   else if (next.topN?.fieldId === fieldId) delete next.topN;
@@ -382,6 +386,7 @@ function FieldRenameEditor({
             {grouping.rank && (
               <NumberField
                 label="Number of values"
+                errorId={countError ? `${countId}-error` : undefined}
                 value={
                   Number.isNaN(grouping.rank.count)
                     ? undefined

@@ -311,6 +311,22 @@ describe("reportEncoding with a pivot", () => {
     ).toBeUndefined();
   });
 
+  it("colors by the pivot the table nests first", () => {
+    const twoPivots = {
+      ...insight,
+      selectedFields: ["date", "region", "channel"],
+      reporting: { pivotFields: ["channel", "region"] },
+    } as Insight;
+    expect(
+      reportEncoding(
+        { x: "field:date", y: "metric:orders" },
+        twoPivots,
+        undefined,
+        fields,
+      ).color,
+    ).toBe("field:region");
+  });
+
   it("ignores a pivot the viewer's run leaves out", () => {
     expect(
       reportEncoding(

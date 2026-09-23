@@ -174,9 +174,9 @@ function withPivotColor(
   const drawn = new Set(
     [result.x, result.y, result.size].map((value) => parseEncoding(value)?.id),
   );
-  const pivot = insight.reporting?.pivotFields?.find(
-    (id) => selected.includes(id) && !drawn.has(id),
-  );
+  // Selected order, which is how the table nests its pivot columns.
+  const pivots = new Set(insight.reporting?.pivotFields);
+  const pivot = selected.find((id) => pivots.has(id) && !drawn.has(id));
   if (pivot) result.color = fieldEncoding(pivot);
 }
 

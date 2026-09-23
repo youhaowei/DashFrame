@@ -58,16 +58,21 @@ export function NumberField({
   label,
   value,
   onChange,
+  errorId,
 }: {
   label: string;
   value: number | undefined;
   onChange: (value: number | undefined) => void;
+  /** Id of the error shown for this value, when there is one. */
+  errorId?: string;
 }) {
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
       <Input
         aria-label={label}
+        aria-invalid={errorId !== undefined}
+        aria-describedby={errorId}
         type="number"
         min={1}
         step={1}
