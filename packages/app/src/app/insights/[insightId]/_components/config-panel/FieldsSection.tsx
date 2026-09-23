@@ -42,6 +42,7 @@ import {
   TextTypeIcon,
 } from "@wystack/ui-react/icons";
 import { useCallback, useState, type ReactNode } from "react";
+import { NumberField } from "./ReportSettings";
 import { ViewerChoiceCheckbox, ViewerChoiceMark } from "./ViewerChoice";
 import { useSaveDismissGuard, useSavingFlag } from "./use-save-dismiss-guard";
 
@@ -344,66 +345,55 @@ function FieldRenameEditor({
         {onConfigure && measures.length > 0 && (
           <div className="space-y-1.5">
             <Label>Keep</Label>
-            <div className="flex gap-2">
-              <Select
-                value={grouping.rank?.direction ?? "all"}
-                onValueChange={(value) =>
+            <Select
+              value={grouping.rank?.direction ?? "all"}
+              onValueChange={(value) =>
+                update({
+                  rank:
+                    value === "asc" || value === "desc"
+                      ? {
+                          count: grouping.rank?.count ?? 10,
+                          measureId:
+                            grouping.rank?.measureId ?? measures[0]!.id,
+                          direction: value,
+                        }
+                      : undefined,
+                })
+              }
+            >
+              <SelectTrigger aria-label="Keep">
+                <SelectValue>
+                  {
+                    RANKS.find(
+                      (item) =>
+                        item.value === (grouping.rank?.direction ?? "all"),
+                    )?.label
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {RANKS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {grouping.rank && (
+              <NumberField
+                label="Number of values"
+                value={
+                  Number.isNaN(grouping.rank.count)
+                    ? undefined
+                    : grouping.rank.count
+                }
+                onChange={(count) =>
                   update({
-                    rank:
-                      value === "asc" || value === "desc"
-                        ? {
-                            count: grouping.rank?.count ?? 10,
-                            measureId:
-                              grouping.rank?.measureId ?? measures[0]!.id,
-                            direction: value,
-                          }
-                        : undefined,
+                    rank: { ...grouping.rank!, count: count ?? Number.NaN },
                   })
                 }
-              >
-                <SelectTrigger aria-label="Keep" className="flex-1">
-                  <SelectValue>
-                    {
-                      RANKS.find(
-                        (item) =>
-                          item.value === (grouping.rank?.direction ?? "all"),
-                      )?.label
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {RANKS.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                      {item.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {grouping.rank && (
-                <Input
-                  id={countId}
-                  aria-label="Number of values"
-                  aria-invalid={countError !== null}
-                  aria-describedby={countError ? `${countId}-error` : undefined}
-                  inputMode="numeric"
-                  className="w-20"
-                  value={
-                    Number.isNaN(grouping.rank.count) ? "" : grouping.rank.count
-                  }
-                  onChange={(event) =>
-                    update({
-                      rank: {
-                        ...grouping.rank!,
-                        count:
-                          event.target.value.trim() === ""
-                            ? Number.NaN
-                            : Number(event.target.value),
-                      },
-                    })
-                  }
-                />
-              )}
-            </div>
+              />
+            )}
             {countError && (
               <FieldError id={`${countId}-error`}>{countError}</FieldError>
             )}

@@ -1267,7 +1267,7 @@ export function InsightConfigPanel({
                     ),
                   });
                 }}
-                measures={visibleMetrics}
+                measures={insight.metrics}
                 selectedFields={selectedFields}
                 availableFields={availableFields}
                 tables={[

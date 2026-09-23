@@ -95,12 +95,14 @@ describe("field grouping", () => {
     expect(screen.getByText("Replaces the ranking on Date.")).toBeTruthy();
     await user.click(screen.getByRole("combobox", { name: "Ranked by" }));
     await user.click(await screen.findByRole("option", { name: "Revenue" }));
-    await user.clear(screen.getByRole("textbox", { name: "Number of values" }));
+    await user.clear(
+      screen.getByRole("spinbutton", { name: "Number of values" }),
+    );
     expect(
       screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
     ).toBe(true);
     await user.type(
-      screen.getByRole("textbox", { name: "Number of values" }),
+      screen.getByRole("spinbutton", { name: "Number of values" }),
       "20",
     );
     await user.click(screen.getByRole("button", { name: "Save" }));

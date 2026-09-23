@@ -54,7 +54,7 @@ function Choice({
     </div>
   );
 }
-function NumberField({
+export function NumberField({
   label,
   value,
   onChange,
