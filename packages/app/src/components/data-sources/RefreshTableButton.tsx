@@ -9,9 +9,11 @@ import { toast } from "sonner";
 export function RefreshTableButton({
   tableId,
   tableName,
+  size,
 }: {
   tableId: UUID;
   tableName: string;
+  size?: "sm";
 }) {
   const { mutateAsync: refreshDataTable } = useHostMutation("refreshDataTable");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -36,6 +38,7 @@ export function RefreshTableButton({
       label={isRefreshing ? "Refreshing…" : "Refresh"}
       icon={RefreshIcon}
       variant="outline"
+      size={size}
       disabled={isRefreshing}
       onClick={refresh}
     />

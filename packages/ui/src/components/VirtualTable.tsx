@@ -11,8 +11,8 @@ import { OverlayScrollArea } from "./OverlayScrollArea";
 // Types
 // ============================================================================
 
-/** Highlight variant for columns */
-type HighlightVariant = "primary" | "base" | "join" | "both";
+/** Highlight variant for columns; `selected` marks the column being inspected. */
+type HighlightVariant = "primary" | "base" | "join" | "both" | "selected";
 
 /**
  * Per-column configuration for customizing individual columns
@@ -76,6 +76,11 @@ export interface VirtualTableProps {
   pageSize?: number;
   /** Smaller padding/font for dense views */
   compact?: boolean;
+  /**
+   * Keep the first visible column in view while the grid scrolls sideways, so
+   * a wide table's rows stay identifiable.
+   */
+  stickyFirstColumn?: boolean;
   /** Additional className for the container */
   className?: string;
 
@@ -129,6 +134,7 @@ export function VirtualTable({
   height = 400,
   pageSize = 100,
   compact = false,
+  stickyFirstColumn = false,
   className,
   onCellClick,
   onHeaderClick,
@@ -524,6 +530,7 @@ export function VirtualTable({
     base: "bg-palette-info text-palette-info-fg font-semibold",
     join: "bg-palette-success text-palette-success-fg font-semibold",
     both: "bg-palette-warning text-palette-warning-fg font-semibold",
+    selected: "bg-neutral-bg-emphasis text-neutral-fg font-semibold",
   };
 
   const highlightCellStyles = {
@@ -531,6 +538,7 @@ export function VirtualTable({
     base: "bg-palette-info/10",
     join: "bg-palette-success/10",
     both: "bg-palette-warning/10",
+    selected: "bg-neutral-bg-muted",
   };
 
   // Get row data by index
@@ -595,8 +603,9 @@ export function VirtualTable({
           style={{ gridTemplateColumns }}
         >
           <div aria-hidden="true" />
-          {visibleColumns.map((col) => {
+          {visibleColumns.map((col, columnIndex) => {
             const config = configMap.get(col.name);
+            const isSticky = stickyFirstColumn && columnIndex === 0;
             const highlight = config?.highlight;
             const isHighlighted = !!highlight;
             const highlightVariant =
@@ -621,10 +630,19 @@ export function VirtualTable({
                   // After fontSize, which would otherwise drop it. A whole-pixel
                   // line height keeps the sticky header off half-pixel offsets.
                   "leading-4",
+                  // Opaque, so scrolled columns pass under it.
+                  isSticky && "sticky left-0 z-10 bg-neutral-bg-muted",
                   isHighlighted && highlightHeaderStyles[highlightVariant],
                 )}
-                title={`Sort by ${columnLabel}`}
-                aria-label={`Sort by ${columnLabel}${sortedSuffix}`}
+                // A host that handles header clicks decides what they do, so
+                // the header names only its column rather than promise a sort.
+                title={onHeaderClick ? columnLabel : `Sort by ${columnLabel}`}
+                aria-label={
+                  onHeaderClick
+                    ? columnLabel
+                    : `Sort by ${columnLabel}${sortedSuffix}`
+                }
+                aria-pressed={onHeaderClick ? isHighlighted : undefined}
                 onClick={() => handleSort(col.name)}
               >
                 <div className="flex items-center gap-1">
@@ -682,7 +700,7 @@ export function VirtualTable({
               <div
                 key={virtualRow.index}
                 className={cn(
-                  "absolute inset-x-1 grid min-w-fit rounded hover:bg-neutral-bg-muted",
+                  "group absolute inset-x-1 grid min-w-fit rounded hover:bg-neutral-bg-muted",
                   virtualRow.index % 2 === 1 && "bg-neutral-bg-subtle",
                 )}
                 style={{
@@ -701,8 +719,9 @@ export function VirtualTable({
                 >
                   {virtualRow.index + 1}
                 </div>
-                {visibleColumns.map((col) => {
+                {visibleColumns.map((col, columnIndex) => {
                   const config = configMap.get(col.name);
+                  const isSticky = stickyFirstColumn && columnIndex === 0;
                   const highlight = config?.highlight;
                   const isHighlighted = !!highlight;
                   const highlightVariant =
@@ -715,13 +734,14 @@ export function VirtualTable({
                     : defaultFormatValue(rawValue, col.type);
                   const isClickable = !!onCellClick;
 
-                  return (
+                  const cell = (
                     <div
                       key={col.name}
                       className={cn(
                         "text-neutral-fg",
                         cellPadding,
                         fontSize,
+                        isSticky && "h-full",
                         isHighlighted && highlightCellStyles[highlightVariant],
                         isClickable && "cursor-pointer",
                         align === "right" && "text-right",
@@ -738,6 +758,21 @@ export function VirtualTable({
                       <div className="flex min-w-0 items-center overflow-hidden">
                         <span className="truncate">{cellValue}</span>
                       </div>
+                    </div>
+                  );
+                  if (!isSticky) return cell;
+                  // The sticky cell repeats the row's fill opaquely, so the
+                  // columns scrolling under it never show through; a
+                  // highlight stays a tint on top of that fill.
+                  return (
+                    <div
+                      key={col.name}
+                      className={cn(
+                        "sticky left-0 z-[1] rounded-l bg-neutral-bg group-hover:bg-neutral-bg-muted",
+                        virtualRow.index % 2 === 1 && "bg-neutral-bg-subtle",
+                      )}
+                    >
+                      {cell}
                     </div>
                   );
                 })}
