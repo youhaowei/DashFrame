@@ -231,7 +231,7 @@ test.describe("compound-insight field/metric editing", () => {
     await nameInput.clear();
     await nameInput.fill("Row Count");
 
-    await editDialog.getByRole("button", { name: "Save" }).click();
+    await editDialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(editDialog).not.toBeVisible({ timeout: 5_000 });
     await expectMetricSaved(page, "Row Count", true);
 
