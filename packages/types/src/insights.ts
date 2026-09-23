@@ -177,6 +177,11 @@ export type InsightFetchDefinition = Pick<
  * the authority for field, operator, default, and type.
  */
 export interface InsightRuntimeDeclaration {
+  /**
+   * Fields and measures a viewer may turn on or off. The rest of the saved
+   * selection is fixed and stays in every run; `maxSelected` caps only the
+   * viewer's picks, not the whole selection.
+   */
   dimensions?: { allowedIds: UUID[]; maxSelected: number };
   measures?: { allowedIds: UUID[]; maxSelected: number };
   filters?: Array<{
@@ -269,6 +274,32 @@ export function isUnmodifiedDraft(insight: InsightDraftShape): boolean {
     (insight.sorts?.length ?? 0) === 0 &&
     (insight.joins?.length ?? 0) === 0
   );
+}
+
+/**
+ * Viewer choices name the fields or measures a viewer may turn on or off.
+ * Everything else the saved insight shows is fixed: it stays in every
+ * viewer's result, and a runtime selection must keep it. Shared by the
+ * runtime controls and the server check so the two can never disagree.
+ */
+export function fixedRuntimeIds(
+  saved: Pick<
+    Insight,
+    "selectedFields" | "metrics" | "reporting" | "runtimeControls"
+  >,
+  kind: "dimensions" | "measures",
+): UUID[] {
+  const control = saved.runtimeControls?.[kind];
+  // Without a declaration a viewer can change nothing, so nothing is marked
+  // fixed either; the host refuses any selection for that kind.
+  if (!control) return [];
+  const optional = new Set(control.allowedIds);
+  const shown =
+    kind === "dimensions"
+      ? saved.selectedFields
+      : (saved.reporting?.measureIds ??
+        saved.metrics.map((metric) => metric.id));
+  return shown.filter((id) => !optional.has(id));
 }
 
 /**

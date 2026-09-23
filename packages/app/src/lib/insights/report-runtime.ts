@@ -1,10 +1,74 @@
-import { fieldEncoding, metricEncoding, parseEncoding } from "@dashframe/types";
+import {
+  fieldEncoding,
+  fixedRuntimeIds,
+  metricEncoding,
+  parseEncoding,
+} from "@dashframe/types";
 import type {
   Field,
   Insight,
   InsightRuntimeInput,
+  UUID,
   VisualizationEncoding,
 } from "@dashframe/types";
+
+/**
+ * The viewer's picks plus everything the saved report always shows, in the
+ * saved order, with picks the report doesn't show by default appended.
+ */
+export function withFixedIds(
+  saved: readonly UUID[],
+  fixed: readonly UUID[],
+  picked: readonly string[],
+): UUID[] {
+  const keep = new Set<string>([...fixed, ...picked]);
+  return [
+    ...saved.filter((id) => keep.has(id)),
+    ...(picked.filter((id) => !saved.includes(id as UUID)) as UUID[]),
+  ];
+}
+
+/**
+ * Rebuilds a viewer's field and measure picks against the insight as it is
+ * now. The fixed part of a selection comes from the saved insight, so an
+ * author edit made after the viewer chose would otherwise leave a request the
+ * host refuses. Picks that are no longer viewer choices are dropped.
+ */
+export function currentViewerRuntime(
+  insight: Insight,
+  runtime: InsightRuntimeInput | undefined,
+): InsightRuntimeInput | undefined {
+  if (!runtime?.dimensions && !runtime?.measures) return runtime;
+  const next = { ...runtime };
+  const savedMeasures =
+    insight.reporting?.measureIds ?? insight.metrics.map((metric) => metric.id);
+  const kinds = [
+    ["dimensions", insight.selectedFields],
+    ["measures", savedMeasures],
+  ] as const;
+  for (const [kind, saved] of kinds) {
+    const picks = runtime[kind];
+    if (!picks) continue;
+    const control = insight.runtimeControls?.[kind];
+    if (!control) {
+      delete next[kind];
+      continue;
+    }
+    const fixed = fixedRuntimeIds(insight, kind);
+    // The author may have lowered the cap, or turned a fixed field the viewer
+    // kept into a choice, since the viewer picked.
+    const optional = picks
+      .filter((id) => control.allowedIds.includes(id) && !fixed.includes(id))
+      .slice(0, control.maxSelected);
+    const rebuilt = withFixedIds(saved, fixed, optional);
+    // A viewer who hid every field sees the metrics alone. Otherwise nothing
+    // the viewer picked is left, so fall back to the saved report.
+    const hidAllFields = kind === "dimensions" && picks.length === 0;
+    if (rebuilt.length === 0 && !hidAllFields) delete next[kind];
+    else next[kind] = rebuilt;
+  }
+  return next;
+}
 
 /** Presentation metadata for a server-executed selection; never a new query. */
 export function reportPresentation(
@@ -67,10 +131,13 @@ function rebindRemovedField(
   usedDimensions: Set<string>,
 ) {
   if (!dimensions || dimensions.includes(currentId)) return;
+  // Only viewer choices come and go, so a replacement is matched among them;
+  // fixed fields would otherwise shift the positions.
+  const fixed = fixedRuntimeIds(insight, "dimensions");
   const replacement = positionalReplacement(
     currentId,
-    insight.selectedFields,
-    dimensions,
+    insight.selectedFields.filter((id) => !fixed.includes(id)),
+    dimensions.filter((id) => !fixed.includes(id as UUID)),
     usedDimensions,
   );
   rebindField(result, channel, replacement, fields);
@@ -83,13 +150,14 @@ function rebindRemovedMetric(
   currentId: string,
   measures: string[] | undefined,
   previousMeasures: readonly string[],
+  fixedMeasures: readonly string[],
   usedMeasures: Set<string>,
 ) {
   if (!measures || measures.includes(currentId)) return;
   const replacement = positionalReplacement(
     currentId,
-    previousMeasures,
-    measures,
+    previousMeasures.filter((id) => !fixedMeasures.includes(id)),
+    measures.filter((id) => !fixedMeasures.includes(id)),
     usedMeasures,
   );
   result[channel] = replacement ? metricEncoding(replacement) : undefined;
@@ -115,6 +183,7 @@ export function reportEncoding(
     insight.reporting?.measureIds ??
     insight.metrics?.map((metric) => metric.id) ??
     [];
+  const fixedMeasures = fixedRuntimeIds(insight, "measures");
   const usedDimensions = new Set(
     parsedChannels.flatMap(({ parsed }) =>
       parsed?.type === "field" && dimensions?.includes(parsed.id)
@@ -148,6 +217,7 @@ export function reportEncoding(
         parsed.id,
         measures,
         previousMeasures,
+        fixedMeasures,
         usedMeasures,
       );
     }

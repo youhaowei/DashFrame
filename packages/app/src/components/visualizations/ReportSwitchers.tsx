@@ -1,4 +1,6 @@
 import type { Field, Insight, InsightRuntimeInput } from "@dashframe/types";
+import { withFixedIds } from "@/lib/insights/report-runtime";
+import { fixedRuntimeIds } from "@dashframe/types";
 import { WorkbenchCheckbox } from "@dashframe/ui";
 import {
   Button,
@@ -65,7 +67,10 @@ export function ReportSelectionMenu({
             type="button"
             className="rounded-md bg-neutral-bg-subtle px-3 py-2 text-xs transition-colors hover:bg-neutral-bg-muted"
           >
-            {label} · {selected.length}
+            {/* A count only means something when several can be picked. */}
+            {maximum > 1
+              ? `${label} · ${selected.length} of ${options.length}`
+              : label}
           </button>
         }
       />
@@ -88,7 +93,9 @@ export function ReportSelectionMenu({
           </label>
         ))}
         <p className="text-xs text-neutral-fg-subtle">
-          Choose {minimum}–{maximum}.
+          {minimum > 0
+            ? `Choose ${minimum}–${maximum}.`
+            : `Choose up to ${maximum}.`}
         </p>
         {error && (
           <p role="alert" className="text-xs text-palette-danger">
@@ -130,6 +137,8 @@ export function ReportSwitchers({
   const dimensions = insight?.runtimeControls?.dimensions;
   const measures = insight?.runtimeControls?.measures;
   if (!insight || (!dimensions && !measures)) return null;
+  const savedMeasures =
+    insight.reporting?.measureIds ?? insight.metrics.map((metric) => metric.id);
   return (
     <div
       className="flex shrink-0 flex-wrap items-center gap-2 px-2 py-2"
@@ -137,30 +146,47 @@ export function ReportSwitchers({
     >
       {dimensions && (
         <ReportSelectionMenu
-          label="Dimensions"
+          label="Fields"
           options={fields
             .filter((field) => dimensions.allowedIds.includes(field.id))
             .map((field) => ({ id: field.id, label: field.name }))}
-          selected={runtime?.dimensions ?? insight.selectedFields}
-          minimum={1}
+          selected={(runtime?.dimensions ?? insight.selectedFields).filter(
+            (id) => dimensions.allowedIds.includes(id),
+          )}
           maximum={dimensions.maxSelected}
-          onApply={(ids) => onChange({ ...runtime, dimensions: ids })}
+          onApply={(ids) =>
+            onChange({
+              ...runtime,
+              dimensions: withFixedIds(
+                insight.selectedFields,
+                fixedRuntimeIds(insight, "dimensions"),
+                ids,
+              ),
+            })
+          }
         />
       )}
       {measures && (
         <ReportSelectionMenu
-          label="Measures"
+          label="Metrics"
           options={insight.metrics
             .filter((metric) => measures.allowedIds.includes(metric.id))
             .map((metric) => ({ id: metric.id, label: metric.name }))}
-          selected={
-            runtime?.measures ??
-            insight.reporting?.measureIds ??
-            insight.metrics.map((metric) => metric.id)
-          }
-          minimum={1}
+          selected={(runtime?.measures ?? savedMeasures).filter((id) =>
+            measures.allowedIds.includes(id),
+          )}
+          minimum={fixedRuntimeIds(insight, "measures").length ? 0 : 1}
           maximum={measures.maxSelected}
-          onApply={(ids) => onChange({ ...runtime, measures: ids })}
+          onApply={(ids) =>
+            onChange({
+              ...runtime,
+              measures: withFixedIds(
+                savedMeasures,
+                fixedRuntimeIds(insight, "measures"),
+                ids,
+              ),
+            })
+          }
         />
       )}
       {runtime && (

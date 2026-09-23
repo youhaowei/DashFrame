@@ -397,6 +397,65 @@ describe("applyInsightRuntime", () => {
     ).toThrow("RUNTIME_SELECTION_NOT_ALLOWED");
   });
 
+  it("keeps the saved fields and measures that are not viewer choices", () => {
+    const saved: Insight = {
+      ...insight,
+      selectedFields: ["region", "date"],
+      metrics: [
+        {
+          id: "orders",
+          name: "Orders",
+          sourceTable: "table-1",
+          aggregation: "count",
+        },
+        {
+          id: "rate",
+          name: "Rate",
+          sourceTable: "table-1",
+          aggregation: "count",
+        },
+      ],
+      runtimeControls: {
+        // Only date and product are viewer choices; region always shows.
+        dimensions: { allowedIds: ["date", "product"], maxSelected: 2 },
+        measures: { allowedIds: ["rate"], maxSelected: 1 },
+      },
+    };
+    const result = applyInsightRuntime(saved, {
+      dimensions: ["region", "product"],
+      measures: ["orders"],
+    });
+    expect(result.selectedFields).toEqual(["region", "product"]);
+    expect(result.reporting?.measureIds).toEqual(["orders"]);
+    // The cap counts only the viewer's picks, never the fixed fields.
+    expect(
+      applyInsightRuntime(saved, {
+        dimensions: ["region", "date", "product"],
+      }).selectedFields,
+    ).toEqual(["region", "date", "product"]);
+    const oneChoice: Insight = {
+      ...saved,
+      runtimeControls: {
+        dimensions: { allowedIds: ["date", "product"], maxSelected: 1 },
+      },
+    };
+    expect(() =>
+      applyInsightRuntime(oneChoice, {
+        dimensions: ["region", "date", "product"],
+      }),
+    ).toThrow("RUNTIME_SELECTION_NOT_ALLOWED");
+    for (const runtime of [
+      // Dropping a fixed field or measure is refused.
+      { dimensions: ["date"] },
+      { measures: ["rate"] },
+      // A field outside the saved selection must be a viewer choice.
+      { dimensions: ["region", "country"] },
+    ])
+      expect(() => applyInsightRuntime(saved, runtime)).toThrow(
+        "RUNTIME_SELECTION_NOT_ALLOWED",
+      );
+  });
+
   it("uses only declared keys while retaining saved field and operator", () => {
     expect(
       applyInsightRuntime(insight, { filters: { region: "CA" } }).filters,

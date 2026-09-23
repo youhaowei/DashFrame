@@ -4,6 +4,7 @@ import {
 } from "@/lib/insights/chart-presentation";
 import { ReportSwitchers } from "./ReportSwitchers";
 import {
+  currentViewerRuntime,
   reportPresentation,
   reportEncoding,
 } from "@/lib/insights/report-runtime";
@@ -441,8 +442,15 @@ function VisualizationDisplayContent({
     [dataTables, insight, insights, overrides],
   );
 
-  const { runtime: viewerRuntime, onChange: setViewerRuntime } =
+  const { runtime: storedViewerRuntime, onChange: setViewerRuntime } =
     useViewerRuntime(visualizationId);
+  const viewerRuntime = useMemo(
+    () =>
+      insight
+        ? currentViewerRuntime(insight, storedViewerRuntime)
+        : storedViewerRuntime,
+    [insight, storedViewerRuntime],
+  );
   const effectiveRuntime = useMemo(
     () =>
       viewerRuntime
