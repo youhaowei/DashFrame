@@ -5,7 +5,7 @@ import {
   FLAG_COLORS,
   FLAG_LABELS,
   KIND_LABELS,
-} from "@/components/preview-diff/PreviewDiffRenderer";
+} from "@/components/preview-diff/change-details";
 import { previewFailureSummary } from "@/components/preview-diff/user-facing-errors";
 import type { PreviewDiff } from "@dashframe/types";
 import { OverlayScrollArea } from "@dashframe/ui";

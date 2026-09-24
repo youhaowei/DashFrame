@@ -1,4 +1,4 @@
-import { KIND_LABELS } from "@/components/preview-diff/PreviewDiffRenderer";
+import { KIND_LABELS } from "@/components/preview-diff/change-details";
 import type { PreviewDiff } from "@dashframe/types";
 import { OverlayScrollArea, WorkbenchPaneHeader } from "@dashframe/ui";
 import { cn } from "@wystack/ui-react";

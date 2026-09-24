@@ -5,7 +5,7 @@ import {
   KIND_LABELS,
   formatValue,
   getChangeDetails,
-} from "@/components/preview-diff/PreviewDiffRenderer";
+} from "@/components/preview-diff/change-details";
 import { OverlayScrollArea, WorkbenchPaneHeader } from "@dashframe/ui";
 import { Badge, Button } from "@wystack/ui-react";
 import { useState, type ReactNode } from "react";

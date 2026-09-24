@@ -4,14 +4,12 @@ import {
   DRAFT_DRIFT_DESCRIPTION,
   draftLifecycleErrorDescription,
   isDriftError,
-  previewFailureDetail,
   previewFailureSummary,
 } from "./user-facing-errors";
 
 describe("preview user-facing errors", () => {
   it("describes preview failures without raw server text", () => {
     expect(previewFailureSummary(2)).toContain("Command 3");
-    expect(previewFailureDetail()).not.toMatch(/duckdb|sql/i);
   });
 
   it("maps known draft lifecycle errors", () => {

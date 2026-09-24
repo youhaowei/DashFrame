@@ -4,9 +4,8 @@
  * graph without writing canonical artifacts. It returns before/after definitions
  * and downstream impact, with credentials redacted.
  *
- * Row data stays outside this contract. Nothing fills the optional `compute`
- * slot today: the Convex preview (`packages/convex-backend/convex/preview.ts`)
- * never sets it, and the drafts review surface reads only the metadata.
+ * Row data stays outside this contract: the diff carries no row counts or
+ * samples.
  */
 
 import type { UUID } from "./uuid";
@@ -54,27 +53,8 @@ export interface PreviewIntent {
 }
 
 /**
- * The optional compute slot: a row count before/after the change plus a
- * `head(n)` sample, so a plausibly-wrong edit is caught by eye, not just read
- * as legible. No producer fills it today. The Convex preview always leaves it
- * `undefined`, and no client step computes it; `PreviewDiffRenderer` displays
- * it only when a caller supplies one.
- */
-export interface PreviewCompute {
-  /** Canonical (pre-change) row count, or null if the node produced no rows before. */
-  rowCountBefore: number | null;
-  /** Proposed (post-change) row count computed from the proposed definition. */
-  rowCountAfter: number | null;
-  /** A `head(n)` sample of the proposed result — column-major rows for the renderer. */
-  head: Array<Record<string, unknown>>;
-  /** Human-readable labels keyed by the SQL aliases used in `head`. */
-  columnLabels?: Record<string, string>;
-}
-
-/**
  * A node a command DIRECTLY touches — fully shown. Carries the intent lines, the
- * before/after definition slices for drill-down, and the (deferred) compute
- * slot. `proposedDefinition` is captured from the evaluated preview graph: it
+ * before/after definition slices for drill-down. `proposedDefinition` is captured from the evaluated preview graph: it
  * contains the full public definition for a `create`, only the changed public
  * fields for an `update`, and no fields for a `noop`. Canonical artifacts remain
  * untouched.
@@ -114,11 +94,6 @@ export interface PreviewDirectNode {
    * `update` (or `{ deleted: true }` for deletion), and empty `{}` for `noop`.
    */
   proposedDefinition: Record<string, unknown>;
-  /**
-   * Optional row-count and sample slot. The Convex preview always leaves it
-   * `undefined`, and nothing fills it afterwards; see `PreviewCompute`.
-   */
-  compute?: PreviewCompute | undefined;
 }
 
 /**
@@ -209,7 +184,7 @@ export interface PreviewError {
  */
 export interface PreviewDiff {
   mode: "preview";
-  /** Nodes commands directly touched — fully shown; `compute` stays absent. */
+  /** Nodes commands directly touched — fully shown. */
   directNodes: PreviewDirectNode[];
   /** Nodes downstream of the touched nodes — flagged only. */
   affectedDownstream: PreviewDownstreamNode[];
