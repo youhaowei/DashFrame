@@ -28,7 +28,7 @@ export const repairGa4MeasureContracts = mutation({
   handler: async (
     ctx,
   ): Promise<{ tablesRepaired: number; insightsRepaired: number }> => {
-    const { workspaceId } = await requireOwner(ctx);
+    const { workspaceId } = await requireHostedMetadataPrincipal(ctx);
     return ctx.runMutation(internal.host.repairGa4MeasureContracts, {
       workspaceId,
     });

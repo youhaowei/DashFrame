@@ -9,3 +9,4 @@ export {
   type GoogleOAuthTokenBundle,
   type PersistTokenBundle,
 } from "./connector.js";
+export { GA4_FIELD_SCOPES, ga4MeasureContract } from "./measure-metadata.js";

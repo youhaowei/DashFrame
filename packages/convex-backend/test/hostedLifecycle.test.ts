@@ -70,6 +70,66 @@ async function credential(workspaceId: string) {
   return host(workspaceId, "service-a", true);
 }
 
+it("lets hosted workspace startup repair a legacy GA4 table with its service credential", async () => {
+  const workspaceId = await admit();
+  const service = await credential(workspaceId);
+  await t.run(async (ctx) => {
+    await ctx.db.insert("dataSources", {
+      workspaceId,
+      id: "ga4-source",
+      revision: 1,
+      name: "Analytics",
+      createdAt: 1,
+      kind: "googleAnalytics",
+      config: { sourceBindingVersion: "v2" },
+    });
+    await ctx.db.insert("dataTables", {
+      workspaceId,
+      id: "ga4-table",
+      revision: 1,
+      name: "Acquisition",
+      createdAt: 1,
+      dataSourceId: "ga4-source",
+      table: "properties/1",
+      fields: [
+        {
+          id: "week",
+          name: "Week",
+          tableId: "ga4-table",
+          columnName: "yearWeek",
+          type: "date",
+        },
+      ],
+      metrics: [
+        {
+          id: "users",
+          tableId: "ga4-table",
+          name: "Renamed users",
+          columnName: "activeUsers",
+          aggregation: "sum",
+        },
+      ],
+    });
+  });
+
+  await expect(
+    service.mutation(api.hostedLifecycle.repairGa4MeasureContracts, {}),
+  ).resolves.toEqual({ tablesRepaired: 1, insightsRepaired: 0 });
+  const repaired = await t.run((ctx) =>
+    ctx.db
+      .query("dataTables")
+      .withIndex("by_workspaceId_and_id", (q) =>
+        q.eq("workspaceId", workspaceId).eq("id", "ga4-table"),
+      )
+      .unique(),
+  );
+  expect(repaired?.metrics?.[0]).toMatchObject({
+    name: "Renamed users",
+    contract: { kind: "non-additive" },
+  });
+  expect(repaired?.fields?.[0]?.scope).toBe("time");
+});
+
 it("binds ordinary batches to the verified principal and preserves service draft-only permissions", async () => {
   const workspaceId = await admit(),
     service = await credential(workspaceId),

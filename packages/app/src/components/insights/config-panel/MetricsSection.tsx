@@ -2,8 +2,11 @@ import type {
   AggregationType,
   DataTable,
   InsightMetric,
+  MeasureContract,
+  Metric,
   UUID,
 } from "@dashframe/types";
+import { GA4_FIELD_SCOPES, ga4MeasureContract } from "@dashframe/connector-ga4";
 import {
   SortableList,
   WorkbenchAddRow,
@@ -56,6 +59,10 @@ const AGGREGATIONS: Array<{ value: AggregationType; label: string }> = [
 
 type MetricField = { id: string; columnName?: string; name: string };
 type ColumnDisplayNames = Readonly<Record<string, string>>;
+type SavedMeasure = Pick<
+  Metric,
+  "id" | "name" | "columnName" | "aggregation" | "contract"
+>;
 
 function isNumericMetricField(field: { type: string }): boolean {
   return ["number", "integer", "float", "decimal"].includes(
@@ -133,6 +140,80 @@ function autoMetricName(
   return `${prefix[aggregation]} ${field.name}`;
 }
 
+function hasGa4AcquisitionScopes(dataTable: DataTable): boolean {
+  return (
+    dataTable.fields?.some(
+      (field) =>
+        field.columnName === "yearWeek" &&
+        field.scope === GA4_FIELD_SCOPES.yearWeek,
+    ) === true &&
+    dataTable.fields.some(
+      (field) =>
+        field.columnName === "sessionDefaultChannelGroup" &&
+        field.scope === GA4_FIELD_SCOPES.sessionDefaultChannelGroup,
+    )
+  );
+}
+
+function defaultMeasureContract(
+  dataTable: DataTable,
+  columnName: string,
+  aggregation: AggregationType,
+): MeasureContract | undefined {
+  const saved = dataTable.metrics?.find(
+    (measure) =>
+      measure.columnName === columnName &&
+      measure.aggregation === aggregation &&
+      measure.contract !== undefined,
+  );
+  if (saved?.contract) return saved.contract;
+  if (!hasGa4AcquisitionScopes(dataTable)) return undefined;
+  return ga4MeasureContract(columnName, aggregation);
+}
+
+function measureContractDescription(
+  contract: MeasureContract | undefined,
+): string | undefined {
+  if (!contract) return undefined;
+  if (contract.kind === "non-additive")
+    return "Not additive across weeks or channels";
+  if (
+    contract.kind === "additive" &&
+    contract.additiveOver?.includes("time") &&
+    contract.additiveOver.includes("session")
+  )
+    return "Additive across weeks and channels";
+  return undefined;
+}
+
+function inheritedMeasureContract(
+  metric: InsightMetric | undefined,
+  expression: InsightMetric["expression"],
+  dataTable: DataTable,
+  columnName: string,
+  aggregation: AggregationType,
+): MeasureContract | undefined {
+  if (metric || expression || !columnName) return undefined;
+  return defaultMeasureContract(dataTable, columnName, aggregation);
+}
+
+function contractForSave(
+  metric: InsightMetric | undefined,
+  columnName: string | undefined,
+  aggregation: AggregationType,
+  expression: InsightMetric["expression"],
+  inheritedContract: MeasureContract | undefined,
+): MeasureContract | undefined {
+  if (!metric) return inheritedContract;
+  if (
+    columnName === metric.columnName &&
+    aggregation === metric.aggregation &&
+    JSON.stringify(expression) === JSON.stringify(metric.expression)
+  )
+    return metric.contract;
+  return undefined;
+}
+
 function MetricEditor({
   metrics,
   metric,
@@ -148,7 +229,7 @@ function MetricEditor({
   onSaveToSource,
 }: {
   /** Definitions saved on the source that a new metric can start from. */
-  savedMeasures?: readonly { id: string; name: string }[];
+  savedMeasures?: readonly SavedMeasure[];
   onReuse?: (savedMeasureId: string) => Promise<void>;
   /** Saves a copy of this metric on the source for other reports. */
   onSaveToSource?: (metricId: string) => Promise<void>;
@@ -198,6 +279,15 @@ function MetricEditor({
     ? nameDraft
     : autoMetricName(aggregation, columnName, dataTable);
   const needsField = !options.expression && aggregation !== "count";
+  const inheritedContract = inheritedMeasureContract(
+    metric,
+    options.expression,
+    dataTable,
+    columnName,
+    aggregation,
+  );
+  const inheritedContractDescription =
+    measureContractDescription(inheritedContract);
 
   const reset = () => {
     setOptions({
@@ -229,21 +319,20 @@ function MetricEditor({
     try {
       if (!metric || definitionChanged) {
         const nextColumnName = metricColumnNameForSave(aggregation, columnName);
-        const contractUnchanged =
-          metric !== undefined &&
-          nextColumnName === metric.columnName &&
-          aggregation === metric.aggregation &&
-          JSON.stringify(options.expression) ===
-            JSON.stringify(metric.expression);
+        const contract = contractForSave(
+          metric,
+          nextColumnName,
+          aggregation,
+          options.expression,
+          inheritedContract,
+        );
         await onSave({
           id: metric?.id ?? (crypto.randomUUID() as UUID),
           name: name.trim(),
           sourceTable: metric?.sourceTable ?? dataTable.id,
           columnName: nextColumnName,
           aggregation,
-          ...(contractUnchanged && metric.contract
-            ? { contract: metric.contract }
-            : {}),
+          ...(contract ? { contract } : {}),
           ...options,
         });
       }
@@ -481,6 +570,11 @@ function MetricEditor({
             }}
           />
         </div>
+        {inheritedContractDescription && (
+          <p className="text-xs text-neutral-fg-subtle">
+            {inheritedContractDescription}
+          </p>
+        )}
         {metric && onViewerChange && (
           <ViewerChoiceCheckbox
             checked={viewer}
@@ -553,7 +647,7 @@ export function MetricsSection({
   onReuse,
   onSaveToSource,
 }: {
-  savedMeasures?: readonly { id: string; name: string }[];
+  savedMeasures?: readonly SavedMeasure[];
   onReuse?: (savedMeasureId: string) => Promise<void>;
   onSaveToSource?: (metricId: string) => Promise<void>;
   /** Metrics viewers can show or hide. */

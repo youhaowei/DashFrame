@@ -153,7 +153,7 @@ it("leaves v1 bindings, other connectors, and other workspaces untouched", async
   ).toBe(true);
 });
 
-it("repairs legacy v2 GA4 active-user measures exactly once", async () => {
+it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => {
   await t.run(async (ctx) => {
     await ctx.db.insert("dataSources", {
       workspaceId: "workspace",
@@ -173,7 +173,36 @@ it("repairs legacy v2 GA4 active-user measures exactly once", async () => {
       createdAt: 1,
       dataSourceId: "source",
       table: "properties/1",
-      fields: state().fields,
+      fields: [
+        {
+          id: "date",
+          name: "Date",
+          tableId: "table",
+          columnName: "date",
+          type: "date",
+        },
+        {
+          id: "week",
+          name: "Week",
+          tableId: "table",
+          columnName: "yearWeek",
+          type: "date",
+        },
+        {
+          id: "channel",
+          name: "Channel",
+          tableId: "table",
+          columnName: "sessionDefaultChannelGroup",
+          type: "string",
+        },
+        {
+          id: "revenue",
+          name: "Revenue",
+          tableId: "table",
+          columnName: "totalRevenue",
+          type: "number",
+        },
+      ],
       metrics: [
         {
           id: "users",
@@ -201,7 +230,7 @@ it("repairs legacy v2 GA4 active-user measures exactly once", async () => {
             sourceTable: "table",
             columnName: "activeUsers",
             aggregation: "sum",
-            name: "Sum of Active users",
+            name: "Weekly audience",
           },
         ],
         createdAt: 1,
@@ -233,6 +262,12 @@ it("repairs legacy v2 GA4 active-user measures exactly once", async () => {
     name: "Active users",
     contract: { kind: "non-additive" },
   });
+  expect(table?.fields?.map((field) => field.scope)).toEqual([
+    "time",
+    "time",
+    "session",
+    undefined,
+  ]);
   const repairedInsight = await t.run((ctx) =>
     ctx.db
       .query("insights")
@@ -247,7 +282,7 @@ it("repairs legacy v2 GA4 active-user measures exactly once", async () => {
   expect(
     Array.isArray(repairedMetrics) ? repairedMetrics[0] : undefined,
   ).toMatchObject({
-    name: "Active users",
+    name: "Weekly audience",
     contract: { kind: "non-additive" },
   });
 });

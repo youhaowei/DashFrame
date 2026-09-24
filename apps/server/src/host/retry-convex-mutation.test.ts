@@ -22,4 +22,10 @@ describe("retryConvexMutation", () => {
       error,
     );
   });
+
+  it("returns the successful mutation result", async () => {
+    await expect(
+      retryConvexMutation(async () => ({ repaired: 2 })),
+    ).resolves.toEqual({ repaired: 2 });
+  });
 });
