@@ -202,7 +202,9 @@ it("scopes legacy GA4 dates without changing Count measures or other sources", a
     "workspace-googleAnalytics-v1",
     "workspace-googleAnalytics-unversioned",
   ]);
-  for (const row of rows.filter((row) => repairedIds.has(row.id))) {
+  const repaired = rows.filter((row) => repairedIds.has(row.id));
+  expect(repaired).toHaveLength(2);
+  for (const row of repaired) {
     expect(row.revision).toBe(2);
     expect(row.fields?.[0]?.scope).toBe("time");
     expect(row.metrics?.[0]).toMatchObject({
