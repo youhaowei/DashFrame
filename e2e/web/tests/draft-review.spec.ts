@@ -1,6 +1,9 @@
 import { expect, test } from "../lib/test-fixtures";
 import { query, mutate } from "../lib/native-api";
 
+/** Every seeded draft starts by creating this source, which titles its tab. */
+const DRAFT_TITLE = 'Create data source "Review source"';
+
 interface SeededDraft {
   draftId: string;
   sourceId: string;
@@ -88,13 +91,16 @@ test.describe("draft review", () => {
     expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);
     expect(await query<unknown[]>("listInsights", {})).toHaveLength(0);
 
+    // The only draft opens on its own; its link names it.
     await page.goto(`${workerBaseURL}/drafts`);
-    await page.getByRole("link", { name: /5 changes/ }).click();
-    await expect(page).toHaveURL(new RegExp(`/drafts/${draftId}/?$`));
-
     await expect(
-      page.getByRole("heading", { name: "Review changes" }),
+      page.getByRole("heading", { level: 1, name: DRAFT_TITLE }),
     ).toBeVisible();
+    await page.goto(`${workerBaseURL}/drafts/${draftId}`);
+    await expect(page.getByRole("tab", { name: DRAFT_TITLE })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     await expect(
       page.getByText("Review source", { exact: true }),
     ).toBeVisible();
@@ -104,7 +110,7 @@ test.describe("draft review", () => {
     ).toBeVisible();
     await expect(page.getByText("Remove me", { exact: true })).toBeVisible();
     await expect(
-      page.getByText("1 values still need to be filled in before publishing."),
+      page.getByText("1 value still needs to be filled in before publishing."),
     ).toBeVisible();
 
     // Fix in place: bind the placeholder, then drop the unwanted dashboard.
@@ -112,19 +118,21 @@ test.describe("draft review", () => {
     await valueInput.fill("EMEA");
     await page.getByRole("button", { name: "Apply" }).click();
     await expect(
-      page.getByText("1 values still need to be filled in before publishing."),
+      page.getByText("1 value still needs to be filled in before publishing."),
     ).not.toBeVisible();
 
-    const dashboardCommand = page.getByTestId("draft-command-4");
-    await dashboardCommand.getByRole("button", { name: "Remove" }).click();
+    // The dashboard's change opens in the inspector, which removes it.
+    await page.getByRole("button", { name: /^Remove me/ }).click();
+    const dashboardStep = page.getByRole("listitem", {
+      name: 'Create report "Remove me"',
+    });
+    await dashboardStep.getByRole("button", { name: "Remove" }).click();
     await expect(
-      dashboardCommand.getByText("Remove this change from the draft?"),
+      dashboardStep.getByText("Remove this change from the draft?"),
     ).toBeVisible();
-    await dashboardCommand
-      .getByRole("button", { name: "Remove" })
-      .last()
-      .click();
-    await expect(page.getByText("4 commands")).toBeVisible();
+    await dashboardStep.getByRole("button", { name: "Remove change" }).click();
+    await expect(page.getByText("3 changes", { exact: true })).toBeVisible();
+    await expect(page.getByText("4 steps", { exact: true })).toBeVisible();
 
     // Still nothing in canonical — revision is not publication.
     expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);
@@ -165,7 +173,7 @@ test.describe("draft review", () => {
     await seedDraft();
 
     await expect(page.getByRole("link", { name: /Drafts 1/ })).toBeVisible();
-    await expect(page.getByRole("link", { name: /5 changes/ })).toBeVisible();
+    await expect(page.getByRole("tab", { name: DRAFT_TITLE })).toBeVisible();
   });
 
   test("a lifecycle exit elsewhere clears the inbox without a reload", async ({
@@ -178,7 +186,7 @@ test.describe("draft review", () => {
     const discardable = await seedDraft({ lateBound: false });
 
     await page.goto(`${workerBaseURL}/drafts`);
-    await expect(page.getByRole("link", { name: /4 changes/ })).toHaveCount(2);
+    await expect(page.getByRole("tab", { name: DRAFT_TITLE })).toHaveCount(2);
     await expect(page.getByLabel("2 drafts waiting for review")).toBeVisible();
 
     await mutate("publishDraft", { draftId: publishable.draftId });

@@ -1,11 +1,11 @@
-import DraftReviewPage from "@/app/drafts/[draftId]/page";
+import DraftsPageContent from "@/app/drafts/_components/DraftsPageContent";
 import { createFileRoute } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/drafts/$draftId/")({
-  component: DraftReviewRoute,
+  component: DraftRoute,
 });
 
-function DraftReviewRoute() {
+function DraftRoute() {
   const { draftId } = Route.useParams();
-  return <DraftReviewPage draftId={draftId} />;
+  return <DraftsPageContent draftId={draftId} />;
 }

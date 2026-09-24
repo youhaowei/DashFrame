@@ -45,7 +45,14 @@ import {
 } from "./store";
 import { execute } from "./engine";
 import { type Graph, capMessage } from "./graph";
-import { publicRow, preview, lateBound, signature, redact } from "./preview";
+import {
+  describeCommand,
+  publicRow,
+  preview,
+  lateBound,
+  signature,
+  redact,
+} from "./preview";
 import type { ArtifactTable } from "./model";
 const draftArg = { draftId: v.optional(v.string()) };
 async function readOne(
@@ -624,6 +631,10 @@ export const listDrafts = query({
       commandCount: v.number(),
       kinds: v.record(v.string(), v.number()),
       paths: v.array(v.string()),
+      /** What the first change does, as review copy; null while empty. */
+      title: v.union(v.string(), v.null()),
+      /** "user" when made in the app, "service" when made over the API. */
+      createdBy: v.union(v.literal("user"), v.literal("service")),
     }),
   ),
   handler: async (ctx) => {
@@ -650,6 +661,10 @@ export const listDrafts = query({
         commandCount: row.commandCount,
         kinds,
         paths: [...new Set(paths)],
+        title: commands[0] ? describeCommand(commands[0]).summary : null,
+        createdBy: row.owner.startsWith("service:")
+          ? ("service" as const)
+          : ("user" as const),
       };
     });
   },
