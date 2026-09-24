@@ -19,6 +19,22 @@ const importIdentity = { operationId: v.string(), requestHash: v.string() };
 const pagination = { paginationOpts: paginationOptsValidator };
 const pageInfo = { isDone: v.boolean(), continueCursor: v.string() };
 
+export const repairGa4MeasureContracts = mutation({
+  args: {},
+  returns: v.object({
+    tablesRepaired: v.number(),
+    insightsRepaired: v.number(),
+  }),
+  handler: async (
+    ctx,
+  ): Promise<{ tablesRepaired: number; insightsRepaired: number }> => {
+    const { workspaceId } = await requireOwner(ctx);
+    return ctx.runMutation(internal.host.repairGa4MeasureContracts, {
+      workspaceId,
+    });
+  },
+});
+
 export const getHostBatch = query({
   args: batchIdentity,
   returns: v.union(hostBatchState, v.null()),

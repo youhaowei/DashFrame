@@ -112,33 +112,81 @@ describe("importing a GA4 property", () => {
 
     expect(table.name).toBe("Lumina LaBelle");
     expect(
-      table.fields.map(({ name, columnName, type }) => [
+      table.fields.map(({ name, columnName, type, scope }) => [
         name,
         columnName,
         type,
+        scope,
       ]),
     ).toEqual([
-      ["Week", "yearWeek", "date"],
-      ["Channel", "sessionDefaultChannelGroup", "string"],
-      ["Active users", "activeUsers", "number"],
-      ["New users", "newUsers", "number"],
-      ["Sessions", "sessions", "number"],
-      ["Engaged sessions", "engagedSessions", "number"],
-      ["Engagement rate", "engagementRate", "number"],
-      ["Key events", "keyEvents", "number"],
-      ["Revenue", "totalRevenue", "number"],
+      ["Week", "yearWeek", "date", "time"],
+      ["Channel", "sessionDefaultChannelGroup", "string", "session"],
+      ["Active users", "activeUsers", "number", undefined],
+      ["New users", "newUsers", "number", undefined],
+      ["Sessions", "sessions", "number", undefined],
+      ["Engaged sessions", "engagedSessions", "number", undefined],
+      ["Engagement rate", "engagementRate", "number", undefined],
+      ["Key events", "keyEvents", "number", undefined],
+      ["Revenue", "totalRevenue", "number", undefined],
     ]);
-    expect(table.metrics.map(({ name, format }) => ({ name, format }))).toEqual(
-      [
-        { name: "Sum of Active users", format: undefined },
-        { name: "Sum of New users", format: undefined },
-        { name: "Sum of Sessions", format: undefined },
-        { name: "Sum of Engaged sessions", format: undefined },
-        { name: "Sum of Key events", format: undefined },
-        { name: "Sum of Revenue", format: { style: "currency" } },
-        { name: "Engagement rate", format: { style: "percent" } },
-      ],
-    );
+    expect(
+      table.metrics.map(({ name, format, contract }) => ({
+        name,
+        format,
+        contract,
+      })),
+    ).toEqual([
+      {
+        name: "Active users",
+        format: undefined,
+        contract: { kind: "non-additive" },
+      },
+      {
+        name: "Sum of New users",
+        format: undefined,
+        contract: {
+          kind: "additive",
+          additiveOver: ["time", "session"],
+        },
+      },
+      {
+        name: "Sum of Sessions",
+        format: undefined,
+        contract: {
+          kind: "additive",
+          additiveOver: ["time", "session"],
+        },
+      },
+      {
+        name: "Sum of Engaged sessions",
+        format: undefined,
+        contract: {
+          kind: "additive",
+          additiveOver: ["time", "session"],
+        },
+      },
+      {
+        name: "Sum of Key events",
+        format: undefined,
+        contract: {
+          kind: "additive",
+          additiveOver: ["time", "session"],
+        },
+      },
+      {
+        name: "Sum of Revenue",
+        format: { style: "currency" },
+        contract: {
+          kind: "additive",
+          additiveOver: ["time", "session"],
+        },
+      },
+      {
+        name: "Engagement rate",
+        format: { style: "percent" },
+        contract: { kind: "ratio" },
+      },
+    ]);
     const byName = new Map(
       table.metrics.map((metric) => [metric.name, metric]),
     );

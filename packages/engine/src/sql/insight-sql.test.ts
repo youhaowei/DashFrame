@@ -128,6 +128,299 @@ function build(
   return sql!;
 }
 
+describe("buildInsightSQL — measure aggregation contracts", () => {
+  const week = {
+    ...DATE_FIELD,
+    name: "Week",
+    columnName: "week",
+    scope: "time" as const,
+  };
+  const channel = {
+    ...REGION_FIELD,
+    name: "Channel",
+    columnName: "channel",
+    scope: "session" as const,
+  };
+  const activeUsers = {
+    ...AMOUNT_FIELD,
+    name: "Active users",
+    columnName: "active_users",
+  };
+  const sessionsField = {
+    ...AMOUNT_FIELD,
+    id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" as UUID,
+    name: "Sessions",
+    columnName: "sessions",
+  };
+  const engagedField = {
+    ...AMOUNT_FIELD,
+    id: "ffffffff-ffff-ffff-ffff-ffffffffffff" as UUID,
+    name: "Engaged sessions",
+    columnName: "engaged_sessions",
+  };
+  const table: DataTable = {
+    ...BASE_TABLE,
+    fields: [week, channel, activeUsers, sessionsField, engagedField],
+    metrics: [activeUsers, sessionsField, engagedField].map((field) => ({
+      id: field.id,
+      name: field.name,
+      tableId: TABLE_ID,
+      columnName: field.columnName,
+      aggregation: "sum",
+    })),
+  };
+  const active: InsightMetric = {
+    ...REVENUE_METRIC,
+    name: "Active users",
+    columnName: "active_users",
+    contract: { kind: "non-additive" },
+  };
+  const sessions: InsightMetric = {
+    ...REVENUE_METRIC,
+    id: "12121212-1212-1212-1212-121212121212" as UUID,
+    name: "Sessions",
+    columnName: "sessions",
+    contract: { kind: "additive", additiveOver: ["time", "session"] },
+  };
+  const engaged: InsightMetric = {
+    ...REVENUE_METRIC,
+    id: "13131313-1313-1313-1313-131313131313" as UUID,
+    name: "Engaged sessions",
+    columnName: "engaged_sessions",
+    contract: { kind: "additive", additiveOver: ["time", "session"] },
+  };
+  const ratio: InsightMetric = {
+    ...REVENUE_METRIC,
+    id: "14141414-1414-1414-1414-141414141414" as UUID,
+    name: "Engagement rate",
+    columnName: undefined,
+    contract: { kind: "ratio" },
+    expression: {
+      kind: "binary",
+      operator: "divide",
+      left: { kind: "measure", measureId: engaged.id },
+      right: { kind: "measure", measureId: sessions.id },
+    },
+  };
+  const sqlFor = (
+    selectedFields: UUID[],
+    metrics: InsightMetric[],
+    extras: Partial<Insight> = {},
+  ) => {
+    const sql = buildInsightSQL(
+      table,
+      new Map(),
+      {
+        ...groupedInsight(),
+        selectedFields,
+        metrics,
+        ...extras,
+      },
+      QUERY_OPTS,
+    );
+    expect(sql).not.toBeNull();
+    return sql!;
+  };
+
+  it("emits the non-additive source-row guard", () => {
+    expect(sqlFor([week.id, channel.id], [active])).toContain(
+      `CASE WHEN COUNT(*) = 1 THEN SUM("${fieldIdToColumnAlias(activeUsers.id)}") END`,
+    );
+  });
+
+  it("guards only dimensions outside an additive measure's allowed scopes", () => {
+    const timeOnly = {
+      ...sessions,
+      contract: { kind: "additive" as const, additiveOver: ["time" as const] },
+    };
+    expect(sqlFor([channel.id], [timeOnly])).not.toContain(
+      "COUNT(DISTINCT ROW",
+    );
+    expect(sqlFor([week.id], [timeOnly])).toContain(
+      `COUNT(DISTINCT ROW("${fieldIdToColumnAlias(channel.id)}")) <= 1`,
+    );
+  });
+
+  it("derives guarded dimensions only from field scopes", () => {
+    const insight = {
+      ...groupedInsight(),
+      selectedFields: [week.id],
+      metrics: [sessions],
+    };
+    const withMeasures = buildInsightSQL(table, new Map(), insight, QUERY_OPTS);
+    const withoutMeasures = buildInsightSQL(
+      { ...table, metrics: [] },
+      new Map(),
+      insight,
+      QUERY_OPTS,
+    );
+    expect(withoutMeasures).toBe(withMeasures);
+  });
+
+  it("rejects Top N ranking when its measure is guarded across another scope", () => {
+    expect(() =>
+      sqlFor([week.id, channel.id], [active], {
+        reporting: {
+          topN: {
+            fieldId: channel.id,
+            measureId: active.id,
+            count: 5,
+            direction: "desc",
+          },
+        },
+      }),
+    ).toThrow("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE");
+  });
+
+  it("rejects Top N for a repaired non-additive measure with legacy unscoped fields", () => {
+    const legacyTable = {
+      ...table,
+      fields: table.fields.map(({ scope: _scope, ...field }) => field),
+    };
+    expect(() =>
+      buildInsightSQL(
+        legacyTable,
+        new Map(),
+        {
+          ...groupedInsight(),
+          selectedFields: [week.id, channel.id],
+          metrics: [active],
+          reporting: {
+            topN: {
+              fieldId: channel.id,
+              measureId: active.id,
+              count: 5,
+              direction: "desc",
+            },
+          },
+        },
+        QUERY_OPTS,
+      ),
+    ).toThrow("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE");
+  });
+
+  it("rejects Top N ranking when an expression references a guarded measure", () => {
+    const timeRestricted = {
+      ...sessions,
+      contract: {
+        kind: "additive" as const,
+        additiveOver: ["session" as const],
+      },
+    };
+    const restrictedRatio = {
+      ...ratio,
+      name: "Restricted rate",
+      expression: {
+        kind: "binary" as const,
+        operator: "divide" as const,
+        left: { kind: "measure" as const, measureId: engaged.id },
+        right: { kind: "measure" as const, measureId: timeRestricted.id },
+      },
+    };
+    expect(() =>
+      sqlFor(
+        [week.id, channel.id],
+        [timeRestricted, engaged, restrictedRatio],
+        {
+          reporting: {
+            topN: {
+              fieldId: channel.id,
+              measureId: restrictedRatio.id,
+              count: 5,
+              direction: "desc",
+            },
+          },
+        },
+      ),
+    ).toThrow("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE");
+  });
+
+  it("uses the same non-additive guard in totals and HAVING", () => {
+    const guarded = `CASE WHEN COUNT(*) = 1 THEN SUM("${fieldIdToColumnAlias(activeUsers.id)}") END`;
+    const totals = sqlFor([week.id, channel.id], [active], {
+      reporting: { totals: true },
+    });
+    expect(totals).toContain("GROUP BY GROUPING SETS");
+    expect(totals).toContain(guarded);
+
+    const having = sqlFor([week.id], [active], {
+      filters: [
+        {
+          field: metricIdToColumnAlias(active.id),
+          operator: "gt",
+          value: 10,
+        },
+      ],
+    });
+    expect(having).toContain(`HAVING ${guarded} > 10`);
+  });
+
+  it("keeps a ratio as a ratio of sums after dropping Channel", () => {
+    expect(sqlFor([week.id], [sessions, engaged, ratio])).toContain(
+      `(SUM("${fieldIdToColumnAlias(engagedField.id)}") / NULLIF(SUM("${fieldIdToColumnAlias(sessionsField.id)}"), 0))`,
+    );
+  });
+
+  it("keeps contract-free CSV report SQL byte-identical", () => {
+    expect(build(groupedInsight())).toBe(
+      `SELECT "${regionAlias}" AS "${regionAlias}", SUM("${amountAlias}") AS "${metricIdToColumnAlias(REVENUE_METRIC_ID)}" FROM (SELECT "sales"."region" AS "${regionAlias}", "sales"."order_date" AS "${dateAlias}", "sales"."amount" AS "${amountAlias}" FROM df_${DATAFRAME_ID.replaceAll("-", "_")} AS "sales") GROUP BY "${regionAlias}"`,
+    );
+  });
+
+  it("keeps contract-free CSV totals SQL byte-identical", () => {
+    expect(build({ ...groupedInsight(), reporting: { totals: true } })).toBe(
+      `WITH "__report_groups" AS (SELECT "${regionAlias}" AS "${regionAlias}", SUM("${amountAlias}") AS "${metricIdToColumnAlias(REVENUE_METRIC_ID)}" FROM (SELECT "sales"."region" AS "${regionAlias}", "sales"."order_date" AS "${dateAlias}", "sales"."amount" AS "${amountAlias}" FROM df_${DATAFRAME_ID.replaceAll("-", "_")} AS "sales") GROUP BY "${regionAlias}"), "__report_rows" AS (SELECT "__report_source".* FROM (SELECT * FROM (SELECT "sales"."region" AS "${regionAlias}", "sales"."order_date" AS "${dateAlias}", "sales"."amount" AS "${amountAlias}" FROM df_${DATAFRAME_ID.replaceAll("-", "_")} AS "sales") ) AS "__report_source" WHERE EXISTS (SELECT 1 FROM "__report_groups" WHERE "__report_source"."${regionAlias}" IS NOT DISTINCT FROM "__report_groups"."${regionAlias}")) SELECT "${regionAlias}" AS "${regionAlias}", SUM("${amountAlias}") AS "${metricIdToColumnAlias(REVENUE_METRIC_ID)}", GROUPING("${regionAlias}") AS "__report_grouping" FROM "__report_rows" GROUP BY GROUPING SETS (("${regionAlias}"), ()) ORDER BY "__report_grouping" ASC`,
+    );
+  });
+
+  it("keeps contract-free CSV join SQL byte-identical", () => {
+    const joinedTableId = "44444444-4444-4444-4444-444444444444" as UUID;
+    const joinedKeyId = "55555555-5555-5555-5555-555555555555" as UUID;
+    const joinedValueId = "66666666-6666-6666-6666-666666666666" as UUID;
+    const joinedFrameId = "77777777-7777-7777-7777-777777777777" as UUID;
+    const joinedTable: DataTable = {
+      ...BASE_TABLE,
+      id: joinedTableId,
+      name: "targets",
+      table: "targets.csv",
+      dataFrameId: joinedFrameId,
+      fields: [
+        {
+          ...REGION_FIELD,
+          id: joinedKeyId,
+          tableId: joinedTableId,
+        },
+        {
+          ...AMOUNT_FIELD,
+          id: joinedValueId,
+          name: "Target",
+          tableId: joinedTableId,
+          columnName: "target",
+        },
+      ],
+    };
+    const sql = buildInsightSQL(
+      BASE_TABLE,
+      new Map([[joinedTableId, joinedTable]]),
+      {
+        ...groupedInsight(),
+        joins: [
+          {
+            type: "left",
+            rightTableId: joinedTableId,
+            leftKey: "region",
+            rightKey: "region",
+          },
+        ],
+      },
+      QUERY_OPTS,
+    );
+    expect(sql).toBe(
+      `SELECT "${regionAlias}" AS "${regionAlias}", SUM("${amountAlias}") AS "${metricIdToColumnAlias(REVENUE_METRIC_ID)}" FROM (\n    SELECT "${regionAlias}", "${dateAlias}", "${amountAlias}", "targets"."target" AS "${fieldIdToColumnAlias(joinedValueId)}"\n    FROM (SELECT "sales"."region" AS "${regionAlias}", "sales"."order_date" AS "${dateAlias}", "sales"."amount" AS "${amountAlias}" FROM df_${DATAFRAME_ID.replaceAll("-", "_")} AS "sales")\n    LEFT JOIN df_${joinedFrameId.replaceAll("-", "_")} AS "targets"\n    ON "${regionAlias}" = "targets"."region"\n  ) GROUP BY "${regionAlias}"`,
+    );
+  });
+});
+
 describe("buildInsightSQL — period comparison measure types", () => {
   it.each([
     {

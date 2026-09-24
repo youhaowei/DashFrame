@@ -1,6 +1,7 @@
 import type {
   AxisType,
   Field,
+  MeasureContract,
   Metric,
   SourceSchema,
   UUID,
@@ -52,6 +53,7 @@ export interface InsightMetric {
   sourceTable: UUID; // Which table (base or joined) - for v1, always baseTable.tableId
   columnName?: string; // Which column to aggregate (undefined for count())
   aggregation: "sum" | "avg" | "count" | "min" | "max" | "count_distinct";
+  contract?: MeasureContract;
 }
 
 export interface Insight {

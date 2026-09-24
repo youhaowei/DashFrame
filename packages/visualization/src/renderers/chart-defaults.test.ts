@@ -4,7 +4,7 @@ import type { Plot } from "@observablehq/plot";
 import type { ChartConfig } from "../chart-renderers";
 import { createVgplotRenderer } from "./vgplot-renderer";
 
-type Row = { category: string; value: number; series?: string };
+type Row = { category: string; value: number | null; series?: string };
 type ChartType = "barY" | "barX" | "line";
 const cleanups: Array<() => void> = [];
 
@@ -83,6 +83,50 @@ const bars = (svg: SVGSVGElement) => [
 ];
 
 describe.each(["barY", "barX"] as const)("%s chart defaults", (type) => {
+  it("keeps ordinary zero-only bars available to Plot", async () => {
+    const svg = await renderChart(
+      [
+        { category: "A", value: 0 },
+        { category: "B", value: 0 },
+      ],
+      type,
+    );
+    const rectangles = bars(svg).map(bounds);
+    expect(rectangles).toHaveLength(2);
+    for (const rect of rectangles) {
+      const length = type === "barX" ? rect.width : rect.height;
+      expect(length).toBeLessThan(0.001);
+    }
+  });
+
+  it("does not expand an all-NULL series into full-height bars", async () => {
+    const svg = await renderChart(
+      [
+        { category: "A", value: null },
+        { category: "B", value: null },
+      ],
+      type,
+    );
+    expect(bars(svg)).toHaveLength(0);
+  });
+
+  it("does not expand a zero bar beside a valid value", async () => {
+    const svg = await renderChart(
+      [
+        { category: "Zero", value: 0 },
+        { category: "Valid", value: 10 },
+      ],
+      type,
+    );
+    const lengths = bars(svg)
+      .map(bounds)
+      .map((rect) => (type === "barX" ? rect.width : rect.height))
+      .sort((a, b) => a - b);
+    expect(lengths).toHaveLength(2);
+    expect(lengths[0]).toBeLessThan(0.001);
+    expect(lengths[1]).toBeGreaterThan(0);
+  });
+
   it.each([
     {
       name: "metric-descending results",

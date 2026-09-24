@@ -909,6 +909,17 @@ describe("applyInsightRuntime", () => {
         "The selected dimensions removed the sort required by the row limit. Choose another sort or remove the limit.",
     });
     expect(
+      toFetchFailure(
+        new Error("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE"),
+        "FETCH_EXECUTION_FAILED",
+      ),
+    ).toMatchObject({
+      code: "RUNTIME_TOPN_MEASURE_NOT_ADDITIVE",
+      message:
+        "This measure can't rank by the selected dimension across another dimension; rank by an additive measure.",
+      retryable: false,
+    });
+    expect(
       toFetchFailure(new Error("SOURCE_SCHEMA_CHANGED"), "FETCH_SOURCE_FAILED"),
     ).toMatchObject({
       status: "failed",

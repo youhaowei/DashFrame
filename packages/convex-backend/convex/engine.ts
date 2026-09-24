@@ -9,6 +9,7 @@ import {
 import {
   COMMAND_PATHS,
   ENCODING_VALUE_CHANNELS,
+  GRAIN_SCOPES,
   isUnmodifiedDraft,
   isMeasureExpression,
   validateVisualizationEncoding,
@@ -514,6 +515,35 @@ export function validateMetric(metric: ObjectValue, derived: boolean) {
     !isMeasureExpression(metric.expression)
   )
     throw new Error("Invalid measure expression");
+  if (metric.contract !== undefined) {
+    const contract = record(metric.contract);
+    const kind = str(contract.kind, "metric.contract.kind");
+    if (
+      Object.keys(contract).some(
+        (key) =>
+          key !== "kind" && !(kind === "additive" && key === "additiveOver"),
+      )
+    )
+      throw new Error("Invalid measure contract property");
+    if (!["additive", "ratio", "non-additive"].includes(kind))
+      throw new Error("Invalid measure contract");
+    if (kind === "additive" && contract.additiveOver !== undefined) {
+      const scopes = array(
+        contract.additiveOver,
+        "metric.contract.additiveOver",
+      );
+      if (
+        !scopes.every((scope) =>
+          GRAIN_SCOPES.includes(String(scope) as (typeof GRAIN_SCOPES)[number]),
+        )
+      )
+        throw new Error("Invalid additive measure scope");
+    } else if (contract.additiveOver !== undefined) {
+      throw new Error("Only additive measures may declare additive scopes");
+    }
+    if (kind === "ratio" && metric.expression === undefined)
+      throw new Error("Ratio measures require an expression");
+  }
   if (
     !metric.expression &&
     (metric.aggregation !== "count" || metric.columnName !== undefined)

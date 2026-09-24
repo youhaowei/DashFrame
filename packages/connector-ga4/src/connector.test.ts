@@ -215,6 +215,17 @@ describe("GA4 connector", () => {
       "number",
       "number",
     ]);
+    expect(result.fields.map((field) => field.scope)).toEqual([
+      "time",
+      "session",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
     expect(arrow.schema.fields[0]?.name).toBe("yearWeek");
     expect(String(arrow.schema.fields[0]?.type)).toContain("Timestamp");
     // GA4 week 31 of 2026 starts on Sunday 26 July.
@@ -264,58 +275,81 @@ describe("GA4 connector", () => {
     expect(yearWeekStart("2026-01")).toBeNull();
   });
 
-  it("starts an acquisition table with summed measures and a true engagement rate", () => {
+  it("starts an acquisition table with scoped measures and a true engagement rate", () => {
     const tableId = crypto.randomUUID();
     const measures = acquisitionMeasures(tableId);
     expect(
-      measures.map(({ name, columnName, aggregation, format }) => ({
+      measures.map(({ name, columnName, aggregation, format, contract }) => ({
         name,
         columnName,
         aggregation,
         format,
+        contract,
       })),
     ).toEqual([
       {
-        name: "Sum of Active users",
+        name: "Active users",
         columnName: "activeUsers",
         aggregation: "sum",
         format: undefined,
+        contract: { kind: "non-additive" },
       },
       {
         name: "Sum of New users",
         columnName: "newUsers",
         aggregation: "sum",
         format: undefined,
+        contract: {
+          kind: "additive",
+          additiveOver: ["time", "session"],
+        },
       },
       {
         name: "Sum of Sessions",
         columnName: "sessions",
         aggregation: "sum",
         format: undefined,
+        contract: {
+          kind: "additive",
+          additiveOver: ["time", "session"],
+        },
       },
       {
         name: "Sum of Engaged sessions",
         columnName: "engagedSessions",
         aggregation: "sum",
         format: undefined,
+        contract: {
+          kind: "additive",
+          additiveOver: ["time", "session"],
+        },
       },
       {
         name: "Sum of Key events",
         columnName: "keyEvents",
         aggregation: "sum",
         format: undefined,
+        contract: {
+          kind: "additive",
+          additiveOver: ["time", "session"],
+        },
       },
       {
         name: "Sum of Revenue",
         columnName: "totalRevenue",
         aggregation: "sum",
         format: { style: "currency" },
+        contract: {
+          kind: "additive",
+          additiveOver: ["time", "session"],
+        },
       },
       {
         name: "Engagement rate",
         columnName: undefined,
         aggregation: "sum",
         format: { style: "percent" },
+        contract: { kind: "ratio" },
       },
     ]);
     const byName = new Map(measures.map((measure) => [measure.name, measure]));

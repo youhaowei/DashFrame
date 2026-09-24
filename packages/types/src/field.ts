@@ -1,5 +1,6 @@
 import type { ColumnType, TableColumn } from "./column";
 import type { UUID } from "./uuid";
+import type { GrainScope } from "./metric";
 
 /**
  * Privacy sensitivity marker for a Field.
@@ -40,6 +41,8 @@ export type Field = {
   columnName?: string;
   /** Normalized type: "string" | "number" | "date" | "boolean" */
   type: ColumnType;
+  /** Semantic grain axis represented by this dimension. */
+  scope?: GrainScope;
   isIdentifier?: boolean;
   isReference?: boolean;
   /**

@@ -55,6 +55,7 @@ const RUNTIME_FAILURE_CODES = new Set([
   "RUNTIME_SORT_REFERENCE_AMBIGUOUS",
   "RUNTIME_SORT_REFERENCE_INVALID",
   "RUNTIME_LIMIT_REQUIRES_SORT",
+  "RUNTIME_TOPN_MEASURE_NOT_ADDITIVE",
   "RUNTIME_PRESENTATION_NOT_ALLOWED",
   "RUNTIME_LIMIT_OUT_OF_RANGE",
 ]);
@@ -554,7 +555,7 @@ const SNAPSHOT_BUDGET_MESSAGE =
 /** Named host failures. Unknown provider text falls through to the caller fallback. */
 const NAMED_FETCH_FAILURES: Record<
   string,
-  { message: string; retryable?: true }
+  { message: string; retryable?: boolean }
 > = {
   SOURCE_RESULT_TOO_LARGE: {
     message:
@@ -582,6 +583,11 @@ const NAMED_FETCH_FAILURES: Record<
   RUNTIME_LIMIT_REQUIRES_SORT: {
     message:
       "The selected dimensions removed the sort required by the row limit. Choose another sort or remove the limit.",
+  },
+  RUNTIME_TOPN_MEASURE_NOT_ADDITIVE: {
+    message:
+      "This measure can't rank by the selected dimension across another dimension; rank by an additive measure.",
+    retryable: false,
   },
   RUNTIME_PIVOT_SORT_REQUIRES_TUPLE: {
     message:

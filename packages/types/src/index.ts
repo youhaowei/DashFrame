@@ -26,11 +26,15 @@ export {
 
 export type {
   AggregationType,
+  GrainScope,
   InsightMetric,
   Metric,
+  MeasureContract,
   MeasureExpression,
   MeasureFormat,
 } from "./metric";
+
+export { GRAIN_SCOPES } from "./metric";
 
 export {
   mergeReplacementFields,
