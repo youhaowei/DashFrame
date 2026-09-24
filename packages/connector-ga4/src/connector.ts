@@ -7,7 +7,7 @@ import type {
   UUID,
   ValidationResult,
 } from "@dashframe/engine";
-import type { Metric } from "@dashframe/types";
+import type { GrainScope, Metric } from "@dashframe/types";
 import { RemoteApiConnector, createFieldsFromColumns } from "@dashframe/engine";
 import { tableFromArrays, tableToIPC } from "apache-arrow";
 
@@ -151,12 +151,20 @@ export function acquisitionMeasures(
     tableId,
     columnName,
     aggregation: "sum",
+    contract: { kind: "additive", additiveOver: ["time", "session"] },
     ...(format ? { format } : {}),
   });
   const sessions = sum("sessions");
   const engagedSessions = sum("engagedSessions");
   return [
-    sum("activeUsers"),
+    {
+      id: makeId() as UUID,
+      name: "Active users",
+      tableId,
+      columnName: "activeUsers",
+      aggregation: "sum",
+      contract: { kind: "non-additive" },
+    },
     sum("newUsers"),
     sessions,
     engagedSessions,
@@ -177,6 +185,7 @@ export function acquisitionMeasures(
         right: { kind: "measure", measureId: sessions.id },
       },
       format: { style: "percent" },
+      contract: { kind: "ratio" },
     },
   ];
 }
@@ -598,7 +607,15 @@ export class Ga4Connector extends RemoteApiConnector {
               field.name
             ]
           : undefined;
-        return label ? { ...field, name: label } : field;
+        let scope: GrainScope | undefined;
+        if (DATE_DIMENSIONS.has(field.columnName ?? field.name)) scope = "time";
+        else if (field.columnName === "sessionDefaultChannelGroup")
+          scope = "session";
+        return {
+          ...field,
+          ...(label ? { name: label } : {}),
+          ...(scope ? { scope } : {}),
+        };
       });
       const arrays: Record<string, unknown[]> = Object.create(null) as Record<
         string,

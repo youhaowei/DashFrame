@@ -26,6 +26,7 @@ import { NativeTableLifecycle } from "./host/native-tables";
 import { mountConvexProxy } from "./host/convex-proxy";
 import { HostBatchOutcomeUnknownError } from "./host/commands";
 import { HostResourceCleanup } from "./host/resource-cleanup";
+import { retryConvexMutation } from "./host/retry-convex-mutation";
 import { closeHostServer } from "./host/server-lifecycle";
 import { createMcpRoute, type McpMode } from "./mcp/route";
 import {
@@ -145,6 +146,16 @@ export async function createDashframeServer(
         name: options.project.name,
       }),
     );
+    try {
+      await retryConvexMutation(() =>
+        convex.internalClient.mutation(
+          internal.host.repairGa4MeasureContracts,
+          { workspaceId: options.project.workspaceId },
+        ),
+      );
+    } catch (error) {
+      console.error("Failed to repair GA4 measure contracts", error);
+    }
     const metadata = createHostMetadata(
       convex.internalClient,
       options.project.workspaceId,
@@ -391,20 +402,5 @@ export async function createDashframeServer(
 
 /** initializeProject is idempotent; a freshly deployed backend may briefly throttle it. */
 async function initializeProject(run: () => Promise<unknown>): Promise<void> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await run();
-      return;
-    } catch (error) {
-      if (
-        attempt >= 5 ||
-        !(error instanceof Error) ||
-        error.message !== "Local Convex internal mutation failed (429)."
-      )
-        throw error;
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100 * 2 ** attempt);
-      });
-    }
-  }
+  await retryConvexMutation(run);
 }

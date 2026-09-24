@@ -12,6 +12,21 @@ export type AggregationType =
   | "max"
   | "count_distinct";
 
+export const GRAIN_SCOPES = [
+  "time",
+  "user",
+  "session",
+  "event",
+  "item",
+] as const;
+
+export type GrainScope = (typeof GRAIN_SCOPES)[number];
+
+export type MeasureContract =
+  | { kind: "additive"; additiveOver?: GrainScope[] }
+  | { kind: "ratio" }
+  | { kind: "non-additive" };
+
 /**
  * Metric - An aggregation definition.
  *
@@ -33,6 +48,7 @@ export type Metric = {
   /** Row predicates apply only to this measure, before aggregation. */
   filters?: MeasureFilter[];
   format?: MeasureFormat;
+  contract?: MeasureContract;
 };
 
 /**
@@ -52,6 +68,7 @@ export interface InsightMetric {
   /** Row predicates apply only to this measure, before aggregation. */
   filters?: MeasureFilter[];
   format?: MeasureFormat;
+  contract?: MeasureContract;
 }
 
 /** Aggregate arithmetic. References resolve within the saved measure collection. */

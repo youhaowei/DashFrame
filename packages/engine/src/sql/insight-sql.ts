@@ -44,6 +44,12 @@ import { isMeasureExpression } from "@dashframe/types";
 
 import { quoteIdentifier, quoteLiteral } from "./quoting";
 
+function exactGroupedFields(insight: Insight): string[] {
+  return insight.selectedFields.filter(
+    (id) => !insight.reporting?.dateGrains?.[id],
+  );
+}
+
 // ============================================================================
 // UUID Column Naming Utilities
 // ============================================================================
@@ -183,6 +189,10 @@ export function extractColumnAliasComponents(
 
 /**
  * Convert an InsightMetric to its SQL aggregation expression.
+ *
+ * This legacy chart DSL helper deliberately ignores measure contracts. Do not
+ * use it to aggregate contracted measures; compile them from source rows with
+ * `buildInsightSQL`, or consume an already materialized metric column.
  *
  * This is the canonical format expected by vgplot/Mosaic for encoding values.
  * The expression matches the SQL aggregation syntax used in GROUP BY queries.
@@ -1112,7 +1122,12 @@ function resolveMetricAggRef(
   );
   if (!metric) return quoteIdentifier(filterField);
 
-  return compileMeasure(metric, insight.metrics, fieldIdMap);
+  return compileMeasure(
+    metric,
+    insight.metrics,
+    fieldIdMap,
+    new Set(exactGroupedFields(insight)),
+  );
 }
 
 /**
@@ -1305,6 +1320,7 @@ function compileMeasure(
   metric: InsightMetric,
   measures: InsightMetric[],
   fields: Map<string, Field>,
+  groupedFieldIds: ReadonlySet<string>,
   visiting = new Set<string>(),
 ): string {
   if (visiting.has(metric.id)) throw new Error("Cyclic measure reference");
@@ -1314,14 +1330,18 @@ function compileMeasure(
       throw new Error("Invalid measure expression");
     if (metric.filters?.length)
       throw new Error("Apply filters to the referenced aggregate measures");
-    return compileMeasureExpression(
+    const expression = compileMeasureExpression(
       metric.expression,
       measures,
       fields,
+      groupedFieldIds,
       path,
       0,
     );
+    return guardMeasureAggregation(expression, metric, fields, groupedFieldIds);
   }
+  if (metric.contract?.kind === "ratio")
+    throw new Error("Ratio measures require an expression");
   if (!AGG_WHITELIST_CONST.has(metric.aggregation)) {
     throw new Error(`invalid aggregation "${metric.aggregation}"`);
   }
@@ -1337,19 +1357,124 @@ function compileMeasure(
     metric.aggregation === "count_distinct"
       ? `COUNT(DISTINCT ${column})`
       : `${metric.aggregation.toUpperCase()}(${column})`;
-  if (!metric.filters?.length) return aggregate;
-  const predicates = metric.filters.map((filter) => {
-    const ref = resolveFilterColumnRef(filter.field, fields, "alias");
-    if (!ref) throw new Error("Measure filter references an unavailable field");
-    return buildFilterPredicate(ref, filter);
-  });
-  return `${aggregate} FILTER (WHERE ${predicates.join(" AND ")})`;
+  const filterPredicate = metric.filters?.length
+    ? metric.filters
+        .map((filter) => {
+          const ref = resolveFilterColumnRef(filter.field, fields, "alias");
+          if (!ref)
+            throw new Error("Measure filter references an unavailable field");
+          return buildFilterPredicate(ref, filter);
+        })
+        .join(" AND ")
+    : undefined;
+  const filtered = filterPredicate
+    ? `${aggregate} FILTER (WHERE ${filterPredicate})`
+    : aggregate;
+  return guardMeasureAggregation(
+    filtered,
+    metric,
+    fields,
+    groupedFieldIds,
+    filterPredicate,
+  );
+}
+
+function guardMeasureAggregation(
+  aggregate: string,
+  metric: InsightMetric,
+  fields: Map<string, Field>,
+  groupedFieldIds: ReadonlySet<string>,
+  filterPredicate?: string,
+): string {
+  const contract = metric.contract;
+  if (!contract || contract.kind === "ratio") return aggregate;
+  const filteredCount = (count: string) =>
+    filterPredicate ? `${count} FILTER (WHERE ${filterPredicate})` : count;
+  if (contract.kind === "non-additive")
+    return `CASE WHEN ${filteredCount("COUNT(*)")} = 1 THEN ${aggregate} END`;
+  if (!contract.additiveOver) return aggregate;
+
+  const guardedDimensions = measureGuardedDimensions(
+    metric,
+    fields,
+    groupedFieldIds,
+  );
+  if (!guardedDimensions.length) return aggregate;
+  const row = guardedDimensions
+    .map((field) => quoteIdentifier(fieldIdToColumnAlias(field.id)))
+    .join(", ");
+  const distinctCount = `COUNT(DISTINCT ROW(${row}))`;
+  return `CASE WHEN ${filteredCount(distinctCount)} <= 1 THEN ${aggregate} END`;
+}
+
+function measureGuardedDimensions(
+  metric: InsightMetric,
+  fields: Map<string, Field>,
+  groupedFieldIds: ReadonlySet<string>,
+): Field[] {
+  const contract = metric.contract;
+  if (!contract || contract.kind === "ratio") return [];
+  const additiveScopes =
+    contract.kind === "additive" && contract.additiveOver
+      ? new Set(contract.additiveOver)
+      : undefined;
+  if (contract.kind === "additive" && !additiveScopes) return [];
+  return Array.from(fields.values()).filter(
+    (field) =>
+      field.tableId === metric.sourceTable &&
+      field.scope !== undefined &&
+      !groupedFieldIds.has(field.id) &&
+      (contract.kind === "non-additive" || !additiveScopes!.has(field.scope)),
+  );
+}
+
+function rankingMeasureRequiresGuard(
+  metric: InsightMetric,
+  metrics: InsightMetric[],
+  fields: Map<string, Field>,
+  groupedFieldIds: ReadonlySet<string>,
+  visiting = new Set<string>(),
+): boolean {
+  if (visiting.has(metric.id)) return false;
+  // A non-additive measure is guarded by source-row count even when legacy
+  // metadata predates field scopes, so its ranking safety cannot be inferred
+  // from scoped dimensions alone.
+  if (metric.contract?.kind === "non-additive") return true;
+  if (measureGuardedDimensions(metric, fields, groupedFieldIds).length)
+    return true;
+  const path = new Set(visiting).add(metric.id);
+  let guarded = false;
+  const visit = (expression: MeasureExpression): void => {
+    if (guarded) return;
+    if (expression.kind === "measure") {
+      const referenced = metrics.find(
+        (candidate) => candidate.id === expression.measureId,
+      );
+      if (!referenced) return;
+      guarded = rankingMeasureRequiresGuard(
+        referenced,
+        metrics,
+        fields,
+        groupedFieldIds,
+        path,
+      );
+      return;
+    }
+    if (expression.kind === "binary") {
+      visit(expression.left);
+      visit(expression.right);
+    }
+  };
+  if (metric.expression && isMeasureExpression(metric.expression))
+    visit(metric.expression);
+  return guarded;
 }
 
 function compileMeasureExpression(
   expression: MeasureExpression,
   measures: InsightMetric[],
   fields: Map<string, Field>,
+  groupedFieldIds: ReadonlySet<string>,
   visiting: Set<string>,
   depth: number,
 ): string {
@@ -1365,13 +1490,20 @@ function compileMeasureExpression(
         (candidate) => candidate.id === expression.measureId,
       );
       if (!metric) throw new Error("Unknown measure reference");
-      return compileMeasure(metric, measures, fields, visiting);
+      return compileMeasure(
+        metric,
+        measures,
+        fields,
+        groupedFieldIds,
+        visiting,
+      );
     }
     case "binary": {
       const left = compileMeasureExpression(
         expression.left,
         measures,
         fields,
+        groupedFieldIds,
         visiting,
         depth + 1,
       );
@@ -1379,6 +1511,7 @@ function compileMeasureExpression(
         expression.right,
         measures,
         fields,
+        groupedFieldIds,
         visiting,
         depth + 1,
       );
@@ -1400,6 +1533,7 @@ function compileMeasureExpression(
 function buildMetricColumnsWithUUID(
   metrics: NonNullable<Insight["metrics"]>,
   fieldIdMap: Map<string, Field>,
+  groupedFieldIds: readonly string[],
   measureIds?: string[],
 ): { selectParts: string[]; columnAliases: string[] } {
   const selectParts: string[] = [];
@@ -1413,7 +1547,7 @@ function buildMetricColumnsWithUUID(
     }) ?? metrics;
   if (!selected.length) throw new Error("Select at least one measure");
   for (const metric of selected) {
-    const expr = `${compileMeasure(metric, metrics, fieldIdMap)} AS ${quoteIdentifier(metricIdToColumnAlias(metric.id))}`;
+    const expr = `${compileMeasure(metric, metrics, fieldIdMap, new Set(groupedFieldIds))} AS ${quoteIdentifier(metricIdToColumnAlias(metric.id))}`;
     if (expr) {
       selectParts.push(expr);
       columnAliases.push(metricIdToColumnAlias(metric.id));
@@ -1842,6 +1976,10 @@ function buildPresentationAggregate(
   const metrics = buildMetricColumnsWithUUID(
     insight.metrics,
     fieldMap,
+    presentation.dimensions.filter(
+      (id) =>
+        !presentation.transforms?.[id] && !insight.reporting?.dateGrains?.[id],
+    ),
     insight.reporting?.measureIds,
   );
   const outputAliases = [...dimensions.aliases, ...metrics.columnAliases];
@@ -2126,6 +2264,7 @@ function buildAggregatedSQL(
       ? buildMetricColumnsWithUUID(
           insight.metrics!,
           fieldIdMap,
+          exactGroupedFields(insight),
           outputMeasureIds,
         )
       : { selectParts: [], columnAliases: [] };
@@ -2201,7 +2340,12 @@ function buildAggregatedSQL(
       whereClause,
       groupByParts,
       dimensionSelects,
-      metricSelects,
+      metricSelects: buildMetricColumnsWithUUID(
+        insight.metrics,
+        fieldIdMap,
+        [],
+        outputMeasureIds,
+      ).selectParts,
       dimensionAliases,
       insight,
       options,
@@ -2311,6 +2455,7 @@ function buildPresentationPeriodComparisonSQL(
   const eligibleMetrics = buildMetricColumnsWithUUID(
     eligibleInsight.metrics,
     fieldMap,
+    eligibleInsight.selectedFields,
     eligibleInsight.reporting?.measureIds,
   ).columnAliases;
   const currentEligible = eligibleWithPresentationOrdinal(
@@ -2617,8 +2762,24 @@ function buildTopNSource(
     fields,
     insight.reporting,
   );
+  const rankingGroups = new Set(
+    insight.reporting?.dateGrains?.[field.id] ? [] : [field.id],
+  );
+  const guardedRankingMeasure = rankingMeasureRequiresGuard(
+    metric,
+    insight.metrics,
+    fields,
+    rankingGroups,
+  );
+  if (guardedRankingMeasure)
+    throw new Error("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE");
   const dimension = groupByParts[0]!;
-  const measure = compileMeasure(metric, insight.metrics, fields);
+  const measure = compileMeasure(
+    metric,
+    insight.metrics,
+    fields,
+    rankingGroups,
+  );
   const { whereClause } = buildFilterClauses(insight, fields, true, "alias");
   const ranking = `SELECT ${dimension} AS ${alias} FROM ${fromClause} ${whereClause} GROUP BY ${dimension} ORDER BY ${measure} ${top.direction.toUpperCase()}, ${dimension} ASC NULLS LAST LIMIT ${top.count}`;
   const outer = dimension.replaceAll(alias, `"__rank_source".${alias}`);

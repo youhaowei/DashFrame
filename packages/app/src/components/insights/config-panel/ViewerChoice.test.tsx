@@ -11,6 +11,12 @@ const table = {
   name: "Orders",
   fields: [
     { id: "field-1", name: "Amount", columnName: "amount", type: "number" },
+    {
+      id: "field-3",
+      name: "Active users",
+      columnName: "activeUsers",
+      type: "number",
+    },
   ],
 } as DataTable;
 
@@ -127,6 +133,67 @@ describe("viewer choices on chips", () => {
         .getByRole("switch", { name: "Offer to viewers only" })
         .getAttribute("aria-checked"),
     ).toBe("false");
+  });
+
+  it("preserves a measure's aggregation contract when renaming it", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onEdit = vi.fn();
+    render(
+      <MetricsSection
+        metrics={[{ ...metric, contract: { kind: "non-additive" } }]}
+        dataTable={table}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+        onEdit={onEdit}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Edit Total amount" }));
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Active users");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(onEdit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Active users",
+          contract: { kind: "non-additive" },
+        }),
+      ),
+    );
+  });
+
+  it("drops a measure's aggregation contract when its column changes", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onEdit = vi.fn();
+    render(
+      <MetricsSection
+        metrics={[
+          {
+            ...metric,
+            contract: {
+              kind: "additive",
+              additiveOver: ["time", "session"],
+            },
+          },
+        ]}
+        dataTable={table}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+        onEdit={onEdit}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Edit Total amount" }));
+    await user.click(screen.getByLabelText("Column"));
+    await user.click(
+      await screen.findByRole("option", { name: "Active users" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onEdit).toHaveBeenCalledTimes(1));
+    expect(onEdit.mock.calls[0]![0]).toMatchObject({
+      columnName: "activeUsers",
+    });
+    expect(onEdit.mock.calls[0]![0]).not.toHaveProperty("contract");
   });
 
   it("changes only the viewer choice when the metric itself is unchanged", async () => {

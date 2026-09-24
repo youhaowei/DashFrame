@@ -1,4 +1,9 @@
-import type { Field, Metric, SourceSchema } from "@dashframe/types";
+import {
+  GRAIN_SCOPES,
+  type Field,
+  type Metric,
+  type SourceSchema,
+} from "@dashframe/types";
 import { z } from "zod";
 
 /**
@@ -44,6 +49,7 @@ const fieldSchema = z
     tableId: z.string().min(1),
     columnName: z.string().min(1).optional(),
     type: columnTypeSchema,
+    scope: z.enum(GRAIN_SCOPES).optional(),
     isIdentifier: z.boolean().optional(),
     isReference: z.boolean().optional(),
     sensitivity: z.enum(["unclassified", "sensitive", "cleared"]).optional(),
@@ -66,6 +72,18 @@ const metricSchema = z
       "max",
       "count_distinct",
     ]),
+    contract: z
+      .discriminatedUnion("kind", [
+        z
+          .object({
+            kind: z.literal("additive"),
+            additiveOver: z.array(z.enum(GRAIN_SCOPES)).optional(),
+          })
+          .strict(),
+        z.object({ kind: z.literal("ratio") }).strict(),
+        z.object({ kind: z.literal("non-additive") }).strict(),
+      ])
+      .optional(),
   })
   .passthrough();
 

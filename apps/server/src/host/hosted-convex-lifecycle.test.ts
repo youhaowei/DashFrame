@@ -28,6 +28,7 @@ it("sends lifecycle operations through fixed Bearer endpoints without caller-sel
   });
   const identity = { operationId: "batch", requestHash: "a".repeat(64) };
   const paging = { paginationOpts: { cursor: null, numItems: 100 } };
+  await metadata.repairGa4MeasureContracts({});
   await metadata.prepareHostBatch({
     ...identity,
     commands: [],
@@ -61,6 +62,7 @@ it("sends lifecycle operations through fixed Bearer endpoints without caller-sel
   await metadata.recoverHostBatch({ operationId: "batch" });
   expect(requests.map((request) => request.path)).toEqual(
     [
+      "repairGa4MeasureContracts",
       "prepareHostBatch",
       "getHostBatch",
       "executeHostBatch",
@@ -81,8 +83,8 @@ it("sends lifecycle operations through fixed Bearer endpoints without caller-sel
     expect(request.args[0]).not.toHaveProperty("workspaceId");
     expect(request.args[0]).not.toHaveProperty("principal");
   }
-  expect(requests[0]!.args[0]).not.toHaveProperty("draftId");
-  expect(requests[3]!.args[0]).not.toHaveProperty("retryable");
-  expect(requests[12]!.args).toEqual([{ operationId: "batch" }]);
-  expect(Object.keys(metadata)).toHaveLength(23);
+  expect(requests[1]!.args[0]).not.toHaveProperty("draftId");
+  expect(requests[4]!.args[0]).not.toHaveProperty("retryable");
+  expect(requests[13]!.args).toEqual([{ operationId: "batch" }]);
+  expect(Object.keys(metadata)).toHaveLength(24);
 });

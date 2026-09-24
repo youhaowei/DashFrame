@@ -42,6 +42,7 @@ import type {
 } from "./model";
 import { parseStoredDataTableState } from "./tableCodec";
 const workspace = { workspaceId: v.string() };
+const GA4_REPAIR_LIMIT = 10_000;
 /**
  * Bound the frames a data table accumulates across refreshes: keep the frame
  * the table now points at and the one it pointed at before (one-step rollback,
@@ -148,6 +149,123 @@ export const initializeProject = internalMutation({
       createdAt: Date.now(),
     });
     return null;
+  },
+});
+
+/** Repair the v2 GA4 active-user measure shipped before aggregation contracts. */
+export const repairGa4MeasureContracts = internalMutation({
+  args: workspace,
+  returns: v.object({
+    tablesRepaired: v.number(),
+    insightsRepaired: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const sources = await ctx.db
+      .query("dataSources")
+      .withIndex("by_workspaceId_and_kind", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("kind", "googleAnalytics"),
+      )
+      .take(GA4_REPAIR_LIMIT + 1);
+    if (sources.length > GA4_REPAIR_LIMIT)
+      throw new Error("GA4 source repair limit exceeded");
+
+    let tablesRepaired = 0;
+    const ga4TableIds = new Set<string>();
+    for (const source of sources) {
+      if (source.config?.sourceBindingVersion !== "v2") continue;
+      const tables = await ctx.db
+        .query("dataTables")
+        .withIndex("by_workspaceId_and_dataSourceId", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("dataSourceId", source.id),
+        )
+        .take(GA4_REPAIR_LIMIT + 1);
+      if (tables.length > GA4_REPAIR_LIMIT)
+        throw new Error("GA4 table repair limit exceeded");
+      for (const table of tables) {
+        ga4TableIds.add(table.id);
+        let changed = false;
+        const metrics = (table.metrics ?? []).map((metric) => {
+          if (
+            metric.columnName !== "activeUsers" ||
+            metric.name !== "Sum of Active users"
+          )
+            return metric;
+          changed = true;
+          return {
+            ...metric,
+            name: "Active users",
+            contract: { kind: "non-additive" },
+          };
+        });
+        if (!changed) continue;
+        try {
+          parseStoredDataTableState(
+            { ...table, metrics },
+            "GA4 measure repair",
+          );
+        } catch (error) {
+          console.warn(`Skipped malformed GA4 table ${table.id}`, error);
+          continue;
+        }
+        await ctx.db.patch(table._id, {
+          metrics,
+          revision: table.revision + 1,
+          // Saved measure edits invalidate imported data; this metadata-only
+          // repair changes query semantics without requiring a connector fetch.
+          updatedAt: Date.now(),
+        });
+        tablesRepaired += 1;
+      }
+    }
+
+    let insightsRepaired = 0;
+    const insights = await ctx.db
+      .query("insights")
+      .withIndex("by_workspaceId_and_id", (q) =>
+        q.eq("workspaceId", args.workspaceId),
+      )
+      .take(GA4_REPAIR_LIMIT + 1);
+    if (insights.length > GA4_REPAIR_LIMIT)
+      throw new Error("GA4 insight repair limit exceeded");
+    for (const insight of insights) {
+      const definition = insight.definition;
+      if (!definition || !Array.isArray(definition.metrics)) continue;
+      let changed = false;
+      let metrics: typeof definition.metrics;
+      try {
+        metrics = definition.metrics.map((value) => {
+          if (!value || typeof value !== "object" || Array.isArray(value))
+            return value;
+          const metric = value as ObjectValue;
+          if (
+            !ga4TableIds.has(String(metric.sourceTable)) ||
+            metric.columnName !== "activeUsers" ||
+            metric.name !== "Sum of Active users"
+          )
+            return metric;
+          const repaired = {
+            ...metric,
+            name: "Active users",
+            contract: { kind: "non-additive" },
+          } satisfies ObjectValue;
+          validateMetric(repaired, true);
+          changed = true;
+          return repaired;
+        });
+      } catch (error) {
+        console.warn(`Skipped malformed GA4 insight ${insight.id}`, error);
+        continue;
+      }
+      if (!changed) continue;
+      await ctx.db.patch(insight._id, {
+        definition: { ...definition, metrics },
+        revision: insight.revision + 1,
+        refreshRevision: crypto.randomUUID(),
+        updatedAt: Date.now(),
+      });
+      insightsRepaired += 1;
+    }
+    return { tablesRepaired, insightsRepaired };
   },
 });
 export const getDataSource = internalQuery({

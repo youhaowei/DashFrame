@@ -290,18 +290,20 @@ export function resolveEncodingToResultFrame(
   context: EncodingResolutionContext,
 ): ResolvedEncoding {
   const resolved = resolveEncodingToSql(encoding, context);
-  const requiresMetricRollup = [
+  const transformedFields = [
     [encoding.x, encoding.xTransform],
     [encoding.y, encoding.yTransform],
-  ].some(([stored, transform]) => {
+  ].flatMap(([stored, transform]) => {
     const parsed = parseEncoding(stored as string | undefined);
-    if (parsed?.type !== "field") return false;
+    if (parsed?.type !== "field") return [];
     const channelTransform = transform as ChannelTransform | undefined;
-    return !(
+    const requiresRollup = !(
       channelTransform?.type !== "date" ||
       (channelTransform.transform.kind === "temporal" &&
         channelTransform.transform.aggregation === "none")
     );
+    if (!requiresRollup) return [];
+    return [context.fields.find((field) => field.id === parsed.id)];
   });
   const resolveResultChannel = (
     stored: string | undefined,
@@ -319,7 +321,23 @@ export function resolveEncodingToResultFrame(
     );
     if (!metric) return undefined;
     const alias = metricIdToColumnAlias(parsed.id);
-    if (!requiresMetricRollup) return alias;
+    if (!transformedFields.length) return alias;
+    // Legacy result-frame transforms lack the source rows needed to check the
+    // fetched grain or recompute a ratio. Normal report charts request a new
+    // source aggregation and clear these transforms before reaching this path.
+    const contract = metric.contract;
+    if (contract) {
+      if (contract.kind !== "additive") return undefined;
+      if (
+        transformedFields.some(
+          (field) =>
+            !field?.scope ||
+            (contract.additiveOver !== undefined &&
+              !contract.additiveOver.includes(field.scope)),
+        )
+      )
+        return undefined;
+    }
     // The result frame is already aggregated at the Insight's exact field
     // grain. A coarser chart transform must combine those partial aggregates.
     // SUM/COUNT are additive and MIN/MAX are composable. AVG needs its source

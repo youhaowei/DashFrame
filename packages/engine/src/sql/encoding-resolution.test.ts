@@ -202,4 +202,90 @@ describe("encoding resolution — materialized Insight results", () => {
       resolveEncodingToResultFrame(encoding, contextFor("count_distinct")).y,
     ).toBeUndefined();
   });
+
+  it("refuses legacy result-frame rollups that need source-grain evidence", () => {
+    const encoding = {
+      x: "field:date",
+      y: "metric:measure",
+      xTransform: {
+        type: "date" as const,
+        transform: {
+          kind: "temporal" as const,
+          aggregation: "yearMonth" as const,
+        },
+      },
+    };
+    for (const contract of [
+      { kind: "non-additive" as const },
+      { kind: "ratio" as const },
+      { kind: "additive" as const, additiveOver: ["session" as const] },
+    ]) {
+      const context = {
+        fields: [
+          { id: "date", tableId: "table", name: "Date", type: "date" as const },
+        ],
+        metrics: [
+          {
+            id: "measure",
+            name: "Value",
+            sourceTable: "table",
+            aggregation: "sum" as const,
+            contract,
+          },
+        ],
+      };
+      expect(resolveEncodingToResultFrame(encoding, context).y).toBeUndefined();
+      expect(
+        resolveEncodingToResultFrame({ x: encoding.x, y: encoding.y }, context)
+          .y,
+      ).toBe("metric_measure");
+    }
+  });
+
+  it("requires a transformed field scope authorized by the metric contract", () => {
+    const encoding = {
+      x: "field:date",
+      y: "metric:measure",
+      xTransform: {
+        type: "date" as const,
+        transform: {
+          kind: "temporal" as const,
+          aggregation: "yearMonth" as const,
+        },
+      },
+    };
+    const contextFor = (scope?: "time" | "session") => ({
+      fields: [
+        {
+          id: "date",
+          tableId: "table",
+          name: "Date",
+          type: "date" as const,
+          ...(scope ? { scope } : {}),
+        },
+      ],
+      metrics: [
+        {
+          id: "measure",
+          name: "Value",
+          sourceTable: "table",
+          aggregation: "sum" as const,
+          contract: {
+            kind: "additive" as const,
+            additiveOver: ["time" as const],
+          },
+        },
+      ],
+    });
+
+    expect(
+      resolveEncodingToResultFrame(encoding, contextFor()).y,
+    ).toBeUndefined();
+    expect(
+      resolveEncodingToResultFrame(encoding, contextFor("session")).y,
+    ).toBeUndefined();
+    expect(resolveEncodingToResultFrame(encoding, contextFor("time")).y).toBe(
+      "sum(metric_measure)",
+    );
+  });
 });

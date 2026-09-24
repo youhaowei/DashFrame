@@ -267,20 +267,60 @@ function renderRoundedBars(
   return group;
 }
 
+function normalizeCollapsedBarScale(
+  isHorizontal: boolean,
+  args: Parameters<RenderFunction>,
+) {
+  const [index, scales, values] = args;
+  const valueAxis = isHorizontal ? "x" : "y";
+  const valueScale = scales[valueAxis];
+  if (
+    !valueScale ||
+    !("domain" in valueScale) ||
+    typeof valueScale.domain !== "function"
+  )
+    return;
+  const domain = (valueScale.domain as () => unknown[])();
+  if (domain.length >= 2 && !Object.is(domain[0], domain.at(-1))) return;
+
+  const rawValue = values.__dashframeBarValue;
+  if (!rawValue) return;
+  args[0] = index.filter(
+    (i) => rawValue[i] != null && !Number.isNaN(rawValue[i]),
+  );
+  // A collapsed d3 scale makes Plot expand even genuine zero bars across the
+  // full value axis. Give retained zero marks a non-collapsed copy so both
+  // endpoints map to the baseline and their length stays 0.
+  if (
+    args[0].length &&
+    "copy" in valueScale &&
+    typeof valueScale.copy === "function"
+  ) {
+    const expandedValueScale = valueScale.copy();
+    expandedValueScale.domain([0, 1]);
+    args[1] = { ...scales, [valueAxis]: expandedValueScale };
+  }
+}
+
 function barRenderTransform(
   isHorizontal: boolean,
   isStacked: boolean,
 ): RenderFunction {
   return function (this: BarRenderState, ...args) {
-    const [index, scales, values, dimensions, context, next] = args;
+    const [, scales, values, dimensions, context, next] = args;
     if (!next) return null;
-    const scale = scales[isHorizontal ? "y" : "x"];
+    // Plot expands zero-length bars to the whole plot when the value scale
+    // collapses. Remove NULL marks and keep genuine zero marks at the baseline
+    // instead of fabricating full-height bars for either case.
+    const categoryAxis = isHorizontal ? "y" : "x";
+    const scale = scales[categoryAxis];
+    normalizeCollapsedBarScale(isHorizontal, args);
     if (
       !scale ||
       !("bandwidth" in scale) ||
       typeof scale.bandwidth !== "function"
     ) {
-      return next(index, scales, values, dimensions, context);
+      return next(args[0], args[1], values, dimensions, context);
     }
     const bandwidth = Number(scale.bandwidth());
     // Preserve a gap in dense charts and cap sparse charts at 48px.
@@ -301,7 +341,7 @@ function barRenderTransform(
       // Stack joints remain square and contiguous. For a single series, round
       // only the value end; screen direction reverses for negative values.
       return isStacked
-        ? next(index, scales, values, dimensions, context)
+        ? next(args[0], args[1], values, dimensions, context)
         : renderRoundedBars(this, isHorizontal, ...args);
     } finally {
       Object.assign(this, previous);
@@ -366,6 +406,12 @@ function buildEncodingOptions(
   if (chartType === "barY" || chartType === "barX") {
     const isHorizontal = chartType === "barX";
     Object.assign(options, barCategorySort(chartType, encoding));
+    options.channels = {
+      __dashframeBarValue: parseEncodingValue(
+        api,
+        isHorizontal ? encoding.x : encoding.y,
+      ),
+    };
     options.render = barRenderTransform(isHorizontal, !!encoding.color);
   }
 

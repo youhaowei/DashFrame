@@ -28,6 +28,7 @@ import { createHostedWorkspaceResourceFactory } from "./host/hosted-workspace-re
 import { createStaticWebSurface } from "./host/web-surface";
 import { mountConvexProxy } from "./host/convex-proxy";
 import { sweep as sweepConnectorSetupSessions } from "./connector-setup/session-store";
+import { retryConvexMutation } from "./host/retry-convex-mutation";
 
 const HOSTED_WS_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024;
 
@@ -224,6 +225,11 @@ export async function createHostedServerSurface(options: {
         let recovery = recovered.get(resources);
         if (!recovery) {
           recovery = Promise.all([
+            retryConvexMutation(() =>
+              metadata.repairGa4MeasureContracts({}),
+            ).catch((error) =>
+              console.error("Failed to repair GA4 measure contracts", error),
+            ),
             hosted.cleanup
               .recoverPendingBatches()
               .then(() => hosted.cleanup.run()),

@@ -25,6 +25,11 @@ export function createHostedLifecycleMetadata(
   const client = createHostedMetadataClient(options);
   return {
     ...createHostedMetadata(options),
+    repairGa4MeasureContracts: async () =>
+      (await client()).mutation(
+        api.hostedLifecycle.repairGa4MeasureContracts,
+        {},
+      ),
     getHostBatch: async (input) =>
       (await client()).query(api.hostedLifecycle.getHostBatch, wire(input)),
     prepareHostBatch: async (input) =>

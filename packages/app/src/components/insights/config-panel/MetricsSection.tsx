@@ -228,12 +228,22 @@ function MetricEditor({
     setError(null);
     try {
       if (!metric || definitionChanged) {
+        const nextColumnName = metricColumnNameForSave(aggregation, columnName);
+        const contractUnchanged =
+          metric !== undefined &&
+          nextColumnName === metric.columnName &&
+          aggregation === metric.aggregation &&
+          JSON.stringify(options.expression) ===
+            JSON.stringify(metric.expression);
         await onSave({
           id: metric?.id ?? (crypto.randomUUID() as UUID),
           name: name.trim(),
           sourceTable: metric?.sourceTable ?? dataTable.id,
-          columnName: metricColumnNameForSave(aggregation, columnName),
+          columnName: nextColumnName,
           aggregation,
+          ...(contractUnchanged && metric.contract
+            ? { contract: metric.contract }
+            : {}),
           ...options,
         });
       }
