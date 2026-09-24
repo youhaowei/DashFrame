@@ -9,6 +9,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 import {
+  AGGREGATIONS as AGGREGATION_TYPES,
   MAX_LOCAL_ARROW_BYTES,
   localArrowSizeIsAllowed,
 } from "@dashframe/types";
@@ -30,14 +31,7 @@ const COLUMN_TYPES = new Set([
   "date",
   "unknown",
 ]);
-const AGGREGATIONS = new Set([
-  "sum",
-  "avg",
-  "count",
-  "min",
-  "max",
-  "count_distinct",
-]);
+const AGGREGATIONS = new Set<string>(AGGREGATION_TYPES);
 const FIELD_SENSITIVITIES = new Set(["unclassified", "sensitive", "cleared"]);
 const FIELD_SENSITIVITY_SOURCES = new Set(["user", "classifier"]);
 

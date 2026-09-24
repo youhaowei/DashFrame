@@ -222,6 +222,16 @@ describe("buildInsightSQL — measure aggregation contracts", () => {
     return sql!;
   };
 
+  it("rejects a runtime ratio with a null expression", () => {
+    const malformedRatio = {
+      ...ratio,
+      expression: null,
+    } as unknown as InsightMetric;
+    expect(() => sqlFor([], [malformedRatio])).toThrow(
+      "Ratio measures require an expression",
+    );
+  });
+
   it("emits the non-additive source-row guard", () => {
     expect(sqlFor([week.id, channel.id], [active])).toContain(
       `CASE WHEN COUNT(*) = 1 THEN SUM("${fieldIdToColumnAlias(activeUsers.id)}") END`,

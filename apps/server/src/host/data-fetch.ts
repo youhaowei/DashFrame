@@ -9,7 +9,11 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { reportingSchema } from "@dashframe/convex-backend/codecs";
-import { fixedRuntimeIds, isMeasureExpression } from "@dashframe/types";
+import {
+  AGGREGATIONS,
+  fixedRuntimeIds,
+  isMeasureExpression,
+} from "@dashframe/types";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 
@@ -122,14 +126,7 @@ const definitionSchema = z
               .optional(),
           })
           .optional(),
-        aggregation: z.enum([
-          "sum",
-          "avg",
-          "count",
-          "min",
-          "max",
-          "count_distinct",
-        ]),
+        aggregation: z.enum(AGGREGATIONS),
       }),
     ),
     filters: z.array(filterSchema).optional(),

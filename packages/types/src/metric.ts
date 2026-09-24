@@ -4,13 +4,16 @@ import type { InsightFilter } from "./insights";
 /**
  * Supported aggregation functions.
  */
-export type AggregationType =
-  | "sum"
-  | "avg"
-  | "count"
-  | "min"
-  | "max"
-  | "count_distinct";
+export const AGGREGATIONS = [
+  "sum",
+  "avg",
+  "count",
+  "min",
+  "max",
+  "count_distinct",
+] as const;
+
+export type AggregationType = (typeof AGGREGATIONS)[number];
 
 export const GRAIN_SCOPES = [
   "time",
@@ -122,6 +125,44 @@ export function isMeasureExpression(
     default:
       return false;
   }
+}
+
+/** Strict structural validation shared by stored state and command inputs. */
+export function isMeasureContract(value: unknown): value is MeasureContract {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (!("kind" in value)) return false;
+  const keys = Object.keys(value);
+  if (value.kind === "additive") {
+    if (keys.some((key) => key !== "kind" && key !== "additiveOver"))
+      return false;
+    if (!("additiveOver" in value) || value.additiveOver === undefined)
+      return true;
+    return (
+      Array.isArray(value.additiveOver) &&
+      value.additiveOver.every(
+        (scope) =>
+          typeof scope === "string" &&
+          GRAIN_SCOPES.includes(scope as GrainScope),
+      )
+    );
+  }
+  return (
+    (value.kind === "ratio" || value.kind === "non-additive") &&
+    keys.every((key) => key === "kind")
+  );
+}
+
+export function measureContractProblem(metric: {
+  contract?: unknown;
+  expression?: unknown;
+}): string | null {
+  return metric.contract !== null &&
+    typeof metric.contract === "object" &&
+    "kind" in metric.contract &&
+    metric.contract.kind === "ratio" &&
+    !metric.expression
+    ? "Ratio measures require an expression"
+    : null;
 }
 
 /** Persistable measure-local predicates, distinct from untyped input drafts. */

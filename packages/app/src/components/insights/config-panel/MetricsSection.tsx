@@ -1,3 +1,4 @@
+import { AGGREGATIONS } from "@dashframe/types";
 import type {
   AggregationType,
   DataTable,
@@ -45,14 +46,18 @@ interface MetricSortableItem extends SortableListItem {
   metric: InsightMetric;
 }
 
-const AGGREGATIONS: Array<{ value: AggregationType; label: string }> = [
-  { value: "count", label: "Count" },
-  { value: "sum", label: "Sum" },
-  { value: "avg", label: "Average" },
-  { value: "min", label: "Minimum" },
-  { value: "max", label: "Maximum" },
-  { value: "count_distinct", label: "Count distinct" },
-];
+const AGGREGATION_LABELS: Record<AggregationType, string> = {
+  sum: "Sum",
+  avg: "Average",
+  count: "Count",
+  min: "Minimum",
+  max: "Maximum",
+  count_distinct: "Count distinct",
+};
+const AGGREGATION_OPTIONS = AGGREGATIONS.map((value) => ({
+  value,
+  label: AGGREGATION_LABELS[value],
+})).sort((a, b) => Number(b.value === "count") - Number(a.value === "count"));
 
 type MetricField = { id: string; columnName?: string; name: string };
 type ColumnDisplayNames = Readonly<Record<string, string>>;
@@ -430,12 +435,13 @@ function MetricEditor({
             >
               <SelectTrigger aria-label="Aggregation" className="w-32">
                 <SelectValue>
-                  {AGGREGATIONS.find((item) => item.value === aggregation)
-                    ?.label ?? aggregation}
+                  {AGGREGATION_OPTIONS.find(
+                    (item) => item.value === aggregation,
+                  )?.label ?? aggregation}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {AGGREGATIONS.map((item) => (
+                {AGGREGATION_OPTIONS.map((item) => (
                   <SelectItem key={item.value} value={item.value}>
                     {item.label}
                   </SelectItem>
