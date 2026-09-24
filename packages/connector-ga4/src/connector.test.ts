@@ -1,5 +1,6 @@
 import { tableFromIPC } from "apache-arrow";
 import { describe, expect, it, vi } from "vite-plus/test";
+import { supportsDefinitions } from "@dashframe/engine";
 
 import {
   acquisitionMeasures,
@@ -30,6 +31,103 @@ function bundle(overrides: Partial<GoogleOAuthTokenBundle> = {}) {
 const oauthClient = { clientId: "client-id", clientSecret: "client-secret" };
 
 describe("GA4 connector", () => {
+  it("implements definition queries, field listing, compatibility, and the capability guard", async () => {
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      urls.push(url);
+      if (
+        url === "https://analyticsadmin.googleapis.com/v1beta/properties/123"
+      ) {
+        return new Response(JSON.stringify({ timeZone: "Asia/Tokyo" }));
+      }
+      if (url.endsWith(":runReport")) {
+        return new Response(
+          JSON.stringify({
+            dimensionHeaders: [{ name: "date" }],
+            metricHeaders: [{ name: "sessions" }],
+            rowCount: 0,
+            rows: [],
+          }),
+        );
+      }
+      if (url.endsWith("/metadata")) {
+        return new Response(
+          JSON.stringify({
+            dimensions: [{ apiName: "date", uiName: "Date" }],
+            metrics: [],
+          }),
+        );
+      }
+      if (url.endsWith(":checkCompatibility")) {
+        return new Response(JSON.stringify({}));
+      }
+      return new Response(null, { status: 404 });
+    });
+    const connector = makeGa4Connector(resolver(bundle()), {
+      fetch: fetchImpl as typeof fetch,
+      now: () => Date.parse("2026-03-01T00:30:00Z"),
+    });
+    const definition = {
+      dimensions: ["date"],
+      metrics: ["sessions"],
+      grain: "day" as const,
+      dateRange: { kind: "relative" as const, months: 1 },
+    };
+
+    expect(supportsDefinitions(connector)).toBe(true);
+    await expect(
+      connector.queryDefinition("123", definition, {
+        tableId: crypto.randomUUID(),
+      }),
+    ).resolves.toMatchObject({ rowCount: 0 });
+    await connector.queryDefinition("123", definition, {
+      tableId: crypto.randomUUID(),
+    });
+    await expect(connector.listFields("123")).resolves.toMatchObject([
+      { apiName: "date", scope: "time" },
+    ]);
+    await expect(connector.checkDefinition("123", definition)).resolves.toEqual(
+      { ok: true },
+    );
+    expect(
+      urls.filter(
+        (url) => new URL(url).hostname === "analyticsadmin.googleapis.com",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("reserves the response-byte budget for report data, not time-zone metadata", async () => {
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      urls.push(url);
+      return new URL(url).hostname === "analyticsadmin.googleapis.com"
+        ? new Response(JSON.stringify({ timeZone: "Asia/Tokyo" }))
+        : new Response(JSON.stringify({ rowCount: 0, rows: [] }));
+    });
+    const connector = makeGa4Connector(resolver(bundle()), {
+      fetch: fetchImpl as typeof fetch,
+      now: () => Date.parse("2026-08-05T12:00:00Z"),
+    });
+    await expect(
+      connector.queryDefinition(
+        "123",
+        {
+          dimensions: ["date"],
+          metrics: ["sessions"],
+          grain: "day",
+          dateRange: { kind: "relative", months: 1 },
+        },
+        { tableId: crypto.randomUUID(), maxResponseBytes: 1 },
+      ),
+    ).rejects.toThrow("SOURCE_RESULT_TOO_LARGE");
+    expect(urls).toEqual([
+      "https://analyticsadmin.googleapis.com/v1beta/properties/123",
+      "https://analyticsdata.googleapis.com/v1beta/properties/123:runReport",
+    ]);
+  });
+
   it("bounds report response bytes and cancels the unread body", async () => {
     const cancel = vi.fn();
     const fetchImpl = vi.fn(
@@ -331,7 +429,7 @@ describe("GA4 connector", () => {
         format: undefined,
         contract: {
           kind: "additive",
-          additiveOver: ["time", "session"],
+          additiveOver: ["time", "session", "event"],
         },
       },
       {
@@ -341,7 +439,7 @@ describe("GA4 connector", () => {
         format: { style: "currency" },
         contract: {
           kind: "additive",
-          additiveOver: ["time", "session"],
+          additiveOver: ["time", "session", "event"],
         },
       },
       {
@@ -418,7 +516,7 @@ describe("GA4 connector", () => {
         "properties/123:runReport?token=leak",
         crypto.randomUUID(),
       ),
-    ).rejects.toThrow(/Invalid GA4 property id/);
+    ).rejects.toThrow(/Invalid GA4 site id/);
   });
 
   // The client secret is server-wide config, not per-source data, so it reaches

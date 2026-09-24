@@ -1,12 +1,16 @@
 import type { UUID } from "@dashframe/types";
 import type {
   ConnectorQueryResult,
+  ConnectorFieldMetadata,
+  DefinitionCompatibility,
+  DefinitionQueryOptions,
   FileParseResult,
   FormField,
   QueryOptions,
   RemoteDatabase,
   SourceType,
   ValidationResult,
+  TableDefinition,
 } from "./types";
 
 /**
@@ -159,6 +163,32 @@ export abstract class RemoteApiConnector extends BaseConnector {
  * Union type for any connector.
  */
 export type AnyConnector = FileSourceConnector | RemoteApiConnector;
+
+/** Optional capability implemented by connectors that materialize saved definitions. */
+export interface DefinitionConnector {
+  queryDefinition(
+    site: string,
+    definition: TableDefinition,
+    options: DefinitionQueryOptions,
+  ): Promise<ConnectorQueryResult>;
+  listFields(site: string): Promise<ConnectorFieldMetadata[]>;
+  checkDefinition(
+    site: string,
+    definition: TableDefinition,
+  ): Promise<DefinitionCompatibility>;
+}
+
+/** Narrow a connector only when all definition operations are available. */
+export function supportsDefinitions(
+  connector: AnyConnector,
+): connector is AnyConnector & DefinitionConnector {
+  const candidate = connector as Partial<DefinitionConnector>;
+  return (
+    typeof candidate.queryDefinition === "function" &&
+    typeof candidate.listFields === "function" &&
+    typeof candidate.checkDefinition === "function"
+  );
+}
 
 /**
  * Type guard to check if a connector is a file source connector.

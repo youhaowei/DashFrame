@@ -1,6 +1,9 @@
 // Connector types
 export type {
   ConnectorQueryResult,
+  ConnectorFieldMetadata,
+  DefinitionCompatibility,
+  DefinitionQueryOptions,
   FileParseResult,
   FormField,
   FormFieldType,
@@ -8,6 +11,10 @@ export type {
   RemoteDatabase,
   SourceType,
   ValidationResult,
+  TableDefinition,
+  TableOrigin,
+  MetricRef,
+  RatioExpression,
 } from "./types";
 
 // Connector base classes
@@ -17,9 +24,10 @@ export {
   RemoteApiConnector,
   isFileConnector,
   isRemoteApiConnector,
+  supportsDefinitions,
 } from "./base";
 
-export type { AnyConnector, SecretResolver } from "./base";
+export type { AnyConnector, DefinitionConnector, SecretResolver } from "./base";
 
 export {
   createFieldsFromColumns,
