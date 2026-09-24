@@ -568,6 +568,9 @@ export function ChartStarter({
     // Each action composes on the insight it sees; a second one before the
     // first lands would overwrite it.
     if (writing) return;
+    // Building by hand: a suggestion's type restored from before a reload,
+    // whose write never landed, must not shape this chart.
+    onPickChartType?.(undefined);
     write(
       buildColumnActionCommands(insight, dataTable, field, action),
       action === "group" ? "Couldn't add the field" : "Couldn't add the metric",

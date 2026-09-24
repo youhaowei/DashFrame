@@ -10,7 +10,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { mockCommitBatch } = vi.hoisted(() => ({ mockCommitBatch: vi.fn() }));
+const { mockCommitBatch, workbenchProps } = vi.hoisted(() => ({
+  mockCommitBatch: vi.fn(),
+  workbenchProps: {
+    starter: undefined as
+      | { onPickChartType?: (type: string | undefined) => void }
+      | undefined,
+  },
+}));
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
@@ -24,16 +31,21 @@ vi.mock("@/components/insights/InsightWorkbench", () => ({
     view,
     header,
     leftPaneNote,
+    starter,
   }: {
     view: { kind: string };
     header: ReactNode;
     leftPaneNote?: ReactNode;
-  }) => (
-    <div data-testid="workbench" data-view={view.kind}>
-      <header>{header}</header>
-      {leftPaneNote && <p>{leftPaneNote}</p>}
-    </div>
-  ),
+    starter?: { onPickChartType?: (type: string | undefined) => void };
+  }) => {
+    workbenchProps.starter = starter;
+    return (
+      <div data-testid="workbench" data-view={view.kind}>
+        <header>{header}</header>
+        {leftPaneNote && <p>{leftPaneNote}</p>}
+      </div>
+    );
+  },
 }));
 
 import type {
@@ -44,6 +56,7 @@ import type {
   UUID,
   Visualization,
 } from "@dashframe/types";
+import { useReportChartTabs } from "@/lib/reports/chart-tabs";
 import { newChartName, ReportChartTab } from "./ReportChartTab";
 
 const FIELD_ID = "10000000-0000-4000-8000-000000000001" as UUID;
@@ -249,5 +262,46 @@ describe("newChartName", () => {
       ]),
     ).toBe("Total revenue by Region");
     expect(newChartName(insight({}), [TABLE])).toBe("orders");
+  });
+
+  it("lands as the default type when a reload left a suggestion's type behind and the chart was built by hand", async () => {
+    // A card was picked, then the page reloaded before its write landed: the
+    // tab comes back from session storage with the type, the insight pristine.
+    const store = useReportChartTabs.getState();
+    store.open(REPORT.id, { id: "new-chart", insightId: "insight-1" });
+    store.setChartType(REPORT.id, "new-chart", "line");
+    const tabOf = () =>
+      useReportChartTabs
+        .getState()
+        .tabsByReport[REPORT.id]!.find((tab) => tab.id === "new-chart")!;
+    const onLanded = vi.fn();
+    const props = {
+      report: REPORT,
+      reports: [REPORT],
+      visualizations: [] as Visualization[],
+      dataTables: [TABLE],
+      insightsLoaded: true,
+      onLanded,
+    };
+    const view = render(
+      <ReportChartTab {...props} tab={tabOf()} insights={[insight({})]} />,
+    );
+
+    // A header action is the first step of a manual build.
+    workbenchProps.starter!.onPickChartType!(undefined);
+    expect(tabOf().chartType).toBeUndefined();
+
+    view.rerender(
+      <ReportChartTab
+        {...props}
+        tab={tabOf()}
+        insights={[insight({ selectedFields: [FIELD_ID], metrics: [METRIC] })]}
+      />,
+    );
+    await waitFor(() => expect(onLanded).toHaveBeenCalledWith("new-chart"));
+    const { commands } = mockCommitBatch.mock.calls[0]![0] as {
+      commands: { path: string; args: Record<string, unknown> }[];
+    };
+    expect(commands[0]!.args.visualizationType).not.toBe("line");
   });
 });

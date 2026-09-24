@@ -275,7 +275,7 @@ describe("ChartStarter", () => {
   });
 
   it("adds a column as the grouping from its header menu", async () => {
-    renderStarter();
+    const { onPickChartType } = renderStarter();
     fireEvent.click(
       screen.getByRole("button", { name: "Category column actions" }),
     );
@@ -286,6 +286,8 @@ describe("ChartStarter", () => {
     expect(await committed()).toEqual([
       cmd("SelectFields", { id: INSIGHT_ID, fieldIds: [CATEGORY.id] }),
     ]);
+    // A manual build drops any suggestion's type left from before a reload.
+    expect(onPickChartType.mock.calls).toEqual([[undefined]]);
   });
 
   it("adds a number column as a metric from its header menu", async () => {
