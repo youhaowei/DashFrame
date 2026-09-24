@@ -47,7 +47,19 @@ type DataSourceWithTables = {
  * Shows all data sources with their table counts.
  * Click a data source to see its tables and details.
  */
-export default function DataSourcesPage() {
+interface DataSourcesPageProps {
+  /**
+   * Whether the Add data source dialog is open, when the route owns it (the
+   * command palette opens it through the URL). Local state otherwise.
+   */
+  addSourceOpen?: boolean;
+  onAddSourceOpenChange?: (open: boolean) => void;
+}
+
+export default function DataSourcesPage({
+  addSourceOpen,
+  onAddSourceOpenChange,
+}: DataSourcesPageProps = {}) {
   const navigate = useNavigate();
 
   // Subscribe so a re-render fires once the connector registry hydrates from
@@ -70,7 +82,9 @@ export default function DataSourcesPage() {
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
-  const [isAddSourceOpen, setIsAddSourceOpen] = useState(false);
+  const [localAddSourceOpen, setLocalAddSourceOpen] = useState(false);
+  const isAddSourceOpen = addSourceOpen ?? localAddSourceOpen;
+  const setIsAddSourceOpen = onAddSourceOpenChange ?? setLocalAddSourceOpen;
 
   const handleRetry = useCallback(() => globalThis.location.reload(), []);
 
