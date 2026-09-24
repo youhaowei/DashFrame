@@ -34,7 +34,7 @@ export type {
   MeasureFormat,
 } from "./metric";
 
-export { GRAIN_SCOPES } from "./metric";
+export { GRAIN_SCOPES, measureCombinesOver } from "./metric";
 
 export {
   mergeReplacementFields,
