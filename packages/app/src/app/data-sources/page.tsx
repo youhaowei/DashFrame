@@ -14,7 +14,10 @@ import {
 } from "@/components/artifacts/ArtifactCollection";
 import { groupByKey } from "@/components/artifacts/collection-groups";
 import { useNow } from "@/hooks/useNow";
-import { formatRelativeTime } from "@/lib/format-relative-time";
+import {
+  formatRelativeTime,
+  formatRelativeTimeWithVerb,
+} from "@/lib/format-relative-time";
 import { useCollectionView, useShellStore } from "@/lib/stores/shell-store";
 import { sourceFreshness } from "./source-freshness";
 import { AddDataSourceModal } from "@/components/data-sources/AddDataSourceModal";
@@ -70,8 +73,9 @@ function fetchedLabel(item: DataSourceWithTables, now: number) {
   if (!freshness) return undefined;
   if (freshness.kind === "partial")
     return `${freshness.fetched} of ${freshness.total} fetched`;
-  const time = formatRelativeTime(now, freshness.at);
-  return freshness.verb ? `${freshness.verb} ${time}` : time;
+  return freshness.verb
+    ? formatRelativeTimeWithVerb(freshness.verb, now, freshness.at)
+    : formatRelativeTime(now, freshness.at);
 }
 
 // Resolve icon and label from the connector registry.

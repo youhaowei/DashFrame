@@ -15,6 +15,7 @@ import {
   ArtifactGrid,
   ArtifactRow,
   ArtifactRowGroups,
+  ArtifactTile,
 } from "./ArtifactCollection";
 
 function SearchThatEmptied() {
@@ -259,6 +260,31 @@ describe("ArtifactRow actions", () => {
       "[@media(hover:hover)]:group-hover:pointer-events-auto",
     );
     // …but visible and tappable where it cannot.
+    expect(classes).toContain("[@media(hover:none)]:pointer-events-auto");
+    expect(classes).toContain("[@media(hover:none)]:**:opacity-70");
+  });
+});
+
+describe("ArtifactTile actions", () => {
+  // Same limits as the row test: class assertions stand in for media queries.
+  it("applies the row's touch rule to the tile menu", () => {
+    render(
+      <ArtifactTile
+        to="/reports/a"
+        name="Alpha"
+        glyph={null}
+        actions={
+          <button type="button" aria-label="More options">
+            ...
+          </button>
+        }
+      />,
+    );
+
+    const classes = screen
+      .getByRole("button", { name: "More options" })
+      .parentElement!.className.split(" ");
+    expect(classes).toContain("pointer-events-none");
     expect(classes).toContain("[@media(hover:none)]:pointer-events-auto");
     expect(classes).toContain("[@media(hover:none)]:**:opacity-70");
   });

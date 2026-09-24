@@ -257,6 +257,15 @@ export function ArtifactCard({
   );
 }
 
+/**
+ * Actions that appear on hover or focus. With a hovering pointer they take no
+ * pointer events until revealed, so an invisible button never catches a click
+ * meant for the link beneath. Touch screens never hover: there they stay
+ * visible (muted) and tappable.
+ */
+const revealedActions =
+  "pointer-events-none group-focus-within:pointer-events-auto [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:**:opacity-70";
+
 const focusRing =
   "outline-none focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-bg";
 
@@ -302,7 +311,17 @@ export function ArtifactTile({
           </span>
         )}
       </Link>
-      {actions && <div className="absolute top-2 right-2">{actions}</div>}
+      {actions && (
+        // Same touch rule as rows: hidden and untappable until a hovering
+        // pointer or focus reveals it; where nothing hovers, muted but visible
+        // and tappable, since the menu holds Delete.
+        <div
+          data-slot="tile-actions"
+          className={`absolute top-2 right-2 ${revealedActions}`}
+        >
+          {actions}
+        </div>
+      )}
     </article>
   );
 }
@@ -367,7 +386,7 @@ export function ArtifactRow({
         // repeats a tap on the row, stays hidden.
         <div
           data-slot="row-actions"
-          className="pointer-events-none absolute right-1.5 flex items-center gap-0.5 group-focus-within:pointer-events-auto [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:**:opacity-70"
+          className={`absolute right-1.5 flex items-center gap-0.5 ${revealedActions}`}
         >
           {actions}
         </div>

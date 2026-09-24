@@ -3,7 +3,10 @@ import { queryStatus } from "@/data/query-status";
 import { useConfirmDialogStore, useToastStore } from "@/lib/stores";
 import { useCollectionView, useShellStore } from "@/lib/stores/shell-store";
 import { useNow } from "@/hooks/useNow";
-import { formatRelativeTime } from "@/lib/format-relative-time";
+import {
+  formatRelativeTime,
+  formatRelativeTimeWithVerb,
+} from "@/lib/format-relative-time";
 import {
   indexReportContents,
   resolveReportContents,
@@ -554,7 +557,11 @@ export default function DashboardsPage() {
                   <>
                     {reportContentLabel(dashboard)}
                     <span aria-hidden="true"> · </span>
-                    updated {formatRelativeTime(now, touchedAt(dashboard))}
+                    {formatRelativeTimeWithVerb(
+                      "updated",
+                      now,
+                      touchedAt(dashboard),
+                    )}
                   </>
                 }
                 actions={renderReportMenu(dashboard)}

@@ -21,3 +21,16 @@ export function formatRelativeTime(now: number, timestamp: number): string {
   if (minutes > 0) return `${minutes}m ago`;
   return "just now";
 }
+
+/**
+ * `formatRelativeTime` with a leading verb ("updated 2h ago"). An unknown time
+ * stays a bare "—": "updated —" would read as a value.
+ */
+export function formatRelativeTimeWithVerb(
+  verb: string,
+  now: number,
+  timestamp: number,
+): string {
+  const time = formatRelativeTime(now, timestamp);
+  return time === "—" ? time : `${verb} ${time}`;
+}
