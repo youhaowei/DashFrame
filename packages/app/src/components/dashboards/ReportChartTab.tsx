@@ -1,4 +1,5 @@
 import { InsightWorkbench } from "@/components/insights/InsightWorkbench";
+import { PutChartOnShelfButton } from "@/components/shelf/sources";
 import {
   buildLandChartCommands,
   chartLanding,
@@ -181,10 +182,13 @@ export function ReportChartTab({
       }
       header={
         visualization ? (
-          <ChartNameInput
-            key={visualization.id}
-            visualization={visualization}
-          />
+          <>
+            <ChartNameInput
+              key={visualization.id}
+              visualization={visualization}
+            />
+            <PutChartOnShelfButton chart={visualization} />
+          </>
         ) : (
           <>
             <span className="px-1 text-sm font-semibold text-neutral-fg">
