@@ -4,6 +4,7 @@ import { internal } from "../convex/_generated/api";
 import { validateMetric } from "../convex/engine";
 import schema from "../convex/schema";
 import { parseStoredDataTableState } from "../convex/tableCodec";
+import { AGGREGATIONS } from "@dashframe/types";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -11,6 +12,21 @@ let t: ReturnType<typeof makeTest>;
 
 beforeEach(() => {
   t = makeTest();
+});
+
+it("accepts every public aggregation and rejects values outside the list", () => {
+  for (const aggregation of AGGREGATIONS) {
+    expect(
+      parseStoredDataTableState(state({ aggregation }), "table").metrics[0]
+        .aggregation,
+    ).toBe(aggregation);
+  }
+  expect(() =>
+    parseStoredDataTableState(
+      state({ aggregation: "not-an-aggregation" }),
+      "table",
+    ),
+  ).toThrow(/metrics\.0\.aggregation/);
 });
 
 const state = (overrides: Record<string, unknown> = {}) => ({
@@ -57,7 +73,9 @@ describe("measure aggregation contract validation", () => {
         state({ contract: { kind: "additive", additiveOver: ["account"] } }),
         "table",
       ),
-    ).toThrow(/contract/);
+    ).toThrow(
+      'table is invalid: metrics.0.contract.additiveOver.0 Invalid option: expected one of "time"|"user"|"session"|"event"|"item"',
+    );
     expect(() =>
       parseStoredDataTableState(
         { ...state(), fields: [{ ...state().fields[0], scope: "account" }] },
@@ -70,6 +88,18 @@ describe("measure aggregation contract validation", () => {
         false,
       ),
     ).toThrow();
+  });
+
+  it("rejects nested additive scopes that stringify to a valid scope", () => {
+    expect(() =>
+      validateMetric(
+        {
+          ...state().metrics[0],
+          contract: { kind: "additive", additiveOver: [["time"]] },
+        },
+        false,
+      ),
+    ).toThrow("Invalid additive measure scope");
   });
 
   it("rejects ratio contracts without an expression", () => {

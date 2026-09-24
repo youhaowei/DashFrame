@@ -1,7 +1,10 @@
 import {
+  AGGREGATIONS,
   GRAIN_SCOPES,
+  isMeasureContract,
   type Field,
   type Metric,
+  type MeasureContract,
   type SourceSchema,
 } from "@dashframe/types";
 import { z } from "zod";
@@ -58,32 +61,43 @@ const fieldSchema = z
   })
   .passthrough();
 
+const aggregationSchema = z.enum(AGGREGATIONS);
+
+// Retain Zod's field-level diagnostics for malformed stored contracts.
+// The shared predicate remains the acceptance rule at this boundary.
+const measureContractDiagnosticSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("additive"),
+      additiveOver: z.array(z.enum(GRAIN_SCOPES)).optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal("ratio") }).strict(),
+  z.object({ kind: z.literal("non-additive") }).strict(),
+]);
+
+const measureContractSchema = z
+  .unknown()
+  .superRefine((value, context) => {
+    if (isMeasureContract(value)) return;
+    const diagnostic = measureContractDiagnosticSchema.safeParse(value);
+    if (!diagnostic.success) {
+      for (const issue of diagnostic.error.issues)
+        context.addIssue(issue as Parameters<typeof context.addIssue>[0]);
+    } else {
+      context.addIssue({ code: "custom", message: "Invalid input" });
+    }
+  })
+  .transform((value) => value as MeasureContract);
+
 const metricSchema = z
   .object({
     id: z.string().min(1),
     name: z.string(),
     tableId: z.string().min(1),
     columnName: z.string().min(1).optional(),
-    aggregation: z.enum([
-      "sum",
-      "avg",
-      "count",
-      "min",
-      "max",
-      "count_distinct",
-    ]),
-    contract: z
-      .discriminatedUnion("kind", [
-        z
-          .object({
-            kind: z.literal("additive"),
-            additiveOver: z.array(z.enum(GRAIN_SCOPES)).optional(),
-          })
-          .strict(),
-        z.object({ kind: z.literal("ratio") }).strict(),
-        z.object({ kind: z.literal("non-additive") }).strict(),
-      ])
-      .optional(),
+    aggregation: aggregationSchema,
+    contract: measureContractSchema.optional(),
   })
   .passthrough();
 

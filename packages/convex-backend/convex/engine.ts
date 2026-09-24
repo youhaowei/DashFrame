@@ -9,9 +9,11 @@ import {
 import {
   COMMAND_PATHS,
   ENCODING_VALUE_CHANNELS,
-  GRAIN_SCOPES,
+  AGGREGATIONS,
   isUnmodifiedDraft,
+  isMeasureContract,
   isMeasureExpression,
+  measureContractProblem,
   validateVisualizationEncoding,
   type VisualizationEncoding,
 } from "@dashframe/types";
@@ -505,8 +507,8 @@ export function validateMetric(metric: ObjectValue, derived: boolean) {
   str(metric.name, "metric.name");
   str(metric[derived ? "sourceTable" : "tableId"], "metric owner");
   if (
-    !["sum", "avg", "count", "min", "max", "count_distinct"].includes(
-      str(metric.aggregation, "aggregation"),
+    !AGGREGATIONS.includes(
+      str(metric.aggregation, "aggregation") as (typeof AGGREGATIONS)[number],
     )
   )
     throw new Error("Invalid aggregation");
@@ -518,31 +520,25 @@ export function validateMetric(metric: ObjectValue, derived: boolean) {
   if (metric.contract !== undefined) {
     const contract = record(metric.contract);
     const kind = str(contract.kind, "metric.contract.kind");
-    if (
-      Object.keys(contract).some(
-        (key) =>
-          key !== "kind" && !(kind === "additive" && key === "additiveOver"),
-      )
-    )
-      throw new Error("Invalid measure contract property");
-    if (!["additive", "ratio", "non-additive"].includes(kind))
-      throw new Error("Invalid measure contract");
-    if (kind === "additive" && contract.additiveOver !== undefined) {
-      const scopes = array(
-        contract.additiveOver,
-        "metric.contract.additiveOver",
-      );
+    if (!isMeasureContract(metric.contract)) {
+      // Only word the error here; isMeasureContract decides acceptance.
       if (
-        !scopes.every((scope) =>
-          GRAIN_SCOPES.includes(String(scope) as (typeof GRAIN_SCOPES)[number]),
+        Object.keys(contract).some(
+          (key) =>
+            key !== "kind" && !(kind === "additive" && key === "additiveOver"),
         )
       )
+        throw new Error("Invalid measure contract property");
+      if (!["additive", "ratio", "non-additive"].includes(kind))
+        throw new Error("Invalid measure contract");
+      if (kind === "additive" && contract.additiveOver !== undefined) {
+        array(contract.additiveOver, "metric.contract.additiveOver");
         throw new Error("Invalid additive measure scope");
-    } else if (contract.additiveOver !== undefined) {
-      throw new Error("Only additive measures may declare additive scopes");
+      }
+      throw new Error("Invalid measure contract");
     }
-    if (kind === "ratio" && metric.expression === undefined)
-      throw new Error("Ratio measures require an expression");
+    const problem = measureContractProblem(metric);
+    if (problem) throw new Error(problem);
   }
   if (
     !metric.expression &&

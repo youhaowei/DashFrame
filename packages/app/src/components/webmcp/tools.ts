@@ -8,6 +8,7 @@ import {
   metricIdToColumnAlias,
 } from "@dashframe/engine";
 import {
+  AGGREGATIONS,
   cmd,
   isEncodingValue,
   validateVisualizationEncoding,
@@ -40,15 +41,6 @@ const EMPTY_SCHEMA = {
   properties: {},
   additionalProperties: false,
 } as const;
-const AGGREGATIONS = [
-  "sum",
-  "avg",
-  "count",
-  "min",
-  "max",
-  "count_distinct",
-] satisfies AggregationType[];
-
 const CHART_TYPES: VisualizationType[] = [
   "barY",
   "barX",

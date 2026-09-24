@@ -34,7 +34,7 @@ export type {
   MeasureFormat,
 } from "./metric";
 
-export { GRAIN_SCOPES, measureCombinesOver } from "./metric";
+export { AGGREGATIONS, GRAIN_SCOPES, measureCombinesOver } from "./metric";
 
 export {
   mergeReplacementFields,
@@ -253,7 +253,11 @@ export {
   resultValueByCommandPath,
 } from "./commands";
 
-export { isMeasureExpression } from "./metric";
+export {
+  isMeasureContract,
+  isMeasureExpression,
+  measureContractProblem,
+} from "./metric";
 
 export type {
   InsightReporting,

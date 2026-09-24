@@ -10,6 +10,7 @@ import {
   type TSchema,
 } from "@dashframe/assistant";
 import {
+  AGGREGATIONS,
   CHART_TYPE_METADATA,
   cmd,
   COMMAND_PATHS,
@@ -744,9 +745,7 @@ function createDataTools(
             sourceTable: Type.String(),
             columnName: Type.Optional(Type.String()),
             aggregation: Type.Union(
-              ["sum", "avg", "count", "min", "max", "count_distinct"].map(
-                (value) => Type.Literal(value),
-              ),
+              AGGREGATIONS.map((value) => Type.Literal(value)),
             ),
           },
           closed,

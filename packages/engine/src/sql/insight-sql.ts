@@ -40,7 +40,12 @@ import type {
   UUID,
 } from "@dashframe/types";
 
-import { isMeasureExpression, measureCombinesOver } from "@dashframe/types";
+import {
+  AGGREGATIONS,
+  isMeasureExpression,
+  measureCombinesOver,
+  measureContractProblem,
+} from "@dashframe/types";
 
 import { quoteIdentifier, quoteLiteral } from "./quoting";
 
@@ -1292,6 +1297,8 @@ function compileGuardedMeasure(
 ): CompiledMeasure {
   if (visiting.has(metric.id)) throw new Error("Cyclic measure reference");
   const path = new Set(visiting).add(metric.id);
+  const contractProblem = measureContractProblem(metric);
+  if (contractProblem) throw new Error(contractProblem);
   if (metric.expression) {
     if (!isMeasureExpression(metric.expression))
       throw new Error("Invalid measure expression");
@@ -1316,8 +1323,6 @@ function compileGuardedMeasure(
       guarded: expression.guarded || guarded.guarded,
     };
   }
-  if (metric.contract?.kind === "ratio")
-    throw new Error("Ratio measures require an expression");
   if (!AGG_WHITELIST_CONST.has(metric.aggregation)) {
     throw new Error(`invalid aggregation "${metric.aggregation}"`);
   }
@@ -2826,8 +2831,7 @@ function buildReportTotalsSQL(args: {
   return result;
 }
 
-// Module-level whitelist constants — defined once, shared across all guard sites.
-// Centralised here so a future AggregationType addition requires a single edit.
+// Module-level whitelist constants shared across guard sites.
 const SORT_DIRECTION_WHITELIST = new Set<string>(["asc", "desc"]);
 const JOIN_TYPE_WHITELIST_CONST = new Set<string>([
   "inner",
@@ -2835,14 +2839,7 @@ const JOIN_TYPE_WHITELIST_CONST = new Set<string>([
   "right",
   "full",
 ]);
-const AGG_WHITELIST_CONST = new Set<string>([
-  "sum",
-  "avg",
-  "count",
-  "min",
-  "max",
-  "count_distinct",
-]);
+const AGG_WHITELIST_CONST = new Set<string>(AGGREGATIONS);
 
 /**
  * Appends ORDER BY, LIMIT, and OFFSET clauses to SQL.

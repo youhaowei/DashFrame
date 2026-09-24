@@ -9,6 +9,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 import {
+  AGGREGATIONS,
   MAX_LOCAL_ARROW_BYTES,
   localArrowSizeIsAllowed,
 } from "@dashframe/types";
@@ -30,14 +31,7 @@ const COLUMN_TYPES = new Set([
   "date",
   "unknown",
 ]);
-const AGGREGATIONS = new Set([
-  "sum",
-  "avg",
-  "count",
-  "min",
-  "max",
-  "count_distinct",
-]);
+const AGGREGATION_SET = new Set<string>(AGGREGATIONS);
 const FIELD_SENSITIVITIES = new Set(["unclassified", "sensitive", "cleared"]);
 const FIELD_SENSITIVITY_SOURCES = new Set(["user", "classifier"]);
 
@@ -237,7 +231,7 @@ function decodeReplacement(
         typeof candidateMetric.name !== "string" ||
         !candidateMetric.name ||
         candidateMetric.tableId !== dataTableId ||
-        !AGGREGATIONS.has(String(candidateMetric.aggregation))
+        !AGGREGATION_SET.has(String(candidateMetric.aggregation))
       );
     }) ||
     new Set(metrics.map((metric) => (metric as Record<string, unknown>).id))
