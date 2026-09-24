@@ -11,7 +11,14 @@ import { nativeQueryMock } from "@/test/native-query-fixture";
  *   flyout on hover.
  */
 import { useShellStore } from "@/lib/stores/shell-store";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  within,
+} from "@testing-library/react";
 import { useCallback } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -33,19 +40,22 @@ vi.mock("convex/react", async (importOriginal) => ({
   })),
 }));
 
-import { CollapsedShelf } from "./CollapsedShelf";
+import { CollapsedShelf, useHeldOpen } from "./CollapsedShelf";
 import {
   AppDragProvider,
   useDropTarget,
   type DropVerdict,
 } from "./drag-context";
 import { ShelfPanel } from "./NavShelf";
+import { ShelfScope, useShelf } from "./shelf-scope";
 import {
   putOnShelf,
   readShelf,
   setShelfItemPinned,
-  setShelfProject,
+  shelfStorageKey,
 } from "./shelf-store";
+
+const P1 = shelfStorageKey("p1");
 
 function MetricsOnlyTarget() {
   const accepts = useCallback(
@@ -68,8 +78,10 @@ function MetricsOnlyTarget() {
 function renderShelf(extra?: React.ReactNode) {
   return render(
     <AppDragProvider overlay={() => null}>
-      {extra}
-      <ShelfPanel targetId="shelf-nav" />
+      <ShelfScope storageKey={P1}>
+        {extra}
+        <ShelfPanel targetId="shelf-nav" />
+      </ShelfScope>
     </AppDragProvider>,
   );
 }
@@ -83,19 +95,23 @@ function seed() {
     },
   ];
   server.visualizations = [{ id: "v1", name: "Sales by Product" }];
-  putOnShelf({
+  putOnShelf(P1, {
     kind: "chart",
     id: "v1",
     scope: "i1",
     label: "Sales by Product",
   });
-  putOnShelf({ kind: "metric", id: "m1", scope: "t1", label: "Sum of Sales" });
+  putOnShelf(P1, {
+    kind: "metric",
+    id: "m1",
+    scope: "t1",
+    label: "Sum of Sales",
+  });
 }
 
 describe("ShelfPanel", () => {
   beforeEach(() => {
     window.localStorage.clear();
-    setShelfProject("p1");
     server.tables = [];
     server.visualizations = [];
     useShellStore.setState({ shelfOpen: true });
@@ -110,7 +126,7 @@ describe("ShelfPanel", () => {
   it("lists pinned items above recent ones and pins or removes on click", () => {
     seed();
     act(() => {
-      setShelfItemPinned("chart:v1", true);
+      setShelfItemPinned(P1, "chart:v1", true);
     });
     renderShelf();
 
@@ -121,12 +137,12 @@ describe("ShelfPanel", () => {
     expect(screen.getByRole("button", { name: "Shelf, 2 items" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Pin Sum of Sales" }));
-    expect(readShelf().every((item) => item.pinned)).toBe(true);
+    expect(readShelf(P1).every((item) => item.pinned)).toBe(true);
 
     fireEvent.click(
       screen.getByRole("button", { name: "Take Sum of Sales off shelf" }),
     );
-    expect(readShelf().map((item) => item.id)).toEqual(["v1"]);
+    expect(readShelf(P1).map((item) => item.id)).toEqual(["v1"]);
     expect(screen.queryByText("Sum of Sales")).toBeNull();
   });
 
@@ -171,14 +187,15 @@ describe("ShelfPanel", () => {
 describe("CollapsedShelf", () => {
   beforeEach(() => {
     window.localStorage.clear();
-    setShelfProject("p1");
     seed();
   });
 
   it("counts the shelf and opens the flyout on hover", () => {
     render(
       <AppDragProvider overlay={() => null}>
-        <CollapsedShelf />
+        <ShelfScope storageKey={P1}>
+          <CollapsedShelf />
+        </ShelfScope>
       </AppDragProvider>,
     );
     const badge = screen.getByRole("button", { name: "Shelf, 2 items" });
@@ -186,5 +203,62 @@ describe("CollapsedShelf", () => {
     fireEvent.mouseEnter(badge);
     expect(badge.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Sum of Sales")).toBeTruthy();
+  });
+});
+
+describe("useHeldOpen", () => {
+  it("keeps a close asked for during a drag and applies it when the drag ends", () => {
+    const { result, rerender } = renderHook(({ held }) => useHeldOpen(held), {
+      initialProps: { held: false },
+    });
+    act(() => result.current.onOpenChange(true)); // opened by hover
+    rerender({ held: true }); // a chip is carried out of the flyout
+    act(() => result.current.onOpenChange(false)); // the pointer left
+    expect(result.current.open).toBe(true);
+    rerender({ held: false }); // the chip landed
+    expect(result.current.open).toBe(false);
+  });
+
+  it("drops the pending close when the popover is asked open again", () => {
+    const { result, rerender } = renderHook(({ held }) => useHeldOpen(held), {
+      initialProps: { held: true },
+    });
+    act(() => result.current.onOpenChange(false));
+    act(() => result.current.onOpenChange(true)); // the pointer came back
+    rerender({ held: false });
+    expect(result.current.open).toBe(true);
+  });
+});
+
+describe("ShelfScope", () => {
+  function Count() {
+    return <output data-testid="count">{useShelf().items.length}</output>;
+  }
+
+  it("shows the new scope's shelf on its first render after a switch", () => {
+    window.localStorage.clear();
+    const P2 = shelfStorageKey("p1", "another-account");
+    putOnShelf(P1, { kind: "metric", id: "m1", scope: "t1", label: "A" });
+    const seen: string[] = [];
+    function Spy() {
+      seen.push(String(useShelf().items.length));
+      return null;
+    }
+    const { rerender } = render(
+      <ShelfScope storageKey={P1}>
+        <Spy />
+        <Count />
+      </ShelfScope>,
+    );
+    expect(screen.getByTestId("count").textContent).toBe("1");
+    seen.length = 0;
+    rerender(
+      <ShelfScope storageKey={P2}>
+        <Spy />
+        <Count />
+      </ShelfScope>,
+    );
+    expect(seen[0]).toBe("0");
+    expect(screen.getByTestId("count").textContent).toBe("0");
   });
 });

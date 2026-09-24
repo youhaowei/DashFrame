@@ -11,7 +11,8 @@ import {
   type DragOrigin,
   type DropVerdict,
 } from "./drag-context";
-import { ShelfChip, keepOnShelf } from "./ShelfChip";
+import { ShelfChip } from "./ShelfChip";
+import { useShelf } from "./shelf-scope";
 import {
   partitionForPage,
   resolveShelfItem,
@@ -21,14 +22,13 @@ import {
 import {
   shelfCountLabel,
   shelfItemKey,
-  useShelfItems,
   type ShelfItem,
   type ShelfItemRef,
 } from "./shelf-store";
 
 /** The shelf as the current page sees it: resolved and split by use. */
 export function useShelfView() {
-  const items = useShelfItems();
+  const { items } = useShelf();
   const targets = useRegisteredDropTargets();
   const needs = (kind: ShelfItem["kind"]) =>
     items.some((item) => item.kind === kind);
@@ -67,7 +67,8 @@ function acceptOntoShelf(_item: ShelfItemRef, from: DragOrigin): DropVerdict {
 
 /** Makes an element a place to drop things onto the shelf. */
 export function useShelfDropTarget(id: string) {
-  const onDrop = useCallback((item: ShelfItemRef) => keepOnShelf(item), []);
+  const { put } = useShelf();
+  const onDrop = useCallback((item: ShelfItemRef) => put(item), [put]);
   const target = useDropTarget({
     id,
     role: "shelf",

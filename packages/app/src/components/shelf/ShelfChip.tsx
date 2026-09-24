@@ -9,13 +9,10 @@ import {
   TextTypeIcon,
 } from "@wystack/ui-react/icons";
 import { Pin } from "lucide-react";
-import { toast } from "sonner";
 import { useCarryable } from "./drag-context";
+import { useShelf } from "./shelf-scope";
 import type { ShelfItemState } from "./shelf-model";
 import {
-  putOnShelf,
-  removeFromShelf,
-  setShelfItemPinned,
   shelfItemKey,
   type ShelfItem,
   type ShelfItemRef,
@@ -35,18 +32,6 @@ const KIND_NAMES: Record<ShelfKind, string> = {
   field: "Field",
   metric: "Metric",
 };
-
-const STORAGE_REFUSED =
-  "Couldn't change the shelf: this browser's storage is full or blocked.";
-
-/** Puts an item on the shelf, and says so when the browser refuses. */
-export function keepOnShelf(ref: ShelfItemRef): void {
-  if (!putOnShelf(ref)) toast.error(STORAGE_REFUSED);
-}
-
-function report(saved: boolean): void {
-  if (!saved) toast.error(STORAGE_REFUSED);
-}
 
 /**
  * A chip on the shelf. Drag it out onto a target, pin it to keep it past the
@@ -70,6 +55,7 @@ export function ShelfChip({
   const { handleProps, isDragging } = useCarryable(ref, "shelf", {
     disabled: missing,
   });
+  const { pin, remove } = useShelf();
   const key = shelfItemKey(item);
   const Icon = SHELF_KIND_ICONS[item.kind];
 
@@ -111,7 +97,7 @@ export function ShelfChip({
             item.pinned ? `Unpin ${state.label}` : `Pin ${state.label}`
           }
           title={item.pinned ? "Unpin" : "Pin"}
-          onClick={() => report(setShelfItemPinned(key, !item.pinned))}
+          onClick={() => pin(key, !item.pinned)}
           className={cn(rowButton, item.pinned ? "opacity-100" : reveal)}
         >
           <Pin
@@ -124,7 +110,7 @@ export function ShelfChip({
         type="button"
         aria-label={`Take ${state.label} off shelf`}
         title="Take off shelf"
-        onClick={() => report(removeFromShelf(key))}
+        onClick={() => remove(key)}
         className={cn(rowButton, reveal)}
       >
         <CloseIcon aria-hidden className="h-3 w-3" />

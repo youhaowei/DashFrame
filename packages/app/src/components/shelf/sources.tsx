@@ -15,7 +15,7 @@ import {
 } from "@wystack/ui-react/icons";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { useCarryable } from "./drag-context";
-import { keepOnShelf } from "./ShelfChip";
+import { useShelf } from "./shelf-scope";
 import type { ShelfItemRef } from "./shelf-store";
 
 export function metricShelfRef(metric: Metric): ShelfItemRef {
@@ -30,6 +30,7 @@ export function metricShelfRef(metric: Metric): ShelfItemRef {
 /** A table's saved metric: drag it onto the shelf, or press +. */
 function SavedMetricRow({ metric }: { metric: Metric }) {
   const ref = metricShelfRef(metric);
+  const { put } = useShelf();
   const { handleProps, isDragging } = useCarryable(ref, "source");
   return (
     <li
@@ -51,7 +52,7 @@ function SavedMetricRow({ metric }: { metric: Metric }) {
             title="Put on shelf"
             onClick={(event) => {
               event.stopPropagation();
-              keepOnShelf(ref);
+              put(ref);
             }}
             className="grid h-5 w-5 shrink-0 place-items-center rounded text-neutral-fg-subtle opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-neutral-bg-emphasis hover:text-neutral-fg focus:opacity-100 focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
           >
@@ -136,6 +137,7 @@ function CarryableChartButton({
     scope: chart.insightId,
     label: chart.name || "Untitled chart",
   };
+  const { put } = useShelf();
   const { handleProps } = useCarryable(ref, "source");
   return (
     <Button
@@ -146,7 +148,7 @@ function CarryableChartButton({
       variant="ghost"
       size="sm"
       className={cn("h-6 w-6 touch-none", className)}
-      onClick={() => keepOnShelf(ref)}
+      onClick={() => put(ref)}
     >
       <LayersIcon aria-hidden className="h-3.5 w-3.5" />
     </Button>

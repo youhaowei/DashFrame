@@ -10,10 +10,13 @@
  *
  * Each project has its own shelf. One origin can serve several projects over
  * time (another workspace, another local project), and an item from one means
- * nothing in the other, so the key carries the project's id. Until the shelf
- * knows which project is open it reads empty and refuses writes.
+ * nothing in the other, so the key carries the project's id. Every read and
+ * write names the key it works on; the key comes from the rendering tree
+ * (see `ShelfScope`), so no module state can outlive the shell that set it.
+ * With no key (the project is not known yet) the shelf reads empty and
+ * refuses writes.
  */
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 export const SHELF_KINDS = ["chart", "draft", "field", "metric"] as const;
 export type ShelfKind = (typeof SHELF_KINDS)[number];
@@ -41,25 +44,19 @@ export const SHELF_RECENT_LIMIT = 8;
 const LOCAL_EVENT = "dashframe:shelf";
 
 const EMPTY: readonly ShelfItem[] = [];
-let storageKey: string | null = null;
-let cachedKey: string | null = null;
-let cachedRaw: string | null = null;
-let cachedItems: readonly ShelfItem[] = EMPTY;
-
-/** The storage key of a project's shelf. */
-export function shelfStorageKey(projectId: string): string {
-  return `${SHELF_STORAGE_PREFIX}:${projectId}`;
-}
+const snapshots = new Map<
+  string,
+  { raw: string | null; items: readonly ShelfItem[] }
+>();
 
 /**
- * Points the shelf at the open project's items, or at none while the project
- * is unknown. Every reader re-renders with that project's shelf.
+ * The storage key of a project's shelf; `account` separates the shelves of
+ * two accounts of a hosted deployment in one browser.
  */
-export function setShelfProject(projectId: string | null): void {
-  const next = projectId ? shelfStorageKey(projectId) : null;
-  if (next === storageKey) return;
-  storageKey = next;
-  window.dispatchEvent(new Event(LOCAL_EVENT));
+export function shelfStorageKey(projectId: string, account?: string): string {
+  return account
+    ? `${SHELF_STORAGE_PREFIX}:${projectId}:${account}`
+    : `${SHELF_STORAGE_PREFIX}:${projectId}`;
 }
 
 /** The key that makes two shelf items the same thing. */
@@ -108,8 +105,7 @@ function capRecent(items: readonly ShelfItem[]): ShelfItem[] {
   return items.filter((item) => item.pinned || ++recent <= SHELF_RECENT_LIMIT);
 }
 
-function readRaw(): string | null {
-  if (!storageKey) return null;
+function readRaw(storageKey: string): string | null {
   try {
     return window.localStorage.getItem(storageKey);
   } catch {
@@ -117,30 +113,36 @@ function readRaw(): string | null {
   }
 }
 
-function getSnapshot(): readonly ShelfItem[] {
-  const raw = readRaw();
-  if (raw !== cachedRaw || storageKey !== cachedKey) {
-    cachedKey = storageKey;
-    cachedRaw = raw;
-    cachedItems = parseShelf(raw);
-  }
-  return cachedItems;
+/** The stored shelf under `storageKey`, cached per raw value. */
+export function readShelf(storageKey: string | null): readonly ShelfItem[] {
+  if (!storageKey) return EMPTY;
+  const raw = readRaw(storageKey);
+  const cached = snapshots.get(storageKey);
+  if (cached && cached.raw === raw) return cached.items;
+  const items = parseShelf(raw);
+  snapshots.set(storageKey, { raw, items });
+  return items;
 }
 
-function subscribe(onChange: () => void): () => void {
-  const onStorage = (event: StorageEvent) => {
-    // `key` is null when another tab clears all of storage.
-    if (event.key === null || event.key === storageKey) onChange();
-  };
-  window.addEventListener("storage", onStorage);
-  window.addEventListener(LOCAL_EVENT, onChange);
-  return () => {
-    window.removeEventListener("storage", onStorage);
-    window.removeEventListener(LOCAL_EVENT, onChange);
+function subscribeTo(storageKey: string | null) {
+  return (onChange: () => void): (() => void) => {
+    const onStorage = (event: StorageEvent) => {
+      // `key` is null when another tab clears all of storage.
+      if (event.key === null || event.key === storageKey) onChange();
+    };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener(LOCAL_EVENT, onChange);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(LOCAL_EVENT, onChange);
+    };
   };
 }
 
-function write(items: readonly ShelfItem[]): boolean {
+function write(
+  storageKey: string | null,
+  items: readonly ShelfItem[],
+): boolean {
   if (!storageKey) return false;
   let saved = true;
   try {
@@ -152,13 +154,14 @@ function write(items: readonly ShelfItem[]): boolean {
   return saved;
 }
 
-/** The shelf as stored, newest first. */
-export function useShelfItems(): readonly ShelfItem[] {
-  return useSyncExternalStore(subscribe, getSnapshot, () => EMPTY);
-}
-
-export function readShelf(): readonly ShelfItem[] {
-  return getSnapshot();
+/** The shelf under `storageKey` as stored, newest first. */
+export function useShelfItems(storageKey: string | null): readonly ShelfItem[] {
+  const subscribe = useMemo(() => subscribeTo(storageKey), [storageKey]);
+  return useSyncExternalStore(
+    subscribe,
+    () => readShelf(storageKey),
+    () => EMPTY,
+  );
 }
 
 /**
@@ -166,8 +169,11 @@ export function readShelf(): readonly ShelfItem[] {
  * there (keeping its pin and taking the newer label). Returns false when
  * storage refused the write.
  */
-export function putOnShelf(ref: ShelfItemRef): boolean {
-  const items = getSnapshot();
+export function putOnShelf(
+  storageKey: string | null,
+  ref: ShelfItemRef,
+): boolean {
+  const items = readShelf(storageKey);
   const key = shelfItemKey(ref);
   const existing = items.find((item) => shelfItemKey(item) === key);
   const item: ShelfItem = {
@@ -178,6 +184,7 @@ export function putOnShelf(ref: ShelfItemRef): boolean {
     pinned: existing?.pinned ?? false,
   };
   return write(
+    storageKey,
     capRecent([item, ...items.filter((other) => shelfItemKey(other) !== key)]),
   );
 }
@@ -186,21 +193,32 @@ export function putOnShelf(ref: ShelfItemRef): boolean {
  * Pins or unpins an item. An unpinned item becomes the newest recent one, so
  * unpinning never makes the recent limit drop the item just released.
  */
-export function setShelfItemPinned(key: string, pinned: boolean): boolean {
-  const items = getSnapshot();
+export function setShelfItemPinned(
+  storageKey: string | null,
+  key: string,
+  pinned: boolean,
+): boolean {
+  const items = readShelf(storageKey);
   const item = items.find((entry) => shelfItemKey(entry) === key);
   if (!item) return true;
   if (pinned) {
     return write(
+      storageKey,
       items.map((entry) => (entry === item ? { ...entry, pinned } : entry)),
     );
   }
   const others = items.filter((entry) => entry !== item);
-  return write(capRecent([{ ...item, pinned: false }, ...others]));
+  return write(storageKey, capRecent([{ ...item, pinned: false }, ...others]));
 }
 
-export function removeFromShelf(key: string): boolean {
-  return write(getSnapshot().filter((item) => shelfItemKey(item) !== key));
+export function removeFromShelf(
+  storageKey: string | null,
+  key: string,
+): boolean {
+  return write(
+    storageKey,
+    readShelf(storageKey).filter((item) => shelfItemKey(item) !== key),
+  );
 }
 
 /** "Shelf, 3 items": the shelf's accessible name with its count. */

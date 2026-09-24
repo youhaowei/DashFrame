@@ -3,10 +3,34 @@ import { LayersIcon } from "@wystack/ui-react/icons";
 import { useState } from "react";
 import { useActiveDrag } from "./drag-context";
 import { ShelfPanel, useShelfDropTarget } from "./NavShelf";
-import { shelfCountLabel, useShelfItems } from "./shelf-store";
+import { useShelf } from "./shelf-scope";
+import { shelfCountLabel } from "./shelf-store";
 
 const BADGE_TARGET = "shelf-badge";
 const CLOSE_DELAY_MS = 150;
+
+/**
+ * Open state for a popover that a drag can hold open. A close asked for while
+ * it is held (the pointer left during the drag) is kept, not dropped, and
+ * takes effect when the hold ends; an open request in between cancels it.
+ */
+export function useHeldOpen(held: boolean) {
+  const [requested, setRequested] = useState(false);
+  const [closePending, setClosePending] = useState(false);
+  if (!held && closePending) {
+    setClosePending(false);
+    setRequested(false);
+  }
+  const onOpenChange = (next: boolean) => {
+    if (!next && held) {
+      setClosePending(true);
+      return;
+    }
+    setClosePending(false);
+    setRequested(next);
+  };
+  return { open: requested || held, onOpenChange };
+}
 
 /**
  * The shelf while the sidebar is hidden: an icon with a count. Hovering or
@@ -15,9 +39,8 @@ const CLOSE_DELAY_MS = 150;
  * itself also takes a drop.
  */
 export function CollapsedShelf({ className }: { className?: string }) {
-  const count = useShelfItems().length;
+  const count = useShelf().items.length;
   const active = useActiveDrag();
-  const [requested, setRequested] = useState(false);
   const [carriedOver, setCarriedOver] = useState(false);
   const { setNodeRef, over } = useShelfDropTarget(BADGE_TARGET);
 
@@ -28,17 +51,12 @@ export function CollapsedShelf({ className }: { className?: string }) {
   // While a drag is under way the popover stays open: the chip being carried
   // out of it stays mounted until it lands, and one carried in has somewhere
   // to go.
-  const held = carriedOver || active?.from === "shelf";
-  const open = requested || held;
+  const { open, onOpenChange } = useHeldOpen(
+    carriedOver || active?.from === "shelf",
+  );
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        if (!next && held) return;
-        setRequested(next);
-      }}
-    >
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger
         ref={setNodeRef}
         openOnHover
