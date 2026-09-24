@@ -12,15 +12,15 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { requestHost, queryDataFrame, removeDataFrame } = vi.hoisted(() => ({
+const { requestHost, queryDataFrame, releaseDataFrame } = vi.hoisted(() => ({
   requestHost: vi.fn(),
   queryDataFrame: vi.fn(),
-  removeDataFrame: vi.fn(),
+  releaseDataFrame: vi.fn(),
 }));
 vi.mock("@/data/host", () => ({ requestHost }));
 vi.mock("@/lib/data-access/data-frames", () => ({
   queryDataFrame,
-  removeDataFrame,
+  releaseDataFrame,
 }));
 
 import type { Field, Insight, InsightMetric, UUID } from "@dashframe/types";
@@ -119,8 +119,8 @@ const metricFor = (suggestion: ChartStarterSuggestion): InsightMetric => ({
 beforeEach(() => {
   requestHost.mockReset();
   queryDataFrame.mockReset();
-  removeDataFrame.mockReset();
-  removeDataFrame.mockResolvedValue(undefined);
+  releaseDataFrame.mockReset();
+  releaseDataFrame.mockResolvedValue(undefined);
 });
 
 describe("fetchChartStarterAggregate", () => {
@@ -148,9 +148,10 @@ describe("fetchChartStarterAggregate", () => {
         ],
       }),
       presentation: { dimensions: [REGION.id] },
+      lease: true,
     });
-    // The result frame is the card's alone and is released once read.
-    expect(removeDataFrame).toHaveBeenCalledWith("frame-1");
+    // The host may replay the frame to others; the card hands back its lease.
+    expect(releaseDataFrame).toHaveBeenCalledWith("frame-1");
     expect(queryDataFrame).toHaveBeenCalledWith("frame-1", {
       offset: 0,
       limit: 12,
@@ -214,7 +215,7 @@ describe("fetchChartStarterAggregate", () => {
     await expect(
       fetchChartStarterAggregate(INSIGHT, countBar, metricFor(countBar)),
     ).rejects.toThrow("gone");
-    expect(removeDataFrame).toHaveBeenCalledWith("frame-1");
+    expect(releaseDataFrame).toHaveBeenCalledWith("frame-1");
   });
 
   it("sends the metric the pick would save, contract included", async () => {

@@ -38,7 +38,10 @@ import { Hash, Rows3, Sigma } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { FieldTypeIcon } from "./config-panel/FieldsSection";
-import { buildDefaultMetric } from "./config-panel/MetricsSection";
+import {
+  buildDefaultMetric,
+  isPlainSumColumn,
+} from "./config-panel/MetricsSection";
 
 /** The empty chart's table: the rows it was opened on, before any pick. */
 export interface ChartStarterSample {
@@ -123,6 +126,9 @@ export function buildColumnActionCommands(
       selectedFields: [...insight.selectedFields, field.id],
     });
   }
+  // A ratio or non-additive measure is not a plain total; the header offers
+  // no sum for it, and nothing is written if one is asked for anyway.
+  if (action === "metric" && !canSumField(dataTable, field)) return [];
   const metric =
     action === "count"
       ? buildDefaultMetric(dataTable, "count")
@@ -130,6 +136,10 @@ export function buildColumnActionCommands(
   return buildInsightUpdateCommands(insight.id, insight, {
     metrics: [...(insight.metrics ?? []), metric],
   });
+}
+
+function canSumField(dataTable: DataTable, field: Field): boolean {
+  return !!field.columnName && isPlainSumColumn(dataTable, field.columnName);
 }
 
 function isNumberType(type: string): boolean {
@@ -367,6 +377,7 @@ function ColumnHeader({
   analysis,
   exact,
   insight,
+  dataTable,
   writing,
   onAction,
 }: {
@@ -377,6 +388,7 @@ function ColumnHeader({
   /** The sample holds every row, so its distinct count is the table's. */
   exact: boolean;
   insight: StarterInsight;
+  dataTable: DataTable;
   /** A write is in flight: actions wait for it to land. */
   writing: boolean;
   onAction: (field: Field, action: ChartStarterColumnAction) => void;
@@ -396,6 +408,8 @@ function ColumnHeader({
     );
   }
   const grouped = insight.selectedFields.includes(field.id);
+  // A ratio or non-additive measure has no valid plain total.
+  const summable = canSumField(dataTable, field);
   const counted = (insight.metrics ?? []).some(
     (metric) => metric.aggregation === "count" && !metric.columnName,
   );
@@ -438,14 +452,16 @@ function ColumnHeader({
           {numeric ? (
             <>
               <DropdownMenuItem
-                disabled={writing}
+                disabled={writing || !summable}
                 onClick={() => onAction(field, "metric")}
               >
                 <Sigma />
                 <span className="flex flex-col">
                   <span className="font-medium">Use as metric</span>
                   <span className="text-xs text-neutral-fg-subtle">
-                    Adds the total of {label}
+                    {summable
+                      ? `Adds the total of ${label}`
+                      : `${label} can't be totalled. Add it from Metrics.`}
                   </span>
                 </span>
               </DropdownMenuItem>
@@ -656,6 +672,7 @@ export function ChartStarter({
                       analysis={analysisById.get(column.id)}
                       exact={exact}
                       insight={insight}
+                      dataTable={dataTable}
                       writing={writing}
                       onAction={act}
                     />

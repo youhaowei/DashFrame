@@ -49,6 +49,7 @@ import {
   type UUID,
 } from "@dashframe/types";
 import {
+  buildColumnActionCommands,
   ChartStarter,
   chartStarterMetric,
   thumbnailGeometry,
@@ -103,11 +104,12 @@ function starter(
   insight: Insight,
   onPickChartType: (type: unknown) => void,
   sourceRevision: string,
+  table: DataTable = TABLE,
 ) {
   return (
     <ChartStarter
       insight={insight}
-      dataTable={TABLE}
+      dataTable={table}
       sample={{
         schema: SCHEMA,
         rows: ROWS,
@@ -125,12 +127,30 @@ function starter(
   );
 }
 
-function renderStarter(insight: Insight = INSIGHT, onPickChartType = vi.fn()) {
-  const view = render(starter(insight, onPickChartType, "rev-1"));
+function renderStarter(
+  insight: Insight = INSIGHT,
+  onPickChartType = vi.fn(),
+  table: DataTable = TABLE,
+) {
+  const view = render(starter(insight, onPickChartType, "rev-1", table));
   const rerenderAt = (revision: string) =>
     view.rerender(starter(insight, onPickChartType, revision));
   return { onPickChartType, rerenderAt };
 }
+
+const withSalesContract = (contract: Record<string, unknown>) =>
+  ({
+    ...TABLE,
+    metrics: [
+      {
+        id: "20000000-0000-4000-8000-0000000000cc",
+        name: "Sales",
+        columnName: "Sales",
+        aggregation: "sum",
+        contract,
+      },
+    ],
+  }) as unknown as DataTable;
 
 async function committed(): Promise<Command[]> {
   await waitFor(() => expect(mockCommitBatch).toHaveBeenCalledTimes(1));
@@ -287,6 +307,24 @@ describe("ChartStarter", () => {
     });
   });
 
+  it("offers no total for a ratio column from its header menu", async () => {
+    renderStarter(
+      { ...INSIGHT, selectedFields: [CATEGORY.id] } as Insight,
+      vi.fn(),
+      withSalesContract({ kind: "ratio" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Sales column actions" }),
+    );
+    const item = await screen.findByRole("menuitem", {
+      name: /Use as metric/,
+    });
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(item.textContent).toContain("Sales can't be totalled");
+    fireEvent.click(item);
+    expect(mockCommitBatch).not.toHaveBeenCalled();
+  });
+
   it("brings back a card that no longer fits once the source changes", async () => {
     pointsState.mockImplementation((key: string, revision: string) =>
       key.startsWith("count-by-category") && revision === "rev-1"
@@ -344,19 +382,17 @@ describe("ChartStarter", () => {
 });
 
 describe("chart starter metrics", () => {
-  const withSalesContract = (contract: Record<string, unknown>) =>
-    ({
-      ...TABLE,
-      metrics: [
-        {
-          id: "20000000-0000-4000-8000-0000000000cc",
-          name: "Sales",
-          columnName: "Sales",
-          aggregation: "sum",
-          contract,
-        },
-      ],
-    }) as unknown as DataTable;
+  it("writes nothing when a ratio column is asked for a total", () => {
+    const sales = FIELDS[1]!;
+    expect(
+      buildColumnActionCommands(
+        INSIGHT,
+        withSalesContract({ kind: "ratio" }),
+        sales,
+        "metric",
+      ),
+    ).toEqual([]);
+  });
 
   it("never suggests summing a ratio measure", () => {
     const table = withSalesContract({ kind: "ratio" });

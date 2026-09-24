@@ -186,11 +186,14 @@ function withPublishedSourceGenerations(
  * Creates the lifecycle owner. A short completed-result replay lets sibling
  * widgets share one immutable frame without turning this into a durable cache.
  */
+/** How long a completed result is replayed to sibling requests by default. */
+export const COMPLETED_REPLAY_MS = 5_000;
+
 export function createInsightMaterializer(
   dependencies: InsightMaterializerDependencies,
 ): InsightMaterializer {
   const inFlight = new Map<string, CoalescedOperation<InsightFetchReady>>();
-  const replayMs = dependencies.completedReplayMs ?? 5_000;
+  const replayMs = dependencies.completedReplayMs ?? COMPLETED_REPLAY_MS;
   const remember = (
     key: string,
     operation: CoalescedOperation<InsightFetchReady>,

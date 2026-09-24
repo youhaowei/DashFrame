@@ -107,10 +107,12 @@ export const hostOperations = {
       .object({
         insight: z.unknown(),
         presentation: insightPresentationSchema.optional(),
+        lease: z.literal(true).optional(),
       })
       .strict(),
     fetchOperations.fetchData,
   ),
+  releaseDataFrame: operation(id, fetchOperations.releaseDataFrame),
   refreshDataTable: operation(
     z.object({ tableId: z.string().uuid() }).strict(),
     fetchOperations.refreshDataTable,

@@ -95,6 +95,15 @@ export async function removeDataFrame(id: UUID): Promise<void> {
   await requestHost("removeDataFrameEntry", { id });
 }
 
+/**
+ * Hands back a preview frame fetched with `lease: true`. The host removes it
+ * once every caller that received it has released it and it can no longer be
+ * replayed to another request.
+ */
+export async function releaseDataFrame(id: UUID): Promise<void> {
+  await requestHost("releaseDataFrame", { id });
+}
+
 export async function clearAllData(): Promise<void> {
   await requestHost("clearAllData", {});
 }
