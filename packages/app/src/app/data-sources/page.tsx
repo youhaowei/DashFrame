@@ -10,11 +10,13 @@ import {
   ArtifactRowGroups,
   ArtifactRowOpen,
   ArtifactTile,
+  type ArtifactRowPlacement,
 } from "@/components/artifacts/ArtifactCollection";
 import { groupByKey } from "@/components/artifacts/collection-groups";
 import { useNow } from "@/hooks/useNow";
 import { formatRelativeTime } from "@/lib/format-relative-time";
-import { useShellStore } from "@/lib/stores/shell-store";
+import { useCollectionView, useShellStore } from "@/lib/stores/shell-store";
+import { sourceFreshness } from "./source-freshness";
 import { AddDataSourceModal } from "@/components/data-sources/AddDataSourceModal";
 import {
   getConnectorById,
@@ -44,22 +46,27 @@ import { toast } from "sonner";
 type DataSourceWithTables = {
   dataSource: DataSource;
   tableCount: number;
-  /** Latest fetch across the source's tables; undefined before the first. */
-  lastFetchedAt: number | undefined;
+  /** Fetch times of the source's tables that have been fetched. */
+  fetchTimes: number[];
 };
 
 function tableCountLabel(count: number) {
   return `${count} table${count === 1 ? "" : "s"}`;
 }
 
-/** "Is it current?": a file was imported, a remote source refreshed. */
+function freshnessOf(item: DataSourceWithTables) {
+  return sourceFreshness(
+    item.fetchTimes,
+    getConnectorById(item.dataSource.type)?.sourceType,
+  );
+}
+
+/** "Is it current?": "refreshed 2h ago", "imported 5d ago", or just "2h ago". */
 function fetchedLabel(item: DataSourceWithTables, now: number) {
-  if (item.lastFetchedAt === undefined) return undefined;
-  const verb =
-    getConnectorById(item.dataSource.type)?.sourceType === "file"
-      ? "imported"
-      : "refreshed";
-  return `${verb} ${formatRelativeTime(now, item.lastFetchedAt)}`;
+  const freshness = freshnessOf(item);
+  if (!freshness) return undefined;
+  const time = formatRelativeTime(now, freshness.at);
+  return freshness.verb ? `${freshness.verb} ${time}` : time;
 }
 
 // Resolve icon and label from the connector registry.
@@ -120,9 +127,7 @@ export default function DataSourcesPage({
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
-  const view = useShellStore(
-    (state) => state.collectionViews["data-source"] ?? "grid",
-  );
+  const view = useCollectionView("data-source");
   const setCollectionView = useShellStore((state) => state.setCollectionView);
   const now = useNow();
 
@@ -134,14 +139,12 @@ export default function DataSourcesPage({
       const tables = (allDataTables ?? []).filter(
         (table) => table.dataSourceId === source.id,
       );
-      const fetchTimes = tables.flatMap((table) =>
-        table.lastFetchedAt ? [table.lastFetchedAt] : [],
-      );
       return {
         dataSource: source,
         tableCount: tables.length,
-        lastFetchedAt:
-          fetchTimes.length > 0 ? Math.max(...fetchTimes) : undefined,
+        fetchTimes: tables.flatMap((table) =>
+          table.lastFetchedAt ? [table.lastFetchedAt] : [],
+        ),
       };
     });
   }, [dataSources, allDataTables]);
@@ -235,35 +238,35 @@ export default function DataSourcesPage({
   };
 
   // Under a provider label the row drops the provider name; the flat list
-  // (one provider) keeps it, since nothing else on the row names it.
+  // (one provider) keeps it, since nothing else on the row names it. The row's
+  // time is the same freshness the tile names, without the verb.
   const renderDataSourceRow = (
     item: DataSourceWithTables,
-    headingLevel: 2 | 3,
-  ) => (
-    <ArtifactRow
-      key={item.dataSource.id}
-      to={`/data-sources/${item.dataSource.id}`}
-      headingLevel={headingLevel}
-      glyph={getTypeIcon(item.dataSource.type, "h-4 w-4")}
-      name={item.dataSource.name}
-      meta={
-        headingLevel === 3
-          ? tableCountLabel(item.tableCount)
-          : `${getTypeLabel(item.dataSource.type)} · ${tableCountLabel(item.tableCount)}`
-      }
-      time={
-        item.lastFetchedAt === undefined
-          ? undefined
-          : formatRelativeTime(now, item.lastFetchedAt)
-      }
-      actions={
-        <>
-          <ArtifactRowOpen to={`/data-sources/${item.dataSource.id}`} />
-          {renderDataSourceMenu(item)}
-        </>
-      }
-    />
-  );
+    { grouped, headingLevel }: ArtifactRowPlacement,
+  ) => {
+    const freshness = freshnessOf(item);
+    return (
+      <ArtifactRow
+        key={item.dataSource.id}
+        to={`/data-sources/${item.dataSource.id}`}
+        headingLevel={headingLevel}
+        glyph={getTypeIcon(item.dataSource.type, "h-4 w-4")}
+        name={item.dataSource.name}
+        meta={
+          grouped
+            ? tableCountLabel(item.tableCount)
+            : `${getTypeLabel(item.dataSource.type)} · ${tableCountLabel(item.tableCount)}`
+        }
+        time={freshness && formatRelativeTime(now, freshness.at)}
+        actions={
+          <>
+            <ArtifactRowOpen to={`/data-sources/${item.dataSource.id}`} />
+            {renderDataSourceMenu(item)}
+          </>
+        }
+      />
+    );
+  };
 
   const isInitialLoading =
     (dataSourcesQuery.isLoading && dataSourcesQuery.data === undefined) ||

@@ -120,3 +120,13 @@ export const useShellStore = create<ShellState & ShellActions>()(
     },
   ),
 );
+
+/**
+ * The saved view for an artifact type. Storage is outside our control (older
+ * builds, hand edits), so anything but "list" reads as the default grid.
+ */
+export function useCollectionView(artifactType: string): CollectionView {
+  return useShellStore((state) =>
+    state.collectionViews[artifactType] === "list" ? "list" : "grid",
+  );
+}

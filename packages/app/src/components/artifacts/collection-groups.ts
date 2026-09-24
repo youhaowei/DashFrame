@@ -5,8 +5,6 @@ export type CollectionGroup<T> = {
   items: T[];
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /**
  * Newest first, bucketed into Today (since local midnight), This week (the six
  * days before that) and Earlier. Empty buckets are left out.
@@ -19,7 +17,9 @@ export function groupByRecency<T>(
   const midnight = new Date(now);
   midnight.setHours(0, 0, 0, 0);
   const todayStart = midnight.getTime();
-  const weekStart = todayStart - 6 * DAY_MS;
+  // Calendar days, not 24-hour spans, so a DST change keeps local midnight.
+  midnight.setDate(midnight.getDate() - 6);
+  const weekStart = midnight.getTime();
 
   const groups: CollectionGroup<T>[] = [
     { key: "today", label: "Today", items: [] },

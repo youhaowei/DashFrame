@@ -42,6 +42,22 @@ describe("groupByRecency", () => {
     expect(groups.map((group) => group.label)).toEqual(["Today", "This week"]);
   });
 
+  it("starts This week at local midnight six calendar days back", () => {
+    const weekStart = new Date(2026, 8, 18).getTime();
+    const groups = groupByRecency(
+      [at("at week start", weekStart), at("just before", weekStart - 1)],
+      now,
+      (item) => item.time,
+    );
+
+    expect(
+      groups.map((group) => [group.label, group.items.map((i) => i.name)]),
+    ).toEqual([
+      ["This week", ["at week start"]],
+      ["Earlier", ["just before"]],
+    ]);
+  });
+
   it("leaves empty buckets out", () => {
     const groups = groupByRecency(
       [at("old", now - 60 * DAY)],

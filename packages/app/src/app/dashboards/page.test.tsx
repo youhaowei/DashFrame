@@ -79,6 +79,12 @@ import { useConfirmDialogStore } from "@/lib/stores";
 import { useShellStore } from "@/lib/stores/shell-store";
 import DashboardsPage from "./page";
 
+// The view choice persists across tests through the shared store; each test
+// starts from the default grid.
+beforeEach(() => {
+  useShellStore.setState({ collectionViews: {} });
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -367,6 +373,37 @@ describe("DashboardsPage – delete confirmation", () => {
     expect(screen.queryByText("Quarterly plan")).toBeNull();
   });
 
+  it("counts charts on a text-only report instead of calling it empty", () => {
+    mockUseQuery.mockImplementation((ref: { _path: string }) =>
+      ref._path === "listDashboards"
+        ? {
+            data: [
+              {
+                id: "dashboard-1",
+                name: "Release notes",
+                items: [{ id: "note", type: "markdown", content: "Hi" }],
+                createdAt: 0,
+                updatedAt: 0,
+              },
+              {
+                id: "dashboard-2",
+                name: "Blank page",
+                items: [],
+                createdAt: 0,
+                updatedAt: 0,
+              },
+            ],
+            isLoading: false,
+          }
+        : { data: [], isLoading: false },
+    );
+
+    render(<DashboardsPage />);
+
+    screen.getByRole("link", { name: /Release notes 0 charts/ });
+    screen.getByRole("link", { name: /Blank page Empty/ });
+  });
+
   it("counts a placed chart whose question row is unavailable", () => {
     mockUseQuery.mockImplementation((ref: { _path: string }) => {
       if (ref._path === "listDashboards") {
@@ -479,7 +516,6 @@ describe("DashboardsPage – delete confirmation", () => {
 describe("DashboardsPage – list view", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useShellStore.setState({ collectionViews: {} });
   });
 
   function report(id: string, name: string, updatedAt: number) {

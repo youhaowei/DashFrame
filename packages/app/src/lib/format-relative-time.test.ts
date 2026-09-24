@@ -9,6 +9,10 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime(now, now + 30_000)).toBe("just now");
   });
 
+  it("does not call a timestamp two hours ahead fresh", () => {
+    expect(formatRelativeTime(now, now + 2 * 3_600_000)).toBe("—");
+  });
+
   it("shows a placeholder before the client clock starts", () => {
     expect(formatRelativeTime(0, now)).toBe("—");
   });

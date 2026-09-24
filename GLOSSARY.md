@@ -24,7 +24,7 @@ A saved query: source, joins, fields, metrics, filters, sort, and viewer control
 
 Model: `Insight`
 
-Shipped copy still says **question** in a few places: the report list's counts and its empty state, a report's subtitle, and the report controls manager. That list is the full set of places, so check it before adding another. Do not use “query” as the name of an insight in user-facing copy; definitions and code may still describe an insight as a saved query.
+Shipped copy still says **question** in a few places: the report list's empty state, a report's subtitle, and the report controls manager. That list is the full set of places, so check it before adding another. Do not use “query” as the name of an insight in user-facing copy; definitions and code may still describe an insight as a saved query.
 
 ### Field
 
@@ -58,7 +58,9 @@ A chart of an insight's result, with encodings and appearance. An insight may ha
 
 Model: `Visualization`, `VisualizationEncoding`
 
-Shipped copy still says **saved view** on reports: the report list's counts, a report's subtitle, its Add item menu and add dialog, and the notice on a tile whose chart was deleted.
+User-facing copy calls a visualization a **chart**; the report list counts a report's charts.
+
+Shipped copy still says **saved view** on reports: a report's subtitle, its Add item menu and add dialog, and the notice on a tile whose chart was deleted.
 
 ### Dashboard
 

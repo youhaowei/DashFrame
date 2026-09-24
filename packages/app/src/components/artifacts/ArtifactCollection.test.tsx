@@ -177,7 +177,10 @@ describe("ArtifactCollection structure", () => {
 });
 
 describe("ArtifactRowGroups", () => {
-  const renderRow = (name: string, headingLevel: 2 | 3) => (
+  const renderRow = (
+    name: string,
+    { headingLevel }: { headingLevel: 2 | 3 },
+  ) => (
     <ArtifactRow
       key={name}
       to={`/reports/${name}`}

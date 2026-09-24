@@ -343,23 +343,27 @@ export function ArtifactRow({
           {glyph}
         </span>
         <span className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden">
-          <Heading className="shrink-0 truncate font-medium text-neutral-fg">
+          {/* Both truncate; the meta gives way first so the name stays read. */}
+          <Heading className="min-w-0 truncate font-medium text-neutral-fg">
             {name}
           </Heading>
           {meta && (
-            <span className="min-w-0 truncate text-neutral-fg-subtle">
+            <span className="min-w-0 shrink-[4] truncate text-neutral-fg-subtle">
               {meta}
             </span>
           )}
         </span>
         {time && (
-          <span className="shrink-0 pl-3 text-xs tabular-nums text-neutral-fg-subtle transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 motion-reduce:transition-none">
+          <span className="shrink-0 pl-3 text-xs tabular-nums text-neutral-fg-subtle transition-opacity duration-150 group-focus-within:opacity-0 motion-reduce:transition-none [@media(hover:hover)]:group-hover:opacity-0">
             {time}
           </span>
         )}
       </Link>
       {actions && (
-        <div className="absolute right-1.5 flex items-center gap-0.5">
+        // Invisible actions must not catch taps meant for the row: they take
+        // pointer events only once revealed by a hovering pointer or focus.
+        // Touch screens never hover, so a tap anywhere opens the row.
+        <div className="pointer-events-none absolute right-1.5 flex items-center gap-0.5 group-focus-within:pointer-events-auto [@media(hover:hover)]:group-hover:pointer-events-auto">
           {actions}
         </div>
       )}
@@ -384,6 +388,12 @@ export function ArtifactRowOpen({ to }: { to: string }) {
   );
 }
 
+/** Where a row sits: under a group label (heading level 3) or in a flat list. */
+export type ArtifactRowPlacement = { grouped: boolean; headingLevel: 2 | 3 };
+
+const FLAT: ArtifactRowPlacement = { grouped: false, headingLevel: 2 };
+const GROUPED: ArtifactRowPlacement = { grouped: true, headingLevel: 3 };
+
 /**
  * Rows under sticky, collapsible group labels. A single group renders as a
  * flat list: a label that every row shares tells the reader nothing.
@@ -393,7 +403,7 @@ export function ArtifactRowGroups<T>({
   renderRow,
 }: {
   groups: readonly CollectionGroup<T>[];
-  renderRow: (item: T, headingLevel: 2 | 3) => ReactNode;
+  renderRow: (item: T, placement: ArtifactRowPlacement) => ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
@@ -401,7 +411,7 @@ export function ArtifactRowGroups<T>({
     return (
       <ul className="flex flex-col">
         {groups.flatMap((group) =>
-          group.items.map((item) => renderRow(item, 2)),
+          group.items.map((item) => renderRow(item, FLAT)),
         )}
       </ul>
     );
@@ -440,9 +450,22 @@ export function ArtifactRowGroups<T>({
                 </span>
               </button>
             </h2>
-            <ul id={bodyId} hidden={!open} className="flex flex-col">
-              {group.items.map((item) => renderRow(item, 3))}
-            </ul>
+            {/* Collapse animates the row track from 1fr to 0fr; inert keeps
+                folded rows out of the tab order and the accessibility tree. */}
+            <div
+              id={bodyId}
+              inert={!open}
+              aria-hidden={!open}
+              className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none ${
+                open
+                  ? "grid-rows-[1fr] opacity-100"
+                  : "grid-rows-[0fr] opacity-0"
+              }`}
+            >
+              <ul className="flex min-h-0 flex-col overflow-hidden">
+                {group.items.map((item) => renderRow(item, GROUPED))}
+              </ul>
+            </div>
           </section>
         );
       })}

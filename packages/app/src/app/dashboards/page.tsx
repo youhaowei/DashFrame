@@ -1,7 +1,7 @@
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { useConfirmDialogStore, useToastStore } from "@/lib/stores";
-import { useShellStore } from "@/lib/stores/shell-store";
+import { useCollectionView, useShellStore } from "@/lib/stores/shell-store";
 import { useNow } from "@/hooks/useNow";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import {
@@ -68,10 +68,13 @@ function touchedAt(row: { createdAt: number; updatedAt?: number }) {
   return Math.max(row.createdAt, row.updatedAt ?? 0);
 }
 
-/** "Is this report worth opening?": its live chart count, or Empty. */
-function chartCountLabel(count: number) {
-  if (count === 0) return "Empty";
-  return `${count} chart${count === 1 ? "" : "s"}`;
+/**
+ * "Is this report worth opening?": Empty only when nothing is placed on it;
+ * otherwise its live chart count, which may be 0 on a text-only report.
+ */
+function contentLabel(itemCount: number, chartCount: number) {
+  if (itemCount === 0) return "Empty";
+  return `${chartCount} chart${chartCount === 1 ? "" : "s"}`;
 }
 
 /**
@@ -349,7 +352,7 @@ export default function DashboardsPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const view = useShellStore((state) => state.collectionViews.report ?? "grid");
+  const view = useCollectionView("report");
   const setCollectionView = useShellStore((state) => state.setCollectionView);
   const now = useNow();
 
@@ -438,8 +441,11 @@ export default function DashboardsPage() {
     [visualizations],
   );
   const hasLoadError = dashboardsLoadError || visualizationsLoadError;
-  const liveChartCount = (dashboard: Dashboard) =>
-    resolveReportContents(dashboard, reportContentIndexes).savedViews.length;
+  const reportContentLabel = (dashboard: Dashboard) =>
+    contentLabel(
+      dashboard.items.length,
+      resolveReportContents(dashboard, reportContentIndexes).savedViews.length,
+    );
 
   const renderReportMenu = (dashboard: Dashboard) => (
     <DropdownMenu>
@@ -512,7 +518,7 @@ export default function DashboardsPage() {
         {view === "list" ? (
           <ArtifactRowGroups
             groups={groupByRecency(filteredDashboards, now, touchedAt)}
-            renderRow={(dashboard, headingLevel) => (
+            renderRow={(dashboard, { headingLevel }) => (
               <ArtifactRow
                 key={dashboard.id}
                 to={`/dashboards/${dashboard.id}`}
@@ -521,10 +527,11 @@ export default function DashboardsPage() {
                   <ReportLayoutGlyph
                     items={dashboard.items}
                     className="h-4 w-5.5"
+                    maxRows={12}
                   />
                 }
                 name={dashboard.name}
-                meta={chartCountLabel(liveChartCount(dashboard))}
+                meta={reportContentLabel(dashboard)}
                 time={formatRelativeTime(now, touchedAt(dashboard))}
                 actions={
                   <>
@@ -545,7 +552,7 @@ export default function DashboardsPage() {
                 name={dashboard.name}
                 meta={
                   <>
-                    {chartCountLabel(liveChartCount(dashboard))}
+                    {reportContentLabel(dashboard)}
                     <span aria-hidden="true"> · </span>
                     updated {formatRelativeTime(now, touchedAt(dashboard))}
                   </>

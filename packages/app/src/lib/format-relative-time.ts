@@ -1,3 +1,5 @@
+const MAX_CLOCK_LEAD_MS = 60_000;
+
 /** Format `timestamp` (epoch ms) relative to `now` (epoch ms) as a short "Nd/h/m ago" string. */
 export function formatRelativeTime(now: number, timestamp: number): string {
   // `now` is 0 on the server snapshot (useSyncExternalStore's SSR fallback,
@@ -5,8 +7,11 @@ export function formatRelativeTime(now: number, timestamp: number): string {
   // `now` is real, so the first client render matches.
   if (now <= 0) return "—";
   // useNow ticks once a minute, so a write from the last minute can carry a
-  // timestamp ahead of it. That is fresh, not unknown.
-  const diff = Math.max(0, now - timestamp);
+  // timestamp up to a minute ahead of it: that is fresh. Further ahead means
+  // the clocks disagree, and "just now" would be a claim we cannot back.
+  const lead = timestamp - now;
+  if (lead > MAX_CLOCK_LEAD_MS) return "—";
+  const diff = Math.max(0, -lead);
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);

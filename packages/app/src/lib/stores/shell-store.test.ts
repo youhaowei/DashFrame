@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
+import { renderHook } from "@testing-library/react";
+
 import {
   CONTEXT_PANEL_DEFAULT_WIDTH,
   CONTEXT_PANEL_MAX_WIDTH,
   CONTEXT_PANEL_MIN_WIDTH,
+  useCollectionView,
   useShellStore,
 } from "./shell-store";
 
@@ -81,5 +84,21 @@ describe("useShellStore — shell rails", () => {
       report: "list",
       "data-source": "grid",
     });
+  });
+
+  it("reads an unrecognised saved view as grid", () => {
+    useShellStore.setState({
+      collectionViews: { report: "table" as never, "data-source": "list" },
+    });
+
+    expect(renderHook(() => useCollectionView("report")).result.current).toBe(
+      "grid",
+    );
+    expect(
+      renderHook(() => useCollectionView("data-source")).result.current,
+    ).toBe("list");
+    expect(renderHook(() => useCollectionView("draft")).result.current).toBe(
+      "grid",
+    );
   });
 });
