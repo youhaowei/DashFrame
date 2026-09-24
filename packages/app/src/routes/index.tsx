@@ -1,6 +1,9 @@
-import HomePage from "@/app/page";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+// The product is report-first: home is the reports list, whose empty state
+// asks for the first report.
 export const Route = createFileRoute("/")({
-  component: HomePage,
+  beforeLoad: () => {
+    throw redirect({ to: "/dashboards", replace: true });
+  },
 });

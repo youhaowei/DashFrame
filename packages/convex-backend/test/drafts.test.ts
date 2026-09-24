@@ -52,9 +52,6 @@ async function publication(draftId: string) {
 }
 it("requires verified workspace principals and observes credential revocation", async () => {
   await expect(t.query(api.app.listDataSources, {})).rejects.toThrow();
-  await expect(
-    t.query(api.app.workspaceArtifactPresence, {}),
-  ).rejects.toThrow();
   await seed();
   expect(await user("other").query(api.app.listDataSources, {})).toEqual([]);
   expect(await service().query(api.app.listDataSources, {})).toHaveLength(1);
@@ -172,19 +169,6 @@ it("counts visible drafts without hydrating their summaries", async () => {
   expect(await user().query(api.app.listDraftCount, {})).toBe(2);
   expect(await service().query(api.app.listDraftCount, {})).toBe(1);
   expect(await user("w", "other").query(api.app.listDraftCount, {})).toBe(2);
-});
-
-it("reports workspace artifacts only for visible workspace state", async () => {
-  expect(await user().query(api.app.workspaceArtifactPresence, {})).toBe(false);
-
-  await user("w", "other").mutation(api.app.draftBatch, { commands: [] });
-  expect(await user().query(api.app.workspaceArtifactPresence, {})).toBe(false);
-
-  await service().mutation(api.app.draftBatch, { commands: [] });
-  expect(await user().query(api.app.workspaceArtifactPresence, {})).toBe(true);
-  expect(
-    await service("other").query(api.app.workspaceArtifactPresence, {}),
-  ).toBe(false);
 });
 
 it("lists only visible drafts when foreign owners exceed the workspace cap", async () => {

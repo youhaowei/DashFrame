@@ -560,67 +560,6 @@ export const listDraftCount = query({
   },
 });
 
-async function hasVisibleDraft(
-  ctx: QueryCtx,
-  who: Awaited<ReturnType<typeof principal>>,
-): Promise<boolean> {
-  const ownDraft = await ctx.db
-    .query("drafts")
-    .withIndex("by_workspaceId_and_owner", (q) =>
-      q.eq("workspaceId", who.workspaceId).eq("owner", who.owner),
-    )
-    .first();
-  if (ownDraft) return true;
-  if (who.kind !== "user") return false;
-  return Boolean(
-    await ctx.db
-      .query("drafts")
-      .withIndex("by_workspaceId_and_owner", (q) =>
-        q
-          .eq("workspaceId", who.workspaceId)
-          .gte("owner", "service:")
-          .lt("owner", "service;"),
-      )
-      .first(),
-  );
-}
-
-export const workspaceArtifactPresence = query({
-  args: {},
-  returns: v.boolean(),
-  handler: async (ctx) => {
-    const who = await principal(ctx);
-    const rows = await Promise.all([
-      ctx.db
-        .query("dashboards")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", who.workspaceId),
-        )
-        .first(),
-      ctx.db
-        .query("visualizations")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", who.workspaceId),
-        )
-        .first(),
-      ctx.db
-        .query("insights")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", who.workspaceId),
-        )
-        .first(),
-      ctx.db
-        .query("dataSources")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", who.workspaceId),
-        )
-        .first(),
-      hasVisibleDraft(ctx, who),
-    ]);
-    return rows.some(Boolean);
-  },
-});
-
 export const listDrafts = query({
   args: {},
   returns: v.array(

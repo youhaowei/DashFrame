@@ -49,7 +49,11 @@ const UNTITLED_REPORT = "Untitled report";
 
 type CreateReport = (
   name: string,
-  firstVisualizationId?: UUID,
+  options?: {
+    firstVisualizationId?: UUID;
+    /** Open the new report with its chart picker showing. */
+    openChartPicker?: boolean;
+  },
 ) => Promise<boolean>;
 
 function touchedAt(row: { createdAt: number; updatedAt?: number }) {
@@ -132,6 +136,7 @@ function useUnplacedRecentQuestions(
     candidates,
     // Unknown is not zero: a failed load must not claim there is no data.
     hasNoDataSources: !sourcesQuery.isError && dataSources?.length === 0,
+    hasNoQuestions: !insightsQuery.isError && insights?.length === 0,
     // A failed question load is not an empty candidate list either.
     questionsLoadError: insightsQuery.isError,
   };
@@ -153,15 +158,22 @@ function ReportsStart({
   isCreating: boolean;
   onCreate: CreateReport;
 }) {
-  const { isLoading, candidates, hasNoDataSources, questionsLoadError } =
-    useUnplacedRecentQuestions(dashboards, visualizations);
+  const {
+    isLoading,
+    candidates,
+    hasNoDataSources,
+    hasNoQuestions,
+    questionsLoadError,
+  } = useUnplacedRecentQuestions(dashboards, visualizations);
 
   if (isLoading) return null;
 
   if (candidates.length === 0) {
     return (
       <ArtifactEmptyState
-        title="No reports yet"
+        // A project with nothing in it is the one place the product
+        // introduces itself.
+        title={hasNoDataSources ? "Welcome to DashFrame" : "No reports yet"}
         description="A report is a page of charts and tables over your data. Create one and add the first chart from inside it."
         action={
           <div className="flex flex-col items-center gap-3">
@@ -177,7 +189,13 @@ function ReportsStart({
               icon={PlusIcon}
               label="Create your first report"
               loading={isCreating}
-              onClick={() => onCreate(UNTITLED_REPORT)}
+              // With nothing to place yet, the first report opens on the
+              // chart picker, which can also connect data.
+              onClick={() =>
+                onCreate(UNTITLED_REPORT, {
+                  openChartPicker: hasNoQuestions && hasNoDataSources,
+                })
+              }
             />
             {hasNoDataSources && (
               <Link
@@ -226,7 +244,9 @@ function ReportsStart({
                 variant="outline"
                 label="Start report"
                 disabled={isCreating}
-                onClick={() => onCreate(UNTITLED_REPORT, viewId)}
+                onClick={() =>
+                  onCreate(UNTITLED_REPORT, { firstVisualizationId: viewId })
+                }
               />
             }
           />
@@ -331,7 +351,10 @@ export default function DashboardsPage() {
   };
 
   /** Create a report, optionally with a saved view as its first tile, and open it. */
-  const createReport: CreateReport = async (name, firstVisualizationId) => {
+  const createReport: CreateReport = async (
+    name,
+    { firstVisualizationId, openChartPicker } = {},
+  ) => {
     const id = crypto.randomUUID() as UUID;
     setIsCreating(true);
     try {
@@ -363,7 +386,10 @@ export default function DashboardsPage() {
       setIsCreating(false);
     }
 
-    navigate({ to: `/dashboards/${id}` } as never);
+    navigate({
+      to: `/dashboards/${id}`,
+      ...(openChartPicker ? { search: { pickChart: true } } : {}),
+    } as never);
     return true;
   };
 

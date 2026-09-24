@@ -1,9 +1,9 @@
 /**
  * CSV to Chart Workflow
  *
- * Core user journey: upload a CSV on the home page -> a new report opens on a
- * new chart of the file's table -> a field and a metric place the chart on
- * the report.
+ * Core user journey: create the first report from the home page -> upload a
+ * CSV in its chart picker -> a new chart of the file's table opens -> a field
+ * and a metric place the chart on the report.
  */
 import { expectNewChartTab, buildCountChart } from "../lib/chart-tab";
 import { expect, test } from "../lib/test-fixtures";

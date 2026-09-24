@@ -4,7 +4,7 @@
  * Extends base Playwright test with reusable actions:
  * - uploadFile: Upload CSV/JSON files from fixtures
  * - waitForChart: Wait for chart to fully render
- * - homePage: Navigate to home and verify loaded
+ * - homePage: Navigate to home (the empty reports list) and verify loaded
  *
  * One isolated host project owns all metadata and Arrow files. Tests run
  * serially and clear that project before navigating a fresh browser context.
@@ -35,6 +35,10 @@ function getWorkerBaseURL(parallelIndex: number): string {
 /**
  * Open the "Local Files" connector so its file input is in the DOM.
  *
+ * On an empty project the home page has no picker of its own: "Create your
+ * first report" opens a new report on its chart picker, which offers the
+ * connectors. Elsewhere the caller has already opened a picker.
+ *
  * The connector list is a disclosure: only the picked connector renders its
  * setup form, so the file input does not exist until the row is opened. Once
  * it is open the panel drops the toggle and the header stops being a button,
@@ -43,6 +47,15 @@ function getWorkerBaseURL(parallelIndex: number): string {
 async function openLocalFilesConnector(page: Page): Promise<void> {
   const fileInput = page.locator('input[type="file"]');
   if ((await fileInput.count()) > 0) return;
+  const createFirstReport = page.getByRole("button", {
+    name: "Create your first report",
+  });
+  if (await createFirstReport.isVisible()) {
+    await createFirstReport.click();
+    await expect(page.getByRole("dialog", { name: "New chart" })).toBeVisible({
+      timeout: 15_000,
+    });
+  }
   // Matched on the connector's description, not its name: once a file has been
   // uploaded a data source called "Local Files" also appears in the picker.
   await page
@@ -187,10 +200,10 @@ export const test = base.extend<DashFrameFixtures & DashFrameAutoFixtures>({
   homePage: async ({ page, workerBaseURL }, use) => {
     await use(async () => {
       await page.goto(workerBaseURL);
-      // Home decides between onboarding and returning-user views only after
-      // the visualization list loads from native Convex, so allow a
-      // server round-trip (plus post-heavy-test latency) beyond the 5s
-      // default expect timeout.
+      // Home redirects to the reports list, which picks its empty state only
+      // after reports, questions and data sources load from native Convex, so
+      // allow a server round-trip (plus post-heavy-test latency) beyond the 5s
+      // default expect timeout. An empty project is welcomed.
       await expect(
         page.getByRole("heading", { name: "Welcome to DashFrame" }),
       ).toBeVisible({ timeout: 15_000 });

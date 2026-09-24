@@ -622,6 +622,7 @@ describe("DashboardsPage – empty state", () => {
     await user.click(
       screen.getByRole("button", { name: "Create your first report" }),
     );
+    // The project has data, so the report opens without its chart picker.
     await waitFor(() =>
       expect(mockNavigate).toHaveBeenCalledWith({
         to: `/dashboards/${REPORT_ID}`,
@@ -682,6 +683,67 @@ describe("DashboardsPage – empty state", () => {
         .getByRole("link", { name: "or connect data first" })
         .getAttribute("href"),
     ).toBe("/data-sources");
+  });
+
+  it("welcomes a project that has no data yet, above the same create action", () => {
+    mockProject({ dataSources: [] });
+
+    render(<DashboardsPage />);
+
+    screen.getByRole("heading", { name: "Welcome to DashFrame" });
+    expect(
+      screen.queryByRole("heading", { name: "No reports yet" }),
+    ).toBeNull();
+    screen.getByRole("button", { name: "Create your first report" });
+  });
+
+  it("does not welcome a project whose data sources failed to load", () => {
+    mockProject({ failing: ["listDataSources"] });
+
+    render(<DashboardsPage />);
+
+    screen.getByRole("heading", { name: "No reports yet" });
+    expect(
+      screen.queryByRole("heading", { name: "Welcome to DashFrame" }),
+    ).toBeNull();
+  });
+
+  it("opens a first report in an empty project on its chart picker", async () => {
+    const user = userEvent.setup();
+    mockProject({ dataSources: [] });
+
+    render(<DashboardsPage />);
+    await user.click(
+      screen.getByRole("button", { name: "Create your first report" }),
+    );
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: `/dashboards/${REPORT_ID}`,
+        search: { pickChart: true },
+      }),
+    );
+  });
+
+  it("does not open the chart picker when the project already has questions", async () => {
+    const user = userEvent.setup();
+    // A question with no saved view is not offered as a card, so the single
+    // create action shows, but the project is not empty.
+    mockProject({
+      dataSources: [],
+      insights: [question("q-unsaved", "Scratch question", NOW)],
+    });
+
+    render(<DashboardsPage />);
+    await user.click(
+      screen.getByRole("button", { name: "Create your first report" }),
+    );
+
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: `/dashboards/${REPORT_ID}`,
+      }),
+    );
   });
 
   it("keeps asking for a name from the header", () => {
