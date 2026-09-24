@@ -103,3 +103,19 @@ export {
   OverlayScrollbar,
   type OverlayScrollAreaProps,
 } from "./components/OverlayScrollArea";
+
+// -- Drag and drop --
+// The app shell's root drag context (the shelf and its drop targets) uses the
+// same @dnd-kit/core instance as SortableList, so both resolve to one module.
+export {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";

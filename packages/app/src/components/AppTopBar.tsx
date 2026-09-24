@@ -1,4 +1,5 @@
 import { AppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
+import { CollapsedShelf } from "@/components/shelf/CollapsedShelf";
 import { DESKTOP_NAV_TRAFFIC_LIGHTS_OVER_NAV_CLASS } from "@/components/shell/layout-constants";
 import { useRegisteredTopBarTabs } from "@/components/shell/topbar-tabs";
 import { usePlatform } from "@/lib/platform";
@@ -92,6 +93,10 @@ export function AppTopBar() {
               leftNavOpen && "lg:hidden",
             )}
           />
+          {/* While the sidebar is hidden, its shelf lives here. */}
+          {!leftNavOpen && (
+            <CollapsedShelf className="hidden shrink-0 lg:block" />
+          )}
           <AppBreadcrumbs
             beforeTabs={tabs !== null}
             className={tabs ? "max-w-[45%] shrink-0" : "shrink"}

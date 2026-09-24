@@ -500,10 +500,16 @@ export default defineConfig({
           // every finding on main was a misspelled or shadcn-default token.
           "shadcn/no-raw-colors": "error",
           // Non-Tailwind selectors owned by other systems: react-grid-layout's
-          // drag handle and Electron's titlebar drag region.
+          // drag handle and Electron's titlebar drag region and its opt-out.
           "shadcn/no-unknown-classes": [
             "error",
-            { allow: ["grid-drag-handle", "titlebar-drag-region"] },
+            {
+              allow: [
+                "grid-drag-handle",
+                "titlebar-drag-region",
+                "titlebar-no-drag",
+              ],
+            },
           ],
           // Geometry computed at runtime (virtualizer rows, chart dimensions,
           // dnd-kit transforms, prop-driven gaps) stays inline; every other
