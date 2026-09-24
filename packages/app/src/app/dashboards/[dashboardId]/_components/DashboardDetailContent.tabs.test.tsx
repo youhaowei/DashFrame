@@ -125,7 +125,7 @@ import {
   useRegisteredTopBarTabs,
 } from "@/components/shell/topbar-tabs";
 import { PlatformProvider } from "@/lib/platform";
-import { useReportChartTabs } from "@/lib/reports/chart-tabs";
+import { chartLanding, useReportChartTabs } from "@/lib/reports/chart-tabs";
 import DashboardDetailContent from "./DashboardDetailContent";
 
 /** Mirrors the top-bar slot: what the page registered, as clickable tabs. */
@@ -306,5 +306,25 @@ describe("DashboardDetailContent — chart tabs", () => {
         }),
       ],
     });
+  });
+
+  it("keeps the insight of a new chart whose landing is still in flight", async () => {
+    const user = userEvent.setup();
+    useReportChartTabs.setState({
+      tabsByReport: {
+        [REPORT_ID]: [{ id: "new-chart", insightId: "draft-insight" }],
+      },
+    });
+    chartLanding.start("new-chart");
+    try {
+      render(<Page initialChart="new-chart" />);
+      await user.click(
+        tabs().getByRole("button", { name: "Close Untitled chart" }),
+      );
+      await expectUrl("");
+      expect(mockCommitBatch).not.toHaveBeenCalled();
+    } finally {
+      chartLanding.finish("new-chart");
+    }
   });
 });

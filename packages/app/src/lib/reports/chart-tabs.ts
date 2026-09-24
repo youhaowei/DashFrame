@@ -113,9 +113,13 @@ export function resolveChartTabs(
   urlChartId: string | null,
   chartIds: ReadonlySet<string> | null,
 ): ChartTab[] {
-  const tabs = stored.filter(
-    (tab) => tab.insightId !== undefined || !chartIds || chartIds.has(tab.id),
-  );
+  const tabs = stored.flatMap((tab): ChartTab[] => {
+    // A new chart whose chart exists already landed — the page reloaded
+    // before the tab heard back. It is a saved chart now.
+    if (tab.insightId !== undefined)
+      return chartIds?.has(tab.id) ? [{ id: tab.id }] : [tab];
+    return !chartIds || chartIds.has(tab.id) ? [tab] : [];
+  });
   if (
     urlChartId &&
     !tabs.some((tab) => tab.id === urlChartId) &&
@@ -125,6 +129,19 @@ export function resolveChartTabs(
   }
   return tabs;
 }
+
+/**
+ * New charts whose landing batch is in flight. Closing such a tab must not
+ * discard its insight: the batch may commit first, and the delete would then
+ * take the chart off the report with it.
+ */
+const landingChartIds = new Set<string>();
+
+export const chartLanding = {
+  start: (tabId: string) => landingChartIds.add(tabId),
+  finish: (tabId: string) => landingChartIds.delete(tabId),
+  isPending: (tabId: string) => landingChartIds.has(tabId),
+};
 
 /**
  * Which tab is open after closing `closingId`: the same one when another tab

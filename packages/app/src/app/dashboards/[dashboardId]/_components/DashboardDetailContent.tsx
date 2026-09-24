@@ -16,6 +16,7 @@ import {
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
 import {
+  chartLanding,
   disambiguateLabels,
   reportBottom,
   resolveChartTabs,
@@ -196,7 +197,7 @@ export default function DashboardDetailContent({
       closeStoredChartTab(dashboardId, tabId);
       // A new chart that never reached the report exists only in its tab;
       // closing the tab discards the insight it was being built on.
-      if (closing?.insightId) {
+      if (closing?.insightId && !chartLanding.isPending(tabId)) {
         commitBatch({
           commands: [cmd("DeleteNode", { id: closing.insightId as UUID })],
         }).catch((error: unknown) => {

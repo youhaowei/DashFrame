@@ -1,6 +1,7 @@
 import { InsightWorkbench } from "@/components/insights/InsightWorkbench";
 import {
   buildLandChartCommands,
+  chartLanding,
   countReportsUsingChart,
   isReadyToLand,
   reportsUsingChartLabel,
@@ -94,13 +95,15 @@ export function ReportChartTab({
       insight,
       name: newChartName(insight, dataTables),
     });
+    chartLanding.start(tab.id);
     commitBatch({ commands })
       .then(() => onLanded(tab.id))
       .catch((error: unknown) => {
         console.error("[ReportChartTab] placing the chart failed:", error);
         landAttemptRef.current = null;
         toast.error("Couldn't place the chart on the report");
-      });
+      })
+      .finally(() => chartLanding.finish(tab.id));
   }, [commitBatch, dataTables, insight, onLanded, report, tab]);
 
   const view = useMemo<InsightCanvasView>(

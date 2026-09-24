@@ -51,6 +51,13 @@ describe("resolveChartTabs", () => {
     const fresh = { id: "new-1", insightId: "insight-1" };
     expect(resolveChartTabs([fresh], "new-1", new Set())).toEqual([fresh]);
   });
+
+  it("treats a new chart whose chart exists as landed, after a reload mid-landing", () => {
+    const fresh = { id: "new-1", insightId: "insight-1" };
+    expect(resolveChartTabs([fresh], "new-1", new Set(["new-1"]))).toEqual([
+      { id: "new-1" },
+    ]);
+  });
 });
 
 describe("tabAfterClose", () => {
