@@ -506,6 +506,23 @@ describe("thumbnailGeometry", () => {
     expect(thumbnailGeometry("barY", [])).toBeNull();
   });
 
+  it("shows all-zero bars as hairlines on a visible baseline", () => {
+    const upright = thumbnailGeometry("barY", points(0, 0, 0))!;
+    expect(upright.zero).toBeDefined();
+    expect(upright.rects).toHaveLength(3);
+    for (const rect of upright.rects) {
+      expect(rect.height).toBe(1);
+      // Drawn up from the baseline, inside the frame.
+      expect(rect.y + rect.height).toBeCloseTo(upright.zero!.y1);
+    }
+    const sideways = thumbnailGeometry("barX", points(0, 0))!;
+    expect(sideways.zero).toBeDefined();
+    for (const rect of sideways.rects) {
+      expect(rect.width).toBe(1);
+      expect(rect.x).toBeCloseTo(sideways.zero!.x1);
+    }
+  });
+
   it("adds no baseline for all-positive data", () => {
     expect(thumbnailGeometry("barY", points(1, 2))!.zero).toBeUndefined();
   });

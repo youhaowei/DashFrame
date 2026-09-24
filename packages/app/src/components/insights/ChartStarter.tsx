@@ -195,11 +195,16 @@ export function thumbnailGeometry(
   if (values.length === 0) return null;
   const lo = Math.min(0, ...values);
   let hi = Math.max(0, ...values);
-  // All zero: an empty range would divide by zero; draw along the baseline.
-  if (hi === lo) hi = lo + 1;
+  // All zero: an empty range would divide by zero; draw along the baseline,
+  // and show it, with a hairline mark per group so the bars are visible.
+  const allZero = hi === lo;
+  if (allZero) hi = lo + 1;
+  const showZero = lo < 0 || allZero;
   const share = (value: number) => (value - lo) / (hi - lo);
-  const minimum = (size: number, value: number) =>
-    value === 0 ? size : Math.max(1.5, size);
+  const minimum = (size: number, value: number) => {
+    if (value !== 0) return Math.max(1.5, size);
+    return allZero ? 1 : size;
+  };
 
   if (chartType === "barX") {
     const shown = points.slice(0, 6);
@@ -219,7 +224,7 @@ export function thumbnailGeometry(
               },
             ],
       ),
-      ...(lo < 0
+      ...(showZero
         ? { zero: { x1: zero, y1: 0, x2: zero, y2: THUMB_HEIGHT } }
         : {}),
     };
@@ -227,8 +232,9 @@ export function thumbnailGeometry(
   const inner = THUMB_HEIGHT - THUMB_PAD * 2;
   const y = (value: number) => THUMB_PAD + (1 - share(value)) * inner;
   const zeroY = y(0);
-  const zero =
-    lo < 0 ? { x1: 0, y1: zeroY, x2: THUMB_WIDTH, y2: zeroY } : undefined;
+  const zero = showZero
+    ? { x1: 0, y1: zeroY, x2: THUMB_WIDTH, y2: zeroY }
+    : undefined;
   if (chartType === "line") {
     const step =
       points.length > 1
@@ -256,7 +262,8 @@ export function thumbnailGeometry(
         : [
             {
               x: index * band + band * 0.18,
-              y: Math.min(zeroY, y(value)),
+              // A zero-height mark sits on the baseline, drawn upwards.
+              y: Math.min(zeroY, y(value)) - (allZero ? 1 : 0),
               width: band * 0.64,
               height: minimum(Math.abs(y(value) - zeroY), value),
             },

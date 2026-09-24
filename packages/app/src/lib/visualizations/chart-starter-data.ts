@@ -290,7 +290,8 @@ async function loadChartStarterAggregate(
 }
 
 /**
- * Whether the points draw anything: a bar needs one value, a line two. A card
+ * Whether the points draw anything: a bar needs one value, a line two
+ * adjacent ones (a value between gaps draws no segment). A card
  * that would draw nothing makes way for the next candidate, as does the
  * chart it would land, which would be blank too.
  */
@@ -298,8 +299,13 @@ function drawable(
   suggestion: ChartStarterSuggestion,
   points: readonly ChartStarterPoint[],
 ): boolean {
-  const values = points.filter((point) => point.value !== null).length;
-  return values >= (suggestion.chartType === "line" ? 2 : 1);
+  if (suggestion.chartType !== "line")
+    return points.some((point) => point.value !== null);
+  // A line draws only where two values sit side by side.
+  return points.some(
+    (point, index) =>
+      point.value !== null && (points[index - 1]?.value ?? null) !== null,
+  );
 }
 
 export function useChartStarterPoints(

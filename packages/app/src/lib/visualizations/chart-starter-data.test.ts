@@ -375,7 +375,9 @@ describe("useChartStarterPoints", () => {
     expect(await stateFor(line, [null, 4, null], "rev-null-line")).toBe(
       "unfit",
     );
-    expect(await stateFor(line, [3, null, 4], "rev-two-line")).toBe("ready");
+    // Two values with a gap between them draw two lone points, no segment.
+    expect(await stateFor(line, [3, null, 4], "rev-gapped-line")).toBe("unfit");
+    expect(await stateFor(line, [null, 3, 4], "rev-two-line")).toBe("ready");
     expect(await stateFor(sortedBar, [null, 2], "rev-one-bar")).toBe("ready");
   });
 
