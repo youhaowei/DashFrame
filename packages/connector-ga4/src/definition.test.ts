@@ -49,6 +49,9 @@ describe("GA4 table definitions", () => {
         "America/Los_Angeles",
       ),
     ).toEqual({ startDate: "2026-01-01", endDate: "yesterday" });
+    expect(
+      resolveDateRange({ kind: "relative", months: 13 }, now, "Asia/Tokyo"),
+    ).toEqual({ startDate: "2025-02-01", endDate: "yesterday" });
   });
 
   it("rejects operators that contradict selected field kinds", () => {

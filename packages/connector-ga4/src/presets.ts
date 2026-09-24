@@ -164,7 +164,7 @@ export const GA4_PRESETS: readonly Ga4Preset[] = [
     id: "technology",
     name: "Technology",
     description:
-      "Compare usage by browser and operating system; multi-device days show — for session totals.",
+      "Compare usage by browser and operating system; days with more than one browser or operating system show — for session totals.",
     definition: daily(
       ["browser", "operatingSystem"],
       ["activeUsers", "sessions", "screenPageViews"],

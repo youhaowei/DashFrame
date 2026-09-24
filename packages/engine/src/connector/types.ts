@@ -157,7 +157,7 @@ export interface ConnectorFieldMetadata {
   type: string;
   scope: GrainScope;
   contract?: MeasureContract;
-  /** GA4 metric API name that must be selected with a derived ratio metric. */
+  /** Recipe for rebuilding this ratio metric from summed component metrics; see RatioExpression. */
   ratioExpression?: RatioExpression;
 }
 

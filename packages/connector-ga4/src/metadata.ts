@@ -85,6 +85,7 @@ export function scopeFor(apiName: string): GrainScope {
   if (apiName.startsWith("customItem:")) return "item";
   if (apiName.startsWith("landingPage")) return "session";
   if (apiName.startsWith("item")) return "item";
+  // Fail closed: user is the one scope no additiveOver list contains.
   return DIMENSION_SCOPES[apiName] ?? "user";
 }
 
