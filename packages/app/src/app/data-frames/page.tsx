@@ -220,7 +220,7 @@ export default function DataFramesPage() {
   return (
     <ArtifactCollection
       title="Data Frames"
-      description={`${dataFrames?.length ?? 0} data frame${dataFrames?.length === 1 ? "" : "s"}`}
+      count={dataFrames?.length ?? 0}
       searchLabel="Search data frames"
       searchPlaceholder="Search data frames..."
       itemCount={dataFrames?.length ?? 0}

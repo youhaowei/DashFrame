@@ -23,7 +23,14 @@ interface ShellState {
    * open, so a new artifact type needs no registration here.
    */
   workbenchPanes: Record<string, WorkbenchPaneState>;
+  /**
+   * Grid or list, keyed by the artifact type a collection page lists
+   * ("report", "data-source", …). A missing entry means grid.
+   */
+  collectionViews: Record<string, CollectionView>;
 }
+
+export type CollectionView = "grid" | "list";
 
 export type WorkbenchPaneSide = "left" | "right";
 export type WorkbenchPaneState = Partial<Record<WorkbenchPaneSide, boolean>>;
@@ -39,6 +46,7 @@ interface ShellActions {
     side: WorkbenchPaneSide,
     open: boolean,
   ) => void;
+  setCollectionView: (artifactType: string, view: CollectionView) => void;
 }
 
 function clamp(width: number, min: number, max: number): number {
@@ -80,6 +88,7 @@ export const useShellStore = create<ShellState & ShellActions>()(
       contextAppearanceOpen: false,
       contextPanelWidth: CONTEXT_PANEL_DEFAULT_WIDTH,
       workbenchPanes: {},
+      collectionViews: {},
       toggleLeftNav: () => set((s) => ({ leftNavOpen: !s.leftNavOpen })),
       setLeftNavOpen: (open) => set({ leftNavOpen: open }),
       toggleContextAppearance: () =>
@@ -100,6 +109,10 @@ export const useShellStore = create<ShellState & ShellActions>()(
             [artifactType]: { ...s.workbenchPanes[artifactType], [side]: open },
           },
         })),
+      setCollectionView: (artifactType, view) =>
+        set((s) => ({
+          collectionViews: { ...s.collectionViews, [artifactType]: view },
+        })),
     }),
     {
       name: "dashframe:shell",
@@ -107,3 +120,13 @@ export const useShellStore = create<ShellState & ShellActions>()(
     },
   ),
 );
+
+/**
+ * The saved view for an artifact type. Storage is outside our control (older
+ * builds, hand edits), so anything but "list" reads as the default grid.
+ */
+export function useCollectionView(artifactType: string): CollectionView {
+  return useShellStore((state) =>
+    state.collectionViews[artifactType] === "list" ? "list" : "grid",
+  );
+}

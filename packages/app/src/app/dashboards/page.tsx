@@ -1,6 +1,12 @@
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { useConfirmDialogStore, useToastStore } from "@/lib/stores";
+import { useCollectionView, useShellStore } from "@/lib/stores/shell-store";
+import { useNow } from "@/hooks/useNow";
+import {
+  formatRelativeTime,
+  formatRelativeTimeWithVerb,
+} from "@/lib/format-relative-time";
 import {
   indexReportContents,
   resolveReportContents,
@@ -10,7 +16,13 @@ import {
   ArtifactCollection,
   ArtifactEmptyState,
   ArtifactGrid,
+  ArtifactRow,
+  ArtifactRowGroups,
+  ArtifactRowOpen,
+  ArtifactTile,
 } from "@/components/artifacts/ArtifactCollection";
+import { groupByRecency } from "@/components/artifacts/collection-groups";
+import { ReportLayoutGlyph } from "@/components/artifacts/ReportLayoutGlyph";
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
 import { api } from "@dashframe/convex-backend/api";
@@ -35,7 +47,6 @@ import {
   Input,
 } from "@wystack/ui-react";
 import {
-  DashboardIcon,
   DeleteIcon,
   ExternalLinkIcon,
   FileIcon,
@@ -58,6 +69,15 @@ type CreateReport = (
 
 function touchedAt(row: { createdAt: number; updatedAt?: number }) {
   return Math.max(row.createdAt, row.updatedAt ?? 0);
+}
+
+/**
+ * "Is this report worth opening?": Empty only when nothing is placed on it;
+ * otherwise its live chart count, which may be 0 on a text-only report.
+ */
+function contentLabel(itemCount: number, chartCount: number) {
+  if (itemCount === 0) return "Empty";
+  return `${chartCount} chart${chartCount === 1 ? "" : "s"}`;
 }
 
 /**
@@ -335,6 +355,9 @@ export default function DashboardsPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [newDashboardName, setNewDashboardName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const view = useCollectionView("report");
+  const setCollectionView = useShellStore((state) => state.setCollectionView);
+  const now = useNow();
 
   const handleDelete = (id: string, name: string) => {
     confirm({
@@ -406,16 +429,53 @@ export default function DashboardsPage() {
     setNewDashboardName("");
   };
 
-  const filteredDashboards = searchQuery.trim()
-    ? dashboards.filter((dashboard) =>
-        dashboard.name.toLowerCase().includes(searchQuery.trim().toLowerCase()),
-      )
-    : dashboards;
+  // Newest first: the report worked on last is the likeliest one to reopen.
+  const filteredDashboards = (
+    searchQuery.trim()
+      ? dashboards.filter((dashboard) =>
+          dashboard.name
+            .toLowerCase()
+            .includes(searchQuery.trim().toLowerCase()),
+        )
+      : [...dashboards]
+  ).sort((a, b) => touchedAt(b) - touchedAt(a));
   const reportContentIndexes = useMemo(
     () => indexReportContents(visualizations),
     [visualizations],
   );
   const hasLoadError = dashboardsLoadError || visualizationsLoadError;
+  const reportContentLabel = (dashboard: Dashboard) =>
+    contentLabel(
+      dashboard.items.length,
+      resolveReportContents(dashboard, reportContentIndexes).savedViews.length,
+    );
+
+  const renderReportMenu = (dashboard: Dashboard) => (
+    <DropdownMenu>
+      <RoutedCardActionMenuTrigger />
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={(event) => {
+            event.stopPropagation();
+            navigate({ to: `/dashboards/${dashboard.id}` } as never);
+          }}
+        >
+          <ExternalLinkIcon className="mr-2 h-4 w-4" />
+          Open
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="text-palette-danger"
+          onClick={(event) => {
+            event.stopPropagation();
+            handleDelete(dashboard.id, dashboard.name);
+          }}
+        >
+          <DeleteIcon className="mr-2 h-4 w-4" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   if (dashboardsLoading || visualizationsLoading) {
     return (
@@ -428,13 +488,7 @@ export default function DashboardsPage() {
   return (
     <ArtifactCollection
       title="Reports"
-      description={
-        hasLoadError ? undefined : (
-          <>
-            {dashboards.length} report{dashboards.length !== 1 ? "s" : ""}
-          </>
-        )
-      }
+      count={hasLoadError ? undefined : dashboards.length}
       actions={
         <Button
           icon={PlusIcon}
@@ -447,6 +501,8 @@ export default function DashboardsPage() {
       itemCount={hasLoadError ? undefined : dashboards.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
+      view={view}
+      onViewChange={(next) => setCollectionView("report", next)}
     >
       <ReportsCollectionContent
         hasLoadError={hasLoadError}
@@ -462,59 +518,57 @@ export default function DashboardsPage() {
           />
         }
       >
-        <ArtifactGrid>
-          {filteredDashboards.map((dashboard) => {
-            const contents = resolveReportContents(
-              dashboard,
-              reportContentIndexes,
-            );
-            return (
-              <ArtifactCard
+        {view === "list" ? (
+          <ArtifactRowGroups
+            groups={groupByRecency(filteredDashboards, now, touchedAt)}
+            renderRow={(dashboard, { headingLevel }) => (
+              <ArtifactRow
                 key={dashboard.id}
                 to={`/dashboards/${dashboard.id}`}
-                icon={<DashboardIcon className="h-5 w-5" />}
+                headingLevel={headingLevel}
+                glyph={
+                  <ReportLayoutGlyph
+                    items={dashboard.items}
+                    className="h-4 w-5.5"
+                    maxRows={12}
+                  />
+                }
                 name={dashboard.name}
-                metadata={
+                meta={reportContentLabel(dashboard)}
+                time={formatRelativeTime(now, touchedAt(dashboard))}
+                actions={
                   <>
-                    {contents.questionIds.length} question
-                    {contents.questionIds.length !== 1 ? "s" : ""}
-                    <span aria-hidden="true"> · </span>
-                    {contents.savedViews.length} saved view
-                    {contents.savedViews.length !== 1 ? "s" : ""}
+                    <ArtifactRowOpen to={`/dashboards/${dashboard.id}`} />
+                    {renderReportMenu(dashboard)}
                   </>
                 }
-                actions={
-                  <DropdownMenu>
-                    <RoutedCardActionMenuTrigger />
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          navigate({
-                            to: `/dashboards/${dashboard.id}`,
-                          } as never);
-                        }}
-                      >
-                        <ExternalLinkIcon className="mr-2 h-4 w-4" />
-                        Open
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-palette-danger"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleDelete(dashboard.id, dashboard.name);
-                        }}
-                      >
-                        <DeleteIcon className="mr-2 h-4 w-4" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                }
               />
-            );
-          })}
-        </ArtifactGrid>
+            )}
+          />
+        ) : (
+          <ArtifactGrid compact>
+            {filteredDashboards.map((dashboard) => (
+              <ArtifactTile
+                key={dashboard.id}
+                to={`/dashboards/${dashboard.id}`}
+                glyph={<ReportLayoutGlyph items={dashboard.items} />}
+                name={dashboard.name}
+                meta={
+                  <>
+                    {reportContentLabel(dashboard)}
+                    <span aria-hidden="true"> · </span>
+                    {formatRelativeTimeWithVerb(
+                      "updated",
+                      now,
+                      touchedAt(dashboard),
+                    )}
+                  </>
+                }
+                actions={renderReportMenu(dashboard)}
+              />
+            ))}
+          </ArtifactGrid>
+        )}
       </ReportsCollectionContent>
 
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>

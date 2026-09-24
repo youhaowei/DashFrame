@@ -8,6 +8,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -86,7 +87,9 @@ vi.mock("@/components/data-sources/AddDataSourceModal", () => ({
 vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { registerConnector } from "@/lib/connectors/registry";
 import { useConfirmDialogStore } from "@/lib/stores";
+import { useShellStore } from "@/lib/stores/shell-store";
 import DataSourcesPage from "./page";
 import { useState } from "react";
 
@@ -341,5 +344,106 @@ describe("DataSourcesPage query states", () => {
     // Focus is still exercised so the control is known to be reachable at all.
     action.focus();
     expect(document.activeElement).toBe(action);
+  });
+});
+
+describe("DataSourcesPage collection content", () => {
+  const HOUR = 3_600_000;
+
+  beforeAll(() => {
+    registerConnector({
+      id: "googleAnalytics",
+      name: "Google Analytics 4",
+      sourceType: "remote-api",
+      icon: "<svg></svg>",
+    } as never);
+    registerConnector({
+      id: "local",
+      name: "Local Files",
+      sourceType: "file",
+      icon: "<svg></svg>",
+    } as never);
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useShellStore.setState({ collectionViews: {} });
+    const now = Date.now();
+    const source = (id: string, name: string, type: string) => ({
+      id,
+      name,
+      type,
+      config: {},
+      createdAt: 0,
+    });
+    const table = (id: string, dataSourceId: string, fetchedAgo: number) => ({
+      id,
+      name: id,
+      dataSourceId,
+      table: id,
+      fields: [],
+      metrics: [],
+      createdAt: 0,
+      lastFetchedAt: now - fetchedAgo,
+    });
+    mockUseDataSources.mockReturnValue({
+      ...successfulQuery(mockRefetchDataSources),
+      data: [
+        source("ga", "Marketing site", "googleAnalytics"),
+        source("files", "Uploads", "local"),
+      ],
+    });
+    mockUseDataTables.mockReturnValue({
+      ...successfulQuery(mockRefetchDataTables),
+      data: [
+        table("pages", "ga", 2 * HOUR),
+        table("events", "ga", 5 * HOUR),
+        table("orders.csv", "files", 3 * HOUR),
+        table("customers.csv", "files", 1 * HOUR),
+      ],
+    });
+  });
+
+  it("dates a remote source by its stalest table and a file source by its latest import", () => {
+    render(<Page />);
+
+    screen.getByText("Google Analytics 4 · 2 tables · refreshed 5h ago");
+    screen.getByText("Local Files · 2 tables · imported 1h ago");
+  });
+
+  it("claims no refresh time while some of a source's tables were never fetched", () => {
+    const fetched = mockUseDataTables().data[0];
+    mockUseDataTables.mockReturnValue({
+      ...successfulQuery(mockRefetchDataTables),
+      data: [fetched, { ...fetched, id: "never", lastFetchedAt: undefined }],
+    });
+    render(<Page />);
+
+    screen.getByText("Google Analytics 4 · 2 tables · 1 of 2 fetched");
+    expect(screen.queryByText(/refreshed/)).toBeNull();
+  });
+
+  it("finds a source by its provider's display name", async () => {
+    const user = userEvent.setup();
+    render(<Page />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Search data sources" }),
+      "google analytics",
+    );
+
+    screen.getByRole("heading", { name: "Marketing site" });
+    expect(screen.queryByRole("heading", { name: "Uploads" })).toBeNull();
+  });
+
+  it("drops the provider from rows under its group label", () => {
+    useShellStore.setState({ collectionViews: { "data-source": "list" } });
+    render(<Page />);
+
+    screen.getByRole("button", { name: "Google Analytics 4 1" });
+    screen.getByRole("heading", { level: 3, name: "Marketing site" });
+    // Both rows read just "2 tables"; neither repeats its provider.
+    expect(screen.getAllByText("2 tables")).toHaveLength(2);
+    expect(screen.queryByText(/ · /)).toBeNull();
   });
 });

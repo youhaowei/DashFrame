@@ -6,8 +6,20 @@ import {
   ArtifactCollection,
   ArtifactGrid,
   ArtifactEmptyState,
-  ArtifactCard,
+  ArtifactRow,
+  ArtifactRowGroups,
+  ArtifactRowOpen,
+  ArtifactTile,
+  type ArtifactRowPlacement,
 } from "@/components/artifacts/ArtifactCollection";
+import { groupByKey } from "@/components/artifacts/collection-groups";
+import { useNow } from "@/hooks/useNow";
+import {
+  formatRelativeTime,
+  formatRelativeTimeWithVerb,
+} from "@/lib/format-relative-time";
+import { useCollectionView, useShellStore } from "@/lib/stores/shell-store";
+import { sourceFreshness } from "./source-freshness";
 import { AddDataSourceModal } from "@/components/data-sources/AddDataSourceModal";
 import {
   getConnectorById,
@@ -30,16 +42,58 @@ import {
   DeleteIcon,
   ExternalLinkIcon,
   PlusIcon,
-  TableIcon,
 } from "@wystack/ui-react/icons";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-// Type for data source with table count
 type DataSourceWithTables = {
   dataSource: DataSource;
   tableCount: number;
+  /** One per table; undefined for a table never fetched. */
+  fetchTimes: (number | undefined)[];
 };
+
+function tableCountLabel(count: number) {
+  return `${count} table${count === 1 ? "" : "s"}`;
+}
+
+function freshnessOf(item: DataSourceWithTables) {
+  return sourceFreshness(
+    item.fetchTimes,
+    getConnectorById(item.dataSource.type)?.sourceType,
+  );
+}
+
+/**
+ * "Is it current?": "refreshed 2h ago", "imported 5d ago", just "2h ago" while
+ * the kind is unknown, or "1 of 2 fetched" when some tables never were.
+ */
+function fetchedLabel(item: DataSourceWithTables, now: number) {
+  const freshness = freshnessOf(item);
+  if (!freshness) return undefined;
+  if (freshness.kind === "partial")
+    return `${freshness.fetched} of ${freshness.total} fetched`;
+  return freshness.verb
+    ? formatRelativeTimeWithVerb(freshness.verb, now, freshness.at)
+    : formatRelativeTime(now, freshness.at);
+}
+
+// Resolve icon and label from the connector registry.
+// Falls back gracefully for unregistered kinds (e.g. postgresql not yet
+// registered) — adding a connector kind and registering it is all that's
+// needed to make it appear with the correct icon/label everywhere.
+// Marks stay neutral: brand colour on every tile would outshout the names.
+function getTypeIcon(type: string, className = "h-6 w-6") {
+  const connector = getConnectorById(type);
+  if (!connector) return <DatabaseIcon className={className} />;
+  return (
+    <ConnectorIcon svg={connector.icon} className={`${className} grayscale`} />
+  );
+}
+
+function getTypeLabel(type: string) {
+  return getConnectorById(type)?.name ?? type;
+}
 
 /**
  * Data Sources Management Page
@@ -82,46 +136,36 @@ export default function DataSourcesPage({
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
+  const view = useCollectionView("data-source");
+  const setCollectionView = useShellStore((state) => state.setCollectionView);
+  const now = useNow();
 
   const handleRetry = useCallback(() => globalThis.location.reload(), []);
 
   // Transform data sources for display
   const allDataSources = useMemo((): DataSourceWithTables[] => {
     return (dataSources ?? []).map((source) => {
-      const tableCount = (allDataTables ?? []).filter(
+      const tables = (allDataTables ?? []).filter(
         (table) => table.dataSourceId === source.id,
-      ).length;
+      );
       return {
         dataSource: source,
-        tableCount,
+        tableCount: tables.length,
+        fetchTimes: tables.map((table) => table.lastFetchedAt || undefined),
       };
     });
   }, [dataSources, allDataTables]);
 
-  // Filter data sources by search query
-  const filteredDataSources = useMemo(() => {
-    if (!searchQuery.trim()) return allDataSources;
-    const query = searchQuery.toLowerCase();
-    return allDataSources.filter(
-      (item) =>
-        item.dataSource.name.toLowerCase().includes(query) ||
-        item.dataSource.type.toLowerCase().includes(query),
-    );
-  }, [allDataSources, searchQuery]);
-
-  // Resolve icon and label from the connector registry.
-  // Falls back gracefully for unregistered kinds (e.g. postgresql not yet
-  // registered) — adding a connector kind and registering it is all that's
-  // needed to make it appear with the correct icon/label everywhere.
-  const getTypeIcon = (type: string) => {
-    const connector = getConnectorById(type);
-    if (!connector) return <DatabaseIcon className="h-5 w-5" />;
-    return <ConnectorIcon svg={connector.icon} className="h-5 w-5" />;
-  };
-
-  const getTypeLabel = (type: string) => {
-    return getConnectorById(type)?.name ?? type;
-  };
+  // Search names and the provider, by id or by its display name.
+  const query = searchQuery.trim().toLowerCase();
+  const filteredDataSources = query
+    ? allDataSources.filter(
+        (item) =>
+          item.dataSource.name.toLowerCase().includes(query) ||
+          item.dataSource.type.toLowerCase().includes(query) ||
+          getTypeLabel(item.dataSource.type).toLowerCase().includes(query),
+      )
+    : allDataSources;
 
   // Handle delete data source
   const handleDeleteDataSource = async (
@@ -148,52 +192,98 @@ export default function DataSourcesPage({
     });
   };
 
-  const renderDataSourceCard = (item: DataSourceWithTables) => (
-    <ArtifactCard
-      key={item.dataSource.id}
-      to={`/data-sources/${item.dataSource.id}`}
-      name={item.dataSource.name}
-      icon={getTypeIcon(item.dataSource.type)}
-      metadata={
-        <>
-          {getTypeLabel(item.dataSource.type)} <span aria-hidden="true">·</span>{" "}
-          <TableIcon aria-hidden className="mr-1 inline h-3 w-3" />
-          {item.tableCount} table{item.tableCount !== 1 ? "s" : ""}
-        </>
-      }
-      actions={
-        <DropdownMenu>
-          <RoutedCardActionMenuTrigger />
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate({
-                  to: `/data-sources/${item.dataSource.id}`,
-                } as never);
-              }}
-            >
-              <ExternalLinkIcon className="mr-2 h-4 w-4" />
-              Open
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-palette-danger"
-              onClick={(e) =>
-                handleDeleteDataSource(
-                  item.dataSource.id,
-                  item.dataSource.name,
-                  e as unknown as React.MouseEvent,
-                )
-              }
-            >
-              <DeleteIcon className="mr-2 h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      }
-    />
+  const renderDataSourceMenu = (item: DataSourceWithTables) => (
+    <DropdownMenu>
+      <RoutedCardActionMenuTrigger />
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate({
+              to: `/data-sources/${item.dataSource.id}`,
+            } as never);
+          }}
+        >
+          <ExternalLinkIcon className="mr-2 h-4 w-4" />
+          Open
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="text-palette-danger"
+          onClick={(e) =>
+            handleDeleteDataSource(
+              item.dataSource.id,
+              item.dataSource.name,
+              e as unknown as React.MouseEvent,
+            )
+          }
+        >
+          <DeleteIcon className="mr-2 h-4 w-4" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
+
+  const renderDataSourceTile = (item: DataSourceWithTables) => {
+    const fetched = fetchedLabel(item, now);
+    return (
+      <ArtifactTile
+        key={item.dataSource.id}
+        to={`/data-sources/${item.dataSource.id}`}
+        name={item.dataSource.name}
+        glyph={getTypeIcon(item.dataSource.type)}
+        meta={[
+          getTypeLabel(item.dataSource.type),
+          tableCountLabel(item.tableCount),
+          fetched,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        actions={renderDataSourceMenu(item)}
+      />
+    );
+  };
+
+  // Under a provider label the row drops the provider name; the flat list
+  // (one provider) keeps it, since nothing else on the row names it. The row's
+  // time is the same freshness the tile names, without the verb; a partly
+  // fetched source says so in the meta instead of showing a time.
+  const renderDataSourceRow = (
+    item: DataSourceWithTables,
+    { grouped, headingLevel }: ArtifactRowPlacement,
+  ) => {
+    const freshness = freshnessOf(item);
+    const meta = [
+      grouped ? undefined : getTypeLabel(item.dataSource.type),
+      tableCountLabel(item.tableCount),
+      freshness?.kind === "partial"
+        ? `${freshness.fetched} of ${freshness.total} fetched`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <ArtifactRow
+        key={item.dataSource.id}
+        to={`/data-sources/${item.dataSource.id}`}
+        headingLevel={headingLevel}
+        glyph={getTypeIcon(item.dataSource.type, "h-4 w-4")}
+        name={item.dataSource.name}
+        meta={meta}
+        time={
+          freshness?.kind === "fetched"
+            ? formatRelativeTime(now, freshness.at)
+            : undefined
+        }
+        actions={
+          <>
+            <ArtifactRowOpen to={`/data-sources/${item.dataSource.id}`} />
+            {renderDataSourceMenu(item)}
+          </>
+        }
+      />
+    );
+  };
 
   const isInitialLoading =
     (dataSourcesQuery.isLoading && dataSourcesQuery.data === undefined) ||
@@ -221,15 +311,26 @@ export default function DataSourcesPage({
     );
   }
 
+  const populated =
+    view === "list" ? (
+      <ArtifactRowGroups
+        groups={groupByKey(
+          filteredDataSources,
+          (item) => item.dataSource.type,
+          getTypeLabel,
+        )}
+        renderRow={renderDataSourceRow}
+      />
+    ) : (
+      <ArtifactGrid compact>
+        {filteredDataSources.map(renderDataSourceTile)}
+      </ArtifactGrid>
+    );
+
   return (
     <ArtifactCollection
       title="Data Sources"
-      description={
-        <>
-          {allDataSources.length} source
-          {allDataSources.length !== 1 ? "s" : ""}
-        </>
-      }
+      count={allDataSources.length}
       actions={
         <Button
           icon={PlusIcon}
@@ -242,11 +343,11 @@ export default function DataSourcesPage({
       itemCount={allDataSources.length}
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
+      view={view}
+      onViewChange={(next) => setCollectionView("data-source", next)}
     >
       {filteredDataSources.length > 0 ? (
-        <ArtifactGrid>
-          {filteredDataSources.map(renderDataSourceCard)}
-        </ArtifactGrid>
+        populated
       ) : (
         <ArtifactEmptyState
           title={searchQuery ? "No data sources found" : "No data sources yet"}
