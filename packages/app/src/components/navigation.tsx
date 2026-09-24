@@ -3,6 +3,7 @@ import { queryStatus } from "@/data/query-status";
 import { AccessCredentialsDialog } from "@/components/access-credentials/AccessCredentialsDialog";
 import { DashFrameLogo } from "@/components/DashFrameLogo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ShelfPanel } from "@/components/shelf/NavShelf";
 import { useSignOut } from "@/bootstrap/sign-out";
 import { useAccessCapabilities } from "@/data";
 import { clearAllData } from "@/lib/data-access/data-frames";
@@ -99,6 +100,8 @@ interface SidebarContentProps {
    * mount a second instance (duplicate hotkey listeners, duplicate panels).
    */
   footerSlot?: ReactNode;
+  /** The shelf, above the footer. Desktop only: one shelf is mounted. */
+  shelfSlot?: ReactNode;
   pendingDraftCount: number;
 }
 
@@ -108,6 +111,7 @@ function SidebarContent({
   onSignOut,
   onNavigate,
   footerSlot,
+  shelfSlot,
   pendingDraftCount,
 }: SidebarContentProps) {
   const pathname = useLocation({ select: (l) => l.pathname });
@@ -183,6 +187,12 @@ function SidebarContent({
           );
         })}
       </nav>
+
+      {shelfSlot ? (
+        <div className="mx-2 border-t border-neutral-border-subtle pt-2">
+          {shelfSlot}
+        </div>
+      ) : null}
 
       {/* Footer with Settings and GitHub */}
       <div className="space-y-2 px-4 py-3">
@@ -343,6 +353,7 @@ export function Navigation() {
             }
             onSignOut={signOut}
             footerSlot={<PerfHud />}
+            shelfSlot={leftNavOpen ? <ShelfPanel targetId="shelf-nav" /> : null}
           />
         </div>
       </Dock>

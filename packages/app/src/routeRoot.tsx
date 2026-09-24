@@ -16,6 +16,9 @@ import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { ContextPanelProvider } from "@/components/shell/context-panel-outlet";
 import { ShellRails } from "@/components/shell/ShellRails";
+import { AppDragProvider } from "@/components/shelf/drag-context";
+import { CarriedChip } from "@/components/shelf/ShelfChip";
+import { ShelfScope } from "@/components/shelf/shelf-scope";
 import { TopBarTabsProvider } from "@/components/shell/topbar-tabs";
 import { ThemeProvider } from "@/components/theme-provider";
 import { WebMCPProvider } from "@/components/webmcp/WebMCPProvider";
@@ -122,7 +125,13 @@ export function RouteRoot({
                 <PlatformProvider>
                   <TopBarTabsProvider>
                     <WebMCPProvider>
-                      <Shell />
+                      <AppDragProvider
+                        overlay={(drag) => <CarriedChip item={drag.item} />}
+                      >
+                        <ShelfScope>
+                          <Shell />
+                        </ShelfScope>
+                      </AppDragProvider>
                     </WebMCPProvider>
                   </TopBarTabsProvider>
                 </PlatformProvider>

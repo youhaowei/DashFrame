@@ -33,6 +33,7 @@ vi.mock("@/lib/clear-all-data-navigation", async (importOriginal) => ({
   reloadRootWithFreshWorkspaceState: mockReloadRoot,
 }));
 vi.mock("@/lib/perf", () => ({ PerfHud: () => null }));
+vi.mock("@/components/shelf/NavShelf", () => ({ ShelfPanel: () => null }));
 vi.mock("@/lib/platform", () => ({ usePlatform: () => mockPlatform }));
 vi.mock("@/lib/stores", () => ({
   useToastStore: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),

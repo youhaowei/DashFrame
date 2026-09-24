@@ -14,6 +14,7 @@ import { Button, cn, Surface } from "@wystack/ui-react";
 import { DeleteIcon, DragHandleIcon, EditIcon } from "@wystack/ui-react/icons";
 import { useState } from "react";
 import { toast } from "sonner";
+import { PutTileChartOnShelfButton } from "@/components/shelf/sources";
 import { MarkdownWidget } from "./MarkdownWidget";
 import { OverridePopover } from "./OverridePopover";
 
@@ -150,6 +151,12 @@ export function DashboardItem({
                   <EditIcon className="h-3.5 w-3.5" />
                 </Button>
               )}
+            {item.type === "visualization" && item.visualizationId && (
+              <PutTileChartOnShelfButton
+                visualizationId={item.visualizationId}
+                className="h-6 w-6 hover:bg-neutral-bg/80"
+              />
+            )}
             <Button
               label="Remove item"
               variant="ghost"

@@ -1,4 +1,5 @@
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
+import { SavedMetricsList } from "@/components/shelf/sources";
 import type { AnyConnector } from "@dashframe/engine";
 import type { DataSource, DataTable } from "@dashframe/types";
 import { OverlayScrollArea, WorkbenchPaneHeader } from "@dashframe/ui";
@@ -117,6 +118,11 @@ export function SourceConfigPane({
             <Setting label="Connected">{formatTime(source.createdAt)}</Setting>
           )}
         </dl>
+        {(table?.metrics?.length ?? 0) > 0 && (
+          <div className="px-3.5 pb-4">
+            <SavedMetricsList metrics={table!.metrics} />
+          </div>
+        )}
       </OverlayScrollArea>
     </div>
   );

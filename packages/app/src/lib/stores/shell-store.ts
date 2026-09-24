@@ -28,6 +28,8 @@ interface ShellState {
    * ("report", "data-source", …). A missing entry means grid.
    */
   collectionViews: Record<string, CollectionView>;
+  /** The shelf in the nav footer shows its items (vs. only its header). */
+  shelfOpen: boolean;
 }
 
 export type CollectionView = "grid" | "list";
@@ -47,6 +49,7 @@ interface ShellActions {
     open: boolean,
   ) => void;
   setCollectionView: (artifactType: string, view: CollectionView) => void;
+  setShelfOpen: (open: boolean) => void;
 }
 
 function clamp(width: number, min: number, max: number): number {
@@ -89,6 +92,7 @@ export const useShellStore = create<ShellState & ShellActions>()(
       contextPanelWidth: CONTEXT_PANEL_DEFAULT_WIDTH,
       workbenchPanes: {},
       collectionViews: {},
+      shelfOpen: true,
       toggleLeftNav: () => set((s) => ({ leftNavOpen: !s.leftNavOpen })),
       setLeftNavOpen: (open) => set({ leftNavOpen: open }),
       toggleContextAppearance: () =>
@@ -113,6 +117,7 @@ export const useShellStore = create<ShellState & ShellActions>()(
         set((s) => ({
           collectionViews: { ...s.collectionViews, [artifactType]: view },
         })),
+      setShelfOpen: (open) => set({ shelfOpen: open }),
     }),
     {
       name: "dashframe:shell",
