@@ -24,12 +24,15 @@ interface DashboardGridProps {
    * the saved dashboard.  Absent → use saved defaults only.
    */
   controlTransientValues?: Map<string, InsightFilter["value"]>;
+  /** Opens a tile's chart for editing, as a tab in the report. */
+  onEditChart?: (visualizationId: string) => void;
 }
 
 export function DashboardGrid({
   dashboard,
   isEditable,
   controlTransientValues,
+  onEditChart,
 }: DashboardGridProps) {
   // Destructure the stable `mutateAsync` — the `useMutation` result object is a
   // fresh reference every render, so depending on it would defeat the
@@ -193,6 +196,7 @@ export function DashboardGrid({
             isEditable={isEditable}
             effectiveOverrides={effectiveOverridesMap.get(item.id)}
             controls={dashboard.controls ?? []}
+            onEditChart={onEditChart}
           />
         </div>
       ))}

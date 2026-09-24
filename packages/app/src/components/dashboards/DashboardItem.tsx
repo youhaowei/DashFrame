@@ -33,6 +33,8 @@ interface DashboardItemProps {
    * OverridePopover to derive field-bound state and offer bind/unbind affordances.
    */
   controls?: DashboardControl[];
+  /** Opens the tile's chart for editing, as a tab in the report. */
+  onEditChart?: (visualizationId: string) => void;
   className?: string;
   // Props passed by react-grid-layout
   style?: React.CSSProperties;
@@ -47,6 +49,7 @@ export function DashboardItem({
   isEditable,
   effectiveOverrides,
   controls = [],
+  onEditChart,
   className,
   style,
   onMouseDown,
@@ -134,6 +137,19 @@ export function DashboardItem({
                 <EditIcon className="h-3.5 w-3.5" />
               </Button>
             )}
+            {item.type === "visualization" &&
+              item.visualizationId &&
+              onEditChart && (
+                <Button
+                  label="Edit chart"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 hover:bg-neutral-bg/80"
+                  onClick={() => onEditChart(item.visualizationId!)}
+                >
+                  <EditIcon className="h-3.5 w-3.5" />
+                </Button>
+              )}
             <Button
               label="Remove item"
               variant="ghost"
@@ -187,6 +203,7 @@ export function DashboardItem({
               item={item}
               dashboardId={dashboardId}
               controls={controls}
+              onEditChart={onEditChart}
             />
           </div>
         )}

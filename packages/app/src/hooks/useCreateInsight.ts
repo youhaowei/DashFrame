@@ -281,8 +281,49 @@ export function useCreateInsight() {
     [createFromInsight],
   );
 
+  /**
+   * Creates the insight a new chart is built on, without opening it anywhere:
+   * the caller shows it where the chart is being made. Always a fresh row —
+   * two new charts on one table must not share an insight — named after the
+   * table, with a numeric suffix when that name is taken. Failures toast here
+   * and resolve to null.
+   */
+  const createChartInsight = useCallback(
+    async (tableId: string, tableName: string): Promise<UUID | null> => {
+      try {
+        const allInsights = await getAllInsights();
+        const takenNames = new Set(
+          allInsights
+            .filter(
+              (i) =>
+                i.source.sourceType === "dataTable" &&
+                i.source.sourceId === tableId,
+            )
+            .map((i) => i.name),
+        );
+        let name = tableName;
+        let suffix = 2;
+        while (takenNames.has(name)) {
+          name = `${tableName} (${suffix})`;
+          suffix++;
+        }
+        return await createInsight(
+          name,
+          { sourceType: "dataTable", sourceId: tableId as UUID },
+          { selectedFields: [] },
+        );
+      } catch (error) {
+        console.error("[useCreateInsight] create chart insight failed:", error);
+        toast.error("Couldn't start the chart");
+        return null;
+      }
+    },
+    [createInsight],
+  );
+
   return {
     createInsightFromTable,
     createInsightFromInsight,
+    createChartInsight,
   };
 }

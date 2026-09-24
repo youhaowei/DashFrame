@@ -1,16 +1,28 @@
-import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { ArtifactEmptyState } from "@/components/artifacts/ArtifactCollection";
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
+import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import { useAppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import { queryStatus } from "@/data/query-status";
+import { useCreateInsight } from "@/hooks/useCreateInsight";
+import { CHART_ICONS, type WorkbenchTabItem } from "@dashframe/ui";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardControlsManager } from "@/components/dashboards/DashboardControlsManager";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
+import { ReportChartTab } from "@/components/dashboards/ReportChartTab";
+import { useTopBarTabs } from "@/components/shell/topbar-tabs";
 import {
   resolveInsightAvailableFields,
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
+import {
+  disambiguateLabels,
+  reportBottom,
+  resolveChartTabs,
+  tabAfterClose,
+  useReportChartTabs,
+  type ChartTab,
+} from "@/lib/reports/chart-tabs";
 import {
   indexReportContents,
   resolveReportContents,
@@ -30,6 +42,10 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Label,
   Select,
   SelectContent,
@@ -40,16 +56,25 @@ import {
 import {
   ChartIcon,
   CheckIcon,
+  DashboardIcon,
   EditIcon,
   FileIcon,
   PlusIcon,
 } from "@wystack/ui-react/icons";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 interface DashboardDetailContentProps {
   dashboardId: string;
+  /** The chart tab open in the URL; the report itself when absent. */
+  chartId?: string | null;
+  /** Opens a chart tab, or the report with `null`. */
+  onSelectChart?: (chartId: string | null) => void;
 }
+
+const REPORT_TAB_ID = "report";
+const REPORT_PANEL_ID = "report-panel";
+const NO_CHART_TABS: ChartTab[] = [];
 
 export function formatReportContentsCount(
   questionCount: number,
@@ -60,6 +85,8 @@ export function formatReportContentsCount(
 
 export default function DashboardDetailContent({
   dashboardId,
+  chartId = null,
+  onSelectChart,
 }: DashboardDetailContentProps) {
   const navigate = useNavigate();
 
@@ -83,6 +110,7 @@ export default function DashboardDetailContent({
     useQuery({ query: api.app.listDataTables, args: {} }),
   );
   const commitBatch = useMutation(api.app.commitBatch);
+  const { createChartInsight } = useCreateInsight();
 
   // Find the dashboard
   const dashboard = useMemo(
@@ -105,6 +133,150 @@ export default function DashboardDetailContent({
         ]
       : null,
   );
+
+  // ── Chart tabs ───────────────────────────────────────────────────────────
+  const storedChartTabs =
+    useReportChartTabs((state) => state.tabsByReport[dashboardId]) ??
+    NO_CHART_TABS;
+  const openChartTab = useReportChartTabs((state) => state.open);
+  const closeStoredChartTab = useReportChartTabs((state) => state.close);
+  const landChartTab = useReportChartTabs((state) => state.land);
+  const chartIds = useMemo(
+    () =>
+      visualizationsLoading
+        ? null
+        : new Set(visualizations.map((visualization) => visualization.id)),
+    [visualizations, visualizationsLoading],
+  );
+  const chartTabs = useMemo(
+    () => resolveChartTabs(storedChartTabs, chartId, chartIds),
+    [storedChartTabs, chartId, chartIds],
+  );
+  const activeChartTab = chartTabs.find((tab) => tab.id === chartId) ?? null;
+
+  const selectChart = useCallback(
+    (id: string | null) => onSelectChart?.(id),
+    [onSelectChart],
+  );
+
+  // A chart opened by link joins the open tabs, so it stays open when the
+  // report tab is selected. A link to a chart that is gone opens the report.
+  useEffect(() => {
+    if (!activeChartTab) return;
+    if (storedChartTabs.some((tab) => tab.id === activeChartTab.id)) return;
+    openChartTab(dashboardId, activeChartTab);
+  }, [activeChartTab, dashboardId, openChartTab, storedChartTabs]);
+  useEffect(() => {
+    if (chartId && chartIds && !activeChartTab) selectChart(null);
+  }, [activeChartTab, chartId, chartIds, selectChart]);
+
+  const editChart = useCallback(
+    (visualizationId: string) => {
+      openChartTab(dashboardId, { id: visualizationId });
+      selectChart(visualizationId);
+    },
+    [dashboardId, openChartTab, selectChart],
+  );
+
+  const closeChartTab = useCallback(
+    (tabId: string) => {
+      const closing = chartTabs.find((tab) => tab.id === tabId);
+      closeStoredChartTab(dashboardId, tabId);
+      // A new chart that never reached the report exists only in its tab;
+      // closing the tab discards the insight it was being built on.
+      if (closing?.insightId) {
+        commitBatch({
+          commands: [cmd("DeleteNode", { id: closing.insightId as UUID })],
+        }).catch((error: unknown) => {
+          console.error("Failed to discard the new chart", error);
+        });
+      }
+      const next = tabAfterClose(chartTabs, tabId, chartId);
+      if (next !== chartId) selectChart(next);
+    },
+    [
+      chartId,
+      chartTabs,
+      closeStoredChartTab,
+      commitBatch,
+      dashboardId,
+      selectChart,
+    ],
+  );
+
+  const handleChartLanded = useCallback(
+    (tabId: string) => landChartTab(dashboardId, tabId),
+    [dashboardId, landChartTab],
+  );
+
+  const [isChartPickerOpen, setIsChartPickerOpen] = useState(false);
+  const startNewChart = async (tableId: string, tableName: string) => {
+    const insightId = await createChartInsight(tableId, tableName);
+    if (!insightId) return null;
+    const tabId = crypto.randomUUID();
+    openChartTab(dashboardId, { id: tabId, insightId });
+    setIsChartPickerOpen(false);
+    selectChart(tabId);
+    return insightId;
+  };
+
+  const visualizationById = useMemo(
+    () =>
+      new Map(
+        visualizations.map((visualization) => [
+          visualization.id,
+          visualization,
+        ]),
+      ),
+    [visualizations],
+  );
+  const topBarTabItems = useMemo<WorkbenchTabItem[]>(() => {
+    const labels = disambiguateLabels(
+      chartTabs.map(
+        (tab) => visualizationById.get(tab.id)?.name || "Untitled chart",
+      ),
+    );
+    return [
+      {
+        id: REPORT_TAB_ID,
+        label: dashboard?.name || "Untitled report",
+        icon: <DashboardIcon className="size-3.5" />,
+        pinned: "start",
+      },
+      ...chartTabs.map((tab, index): WorkbenchTabItem => {
+        const visualization = visualizationById.get(tab.id);
+        const Icon = visualization
+          ? CHART_ICONS[visualization.visualizationType]
+          : ChartIcon;
+        return {
+          id: tab.id,
+          label: labels[index]!,
+          icon: <Icon className="size-3.5" />,
+          closable: true,
+          unsaved: tab.insightId !== undefined,
+        };
+      }),
+    ];
+  }, [chartTabs, dashboard?.name, visualizationById]);
+  const activeTabId = activeChartTab?.id ?? REPORT_TAB_ID;
+  const topBarTabs = useMemo(
+    () =>
+      dashboard
+        ? {
+            label: "Report and its charts",
+            tabs: topBarTabItems,
+            activeId: activeTabId,
+            onSelect: (id: string) =>
+              selectChart(id === REPORT_TAB_ID ? null : id),
+            onClose: closeChartTab,
+            panelId: REPORT_PANEL_ID,
+            findLabel: "Find a chart",
+            findEmptyLabel: "No matching charts.",
+          }
+        : null,
+    [activeTabId, closeChartTab, dashboard, selectChart, topBarTabItems],
+  );
+  useTopBarTabs(topBarTabs);
 
   // ── Controls ─────────────────────────────────────────────────────────────
   // View-local transient values for dashboard controls.  A viewer (or author)
@@ -157,10 +329,8 @@ export default function DashboardDetailContent({
 
   // ── Local UI state ────────────────────────────────────────────────────────
   const [isEditable, setIsEditable] = useState(false);
-  const [isCreateQuestionOpen, setIsCreateQuestionOpen] = useState(false);
-  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isSavedViewOpen, setIsSavedViewOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
-  const [addType, setAddType] = useState<DashboardItemType>("visualization");
   const [selectedVizId, setSelectedVizId] = useState<string>("");
 
   // Redirect if not found — but only once any in-flight fetch has settled.
@@ -199,15 +369,10 @@ export default function DashboardDetailContent({
     );
   }
 
-  const handleAddItem = async () => {
-    // Compute the bottom of the current layout so the new widget is appended
-    // below all existing items. Using Infinity here would serialize to null in
-    // JSON and cause the server-side position validator to reject the mutation.
-    const bottomY = dashboard.items.reduce(
-      (max, item) => Math.max(max, item.y + item.height),
-      0,
-    );
-
+  const addItem = async (
+    type: DashboardItemType,
+    visualizationId?: string,
+  ): Promise<boolean> => {
     setIsAddPending(true);
     try {
       await commitBatch({
@@ -216,34 +381,39 @@ export default function DashboardDetailContent({
             dashboardId: dashboardId as UUID,
             item: {
               id: crypto.randomUUID() as UUID,
-              type: addType,
+              type,
               x: 0,
-              y: bottomY,
-              width: addType === "visualization" ? 6 : 4,
-              height: addType === "visualization" ? 6 : 4,
+              // Below every tile. Infinity would serialize to null and fail
+              // the server's position validator.
+              y: reportBottom(dashboard.items),
+              width: type === "visualization" ? 6 : 4,
+              height: type === "visualization" ? 6 : 4,
               visualizationId:
-                addType === "visualization"
-                  ? (selectedVizId as UUID)
+                type === "visualization"
+                  ? (visualizationId as UUID)
                   : undefined,
               content:
-                addType === "markdown"
+                type === "markdown"
                   ? "## New Text Widget\n\nEdit this text..."
                   : undefined,
             },
           }),
         ],
       });
+      return true;
     } catch (error) {
-      // Keep the dialog open so the user's selection isn't lost.
       console.error("Failed to add report item", error);
       toast.error("Couldn't add report item");
-      return;
+      return false;
     } finally {
       setIsAddPending(false);
     }
+  };
 
-    setIsAddOpen(false);
-    setAddType("visualization");
+  const handleAddSavedView = async () => {
+    // Keep the dialog open on failure so the user's selection isn't lost.
+    if (!(await addItem("visualization", selectedVizId))) return;
+    setIsSavedViewOpen(false);
     setSelectedVizId("");
   };
 
@@ -260,8 +430,45 @@ export default function DashboardDetailContent({
     });
   };
 
+  const chartPicker = (
+    <DataPickerModal
+      isOpen={isChartPickerOpen}
+      onClose={() => setIsChartPickerOpen(false)}
+      title="New chart"
+      onTableSelect={startNewChart}
+      showInsights={false}
+    />
+  );
+
+  if (activeChartTab) {
+    return (
+      <div
+        id={REPORT_PANEL_ID}
+        role="tabpanel"
+        aria-label="Chart"
+        className="h-full"
+      >
+        <ReportChartTab
+          key={activeChartTab.id}
+          report={dashboard}
+          tab={activeChartTab}
+          reports={dashboards}
+          visualizations={visualizations}
+          insights={insights}
+          dataTables={dataTables}
+          onLanded={handleChartLanded}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-full flex-col">
+    <div
+      id={REPORT_PANEL_ID}
+      role="tabpanel"
+      aria-label="Report"
+      className="flex h-full flex-col"
+    >
       <ArtifactPageHeader
         title={dashboard.name}
         description={
@@ -298,12 +505,30 @@ export default function DashboardDetailContent({
                 onSave={handleSaveControls}
               />
             )}
-            <Button
-              color="secondary"
-              icon={PlusIcon}
-              label="Add item"
-              onClick={() => setIsAddOpen(true)}
-            />
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button color="secondary" icon={PlusIcon} label="Add item" />
+                }
+              />
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setIsChartPickerOpen(true)}>
+                  <ChartIcon className="mr-2 h-4 w-4" />
+                  Chart
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setIsSavedViewOpen(true)}>
+                  <ChartIcon className="mr-2 h-4 w-4" />
+                  Saved view
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={isAddPending}
+                  onClick={() => void addItem("markdown")}
+                >
+                  <FileIcon className="mr-2 h-4 w-4" />
+                  Text
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         }
       />
@@ -325,21 +550,18 @@ export default function DashboardDetailContent({
           <div className="flex h-full items-center justify-center">
             <ArtifactEmptyState
               title="Put something on this report"
-              description="Ask a question of your data and add the answer here, or add a view you already saved."
+              description="Build a chart from your data, or add a view you already saved."
               action={
                 <div className="flex flex-wrap justify-center gap-2">
                   <Button
-                    label="Ask a question"
+                    label="Add a chart"
                     icon={PlusIcon}
-                    onClick={() => setIsCreateQuestionOpen(true)}
+                    onClick={() => setIsChartPickerOpen(true)}
                   />
                   <Button
                     variant="outline"
                     label="Add a saved view"
-                    onClick={() => {
-                      setAddType("visualization");
-                      setIsAddOpen(true);
-                    }}
+                    onClick={() => setIsSavedViewOpen(true)}
                   />
                 </div>
               }
@@ -350,95 +572,46 @@ export default function DashboardDetailContent({
             dashboard={dashboard}
             isEditable={isEditable}
             controlTransientValues={controlTransientValues}
+            onEditChart={editChart}
           />
         )}
       </div>
 
-      <CreateVisualizationModal
-        isOpen={isCreateQuestionOpen}
-        onClose={() => setIsCreateQuestionOpen(false)}
-        title="Create question"
-        reportId={dashboardId}
-      />
+      {chartPicker}
 
-      {/* Add Widget Dialog */}
-      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+      <Dialog open={isSavedViewOpen} onOpenChange={setIsSavedViewOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add report item</DialogTitle>
+            <DialogTitle>Add a saved view</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Item type</Label>
-              <div className="grid grid-cols-2 gap-4">
-                <div
-                  className={`cursor-pointer rounded-lg border p-4 transition-all ${
-                    addType === "visualization"
-                      ? "border-palette-primary bg-palette-primary/5 ring-1 ring-palette-primary"
-                      : "hover:border-palette-primary/50"
-                  }`}
-                  onClick={() => setAddType("visualization")}
-                >
-                  <div className="mb-2 flex items-center gap-2 font-medium">
-                    <ChartIcon className="h-4 w-4" />
-                    Saved view
-                  </div>
-                  <p className="text-xs text-neutral-fg-subtle">
-                    Add an existing saved chart
-                  </p>
-                </div>
-                <div
-                  className={`cursor-pointer rounded-lg border p-4 transition-all ${
-                    addType === "markdown"
-                      ? "border-palette-primary bg-palette-primary/5 ring-1 ring-palette-primary"
-                      : "hover:border-palette-primary/50"
-                  }`}
-                  onClick={() => setAddType("markdown")}
-                >
-                  <div className="mb-2 flex items-center gap-2 font-medium">
-                    <FileIcon className="h-4 w-4" />
-                    Text / Markdown
-                  </div>
-                  <p className="text-xs text-neutral-fg-subtle">
-                    Add rich text, notes, or headers
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {addType === "visualization" && (
-              <div className="space-y-2">
-                <Label>Select saved view</Label>
-                <Select
-                  value={selectedVizId}
-                  onValueChange={(v) => setSelectedVizId(v ?? "")}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a saved view..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {visualizations.map((viz) => (
-                      <SelectItem key={viz.id} value={viz.id}>
-                        {viz.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+          <div className="space-y-2 py-4">
+            <Label>Saved view</Label>
+            <Select
+              value={selectedVizId}
+              onValueChange={(v) => setSelectedVizId(v ?? "")}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a saved view..." />
+              </SelectTrigger>
+              <SelectContent>
+                {visualizations.map((viz) => (
+                  <SelectItem key={viz.id} value={viz.id}>
+                    {viz.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex justify-end gap-2">
             <Button
               variant="outline"
               label="Cancel"
-              onClick={() => setIsAddOpen(false)}
+              onClick={() => setIsSavedViewOpen(false)}
             />
             <Button
               label="Add item"
-              onClick={handleAddItem}
-              disabled={
-                isAddPending || (addType === "visualization" && !selectedVizId)
-              }
+              onClick={handleAddSavedView}
+              disabled={isAddPending || !selectedVizId}
             />
           </div>
         </DialogContent>
