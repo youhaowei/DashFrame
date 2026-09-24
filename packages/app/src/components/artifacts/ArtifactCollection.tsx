@@ -1,13 +1,22 @@
+import { groupHoverAndFocusWithinReveal } from "@dashframe/ui";
 import { Link } from "@tanstack/react-router";
-import { Input } from "@wystack/ui-react";
-import { SearchIcon } from "@wystack/ui-react/icons";
-import { useEffect, useRef, type ReactNode } from "react";
+import { Input, Toggle } from "@wystack/ui-react";
+import {
+  ChevronDownIcon,
+  GridIcon,
+  ListIcon,
+  SearchIcon,
+} from "@wystack/ui-react/icons";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { ArtifactPageHeader } from "./ArtifactPageHeader";
+import type { CollectionView } from "@/lib/stores/shell-store";
+
+import type { CollectionGroup } from "./collection-groups";
 
 export type ArtifactCollectionProps = {
   title: ReactNode;
-  description?: ReactNode;
+  /** Shown muted beside the title; omit while unknown. */
+  count?: number;
   actions?: ReactNode;
   /** Undefined while the collection query is pending. */
   itemCount: number | undefined;
@@ -17,12 +26,34 @@ export type ArtifactCollectionProps = {
   searchLabel: string;
   children: ReactNode;
   tools?: ReactNode;
+  /** Grid or list; the toggle shows only when both are given. */
+  view?: CollectionView;
+  onViewChange?: (view: CollectionView) => void;
 };
 
-/** Shared shell for artifact index pages. */
+const VIEW_OPTIONS = [
+  {
+    value: "grid" as const,
+    icon: <GridIcon aria-hidden className="h-4 w-4" />,
+    ariaLabel: "Grid view",
+    tooltip: "Grid view",
+  },
+  {
+    value: "list" as const,
+    icon: <ListIcon aria-hidden className="h-4 w-4" />,
+    ariaLabel: "List view",
+    tooltip: "List view",
+  },
+];
+
+/**
+ * Shared shell for artifact index pages: one header line (title, count,
+ * search, view toggle, primary action) over a faintly tinted well that the
+ * tiles lift off.
+ */
 export function ArtifactCollection({
   title,
-  description,
+  count,
   actions,
   itemCount,
   searchQuery,
@@ -31,12 +62,16 @@ export function ArtifactCollection({
   searchLabel,
   children,
   tools,
+  view,
+  onViewChange,
 }: ArtifactCollectionProps) {
   const titleRef = useRef<HTMLHeadingElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const previousSearchQueryRef = useRef(searchQuery);
-  const showSearch =
+  const hasItemsOrQuery =
     itemCount === undefined || itemCount > 0 || searchQuery.length > 0;
+  const showViewToggle =
+    view !== undefined && onViewChange !== undefined && !!itemCount;
 
   useEffect(() => {
     const searchWasCleared =
@@ -53,45 +88,77 @@ export function ArtifactCollection({
   }, [itemCount, searchQuery]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-neutral-bg">
-      <ArtifactPageHeader
-        title={title}
-        titleRef={titleRef}
-        description={description}
-        actions={actions}
-      >
-        {(showSearch || tools) && (
-          <>
-            {showSearch && (
-              <div className="relative w-full max-w-sm">
-                <SearchIcon
-                  aria-hidden
-                  className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle"
-                />
-                <Input
-                  ref={searchInputRef}
-                  aria-label={searchLabel}
-                  placeholder={searchPlaceholder}
-                  value={searchQuery}
-                  onChange={(event) => onSearchQueryChange(event.target.value)}
-                  className="pl-9"
-                />
-              </div>
-            )}
-            {tools}
-          </>
+    // Light: a faint tint under white tiles. Dark: the panel's own fill, with
+    // tiles one step lighter, so hover lifts rather than sinks.
+    <div className="flex h-full min-h-0 flex-col bg-neutral-bg-subtle dark:bg-neutral-bg">
+      <header className="flex shrink-0 flex-wrap items-center gap-3 px-4 pt-5 pb-3 sm:px-6">
+        <div className="flex min-w-0 flex-1 basis-32 items-baseline gap-2">
+          <h1
+            ref={titleRef}
+            tabIndex={-1}
+            className="min-w-0 break-words text-xl font-semibold text-neutral-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-ring"
+          >
+            {title}
+          </h1>
+          {count !== undefined && (
+            <span className="text-sm tabular-nums text-neutral-fg-subtle">
+              {count}
+              <span className="sr-only"> total</span>
+            </span>
+          )}
+        </div>
+        {hasItemsOrQuery && (
+          <div className="relative order-last w-full sm:order-none sm:w-60">
+            <SearchIcon
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-neutral-fg-subtle"
+            />
+            <Input
+              ref={searchInputRef}
+              size="sm"
+              aria-label={searchLabel}
+              placeholder={searchPlaceholder}
+              value={searchQuery}
+              onChange={(event) => onSearchQueryChange(event.target.value)}
+              // A sunken well: sub tone, inset shadow, hairline ring.
+              className="border-0 bg-neutral-bg-subtle pl-8 shadow-inner ring-[0.5px] ring-neutral-border"
+            />
+          </div>
         )}
-      </ArtifactPageHeader>
-      <div className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+        {tools}
+        {showViewToggle && (
+          <Toggle
+            size="sm"
+            value={view}
+            onValueChange={onViewChange}
+            options={VIEW_OPTIONS}
+          />
+        )}
+        {actions && <div className="flex items-center gap-2">{actions}</div>}
+      </header>
+      <div className="min-w-0 flex-1 overflow-y-auto px-4 pt-1 pb-6 sm:px-6">
         {children}
       </div>
     </div>
   );
 }
 
-export function ArtifactGrid({ children }: { children: ReactNode }) {
+export function ArtifactGrid({
+  children,
+  compact = false,
+}: {
+  children: ReactNode;
+  /** Compact tiles fit about four across a desktop panel. */
+  compact?: boolean;
+}) {
   return (
-    <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(min(100%,280px),1fr))] gap-3">
+    <div
+      className={`grid w-full gap-3 ${
+        compact
+          ? "grid-cols-[repeat(auto-fill,minmax(min(100%,220px),1fr))]"
+          : "grid-cols-[repeat(auto-fill,minmax(min(100%,280px),1fr))]"
+      }`}
+    >
       {children}
     </div>
   );
@@ -187,5 +254,198 @@ export function ArtifactCard({
         <div className="border-t border-neutral-border p-3">{footer}</div>
       )}
     </article>
+  );
+}
+
+const focusRing =
+  "outline-none focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-bg";
+
+export type ArtifactTileProps = {
+  to: string;
+  name: ReactNode;
+  /** Recognition mark: a report's layout miniature or a provider mark. */
+  glyph: ReactNode;
+  /** One muted line; every fact on it should answer a question. */
+  meta?: ReactNode;
+  headingLevel?: 2 | 3;
+  actions?: ReactNode;
+};
+
+/** Compact grid tile: glyph, name, one meta line; lifts on hover. */
+export function ArtifactTile({
+  to,
+  name,
+  glyph,
+  meta,
+  headingLevel = 2,
+  actions,
+}: ArtifactTileProps) {
+  const Heading = headingLevel === 3 ? "h3" : "h2";
+  return (
+    <article className="group relative flex min-w-0 rounded-[var(--surface-radius)] bg-neutral-bg shadow-[var(--shadow-sm)] transition-shadow duration-150 hover:shadow-[var(--shadow-lg)] focus-within:shadow-[var(--shadow-lg)] motion-reduce:transition-none dark:bg-neutral-bg-subtle">
+      <Link
+        to={to as never}
+        className={`flex min-w-0 flex-1 flex-col rounded-[var(--surface-radius)] p-4 ${focusRing}`}
+      >
+        <span
+          aria-hidden="true"
+          className="flex h-9 w-12 items-start text-neutral-fg-subtle"
+        >
+          {glyph}
+        </span>
+        <Heading className="mt-7 truncate pr-6 font-medium text-neutral-fg">
+          {name}
+        </Heading>
+        {meta && (
+          <span className="mt-0.5 block text-xs text-neutral-fg-subtle">
+            {meta}
+          </span>
+        )}
+      </Link>
+      {actions && <div className="absolute top-2 right-2">{actions}</div>}
+    </article>
+  );
+}
+
+export type ArtifactRowProps = {
+  to: string;
+  name: ReactNode;
+  glyph: ReactNode;
+  /** Muted, inline after the name. */
+  meta?: ReactNode;
+  /** Right-aligned; hidden while the row's actions show. */
+  time?: ReactNode;
+  headingLevel?: 2 | 3;
+  actions?: ReactNode;
+};
+
+/** One reading line: glyph, name, inline meta, time; hover reveals actions. */
+export function ArtifactRow({
+  to,
+  name,
+  glyph,
+  meta,
+  time,
+  headingLevel = 2,
+  actions,
+}: ArtifactRowProps) {
+  const Heading = headingLevel === 3 ? "h3" : "h2";
+  return (
+    <li className="group relative flex h-9 min-w-0 items-center rounded-md transition-colors duration-150 hover:bg-neutral-bg-muted focus-within:bg-neutral-bg-muted motion-reduce:transition-none dark:hover:bg-neutral-bg-subtle dark:focus-within:bg-neutral-bg-subtle">
+      <Link
+        to={to as never}
+        className={`flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 text-sm ${focusRing}`}
+      >
+        <span
+          aria-hidden="true"
+          className="flex h-4 w-5.5 shrink-0 items-center justify-center text-neutral-fg-subtle"
+        >
+          {glyph}
+        </span>
+        <span className="flex min-w-0 flex-1 items-baseline gap-2 overflow-hidden">
+          <Heading className="shrink-0 truncate font-medium text-neutral-fg">
+            {name}
+          </Heading>
+          {meta && (
+            <span className="min-w-0 truncate text-neutral-fg-subtle">
+              {meta}
+            </span>
+          )}
+        </span>
+        {time && (
+          <span className="shrink-0 pl-3 text-xs tabular-nums text-neutral-fg-subtle transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 motion-reduce:transition-none">
+            {time}
+          </span>
+        )}
+      </Link>
+      {actions && (
+        <div className="absolute right-1.5 flex items-center gap-0.5">
+          {actions}
+        </div>
+      )}
+    </li>
+  );
+}
+
+/**
+ * The hover "Open" on a row. The row itself is the link keyboard and screen
+ * reader users reach, so this pointer shortcut stays out of the tab order.
+ */
+export function ArtifactRowOpen({ to }: { to: string }) {
+  return (
+    <Link
+      to={to as never}
+      tabIndex={-1}
+      aria-hidden="true"
+      className={`rounded-md px-2 py-1 text-xs font-medium text-neutral-fg-subtle transition-opacity duration-150 hover:bg-neutral-bg-emphasis hover:text-neutral-fg motion-reduce:transition-none ${groupHoverAndFocusWithinReveal}`}
+    >
+      Open
+    </Link>
+  );
+}
+
+/**
+ * Rows under sticky, collapsible group labels. A single group renders as a
+ * flat list: a label that every row shares tells the reader nothing.
+ */
+export function ArtifactRowGroups<T>({
+  groups,
+  renderRow,
+}: {
+  groups: readonly CollectionGroup<T>[];
+  renderRow: (item: T, headingLevel: 2 | 3) => ReactNode;
+}) {
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+
+  if (groups.length < 2) {
+    return (
+      <ul className="flex flex-col">
+        {groups.flatMap((group) =>
+          group.items.map((item) => renderRow(item, 2)),
+        )}
+      </ul>
+    );
+  }
+
+  const toggle = (key: string) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {groups.map((group) => {
+        const open = !collapsed.has(group.key);
+        const bodyId = `artifact-group-${group.key}`;
+        return (
+          <section key={group.key}>
+            <h2 className="sticky top-0 z-10 bg-neutral-bg-subtle dark:bg-neutral-bg">
+              <button
+                type="button"
+                aria-expanded={open}
+                aria-controls={bodyId}
+                onClick={() => toggle(group.key)}
+                className={`flex h-7.5 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs font-medium text-neutral-fg-subtle transition-colors duration-150 hover:bg-neutral-bg-muted motion-reduce:transition-none dark:hover:bg-neutral-bg-subtle ${focusRing}`}
+              >
+                <ChevronDownIcon
+                  aria-hidden
+                  className={`h-3.5 w-3.5 transition-transform duration-150 motion-reduce:transition-none ${open ? "" : "-rotate-90"}`}
+                />
+                {group.label}
+                <span className="font-normal tabular-nums">
+                  {group.items.length}
+                </span>
+              </button>
+            </h2>
+            <ul id={bodyId} hidden={!open} className="flex flex-col">
+              {group.items.map((item) => renderRow(item, 3))}
+            </ul>
+          </section>
+        );
+      })}
+    </div>
   );
 }

@@ -76,6 +76,7 @@ vi.mock("@/lib/stores", async (importOriginal) => ({
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialogStore } from "@/lib/stores";
+import { useShellStore } from "@/lib/stores/shell-store";
 import DashboardsPage from "./page";
 
 // ---------------------------------------------------------------------------
@@ -289,7 +290,7 @@ describe("DashboardsPage – delete confirmation", () => {
     expect(screen.getByText("Customer overview")).not.toBeNull();
   });
 
-  it("shows unique question and saved-view counts", () => {
+  it("counts live charts once each, however often they are placed", () => {
     mockUseQuery.mockImplementation((ref: { _path: string }) => {
       if (ref._path === "listDashboards") {
         return {
@@ -331,7 +332,7 @@ describe("DashboardsPage – delete confirmation", () => {
 
     expect(
       screen.getByRole("link", {
-        name: /Quarterly plan 2 questions 2 saved views/,
+        name: /Quarterly plan 2 charts/,
       }),
     ).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Questions" })).toBeNull();
@@ -362,11 +363,11 @@ describe("DashboardsPage – delete confirmation", () => {
     render(<DashboardsPage />);
 
     screen.getByRole("heading", { name: "Couldn't load reports" });
-    expect(screen.queryByText(/0 saved views/)).toBeNull();
+    expect(screen.queryByText(/Empty/)).toBeNull();
     expect(screen.queryByText("Quarterly plan")).toBeNull();
   });
 
-  it("retains the referenced question count while its row is unavailable", () => {
+  it("counts a placed chart whose question row is unavailable", () => {
     mockUseQuery.mockImplementation((ref: { _path: string }) => {
       if (ref._path === "listDashboards") {
         return {
@@ -394,7 +395,7 @@ describe("DashboardsPage – delete confirmation", () => {
     render(<DashboardsPage />);
 
     screen.getByRole("link", {
-      name: /Quarterly plan 1 question 1 saved view/,
+      name: /Quarterly plan 1 chart\b/,
     });
   });
 
@@ -432,7 +433,7 @@ describe("DashboardsPage – delete confirmation", () => {
     render(<DashboardsPage />);
 
     screen.getByRole("link", {
-      name: /Quarterly plan 1 question 1 saved view/,
+      name: /Quarterly plan 1 chart\b/,
     });
     expect(
       screen.queryByRole("heading", { name: "Couldn't load reports" }),
@@ -473,6 +474,44 @@ describe("DashboardsPage – delete confirmation", () => {
       expect(mockNavigate).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("DashboardsPage – list view", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useShellStore.setState({ collectionViews: {} });
+  });
+
+  function report(id: string, name: string, updatedAt: number) {
+    return { id, name, items: [], createdAt: 0, updatedAt };
+  }
+
+  it("groups reports by recency and remembers the list choice", () => {
+    const now = Date.now();
+    mockUseQuery.mockImplementation((ref: { _path: string }) =>
+      ref._path === "listDashboards"
+        ? {
+            data: [
+              report("old", "Last year", now - 60 * 24 * 60 * 60 * 1000),
+              report("new", "This morning", now),
+            ],
+            isLoading: false,
+          }
+        : { data: [], isLoading: false },
+    );
+
+    render(<DashboardsPage />);
+    fireEvent.click(screen.getByRole("tab", { name: "List view" }));
+
+    expect(useShellStore.getState().collectionViews.report).toBe("list");
+    screen.getByRole("button", { name: "Today 1" });
+    screen.getByRole("button", { name: "Earlier 1" });
+    const rows = screen.getAllByRole("heading", { level: 3 });
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "This morning",
+      "Last year",
+    ]);
+  });
 });
 
 describe("DashboardsPage – empty state", () => {

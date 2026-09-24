@@ -15,6 +15,7 @@ describe("useShellStore — shell rails", () => {
       contextAppearanceOpen: false,
       contextPanelWidth: CONTEXT_PANEL_DEFAULT_WIDTH,
       workbenchPanes: {},
+      collectionViews: {},
     });
   });
 
@@ -58,5 +59,27 @@ describe("useShellStore — shell rails", () => {
     expect(useShellStore.getState().contextAppearanceOpen).toBe(true);
     useShellStore.getState().setContextAppearanceOpen(false);
     expect(useShellStore.getState().contextAppearanceOpen).toBe(false);
+  });
+
+  it("keeps the collection view per artifact type and restores it after a reload", async () => {
+    const { setCollectionView } = useShellStore.getState();
+    setCollectionView("report", "list");
+    setCollectionView("data-source", "grid");
+    setCollectionView("report", "list");
+
+    const saved = JSON.parse(localStorage.getItem("dashframe:shell") ?? "{}");
+    expect(saved.state.collectionViews).toEqual({
+      report: "list",
+      "data-source": "grid",
+    });
+
+    // A fresh page starts from defaults, then reads the saved choice back.
+    useShellStore.setState({ collectionViews: {} });
+    localStorage.setItem("dashframe:shell", JSON.stringify(saved));
+    await useShellStore.persist.rehydrate();
+    expect(useShellStore.getState().collectionViews).toEqual({
+      report: "list",
+      "data-source": "grid",
+    });
   });
 });

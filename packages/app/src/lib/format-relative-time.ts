@@ -1,12 +1,12 @@
 /** Format `timestamp` (epoch ms) relative to `now` (epoch ms) as a short "Nd/h/m ago" string. */
 export function formatRelativeTime(now: number, timestamp: number): string {
-  const diff = now - timestamp;
   // `now` is 0 on the server snapshot (useSyncExternalStore's SSR fallback,
-  // before the client clock hydrates) — every timestamp then reads as
-  // "in the future", which would otherwise fall through every branch below
-  // to "just now" and produce a hydration mismatch once the client clock
-  // ticks in. Render a neutral placeholder instead until `now` is real.
-  if (diff < 0) return "—";
+  // before the client clock hydrates). Render a neutral placeholder until
+  // `now` is real, so the first client render matches.
+  if (now <= 0) return "—";
+  // useNow ticks once a minute, so a write from the last minute can carry a
+  // timestamp ahead of it. That is fresh, not unknown.
+  const diff = Math.max(0, now - timestamp);
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);

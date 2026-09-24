@@ -1,11 +1,20 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
+    <a href={to}>{children}</a>
+  ),
+}));
+
 import {
   ArtifactCard,
   ArtifactCollection,
   ArtifactEmptyState,
   ArtifactGrid,
+  ArtifactRow,
+  ArtifactRowGroups,
 } from "./ArtifactCollection";
 
 function SearchThatEmptied() {
@@ -164,5 +173,90 @@ describe("ArtifactCollection structure", () => {
     const searchInput = screen.getByRole("textbox", { name: "Search drafts" });
     await waitFor(() => expect(document.activeElement).toBe(searchInput));
     expect(document.activeElement).not.toBe(document.body);
+  });
+});
+
+describe("ArtifactRowGroups", () => {
+  const renderRow = (name: string, headingLevel: 2 | 3) => (
+    <ArtifactRow
+      key={name}
+      to={`/reports/${name}`}
+      name={name}
+      glyph={null}
+      headingLevel={headingLevel}
+    />
+  );
+
+  it("renders one group as a flat list without its label", () => {
+    render(
+      <ArtifactRowGroups
+        groups={[{ key: "today", label: "Today", items: ["Alpha", "Beta"] }]}
+        renderRow={renderRow}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /Today/ })).toBeNull();
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
+    ).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("labels each group and collapses it from its label", () => {
+    render(
+      <ArtifactRowGroups
+        groups={[
+          { key: "today", label: "Today", items: ["Alpha"] },
+          { key: "earlier", label: "Earlier", items: ["Beta", "Gamma"] },
+        ]}
+        renderRow={renderRow}
+      />,
+    );
+
+    const earlier = screen.getByRole("button", { name: "Earlier 2" });
+    expect(earlier.getAttribute("aria-expanded")).toBe("true");
+    screen.getByRole("heading", { level: 3, name: "Beta" });
+
+    fireEvent.click(earlier);
+
+    expect(earlier.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      screen.queryByRole("heading", { level: 3, name: "Beta" }),
+    ).toBeNull();
+    screen.getByRole("heading", { level: 3, name: "Alpha" });
+  });
+});
+
+describe("ArtifactCollection view toggle", () => {
+  function renderCollection(itemCount: number, onViewChange = vi.fn()) {
+    render(
+      <ArtifactCollection
+        title="Reports"
+        count={itemCount}
+        itemCount={itemCount}
+        searchQuery=""
+        onSearchQueryChange={() => {}}
+        searchPlaceholder="Search reports..."
+        searchLabel="Search reports"
+        view="grid"
+        onViewChange={onViewChange}
+      >
+        {null}
+      </ArtifactCollection>,
+    );
+    return onViewChange;
+  }
+
+  it("switches to the list view", () => {
+    const onViewChange = renderCollection(3);
+
+    fireEvent.click(screen.getByRole("tab", { name: "List view" }));
+
+    expect(onViewChange).toHaveBeenCalledWith("list");
+  });
+
+  it("hides the toggle when there is nothing to show", () => {
+    renderCollection(0);
+
+    expect(screen.queryByRole("tab", { name: "List view" })).toBeNull();
   });
 });
