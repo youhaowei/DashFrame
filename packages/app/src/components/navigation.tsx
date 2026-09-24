@@ -110,24 +110,22 @@ function SidebarContent({
   return (
     <div className="flex h-full flex-col">
       {/* Header — the logo on a lifted tile, the app's mark in the chrome. */}
-      <div className="px-3 py-2">
-        <div className="flex items-center justify-between gap-3">
-          <Link
-            to="/dashboards"
-            className="group flex items-center gap-2.5 transition-colors duration-150 hover:text-palette-primary motion-reduce:transition-none"
+      <div className="flex h-10 shrink-0 items-center justify-between gap-3 px-3">
+        <Link
+          to="/dashboards"
+          className="group flex items-center gap-2.5 transition-colors duration-150 hover:text-palette-primary motion-reduce:transition-none"
+        >
+          <Surface
+            elevation="raised"
+            className="flex size-7 shrink-0 items-center justify-center rounded-[var(--surface-radius)] text-neutral-fg transition-shadow duration-150 group-hover:shadow-[var(--shadow-lg)] motion-reduce:transition-none"
           >
-            <Surface
-              elevation="raised"
-              className="flex size-8 shrink-0 items-center justify-center rounded-[var(--surface-radius)] text-neutral-fg transition-shadow duration-150 group-hover:shadow-[var(--shadow-lg)] motion-reduce:transition-none"
-            >
-              <DashFrameLogo className="size-5" />
-            </Surface>
-            <span className="text-sm font-semibold tracking-tight">
-              DashFrame
-            </span>
-          </Link>
-          <ThemeToggle />
-        </div>
+            <DashFrameLogo className="size-4" />
+          </Surface>
+          <span className="text-sm font-semibold tracking-tight">
+            DashFrame
+          </span>
+        </Link>
+        <ThemeToggle />
       </div>
 
       {/* Navigation Links */}
