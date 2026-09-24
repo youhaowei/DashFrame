@@ -19,15 +19,6 @@ export type { AxisType };
 export type VegaLiteSpec = Record<string, unknown>;
 
 /**
- * Maximum number of points for scatter plots before switching to hexbin.
- * Scatter plots with raw dots become unreadable with too many points.
- * Used by:
- * - Chart suggestion logic (suggest hexbin instead of dot for large datasets)
- * - UI components (disable scatter option when dataset exceeds threshold)
- */
-export const SCATTER_MAX_POINTS = 5000;
-
-/**
  * Visualization chart types.
  *
  * Names match vgplot API for consistency with the rendering layer.
@@ -72,12 +63,12 @@ export type VisualizationType =
  * - kpi: Single value highlight (scorecard, gauge)
  * - geographic: Location-based (map, choropleth)
  */
-export type ChartTag = "comparison" | "trend" | "correlation" | "distribution";
+type ChartTag = "comparison" | "trend" | "correlation" | "distribution";
 
 /**
  * Metadata for a chart type including tags, display name, and usage hints.
  */
-export interface ChartTypeMetadata {
+interface ChartTypeMetadata {
   /** Tags categorizing this chart type's analytical purpose */
   tags: ChartTag[];
   /** Human-readable name for UI display */
@@ -148,68 +139,6 @@ export const CHART_TYPE_METADATA: Record<VisualizationType, ChartTypeMetadata> =
       hint: "Fastest for massive datasets (100K+ points)",
     },
   };
-
-/**
- * Tag metadata with display names and descriptions.
- */
-export const CHART_TAG_METADATA: Record<
-  ChartTag,
-  { displayName: string; description: string }
-> = {
-  comparison: {
-    displayName: "Comparison",
-    description: "Compare values across categories",
-  },
-  trend: {
-    displayName: "Trend",
-    description: "Show change over time",
-  },
-  correlation: {
-    displayName: "Correlation",
-    description: "Explore relationships between variables",
-  },
-  distribution: {
-    displayName: "Distribution",
-    description: "Visualize data spread and density",
-  },
-};
-
-/**
- * Get all chart types that have a specific tag.
- *
- * @param tag - The tag to filter by
- * @returns Array of chart types with that tag
- */
-export function getChartTypesForTag(tag: ChartTag): VisualizationType[] {
-  return (Object.keys(CHART_TYPE_METADATA) as VisualizationType[]).filter(
-    (type) => CHART_TYPE_METADATA[type].tags.includes(tag),
-  );
-}
-
-/**
- * Get all tags for a specific chart type.
- *
- * @param type - The chart type
- * @returns Array of tags for that chart type
- */
-export function getTagsForChartType(type: VisualizationType): ChartTag[] {
-  return CHART_TYPE_METADATA[type].tags;
-}
-
-/**
- * Get all unique tags that are available (have at least one chart type).
- *
- * @returns Array of available tags
- */
-export function getAvailableTags(): ChartTag[] {
-  const tags = new Set<ChartTag>();
-  for (const meta of Object.values(CHART_TYPE_METADATA)) {
-    for (const tag of meta.tags) {
-      tags.add(tag);
-    }
-  }
-  return Array.from(tags);
-}
 
 /**
  * Column encoding for chart visualization.

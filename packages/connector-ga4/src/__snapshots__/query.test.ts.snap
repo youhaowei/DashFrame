@@ -1,0 +1,651 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`GA4 report queries > builds the runReport body for every preset at a fixed clock 1`] = `
+{
+  "audience": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "country",
+      },
+      {
+        "name": "deviceCategory",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "activeUsers",
+      },
+      {
+        "name": "newUsers",
+      },
+      {
+        "name": "sessions",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "country",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "deviceCategory",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "campaigns": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "sessionCampaignName",
+      },
+      {
+        "name": "sessionSource",
+      },
+      {
+        "name": "sessionMedium",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "sessions",
+      },
+      {
+        "name": "engagedSessions",
+      },
+      {
+        "name": "keyEvents",
+      },
+      {
+        "name": "totalRevenue",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "sessionCampaignName",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "sessionSource",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "sessionMedium",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "daily-overview": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "sessions",
+      },
+      {
+        "name": "engagedSessions",
+      },
+      {
+        "name": "activeUsers",
+      },
+      {
+        "name": "newUsers",
+      },
+      {
+        "name": "screenPageViews",
+      },
+      {
+        "name": "eventCount",
+      },
+      {
+        "name": "keyEvents",
+      },
+      {
+        "name": "totalRevenue",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "events": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "eventName",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "eventCount",
+      },
+      {
+        "name": "activeUsers",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "eventName",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "items": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "itemName",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "itemsViewed",
+      },
+      {
+        "name": "itemsAddedToCart",
+      },
+      {
+        "name": "itemsPurchased",
+      },
+      {
+        "name": "itemRevenue",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "itemName",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "key-events-by-name": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "eventName",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metricFilter": {
+      "filter": {
+        "fieldName": "keyEvents",
+        "numericFilter": {
+          "operation": "GREATER_THAN",
+          "value": {
+            "doubleValue": 0,
+          },
+        },
+      },
+    },
+    "metrics": [
+      {
+        "name": "keyEvents",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "eventName",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "landing-pages": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "landingPage",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "sessions",
+      },
+      {
+        "name": "engagedSessions",
+      },
+      {
+        "name": "activeUsers",
+      },
+      {
+        "name": "keyEvents",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "landingPage",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "outbound-clicks": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensionFilter": {
+      "filter": {
+        "fieldName": "eventName",
+        "stringFilter": {
+          "caseSensitive": true,
+          "matchType": "EXACT",
+          "value": "click",
+        },
+      },
+    },
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "linkDomain",
+      },
+      {
+        "name": "linkUrl",
+      },
+      {
+        "name": "eventName",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "eventCount",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "linkDomain",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "linkUrl",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "eventName",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "pages": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "pagePath",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "screenPageViews",
+      },
+      {
+        "name": "activeUsers",
+      },
+      {
+        "name": "eventCount",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "pagePath",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "purchases": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "sessionDefaultChannelGroup",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "transactions",
+      },
+      {
+        "name": "purchaseRevenue",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "sessionDefaultChannelGroup",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "referrals": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensionFilter": {
+      "filter": {
+        "fieldName": "sessionMedium",
+        "stringFilter": {
+          "caseSensitive": true,
+          "matchType": "EXACT",
+          "value": "referral",
+        },
+      },
+    },
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "sessionSource",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "sessions",
+      },
+      {
+        "name": "engagedSessions",
+      },
+      {
+        "name": "keyEvents",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "sessionSource",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "technology": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "browser",
+      },
+      {
+        "name": "operatingSystem",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "activeUsers",
+      },
+      {
+        "name": "sessions",
+      },
+      {
+        "name": "screenPageViews",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "browser",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "operatingSystem",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+  "traffic-acquisition": {
+    "dateRanges": [
+      {
+        "endDate": "yesterday",
+        "startDate": "2025-08-01",
+      },
+    ],
+    "dimensions": [
+      {
+        "name": "date",
+      },
+      {
+        "name": "sessionDefaultChannelGroup",
+      },
+    ],
+    "keepEmptyRows": false,
+    "limit": "250000",
+    "metrics": [
+      {
+        "name": "sessions",
+      },
+      {
+        "name": "engagedSessions",
+      },
+      {
+        "name": "activeUsers",
+      },
+      {
+        "name": "newUsers",
+      },
+      {
+        "name": "keyEvents",
+      },
+      {
+        "name": "totalRevenue",
+      },
+    ],
+    "offset": "0",
+    "orderBys": [
+      {
+        "dimension": {
+          "dimensionName": "date",
+        },
+      },
+      {
+        "dimension": {
+          "dimensionName": "sessionDefaultChannelGroup",
+        },
+      },
+    ],
+    "returnPropertyQuota": true,
+  },
+}
+`;

@@ -170,7 +170,7 @@ describe("importing a GA4 property", () => {
         format: undefined,
         contract: {
           kind: "additive",
-          additiveOver: ["time", "session"],
+          additiveOver: ["time", "session", "event"],
         },
       },
       {
@@ -178,7 +178,7 @@ describe("importing a GA4 property", () => {
         format: { style: "currency" },
         contract: {
           kind: "additive",
-          additiveOver: ["time", "session"],
+          additiveOver: ["time", "session", "event"],
         },
       },
       {

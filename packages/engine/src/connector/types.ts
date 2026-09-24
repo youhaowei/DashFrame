@@ -1,4 +1,10 @@
-import type { Field, SourceSchema } from "@dashframe/types";
+import type {
+  Field,
+  GrainScope,
+  MeasureContract,
+  SourceSchema,
+  UUID,
+} from "@dashframe/types";
 
 /**
  * Discriminated union for connector source types.
@@ -107,6 +113,82 @@ export interface QueryOptions {
   /** Optional provider response budget, enforced by supporting connectors. */
   maxResponseBytes?: number;
   // Future: Add filters, sorting, etc.
+}
+
+/** Provider-neutral shape persisted for a table materialized from a definition. */
+export interface TableDefinition {
+  dimensions: string[];
+  metrics: string[];
+  dateRange:
+    | { kind: "relative"; months: number }
+    | { kind: "absolute"; start: string; end: string };
+  grain: "day" | "week" | "month";
+  filters?: Array<
+    | {
+        kind: "dimension";
+        field: string;
+        operator: "exact" | "inList";
+        values: string[];
+      }
+    | {
+        kind: "metric";
+        field: string;
+        operator: "greaterThan";
+        value: number;
+      }
+  >;
+}
+
+/** How a materialized table can be reproduced. */
+export type TableOrigin =
+  | { kind: "resource" }
+  | {
+      kind: "definition";
+      version: 1;
+      presetId?: string;
+      definition: TableDefinition;
+    };
+
+export interface ConnectorFieldMetadata {
+  category: string;
+  apiName: string;
+  uiName: string;
+  description: string;
+  type: string;
+  scope: GrainScope;
+  contract?: MeasureContract;
+  /** Recipe for rebuilding this ratio metric from summed component metrics; see RatioExpression. */
+  ratioExpression?: RatioExpression;
+}
+
+// oxlint-disable-next-line sonarjs/redundant-type-aliases -- names the provider metric-reference role in this public recipe contract
+export type MetricRef = string;
+
+/**
+ * Recipe for a ratio of sums. A compound numerator is evaluated per row only
+ * when `rowwise` is true, then summed before division by the denominator sum.
+ */
+export interface RatioExpression {
+  numerator:
+    | MetricRef
+    | {
+        op: "add" | "sub" | "mul";
+        left: MetricRef;
+        right: MetricRef;
+      };
+  denominator: MetricRef;
+  rowwise?: true;
+}
+
+export type DefinitionCompatibility =
+  | { ok: true }
+  | {
+      ok: false;
+      incompatible: Array<{ field: string; reason: string }>;
+    };
+
+export interface DefinitionQueryOptions extends QueryOptions {
+  tableId: UUID;
 }
 
 /**

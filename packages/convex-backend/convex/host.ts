@@ -43,7 +43,7 @@ import type {
 import { parseStoredDataTableState } from "./tableCodec";
 const workspace = { workspaceId: v.string() };
 const GA4_REPAIR_LIMIT = 10_000;
-// Keep this map aligned with connector-ga4/src/measure-metadata.ts.
+// Keep this map aligned with DIMENSION_SCOPES in connector-ga4/src/metadata.ts.
 const GA4_FIELD_SCOPES = {
   date: "time",
   yearWeek: "time",

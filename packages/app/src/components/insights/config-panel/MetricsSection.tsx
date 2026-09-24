@@ -5,7 +5,10 @@ import type {
   MeasureContract,
   UUID,
 } from "@dashframe/types";
-import { GA4_FIELD_SCOPES, ga4MeasureContract } from "@dashframe/connector-ga4";
+import {
+  DIMENSION_SCOPES,
+  METRIC_CONTRACTS,
+} from "@dashframe/connector-ga4/catalogue";
 import {
   SortableList,
   WorkbenchAddRow,
@@ -141,12 +144,12 @@ function hasGa4AcquisitionScopes(dataTable: DataTable): boolean {
     dataTable.fields?.some(
       (field) =>
         field.columnName === "yearWeek" &&
-        field.scope === GA4_FIELD_SCOPES.yearWeek,
+        field.scope === DIMENSION_SCOPES.yearWeek,
     ) === true &&
     dataTable.fields.some(
       (field) =>
         field.columnName === "sessionDefaultChannelGroup" &&
-        field.scope === GA4_FIELD_SCOPES.sessionDefaultChannelGroup,
+        field.scope === DIMENSION_SCOPES.sessionDefaultChannelGroup,
     )
   );
 }
@@ -164,7 +167,8 @@ function defaultMeasureContract(
   );
   if (saved?.contract) return saved.contract;
   if (!hasGa4AcquisitionScopes(dataTable)) return undefined;
-  return ga4MeasureContract(columnName, aggregation);
+  // Only a plain sum over a known GA4 metric carries a connector default.
+  return aggregation === "sum" ? METRIC_CONTRACTS[columnName] : undefined;
 }
 
 function measureContractDescription(

@@ -5,6 +5,21 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./catalogue": {
+      "types": "./src/catalogue.ts",
+      "bun": "./src/catalogue.ts",
+      "browser": "./src/catalogue.ts",
+      "import": "./src/catalogue.ts",
+      "default": "./src/catalogue.ts"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist *.tsbuildinfo",
@@ -20,6 +35,7 @@
   },
   "devDependencies": {
     "typescript": "5.7.2",
+    "vite": "catalog:",
     "vite-plus": "catalog:"
   }
 }

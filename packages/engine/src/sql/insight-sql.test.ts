@@ -15,7 +15,6 @@ import {
   extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
-  metricToSqlExpression,
   type BuildInsightSQLOptions,
 } from "./insight-sql";
 
@@ -270,6 +269,38 @@ describe("buildInsightSQL — measure aggregation contracts", () => {
         },
       }),
     ).toThrow("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE");
+  });
+
+  it("reports a cyclic Top N measure as a cycle before the ranking guard", () => {
+    // `active` is guarded, so a guard check that ran before compiling would
+    // report RUNTIME_TOPN_MEASURE_NOT_ADDITIVE and hide the broken graph.
+    const cyclic: InsightMetric = {
+      ...REVENUE_METRIC,
+      id: "15151515-1515-1515-1515-151515151515" as UUID,
+      name: "Cyclic",
+      columnName: undefined,
+      expression: {
+        kind: "binary",
+        operator: "add",
+        left: { kind: "measure", measureId: active.id },
+        right: {
+          kind: "measure",
+          measureId: "15151515-1515-1515-1515-151515151515" as UUID,
+        },
+      },
+    };
+    expect(() =>
+      sqlFor([week.id, channel.id], [active, cyclic], {
+        reporting: {
+          topN: {
+            fieldId: channel.id,
+            measureId: cyclic.id,
+            count: 5,
+            direction: "desc",
+          },
+        },
+      }),
+    ).toThrow("Cyclic measure reference");
   });
 
   it("rejects Top N for a repaired non-additive measure with legacy unscoped fields", () => {
@@ -1642,66 +1673,6 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
     expect(sql!).toContain(`SUM("he""llo")`);
     // The unescaped form would terminate the identifier after `he`.
     expect(sql!).not.toContain(`SUM("he"llo")`);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// metricToSqlExpression — DSL format contract
-//
-// Contract: metricToSqlExpression emits UNQUOTED column names.
-// This string is consumed by vgplot's parseEncodingValue DSL parser, which
-// extracts the column name via regex (e.g. /^sum\((.+)\)$/i) and passes it
-// to the Mosaic API (api.sum(columnName)). Mosaic quotes identifiers itself.
-// Quoting here would double-process: the regex would extract '"amount"' (with
-// embedded quotes) and Mosaic would look for a column literally named "amount"
-// (with quotes), which does not exist — charts would fail to render.
-//
-// The SQL injection guard for metricToSqlExpression is Mosaic, not this layer.
-// The real SQL sinks that need quoting are:
-//   - applyDateTransformToSql (date_trunc / monthname expressions)
-//   - buildColumnSelectWithFieldId, resolveMetricAggRef, buildMetricExpressionWithUUID
-//     (all inside buildInsightSQL — these call quoteIdentifier already)
-// ---------------------------------------------------------------------------
-
-describe("metricToSqlExpression — DSL format contract", () => {
-  const baseMetric = (overrides: Partial<InsightMetric>): InsightMetric => ({
-    id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" as UUID,
-    name: "Test Metric",
-    sourceTable: TABLE_ID,
-    aggregation: "sum",
-    ...overrides,
-  });
-
-  it("count(*) emits unquoted star", () => {
-    const expr = metricToSqlExpression(
-      baseMetric({ aggregation: "count", columnName: undefined }),
-    );
-    expect(expr).toBe("count(*)");
-  });
-
-  it("standard aggregation emits unquoted column name (vgplot DSL format)", () => {
-    // Must NOT be sum("amount") — vgplot regex would extract '"amount"' with quotes
-    const expr = metricToSqlExpression(
-      baseMetric({ aggregation: "sum", columnName: "amount" }),
-    );
-    expect(expr).toBe("sum(amount)");
-    expect(expr).not.toContain('"amount"');
-  });
-
-  it("count_distinct emits unquoted column name (vgplot DSL format)", () => {
-    // Must NOT be count_distinct("user_id") — same round-trip breakage
-    const expr = metricToSqlExpression(
-      baseMetric({ aggregation: "count_distinct", columnName: "user_id" }),
-    );
-    expect(expr).toBe("count_distinct(user_id)");
-    expect(expr).not.toContain('"user_id"');
-  });
-
-  it("aggregation with no columnName falls back to *", () => {
-    const expr = metricToSqlExpression(
-      baseMetric({ aggregation: "sum", columnName: undefined }),
-    );
-    expect(expr).toBe("sum(*)");
   });
 });
 

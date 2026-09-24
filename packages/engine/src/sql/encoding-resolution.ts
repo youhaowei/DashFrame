@@ -4,7 +4,7 @@
  * This module provides helpers to resolve encoding values (`field:<uuid>` or `metric:<uuid>`)
  * to their concrete values for different contexts:
  *
- * - `resolveToSql`: For rendering - returns SQL expressions (e.g., "category", "sum(revenue)")
+ * - `resolveToSql`: For rendering - returns field column expressions (e.g., "field_<uuid>")
  * - `resolveForAnalysis`: For validation - returns column info for ColumnAnalysis lookup
  *
  * Date transforms can be applied to resolved values via ChannelTransform:
@@ -16,13 +16,9 @@
  */
 
 import type { ChannelTransform, Field, InsightMetric } from "@dashframe/types";
-import { parseEncoding } from "@dashframe/types";
+import { measureCombinesOver, parseEncoding } from "@dashframe/types";
 import { applyDateTransformToSql } from "./date-transforms";
-import {
-  fieldIdToColumnAlias,
-  metricIdToColumnAlias,
-  metricToSqlExpression,
-} from "./insight-sql";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "./insight-sql";
 
 // ============================================================================
 // Resolution Context
@@ -43,37 +39,6 @@ export interface EncodingResolutionContext {
 // Resolution for Rendering (SQL expressions)
 // ============================================================================
 
-/**
- * Resolve an encoding string to a SQL expression for chart rendering.
- * Returns undefined for missing prefixed references. Raw column names are
- * returned as-is for existing saved visualizations.
- *
- * Optionally applies a date transform to the resolved value (for temporal fields).
- *
- * @param value - Encoding string (e.g., "field:abc-123" or "metric:xyz-456")
- * @param context - Resolution context with fields and metrics
- * @param transform - Optional date transform to apply to the resolved column
- * @returns SQL expression (column name or aggregation) or undefined
- *
- * @example
- * ```typescript
- * // Field encoding resolves to UUID-based column alias
- * resolveToSql("field:abc-123", context)
- * // Returns: "field_abc_123" (matches insight view column names)
- *
- * // Field with date transform
- * resolveToSql("field:date-id", context, { type: 'date', transform: { kind: 'temporal', aggregation: 'yearMonth' } })
- * // Returns: "date_trunc('month', \"created_at\")"
- *
- * // Metric encoding resolves to SQL aggregation
- * resolveToSql("metric:xyz-456", context)
- * // Returns: "sum(revenue)"
- *
- * // Raw column name passthrough
- * resolveToSql("sum(revenue)", context)
- * // Returns: "sum(revenue)"
- * ```
- */
 function resolveFieldOrRawSql(
   value: string,
   context: EncodingResolutionContext,
@@ -104,6 +69,36 @@ function applyTransform(
   return applyDateTransformToSql(baseSql, transform.transform);
 }
 
+/**
+ * Resolve an encoding string to a SQL expression for chart rendering.
+ * Returns undefined for missing prefixed references and for metric encodings:
+ * only `buildInsightSQL` aggregates a metric from source rows, because it
+ * applies the metric's contract, and a chart reads the materialized column
+ * through `resolveEncodingToResultFrame`, which may re-aggregate those partials.
+ * Raw column names are returned as-is for existing saved visualizations.
+ *
+ * Optionally applies a date transform to the resolved value (for temporal fields).
+ *
+ * @param value - Encoding string (e.g., "field:abc-123" or "metric:xyz-456")
+ * @param context - Resolution context with fields and metrics
+ * @param transform - Optional date transform to apply to the resolved column
+ * @returns SQL expression (column name or transformed column) or undefined
+ *
+ * @example
+ * ```typescript
+ * // Field encoding resolves to UUID-based column alias
+ * resolveToSql("field:abc-123", context)
+ * // Returns: "field_abc_123" (matches insight view column names)
+ *
+ * // Field with date transform
+ * resolveToSql("field:date-id", context, { type: 'date', transform: { kind: 'temporal', aggregation: 'yearMonth' } })
+ * // Returns: "date_trunc('month', \"field_date_id\")"
+ *
+ * // Raw column name passthrough
+ * resolveToSql("sum(revenue)", context)
+ * // Returns: "sum(revenue)"
+ * ```
+ */
 export function resolveToSql(
   value: string | undefined,
   context: EncodingResolutionContext,
@@ -114,14 +109,6 @@ export function resolveToSql(
   // object. The raw-column-name fallback below would pass that object on as a
   // SQL fragment, so screen the type here rather than downstream.
   if (!value || typeof value !== "string") return undefined;
-  const parsed = parseEncoding(value);
-
-  // Metrics: aggregations are already wrapped; transforms don't apply.
-  if (parsed?.type === "metric") {
-    const metric = context.metrics.find((m) => m.id === parsed.id);
-    return metric ? metricToSqlExpression(metric) : undefined;
-  }
-
   const baseSql = resolveFieldOrRawSql(value, context);
   return baseSql ? applyTransform(baseSql, transform) : undefined;
 }
@@ -141,8 +128,6 @@ export interface ResolvedForAnalysis {
   columnName?: string;
   /** True if this is a metric (aggregation) */
   isMetric: boolean;
-  /** Full SQL expression for metrics */
-  sqlExpression?: string;
   /** Whether the encoding format was valid (field: or metric: prefix) */
   valid: boolean;
 }
@@ -167,9 +152,9 @@ export interface ResolvedForAnalysis {
  * resolveForAnalysis("field:abc-123", context)
  * // Returns: { columnName: "field_abc_123", isMetric: false, valid: true }
  *
- * // Metric encoding - returns UUID-based alias and SQL expression
+ * // Metric encoding - returns UUID-based alias
  * resolveForAnalysis("metric:xyz-456", context)
- * // Returns: { columnName: "metric_xyz_456", isMetric: true, sqlExpression: "sum(revenue)", valid: true }
+ * // Returns: { columnName: "metric_xyz_456", isMetric: true, valid: true }
  *
  * // Raw column name
  * resolveForAnalysis("sum(revenue)", context)
@@ -203,11 +188,9 @@ export function resolveForAnalysis(
     case "metric": {
       const metric = context.metrics.find((m) => m.id === parsed.id);
       // Use UUID-based column alias for metrics too
-      // Note: count(*) metrics still have undefined columnName but a valid sqlExpression
       return {
         columnName: metric ? metricIdToColumnAlias(metric.id) : undefined,
         isMetric: true,
-        sqlExpression: metric ? metricToSqlExpression(metric) : undefined,
         valid: true,
       };
     }
@@ -231,7 +214,8 @@ export interface ResolvedEncoding {
 
 /**
  * Resolve all encoding channels to SQL expressions for rendering.
- * Invalid or missing encodings result in undefined values.
+ * Invalid or missing encodings, and metric encodings, result in undefined
+ * values; `resolveEncodingToResultFrame` resolves metrics.
  *
  * Applies date transforms to x and y channels when specified in the encoding.
  *
@@ -247,7 +231,7 @@ export interface ResolvedEncoding {
  *   y: "metric:sum-revenue-id",
  *   color: "field:region-id"
  * }, context)
- * // Returns: { x: "category", y: "sum(revenue)", color: "region" }
+ * // Returns: { x: "field_category_id", y: undefined, color: "field_region_id" }
  *
  * // With date transform on x-axis
  * resolveEncodingToSql({
@@ -255,7 +239,7 @@ export interface ResolvedEncoding {
  *   y: "metric:sum-revenue-id",
  *   xTransform: { type: 'date', transform: { kind: 'temporal', aggregation: 'yearMonth' } }
  * }, context)
- * // Returns: { x: "date_trunc('month', \"created_at\")", y: "sum(revenue)" }
+ * // Returns: { x: "date_trunc('month', \"field_date_id\")", y: undefined }
  * ```
  */
 export function resolveEncodingToSql(
@@ -325,19 +309,16 @@ export function resolveEncodingToResultFrame(
     // Legacy result-frame transforms lack the source rows needed to check the
     // fetched grain or recompute a ratio. Normal report charts request a new
     // source aggregation and clear these transforms before reaching this path.
-    const contract = metric.contract;
-    if (contract) {
-      if (contract.kind !== "additive") return undefined;
-      if (
-        transformedFields.some(
-          (field) =>
-            !field?.scope ||
-            (contract.additiveOver !== undefined &&
-              !contract.additiveOver.includes(field.scope)),
-        )
+    // The rollup combines partial aggregates across the transformed fields.
+    // A field that is unscoped or missing from the context passes only for a
+    // contract that allows every dimension; a scope-restricted one refuses it.
+    if (
+      !measureCombinesOver(
+        metric.contract,
+        transformedFields.map((field) => field?.scope),
       )
-        return undefined;
-    }
+    )
+      return undefined;
     // The result frame is already aggregated at the Insight's exact field
     // grain. A coarser chart transform must combine those partial aggregates.
     // SUM/COUNT are additive and MIN/MAX are composable. AVG needs its source

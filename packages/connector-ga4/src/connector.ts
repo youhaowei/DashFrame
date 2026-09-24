@@ -1,5 +1,9 @@
 import type {
+  ConnectorFieldMetadata,
   ConnectorQueryResult,
+  DefinitionConnector,
+  DefinitionCompatibility,
+  DefinitionQueryOptions,
   FormField,
   QueryOptions,
   RemoteDatabase,
@@ -8,9 +12,17 @@ import type {
   ValidationResult,
 } from "@dashframe/engine";
 import type { Metric } from "@dashframe/types";
-import { RemoteApiConnector, createFieldsFromColumns } from "@dashframe/engine";
-import { tableFromArrays, tableToIPC } from "apache-arrow";
-import { GA4_FIELD_SCOPES, ga4MeasureContract } from "./measure-metadata.js";
+import { RemoteApiConnector } from "@dashframe/engine";
+
+import { checkCompatibility } from "./compatibility.js";
+import type { Ga4TableDefinition } from "./definition.js";
+import {
+  contractFor,
+  getMetadata,
+  propertyResource,
+  type Ga4ApiClient,
+} from "./metadata.js";
+import { legacyDefinition, runReport, yearWeekStart } from "./query.js";
 
 /**
  * The per-source credential persisted in the vault.
@@ -77,30 +89,6 @@ interface AccountSummariesResponse {
   nextPageToken?: unknown;
 }
 
-interface RunReportResponse {
-  dimensionHeaders?: Array<{ name?: unknown }>;
-  metricHeaders?: Array<{ name?: unknown; type?: unknown }>;
-  rows?: Array<{
-    dimensionValues?: Array<{ value?: unknown }>;
-    metricValues?: Array<{ value?: unknown }>;
-  }>;
-}
-
-/**
- * The v0.3 server-owned GA4 dataset used to build acquisition reviews.
- *
- * The connector, rather than the renderer or RPC caller, owns this provider
- * query. GA4 owns the weekly aggregation because user metrics such as
- * activeUsers are not additive across daily rows.
- */
-const ACQUISITION_DATE_RANGE = {
-  startDate: "90daysAgo",
-  endDate: "yesterday",
-} as const;
-const ACQUISITION_DIMENSIONS = [
-  "yearWeek",
-  "sessionDefaultChannelGroup",
-] as const;
 const ACQUISITION_METRICS = [
   "activeUsers",
   "newUsers",
@@ -112,13 +100,7 @@ const ACQUISITION_METRICS = [
 ] as const;
 
 /** What people call each acquisition column; `columnName` keeps the API name. */
-const ACQUISITION_FIELD_NAMES: Readonly<
-  Record<
-    | (typeof ACQUISITION_DIMENSIONS)[number]
-    | (typeof ACQUISITION_METRICS)[number],
-    string
-  >
-> = {
+const ACQUISITION_FIELD_NAMES: Readonly<Record<string, string>> = {
   yearWeek: "Week",
   sessionDefaultChannelGroup: "Channel",
   activeUsers: "Active users",
@@ -129,8 +111,6 @@ const ACQUISITION_FIELD_NAMES: Readonly<
   keyEvents: "Key events",
   totalRevenue: "Revenue",
 };
-
-const DATE_DIMENSIONS: ReadonlySet<string> = new Set(["date", "yearWeek"]);
 
 /**
  * The measures a freshly imported acquisition table starts with, replacing the
@@ -152,7 +132,7 @@ export function acquisitionMeasures(
     tableId,
     columnName,
     aggregation: "sum",
-    contract: ga4MeasureContract(columnName, "sum"),
+    contract: contractFor(columnName),
     ...(format ? { format } : {}),
   });
   const sessions = sum("sessions");
@@ -164,7 +144,7 @@ export function acquisitionMeasures(
       tableId,
       columnName: "activeUsers",
       aggregation: "sum",
-      contract: ga4MeasureContract("activeUsers", "sum"),
+      contract: { kind: "non-additive" },
     },
     sum("newUsers"),
     sessions,
@@ -190,13 +170,6 @@ export function acquisitionMeasures(
     },
   ];
 }
-
-const LEGACY_DATE_RANGE = {
-  startDate: "30daysAgo",
-  endDate: "yesterday",
-} as const;
-const LEGACY_DIMENSIONS = ["date"] as const;
-const LEGACY_METRICS = ["activeUsers"] as const;
 
 export type Ga4ReportVersion = "v1" | "v2";
 
@@ -361,13 +334,12 @@ async function accessTokenFor(
   return refreshed.accessToken;
 }
 
-async function fetchJson(
+async function fetchGoogleResponse(
   fetchImpl: typeof fetch,
   url: string,
   accessToken: string,
   init?: RequestInit,
-  maxResponseBytes?: number,
-): Promise<unknown> {
+): Promise<Response> {
   const response = await fetchImpl(url, {
     ...init,
     headers: {
@@ -382,7 +354,13 @@ async function fetchJson(
     if (response.status === 401) throw new GoogleAuthorizationError(message);
     throw new Error(message);
   }
-  if (maxResponseBytes === undefined) return response.json();
+  return response;
+}
+
+async function readMeasuredJson(
+  response: Response,
+  maxResponseBytes: number,
+): Promise<{ body: unknown; byteLength: number }> {
   if (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes <= 0)
     throw new Error("[GA4Connector] Invalid response budget");
   const reader = response.body?.getReader();
@@ -397,21 +375,39 @@ async function fetchJson(
       if (bytes > maxResponseBytes) throw new Error("SOURCE_RESULT_TOO_LARGE");
       chunks.push(value);
     }
-    return JSON.parse(Buffer.concat(chunks, bytes).toString("utf8")) as unknown;
+    return {
+      body: JSON.parse(
+        Buffer.concat(chunks, bytes).toString("utf8"),
+      ) as unknown,
+      byteLength: bytes,
+    };
   } finally {
     await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }
 
-function propertyResource(databaseId: string): string {
-  const value = databaseId.startsWith("properties/")
-    ? databaseId
-    : `properties/${databaseId}`;
-  if (!/^properties\/\d+$/u.test(value)) {
-    throw new Error("[GA4Connector] Invalid GA4 property id");
-  }
-  return value;
+async function fetchJson(
+  fetchImpl: typeof fetch,
+  url: string,
+  accessToken: string,
+  init?: RequestInit,
+  maxResponseBytes?: number,
+): Promise<unknown> {
+  const response = await fetchGoogleResponse(fetchImpl, url, accessToken, init);
+  if (maxResponseBytes === undefined) return response.json();
+  return (await readMeasuredJson(response, maxResponseBytes)).body;
+}
+
+async function fetchJsonMeasured(
+  fetchImpl: typeof fetch,
+  url: string,
+  accessToken: string,
+  init: RequestInit | undefined,
+  maxResponseBytes: number,
+): Promise<{ body: unknown; byteLength: number }> {
+  const response = await fetchGoogleResponse(fetchImpl, url, accessToken, init);
+  return readMeasuredJson(response, maxResponseBytes);
 }
 
 function propertiesFrom(body: AccountSummariesResponse): RemoteDatabase[] {
@@ -451,39 +447,10 @@ async function listProperties(
   return properties;
 }
 
-/**
- * The first day of a GA4 `yearWeek` such as "202601".
- *
- * GA4 weeks are not ISO weeks: they start on Sunday, and January 1st always
- * falls in week 01, so the first (and usually last) week of a year is short.
- * Week 01 therefore starts on January 1st and week n on the (n-1)th Sunday
- * after it.
- */
-export function yearWeekStart(value: string): Date | null {
-  const match = /^(\d{4})(\d{2})$/u.exec(value);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const week = Number(match[2]);
-  if (week < 1 || week > 53) return null;
-  const january1 = Date.UTC(year, 0, 1);
-  const offsetDays =
-    week === 1 ? 0 : 7 - new Date(january1).getUTCDay() + 7 * (week - 2);
-  const start = new Date(january1 + offsetDays * 86_400_000);
-  return start.getUTCFullYear() === year ? start : null;
-}
-
-function dimensionValue(name: string, value: unknown): string | Date | null {
-  if (typeof value !== "string") return null;
-  if (name === "yearWeek") return yearWeekStart(value);
-  if (name !== "date") return value;
-  if (!/^\d{8}$/u.test(value)) return null;
-  const date = new Date(
-    `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T00:00:00.000Z`,
-  );
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-export class Ga4Connector extends RemoteApiConnector {
+export class Ga4Connector
+  extends RemoteApiConnector
+  implements DefinitionConnector
+{
   readonly id = "googleAnalytics";
   override readonly authKind = "oauth" as const;
   readonly name = "Google Analytics 4";
@@ -495,6 +462,7 @@ export class Ga4Connector extends RemoteApiConnector {
   readonly #oauthClient: GoogleOAuthClientCredentials | undefined;
   readonly #persistTokenBundle: PersistTokenBundle | undefined;
   readonly #reportVersion: Ga4ReportVersion;
+  readonly #propertyTimeZones = new Map<string, Promise<string>>();
 
   constructor(
     auth: SecretResolver,
@@ -534,19 +502,26 @@ export class Ga4Connector extends RemoteApiConnector {
     });
   }
 
-  async query(
-    databaseId: string,
-    tableId: UUID,
-    options?: QueryOptions,
-  ): Promise<ConnectorQueryResult> {
-    options?.signal?.throwIfAborted();
-    const property = propertyResource(databaseId);
-    const offset = options?.pagination?.offset ?? 0;
-    const limit = options?.pagination?.limit ?? 10_000;
-    if (offset < 0 || limit <= 0) {
-      throw new Error("[GA4Connector] Invalid report pagination");
-    }
+  #apiClient(accessToken: string): Ga4ApiClient {
+    return {
+      request: (url, init, requestMaxResponseBytes) =>
+        fetchJson(this.#fetch, url, accessToken, init, requestMaxResponseBytes),
+      requestMeasured: (url, init, requestMaxResponseBytes) =>
+        fetchJsonMeasured(
+          this.#fetch,
+          url,
+          accessToken,
+          init,
+          requestMaxResponseBytes,
+        ),
+    };
+  }
 
+  async #withClient<T>(
+    use: (client: Ga4ApiClient) => Promise<T>,
+    options?: QueryOptions,
+  ): Promise<T> {
+    options?.signal?.throwIfAborted();
     return this.auth(async (raw) => {
       const token = await accessTokenFor(
         raw,
@@ -556,95 +531,105 @@ export class Ga4Connector extends RemoteApiConnector {
         this.#persistTokenBundle,
         options?.signal,
       );
-      const acquisition = this.#reportVersion === "v2";
-      const dateRange = acquisition
-        ? ACQUISITION_DATE_RANGE
-        : LEGACY_DATE_RANGE;
-      const dimensions = acquisition
-        ? ACQUISITION_DIMENSIONS
-        : LEGACY_DIMENSIONS;
-      const metrics = acquisition ? ACQUISITION_METRICS : LEGACY_METRICS;
-      const response = (await fetchJson(
-        this.#fetch,
-        `https://analyticsdata.googleapis.com/v1beta/${property}:runReport`,
-        token,
-        {
-          method: "POST",
-          signal: options?.signal,
-          body: JSON.stringify({
-            dateRanges: [dateRange],
-            dimensions: dimensions.map((name) => ({ name })),
-            metrics: metrics.map((name) => ({ name })),
-            offset: String(offset),
-            limit: String(limit),
-            // Every dimension participates so offset pagination is stable
-            // when the report contains repeated values in its leading key.
-            orderBys: dimensions.map((dimensionName) => ({
-              dimension: { dimensionName },
-            })),
-          }),
-        },
-        options?.maxResponseBytes,
-      )) as RunReportResponse;
-
-      const dimensionNames = (response.dimensionHeaders ?? []).map((header) =>
-        typeof header.name === "string" ? header.name : "dimension",
-      );
-      const metricNames = (response.metricHeaders ?? []).map((header) =>
-        typeof header.name === "string" ? header.name : "metric",
-      );
-      const columns = [
-        ...dimensionNames.map((name) => ({
-          name,
-          type: DATE_DIMENSIONS.has(name)
-            ? ("date" as const)
-            : ("string" as const),
-        })),
-        ...metricNames.map((name) => ({ name, type: "number" as const })),
-      ];
-      const fields = createFieldsFromColumns(columns, tableId).map((field) => {
-        const label = acquisition
-          ? (ACQUISITION_FIELD_NAMES as Record<string, string | undefined>)[
-              field.name
-            ]
-          : undefined;
-        const scope =
-          GA4_FIELD_SCOPES[
-            (field.columnName ?? field.name) as keyof typeof GA4_FIELD_SCOPES
-          ];
-        return {
-          ...field,
-          ...(label ? { name: label } : {}),
-          ...(scope ? { scope } : {}),
-        };
-      });
-      const arrays: Record<string, unknown[]> = Object.create(null) as Record<
-        string,
-        unknown[]
-      >;
-      for (const name of dimensionNames) arrays[name] = [];
-      for (const name of metricNames) arrays[name] = [];
-
-      for (const row of response.rows ?? []) {
-        dimensionNames.forEach((name, index) => {
-          const value = row.dimensionValues?.[index]?.value;
-          arrays[name]!.push(dimensionValue(name, value));
-        });
-        metricNames.forEach((name, index) => {
-          const value = row.metricValues?.[index]?.value;
-          const numeric = typeof value === "string" ? Number(value) : NaN;
-          arrays[name]!.push(Number.isFinite(numeric) ? numeric : null);
-        });
-      }
-
-      const arrow = tableFromArrays(arrays);
-      return {
-        arrowBuffer: Buffer.from(tableToIPC(arrow)).toString("base64"),
-        fieldIds: fields.map((field) => field.id),
-        fields,
-        rowCount: response.rows?.length ?? 0,
-      };
+      return use(this.#apiClient(token));
     });
+  }
+
+  async #timeZoneFor(property: string, client: Ga4ApiClient): Promise<string> {
+    const cached = this.#propertyTimeZones.get(property);
+    if (cached) return cached;
+    const pending = client
+      .request(`https://analyticsadmin.googleapis.com/v1beta/${property}`)
+      .then((body) => {
+        const timeZone = (body as { timeZone?: unknown }).timeZone;
+        if (typeof timeZone !== "string" || !timeZone) {
+          throw new Error(
+            "[GA4Connector] Property returned no reporting time zone",
+          );
+        }
+        // Validate the provider value before caching it for calendar math.
+        new Intl.DateTimeFormat("en-US", { timeZone }).format(0);
+        return timeZone;
+      });
+    this.#propertyTimeZones.set(property, pending);
+    try {
+      return await pending;
+    } catch (error) {
+      this.#propertyTimeZones.delete(property);
+      throw error;
+    }
+  }
+
+  async query(
+    databaseId: string,
+    tableId: UUID,
+    options?: QueryOptions,
+  ): Promise<ConnectorQueryResult> {
+    propertyResource(databaseId);
+    const page = {
+      offset: options?.pagination?.offset ?? 0,
+      limit: options?.pagination?.limit ?? 10_000,
+      single: true as const,
+    };
+    if (page.offset < 0 || page.limit <= 0) {
+      throw new Error("[GA4Connector] Invalid report pagination");
+    }
+    const now = this.#now();
+    return this.#withClient(
+      (client) =>
+        runReport(
+          databaseId,
+          legacyDefinition(this.#reportVersion, now),
+          client,
+          {
+            ...options,
+            tableId,
+            now,
+            page,
+            allowLegacyYearWeek: this.#reportVersion === "v2",
+            legacyDateRange:
+              this.#reportVersion === "v2" ? "90daysAgo" : "30daysAgo",
+            ...(this.#reportVersion === "v2"
+              ? { labels: ACQUISITION_FIELD_NAMES }
+              : {}),
+          },
+        ),
+      options,
+    );
+  }
+
+  async queryDefinition(
+    site: string,
+    definition: Ga4TableDefinition,
+    options: DefinitionQueryOptions,
+  ): Promise<ConnectorQueryResult> {
+    const property = propertyResource(site);
+    return this.#withClient(async (client) => {
+      const timeZone =
+        definition.dateRange.kind === "relative"
+          ? await this.#timeZoneFor(property, client)
+          : undefined;
+      return runReport(site, definition, client, {
+        ...options,
+        now: this.#now(),
+        ...(timeZone ? { timeZone } : {}),
+      });
+    }, options);
+  }
+
+  async listFields(site: string): Promise<ConnectorFieldMetadata[]> {
+    propertyResource(site);
+    return this.#withClient((client) => getMetadata(site, client));
+  }
+
+  async checkDefinition(
+    site: string,
+    definition: Ga4TableDefinition,
+  ): Promise<DefinitionCompatibility> {
+    propertyResource(site);
+    return this.#withClient((client) =>
+      checkCompatibility(site, definition, client),
+    );
   }
 }
 
@@ -654,3 +639,5 @@ export function makeGa4Connector(
 ): Ga4Connector {
   return new Ga4Connector(auth, dependencies);
 }
+
+export { yearWeekStart };
