@@ -1,7 +1,7 @@
 /**
  * Helpers for a report's chart tab: where a chart is built and edited.
  *
- * Starting a chart from data (the home page, a data source, or a report)
+ * Starting a chart from data (a data source or a report's chart picker)
  * opens a report on a new chart tab, `/dashboards/<report>?chart=<tab>`. The
  * chart stays a draft until it has a field and a metric; then it lands on
  * the report as a tile and its tab takes the chart's name.

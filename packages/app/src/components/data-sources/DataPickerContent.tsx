@@ -5,7 +5,6 @@ import { getConnectorById } from "@/lib/connectors/registry";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
   connectRemoteSource,
-  RemoteSourceCleanupError,
   type RemoteResource,
   type SupportedRemoteConnectorId,
 } from "@/lib/remote-connector-onboarding";
@@ -82,8 +81,6 @@ export interface DataPickerContentProps {
    * @default true
    */
   showSources?: boolean;
-  /** Keep parent onboarding mounted through connection and follow-up selection. */
-  onActivityChange?: (active: boolean) => void;
   /**
    * Only offer these kinds of connection under "Add New Data". A caller that
    * imports into one existing source passes its kind, so the picker cannot
@@ -112,7 +109,6 @@ export function DataPickerContent({
   excludeTableIds = [],
   onCancel,
   showSources = true,
-  onActivityChange,
   connectorSourceTypes,
 }: DataPickerContentProps) {
   const dataSourcesQuery = queryStatus(
@@ -141,18 +137,6 @@ export function DataPickerContent({
   const [remoteResourceState, setRemoteResourceState] =
     useState<RemoteResourceState | null>(null);
   const isMountedRef = useRef(true);
-  const retainOnboardingActivityRef = useRef(false);
-
-  const handleConnectorActivityChange = useCallback(
-    (active: boolean) => {
-      // Once a remote source exists, per-connector idle states must not release
-      // the parent onboarding hold. The user may still be choosing a resource
-      // or another connector, and HomePage now sees that source as an artifact.
-      if (!active && retainOnboardingActivityRef.current) return;
-      onActivityChange?.(active);
-    },
-    [onActivityChange],
-  );
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -210,7 +194,6 @@ export function DataPickerContent({
   } = useRemoteResourceImport({
     sourceId: remoteResourceState?.sourceId ?? null,
     onImported: async (tableId, resource) => {
-      retainOnboardingActivityRef.current = true;
       const selection = await onTableSelect(tableId, resource.title);
       if (selection === null) {
         throw new RemoteImportUserError(
@@ -343,16 +326,12 @@ export function DataPickerContent({
         );
 
         const tableName = file.name.replace(FILE_TABLE_NAME_EXTENSION, "");
-        // Ingestion has persisted the source/table, so keep HomePage's
-        // onboarding hold until the chart has started. The callback's
-        // void contract makes `undefined` a success; `null` explicitly means
-        // the caller caught a creation failure.
-        retainOnboardingActivityRef.current = true;
+        // The callback's void contract makes `undefined` a success; `null`
+        // explicitly means the caller caught a creation failure.
         const selection = await onTableSelect(dataTableId, tableName);
         if (selection === null) {
           throw new Error("Couldn't open the imported table. Try again.");
         }
-        retainOnboardingActivityRef.current = false;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to process file");
       }
@@ -425,14 +404,8 @@ export function DataPickerContent({
             listNotionDatabasesMutation({ dataSourceId: id }),
           listPostgresTables: (id) =>
             listPostgresTablesMutation({ dataSourceId: id }),
-        }).catch((cause: unknown) => {
-          if (cause instanceof RemoteSourceCleanupError) {
-            retainOnboardingActivityRef.current = true;
-          }
-          throw cause;
         }),
       );
-      retainOnboardingActivityRef.current = true;
     },
     [commitBatch, listNotionDatabasesMutation, listPostgresTablesMutation],
   );
@@ -442,8 +415,6 @@ export function DataPickerContent({
       if (connector.id !== "googleAnalytics") {
         throw new Error(`${connector.name} OAuth onboarding is not supported`);
       }
-      // OAuth has already persisted the source before this callback runs.
-      retainOnboardingActivityRef.current = true;
       setError(null);
       setRemoteResourceState({
         connectorId: "googleAnalytics",
@@ -496,7 +467,6 @@ export function DataPickerContent({
               onFileSelect={handleFileSelect}
               onConnect={handleConnect}
               onOAuthConnect={handleOAuthConnect}
-              onActivityChange={handleConnectorActivityChange}
               sourceTypes={connectorSourceTypes}
             />
           </SectionList>
@@ -529,15 +499,7 @@ export function DataPickerContent({
       {/* Footer */}
       {onCancel && (
         <div className="flex justify-end">
-          <Button
-            label="Cancel"
-            variant="outline"
-            onClick={() => {
-              retainOnboardingActivityRef.current = false;
-              onActivityChange?.(false);
-              onCancel();
-            }}
-          />
+          <Button label="Cancel" variant="outline" onClick={onCancel} />
         </div>
       )}
     </div>

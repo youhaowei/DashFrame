@@ -112,15 +112,25 @@ vi.mock("@/hooks/useCreateInsight", () => ({
 vi.mock("@/components/data-sources/DataPickerModal", () => ({
   DataPickerModal: ({
     isOpen,
+    onClose,
     onTableSelect,
   }: {
     isOpen: boolean;
+    onClose: () => void;
     onTableSelect: (tableId: string, tableName: string) => unknown;
   }) =>
     isOpen ? (
-      <button type="button" onClick={() => onTableSelect("table-1", "orders")}>
-        Pick orders
-      </button>
+      <>
+        <button
+          type="button"
+          onClick={() => onTableSelect("table-1", "orders")}
+        >
+          Pick orders
+        </button>
+        <button type="button" onClick={onClose}>
+          Close picker
+        </button>
+      </>
     ) : null,
 }));
 
@@ -193,7 +203,13 @@ function TopBarProbe() {
 }
 
 /** The route's part: the open chart lives in the URL, here in state. */
-function Page({ initialChart = null }: { initialChart?: string | null }) {
+function Page({
+  initialChart = null,
+  openChartPicker,
+}: {
+  initialChart?: string | null;
+  openChartPicker?: boolean;
+}) {
   const [chart, setChart] = useState<string | null>(initialChart);
   return (
     <PlatformProvider>
@@ -207,6 +223,7 @@ function Page({ initialChart = null }: { initialChart?: string | null }) {
             // Like the router, the URL changes after the click returns.
             setTimeout(() => setChart(id), 0)
           }
+          openChartPicker={openChartPicker}
         />
       </TopBarTabsProvider>
     </PlatformProvider>
@@ -575,5 +592,27 @@ describe("DashboardDetailContent — chart tabs", () => {
         { id: "new-chart", insightId: "insight-new" },
       ]),
     );
+  });
+});
+
+describe("DashboardDetailContent — first report", () => {
+  it("opens with the chart picker only when asked to", () => {
+    const { unmount } = render(<Page />);
+    expect(screen.queryByRole("button", { name: "Pick orders" })).toBeNull();
+    unmount();
+
+    render(<Page openChartPicker />);
+    screen.getByRole("button", { name: "Pick orders" });
+  });
+
+  it("leaves the report as it was when the picker is closed", async () => {
+    const user = userEvent.setup();
+    render(<Page openChartPicker />);
+
+    await user.click(screen.getByRole("button", { name: "Close picker" }));
+
+    expect(screen.queryByRole("button", { name: "Pick orders" })).toBeNull();
+    screen.getByRole("tabpanel", { name: "Report" });
+    expect(mockCommitBatch).not.toHaveBeenCalled();
   });
 });

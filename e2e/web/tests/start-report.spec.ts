@@ -17,7 +17,7 @@ test.describe("Start a report from a data source", () => {
   let firstReportId: string;
 
   test.beforeEach(async ({ page, homePage, uploadFile }) => {
-    // A first report with one chart, from the home page upload.
+    // A first report with one chart, from an upload in its chart picker.
     await homePage();
     await uploadFile("sales_data.csv");
     await expectNewChartTab(page);

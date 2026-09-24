@@ -75,6 +75,8 @@ interface DashboardDetailContentProps {
   chartId?: string | null;
   /** Opens a chart tab, or the report with `null`. */
   onSelectChart?: (chartId: string | null) => void;
+  /** Open with the chart picker showing: a project's first report. */
+  openChartPicker?: boolean;
 }
 
 const REPORT_TAB_ID = "report";
@@ -92,6 +94,7 @@ export default function DashboardDetailContent({
   dashboardId,
   chartId = null,
   onSelectChart,
+  openChartPicker = false,
 }: DashboardDetailContentProps) {
   const navigate = useNavigate();
 
@@ -290,7 +293,7 @@ export default function DashboardDetailContent({
     [dashboardId, landChartTab],
   );
 
-  const [isChartPickerOpen, setIsChartPickerOpen] = useState(false);
+  const [isChartPickerOpen, setIsChartPickerOpen] = useState(openChartPicker);
   // A double click on a table must start one chart, not two.
   const startingChartRef = useRef(false);
   const startNewChart = async (tableId: string, tableName: string) => {
