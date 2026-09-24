@@ -354,16 +354,21 @@ export function ArtifactRow({
           )}
         </span>
         {time && (
-          <span className="shrink-0 pl-3 text-xs tabular-nums text-neutral-fg-subtle transition-opacity duration-150 group-focus-within:opacity-0 motion-reduce:transition-none [@media(hover:hover)]:group-hover:opacity-0">
+          <span className="shrink-0 pl-3 text-xs tabular-nums text-neutral-fg-subtle transition-opacity duration-150 group-focus-within:opacity-0 motion-reduce:transition-none [@media(hover:hover)]:group-hover:opacity-0 [@media(hover:none)]:mr-8">
             {time}
           </span>
         )}
       </Link>
       {actions && (
-        // Invisible actions must not catch taps meant for the row: they take
-        // pointer events only once revealed by a hovering pointer or focus.
-        // Touch screens never hover, so a tap anywhere opens the row.
-        <div className="pointer-events-none absolute right-1.5 flex items-center gap-0.5 group-focus-within:pointer-events-auto [@media(hover:hover)]:group-hover:pointer-events-auto">
+        // Invisible actions must not catch taps meant for the row: with a
+        // hovering pointer they take pointer events only once revealed. Touch
+        // screens never hover, so there the overflow menu (the page's only
+        // Delete) stays visible, muted and tappable, while Open, which only
+        // repeats a tap on the row, stays hidden.
+        <div
+          data-slot="row-actions"
+          className="pointer-events-none absolute right-1.5 flex items-center gap-0.5 group-focus-within:pointer-events-auto [@media(hover:hover)]:group-hover:pointer-events-auto [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:**:opacity-70"
+        >
           {actions}
         </div>
       )}
@@ -381,7 +386,7 @@ export function ArtifactRowOpen({ to }: { to: string }) {
       to={to as never}
       tabIndex={-1}
       aria-hidden="true"
-      className={`rounded-md px-2 py-1 text-xs font-medium text-neutral-fg-subtle transition-opacity duration-150 hover:bg-neutral-bg-emphasis hover:text-neutral-fg motion-reduce:transition-none ${groupHoverAndFocusWithinReveal}`}
+      className={`rounded-md px-2 py-1 text-xs font-medium text-neutral-fg-subtle transition-opacity duration-150 hover:bg-neutral-bg-emphasis hover:text-neutral-fg motion-reduce:transition-none [@media(hover:none)]:hidden ${groupHoverAndFocusWithinReveal}`}
     >
       Open
     </Link>

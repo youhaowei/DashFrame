@@ -46,8 +46,8 @@ import { toast } from "sonner";
 type DataSourceWithTables = {
   dataSource: DataSource;
   tableCount: number;
-  /** Fetch times of the source's tables that have been fetched. */
-  fetchTimes: number[];
+  /** One per table; undefined for a table never fetched. */
+  fetchTimes: (number | undefined)[];
 };
 
 function tableCountLabel(count: number) {
@@ -61,10 +61,15 @@ function freshnessOf(item: DataSourceWithTables) {
   );
 }
 
-/** "Is it current?": "refreshed 2h ago", "imported 5d ago", or just "2h ago". */
+/**
+ * "Is it current?": "refreshed 2h ago", "imported 5d ago", just "2h ago" while
+ * the kind is unknown, or "1 of 2 fetched" when some tables never were.
+ */
 function fetchedLabel(item: DataSourceWithTables, now: number) {
   const freshness = freshnessOf(item);
   if (!freshness) return undefined;
+  if (freshness.kind === "partial")
+    return `${freshness.fetched} of ${freshness.total} fetched`;
   const time = formatRelativeTime(now, freshness.at);
   return freshness.verb ? `${freshness.verb} ${time}` : time;
 }
@@ -142,9 +147,7 @@ export default function DataSourcesPage({
       return {
         dataSource: source,
         tableCount: tables.length,
-        fetchTimes: tables.flatMap((table) =>
-          table.lastFetchedAt ? [table.lastFetchedAt] : [],
-        ),
+        fetchTimes: tables.map((table) => table.lastFetchedAt || undefined),
       };
     });
   }, [dataSources, allDataTables]);
@@ -239,12 +242,22 @@ export default function DataSourcesPage({
 
   // Under a provider label the row drops the provider name; the flat list
   // (one provider) keeps it, since nothing else on the row names it. The row's
-  // time is the same freshness the tile names, without the verb.
+  // time is the same freshness the tile names, without the verb; a partly
+  // fetched source says so in the meta instead of showing a time.
   const renderDataSourceRow = (
     item: DataSourceWithTables,
     { grouped, headingLevel }: ArtifactRowPlacement,
   ) => {
     const freshness = freshnessOf(item);
+    const meta = [
+      grouped ? undefined : getTypeLabel(item.dataSource.type),
+      tableCountLabel(item.tableCount),
+      freshness?.kind === "partial"
+        ? `${freshness.fetched} of ${freshness.total} fetched`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
     return (
       <ArtifactRow
         key={item.dataSource.id}
@@ -252,12 +265,12 @@ export default function DataSourcesPage({
         headingLevel={headingLevel}
         glyph={getTypeIcon(item.dataSource.type, "h-4 w-4")}
         name={item.dataSource.name}
-        meta={
-          grouped
-            ? tableCountLabel(item.tableCount)
-            : `${getTypeLabel(item.dataSource.type)} · ${tableCountLabel(item.tableCount)}`
+        meta={meta}
+        time={
+          freshness?.kind === "fetched"
+            ? formatRelativeTime(now, freshness.at)
+            : undefined
         }
-        time={freshness && formatRelativeTime(now, freshness.at)}
         actions={
           <>
             <ArtifactRowOpen to={`/data-sources/${item.dataSource.id}`} />

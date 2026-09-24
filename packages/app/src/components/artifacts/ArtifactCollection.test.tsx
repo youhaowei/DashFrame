@@ -229,6 +229,41 @@ describe("ArtifactRowGroups", () => {
   });
 });
 
+describe("ArtifactRow actions", () => {
+  // jsdom evaluates no media queries and computes no Tailwind, so this pins the
+  // classes that carry the behaviour; the running app was checked with a
+  // touch-emulated browser (hover: none) for the computed result.
+  it("keeps the overflow menu reachable on touch screens, where nothing hovers", () => {
+    render(
+      <ul>
+        <ArtifactRow
+          to="/reports/a"
+          name="Alpha"
+          glyph={null}
+          actions={
+            <button type="button" aria-label="More options">
+              ...
+            </button>
+          }
+        />
+      </ul>,
+    );
+
+    const actions = screen.getByRole("button", {
+      name: "More options",
+    }).parentElement!;
+    const classes = actions.className.split(" ");
+    // Hidden until revealed where a pointer can hover…
+    expect(classes).toContain("pointer-events-none");
+    expect(classes).toContain(
+      "[@media(hover:hover)]:group-hover:pointer-events-auto",
+    );
+    // …but visible and tappable where it cannot.
+    expect(classes).toContain("[@media(hover:none)]:pointer-events-auto");
+    expect(classes).toContain("[@media(hover:none)]:**:opacity-70");
+  });
+});
+
 describe("ArtifactCollection view toggle", () => {
   function renderCollection(itemCount: number, onViewChange = vi.fn()) {
     render(

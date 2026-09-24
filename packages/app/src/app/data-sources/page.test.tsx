@@ -411,6 +411,18 @@ describe("DataSourcesPage collection content", () => {
     screen.getByText("Local Files · 2 tables · imported 1h ago");
   });
 
+  it("claims no refresh time while some of a source's tables were never fetched", () => {
+    const fetched = mockUseDataTables().data[0];
+    mockUseDataTables.mockReturnValue({
+      ...successfulQuery(mockRefetchDataTables),
+      data: [fetched, { ...fetched, id: "never", lastFetchedAt: undefined }],
+    });
+    render(<Page />);
+
+    screen.getByText("Google Analytics 4 · 2 tables · 1 of 2 fetched");
+    expect(screen.queryByText(/refreshed/)).toBeNull();
+  });
+
   it("finds a source by its provider's display name", async () => {
     const user = userEvent.setup();
     render(<Page />);
