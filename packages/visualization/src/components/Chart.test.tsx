@@ -1,5 +1,5 @@
 import type { VisualizationType } from "@dashframe/types";
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import {
   afterEach,
   beforeEach,
@@ -181,5 +181,36 @@ describe("Chart renderer resolution", () => {
 
     expect(renderer.render).toHaveBeenCalledTimes(2);
     expect(cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-renders when a theme preset changes the root tokens without a mode change", async () => {
+    const renderer: ChartRenderer = {
+      supportedTypes: ["barY"] as readonly VisualizationType[],
+      render: vi.fn(() => () => {}),
+    };
+    mockUseVisualization.mockReturnValue({
+      renderer,
+      isReady: true,
+      error: null,
+    });
+    render(
+      <Chart
+        tableName="insight_view_x"
+        visualizationType={"barY" as VisualizationType}
+        encoding={{ x: "category", y: "sum(value)", color: "channel" }}
+      />,
+    );
+    expect(renderer.render).toHaveBeenCalledTimes(1);
+
+    // What the stdui theme store does when a preset is applied.
+    await act(async () => {
+      document.documentElement.style.setProperty(
+        "--palette-info",
+        "oklch(0.5 0.09 155)",
+      );
+    });
+
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+    document.documentElement.style.removeProperty("--palette-info");
   });
 });

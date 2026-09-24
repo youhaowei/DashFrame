@@ -17,47 +17,43 @@ import { getRenderer, hasRenderer, useRegistryVersion } from "../registry";
 // ============================================================================
 
 /**
- * Subscribe to CSS variable changes by watching for class changes on documentElement.
- * This detects when the theme changes (e.g., light/dark mode toggle).
+ * Root-level tokens the renderer reads when it draws: the chart palette, plus
+ * the inputs of `--dashframe-chart-accent` (see chart-styles.css), which is
+ * resolved once per render for continuous scales.
+ */
+const CHART_COLOR_TOKENS = [
+  "--chart-1",
+  "--chart-2",
+  "--chart-3",
+  "--chart-4",
+  "--chart-5",
+  "--palette-info",
+  "--neutral-fg-subtle",
+];
+
+/**
+ * Subscribe to theme changes on documentElement. The mode toggles its `class`;
+ * a theme preset writes token overrides into its inline `style`.
  */
 function subscribeToThemeChanges(callback: () => void) {
-  const observer = new MutationObserver((mutations) => {
-    // Check if class attribute changed (theme providers typically toggle classes)
-    const hasClassChange = mutations.some(
-      (mutation) =>
-        mutation.type === "attributes" && mutation.attributeName === "class",
-    );
-    if (hasClassChange) {
-      callback();
-    }
-  });
-
+  const observer = new MutationObserver(callback);
   observer.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["class"],
+    attributeFilter: ["class", "style"],
   });
-
   return () => observer.disconnect();
 }
 
 /**
- * Read chart color CSS variables to detect theme changes.
- * Returns a hash of the current chart colors.
+ * Read the chart colour tokens to detect theme changes.
+ * Returns a string that changes when any of them changes.
  */
 function getChartColorsSnapshot(): string {
   if (typeof window === "undefined") return "";
-
   const styles = getComputedStyle(document.documentElement);
-  const colors = [
-    styles.getPropertyValue("--chart-1").trim(),
-    styles.getPropertyValue("--chart-2").trim(),
-    styles.getPropertyValue("--chart-3").trim(),
-    styles.getPropertyValue("--chart-4").trim(),
-    styles.getPropertyValue("--chart-5").trim(),
-  ];
-
-  // Simple hash: join colors into a string
-  return colors.join("|");
+  return CHART_COLOR_TOKENS.map((token) =>
+    styles.getPropertyValue(token).trim(),
+  ).join("|");
 }
 
 /**
