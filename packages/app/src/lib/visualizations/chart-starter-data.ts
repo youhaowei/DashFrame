@@ -5,6 +5,7 @@ import type {
   Insight,
   InsightFetchDefinition,
   InsightMetric,
+  InsightReporting,
   UUID,
 } from "@dashframe/types";
 import { useCallback, useEffect, useState } from "react";
@@ -64,6 +65,24 @@ function cached(
   return pending;
 }
 
+/**
+ * The reporting settings that narrow which rows the chart shows: its date
+ * range and its row limit. The rest name the insight's own measures and
+ * fields (measureIds, topN, dateGrains, pivotFields) or add rows and columns
+ * (totals, comparison), none of which fit a one-metric thumbnail.
+ */
+function starterReporting(
+  reporting: InsightReporting | undefined,
+): InsightReporting | undefined {
+  if (!reporting) return undefined;
+  const { dateRange, limit } = reporting;
+  if (dateRange === undefined && limit === undefined) return undefined;
+  return {
+    ...(dateRange !== undefined ? { dateRange } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+  };
+}
+
 function toNumber(value: unknown): number {
   if (typeof value === "number") return value;
   if (typeof value === "bigint") return Number(value);
@@ -78,7 +97,7 @@ function toNumber(value: unknown): number {
  * rules can only estimate.
  */
 export async function fetchChartStarterAggregate(
-  insight: Pick<Insight, "source" | "filters" | "joins">,
+  insight: Pick<Insight, "source" | "filters" | "joins" | "reporting">,
   suggestion: ChartStarterSuggestion,
   /** The metric a pick would save, so the preview computes the same value. */
   metric: InsightMetric,
@@ -89,6 +108,7 @@ export async function fetchChartStarterAggregate(
     metrics: [metric],
     filters: insight.filters,
     joins: insight.joins,
+    reporting: starterReporting(insight.reporting),
   };
   // A presentation makes the host read the table's published data instead of
   // pulling the source again (see createInsightMaterializer), so a card never costs
@@ -171,7 +191,7 @@ export type ChartStarterPointsState =
  * (see `buildInsightSourceRevision`), so a refreshed table queries again.
  */
 export function useChartStarterPoints(
-  insight: Pick<Insight, "source" | "filters" | "joins">,
+  insight: Pick<Insight, "source" | "filters" | "joins" | "reporting">,
   suggestion: ChartStarterSuggestion,
   revision: string,
   metric: InsightMetric,
@@ -183,6 +203,7 @@ export function useChartStarterPoints(
     metricDefinition,
     insight.filters ?? [],
     insight.joins ?? [],
+    starterReporting(insight.reporting) ?? null,
   ]);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{

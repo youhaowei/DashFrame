@@ -52,7 +52,7 @@ const INSIGHT = {
   source: { sourceType: "dataTable", sourceId: TABLE_ID },
   filters: [],
   joins: [],
-} as unknown as Pick<Insight, "source" | "filters" | "joins">;
+} as unknown as Pick<Insight, "source" | "filters" | "joins" | "reporting">;
 
 const GROUP_COLUMN = "field_30000000_0000_4000_8000_000000000001";
 const METRIC_COLUMN = "metric_value";
@@ -205,7 +205,7 @@ describe("fetchChartStarterAggregate", () => {
     expect(aggregate.points).toHaveLength(520);
   });
 
-  it("releases the result frame when reading it fails", async () => {
+  it("removes the result frame when reading it fails", async () => {
     hostReturns();
     queryDataFrame.mockResolvedValue({
       status: "failed",
@@ -216,6 +216,68 @@ describe("fetchChartStarterAggregate", () => {
       fetchChartStarterAggregate(INSIGHT, countBar, metricFor(countBar)),
     ).rejects.toThrow("gone");
     expect(removeDataFrame).toHaveBeenCalledWith("frame-1");
+  });
+
+  it("narrows to the chart's date range and row limit, and nothing else", async () => {
+    hostReturns();
+    queryDataFrame.mockResolvedValue(page([["North", 1]]));
+    const dateRange = {
+      fieldId: "30000000-0000-4000-8000-0000000000d1" as UUID,
+      range: {
+        type: "absolute" as const,
+        start: "2026-01-01",
+        end: "2026-02-01",
+      },
+    };
+    await fetchChartStarterAggregate(
+      {
+        ...INSIGHT,
+        reporting: {
+          dateRange,
+          limit: 5,
+          totals: true,
+          measureIds: ["30000000-0000-4000-8000-0000000000e1" as UUID],
+        },
+      },
+      countBar,
+      metricFor(countBar),
+    );
+    expect(requestHost.mock.calls[0]![1].insight.reporting).toEqual({
+      dateRange,
+      limit: 5,
+    });
+  });
+
+  it("asks again when the chart's date range changes", async () => {
+    hostReturns();
+    queryDataFrame.mockResolvedValue(page([["North", 1]]));
+    const withRange = (start: string) => ({
+      ...INSIGHT,
+      reporting: {
+        dateRange: {
+          fieldId: "30000000-0000-4000-8000-0000000000d1" as UUID,
+          range: { type: "absolute" as const, start, end: "2026-12-31" },
+        },
+      },
+    });
+    const { result, rerender } = renderHook(
+      ({ insight }) =>
+        useChartStarterPoints(
+          insight,
+          countBar,
+          "rev-reporting",
+          metricFor(countBar),
+        ),
+      { initialProps: { insight: withRange("2026-01-01") } },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(requestHost).toHaveBeenCalledTimes(1);
+
+    rerender({ insight: withRange("2026-06-01") });
+    await waitFor(() => expect(requestHost).toHaveBeenCalledTimes(2));
+    expect(
+      requestHost.mock.calls[1]![1].insight.reporting.dateRange.range.start,
+    ).toBe("2026-06-01");
   });
 
   it("sends the metric the pick would save, contract included", async () => {
