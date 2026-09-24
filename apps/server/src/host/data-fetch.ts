@@ -15,12 +15,9 @@ import {
   isMeasureExpression,
 } from "@dashframe/types";
 import { createHash } from "node:crypto";
-import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 
 import type { HostContext } from "./context";
-import { removeDataFrameEntry } from "./frame-cleanup";
-import { COMPLETED_REPLAY_MS } from "./data-fetch/materializer";
 import { hostOperation } from "./operation";
 import type {
   EffectiveInsightDefinition,
@@ -643,60 +640,11 @@ export function toFetchFailure(
 }
 
 /**
- * Host-only factory, deliberately not registered until a real executor exists.
- * Both routes are closed: validation, saved-definition, binding, compilation,
+ * Host operation factory; registry.ts binds it to the production executor.
+ * Every route is closed: validation, saved-definition, binding, compilation,
  * and connector errors all return a safe failed result rather than an RPC error.
  */
-/**
- * Leases on preview frames a caller asked to hand back once read. The host
- * replays a completed result to every matching request for a short window, so
- * several callers can hold one frame id; the frame goes only when every lease
- * is released, the replay window has closed, and no caller took it unleased.
- */
-interface FrameLease {
-  leases: number;
-  /** Some caller received the frame without a lease; it is never removed. */
-  shared: boolean;
-  /** No request can receive this frame as a replay after this time. */
-  replayEndsAt: number;
-}
-
-export interface DataFetchLeaseOptions {
-  replayMs?: number;
-  now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
-  removeFrame?: (ctx: HostContext, id: string) => Promise<unknown>;
-}
-
-export function createDataFetchFunctions(
-  execute: LiveFetchExecutor,
-  options: DataFetchLeaseOptions = {},
-) {
-  const replayMs = options.replayMs ?? COMPLETED_REPLAY_MS;
-  const now = options.now ?? Date.now;
-  const sleep = options.sleep ?? ((ms: number) => delay(ms));
-  const removeFrame =
-    options.removeFrame ?? ((ctx, id) => removeDataFrameEntry(ctx, { id }));
-  const frameLeases = new Map<string, FrameLease>();
-  // Frame ids are unique, but a lease is only ever released by its workspace.
-  const leaseKey = (ctx: HostContext, id: string) =>
-    `${ctx.workspaceOwnerId ?? "local-user"}:${id}`;
-  const noteFrame = (ctx: HostContext, id: string, leased: boolean) => {
-    const at = now();
-    for (const [key, entry] of frameLeases)
-      if (entry.shared && entry.replayEndsAt < at) frameLeases.delete(key);
-    const key = leaseKey(ctx, id);
-    let entry = frameLeases.get(key);
-    if (!entry) {
-      // The replay window opened when the result completed, which is no
-      // later than now, so this bound is conservative.
-      entry = { leases: 0, shared: false, replayEndsAt: at + replayMs };
-      frameLeases.set(key, entry);
-    }
-    if (leased) entry.leases += 1;
-    else entry.shared = true;
-  };
-
+export function createDataFetchFunctions(execute: LiveFetchExecutor) {
   const materialize = async (
     ctx: HostContext,
     insight: EffectiveInsightDefinition,
@@ -709,19 +657,23 @@ export function createDataFetchFunctions(
     }
   };
   /**
-   * Materializes an unsaved preview. Its returned frame handle is leased for
-   * this server session; startup retires prior-session preview rows/files.
-   * Saved runInsight generations remain durable and are not session-leased.
+   * Materializes an unsaved preview. Its frame lives for this server session
+   * (startup retires prior-session preview rows and files) unless the caller
+   * removes it. Saved runInsight generations remain durable.
+   *
+   * `exclusive: true` gives the caller a frame no other request can receive:
+   * the request skips coalescing and the short completed-result replay, so
+   * the caller may remove the frame once it has read it.
    */
   const fetchData = hostOperation({
     input: z
       .object({
         insight: z.unknown(),
         presentation: z.unknown().optional(),
-        lease: z.literal(true).optional(),
+        exclusive: z.literal(true).optional(),
       })
       .strict(),
-    run: async (ctx, { insight, presentation, lease }) => {
+    run: async (ctx, { insight, presentation, exclusive }) => {
       const parsed = definitionSchema.safeParse(insight);
       if (!parsed.success)
         return failed(
@@ -746,12 +698,11 @@ export function createDataFetchFunctions(
           source,
         };
         applyInsightPresentation(effective, parsedPresentation.data);
-        const result = await materialize(ctx, effective, {
-          kind: "ephemeral",
-        });
-        if (result.status === "ready")
-          noteFrame(ctx, result.dataFrameId, lease === true);
-        return result;
+        return materialize(
+          ctx,
+          effective,
+          exclusive ? { kind: "ephemeral", exclusive } : { kind: "ephemeral" },
+        );
       } catch (error) {
         return toFetchFailure(error, "FETCH_SOURCE_FAILED");
       }
@@ -825,31 +776,7 @@ export function createDataFetchFunctions(
       }
     },
   });
-  /**
-   * Hands back a leased preview frame. The host removes it once no lease is
-   * left and no request can still receive it as a replay; the call waits out
-   * the rest of that window so the removal runs inside a live request.
-   */
-  const releaseDataFrame = hostOperation({
-    input: z.object({ id: z.string().uuid() }).strict(),
-    userOnly: true,
-    run: async (ctx, { id }) => {
-      const key = leaseKey(ctx, id);
-      const entry = frameLeases.get(key);
-      if (!entry || entry.leases === 0) return { ok: true as const };
-      entry.leases -= 1;
-      if (entry.leases > 0 || entry.shared) return { ok: true as const };
-      const wait = entry.replayEndsAt - now();
-      if (wait > 0) await sleep(wait);
-      // A replay may have handed out a new lease while this one waited.
-      if (frameLeases.get(key) !== entry || entry.leases > 0 || entry.shared)
-        return { ok: true as const };
-      frameLeases.delete(key);
-      await removeFrame(ctx, id);
-      return { ok: true as const };
-    },
-  });
-  return { fetchData, refreshDataTable, runInsight, releaseDataFrame };
+  return { fetchData, refreshDataTable, runInsight };
 }
 
 /** Resolve caller-supplied base identity against persisted server topology. */

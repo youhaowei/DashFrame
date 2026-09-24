@@ -901,6 +901,43 @@ describe("immutable Insight materializer", () => {
     }
   });
 
+  it("gives an exclusive request its own frame, never a shared or replayed one", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness({ completedReplayMs: 5_000 });
+      const materializer = createInsightMaterializer(h.dependencies);
+      const shared = {
+        ctx: {} as never,
+        target: { kind: "ephemeral" } as const,
+        insight,
+      };
+      const exclusive = {
+        ...shared,
+        target: { kind: "ephemeral", exclusive: true } as const,
+      };
+
+      const replayed = await materializer.materialize(shared);
+      // Two identical exclusive requests, concurrent: neither joins the other
+      // nor the completed shared result.
+      const [one, two] = await Promise.all([
+        materializer.materialize(exclusive),
+        materializer.materialize(exclusive),
+      ]);
+      const ids = new Set([
+        replayed.dataFrameId,
+        one.dataFrameId,
+        two.dataFrameId,
+      ]);
+      expect(ids.size).toBe(3);
+
+      // Nor does an exclusive run leave a replay behind for others.
+      const sibling = await materializer.materialize(shared);
+      expect(sibling.dataFrameId).toBe(replayed.dataFrameId);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("replays under the source generation published by the completed run", async () => {
     let generation = "old-source-frame";
     const h = harness({

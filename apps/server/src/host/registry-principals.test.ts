@@ -25,7 +25,6 @@ const cases = {
     openToService:
       "API clients may materialize unsaved previews from persisted sources.",
   },
-  releaseDataFrame: { input: { id } },
   refreshDataTable: {
     input: { tableId: id },
     openToService:

@@ -1028,121 +1028,26 @@ it("reports unsupported source values separately from schema changes", () => {
   });
 });
 
-describe("leased preview frames", () => {
-  const frameId = "30000000-0000-4000-8000-000000000001";
-  const ready: InsightFetchResult = {
-    status: "ready",
-    dataFrameId: frameId as never,
-    schema: [],
-    rowCount: 0,
-    definitionFingerprint: "fingerprint",
-    provenance: { connectorKind: "csv", bindingVersion: "v1" },
-    fetchedAt: 0,
-  };
-
-  function leasedHost() {
-    let clock = 1_000;
-    const sleeps: number[] = [];
-    const removeFrame = vi.fn(async () => undefined);
-    // The host replays one completed result, so every request gets one id.
-    const execute = vi.fn(async (): Promise<InsightFetchResult> => ready);
-    const functions = createDataFetchFunctions(execute, {
-      replayMs: 5_000,
-      now: () => clock,
-      sleep: async (ms) => {
-        sleeps.push(ms);
-        clock += ms;
-      },
-      removeFrame,
+describe("fetchData exclusive", () => {
+  it("asks for an exclusive ephemeral frame only when the caller does", async () => {
+    const execute = vi.fn(
+      async (_args: { target: unknown }): Promise<InsightFetchResult> => ({
+        status: "failed",
+        code: "EXPECTED",
+        message: "expected",
+        retryable: false,
+        diagnosticId: "diagnostic",
+      }),
+    );
+    const { fetchData } = createDataFetchFunctions(execute);
+    await fetchData(fetchContext(), {
+      insight: previewDefinition,
+      exclusive: true,
     });
-    const fetchLeased = (lease?: true) =>
-      functions.fetchData(fetchContext(), {
-        insight: previewDefinition,
-        presentation: { dimensions: [productFieldId] },
-        ...(lease ? { lease } : {}),
-      });
-    const release = () =>
-      functions.releaseDataFrame(fetchContext(), { id: frameId });
-    const advance = (ms: number) => {
-      clock += ms;
-    };
-    return { fetchLeased, release, removeFrame, sleeps, advance };
-  }
-
-  it("keeps a replayed frame until both consumers release it", async () => {
-    const host = leasedHost();
-    expect(await host.fetchLeased(true)).toMatchObject({
-      dataFrameId: frameId,
-    });
-    expect(await host.fetchLeased(true)).toMatchObject({
-      dataFrameId: frameId,
-    });
-
-    await host.release();
-    expect(host.removeFrame).not.toHaveBeenCalled();
-
-    await host.release();
-    // The last release waits out the replay window, then removes once.
-    expect(host.sleeps).toEqual([5_000]);
-    expect(host.removeFrame).toHaveBeenCalledTimes(1);
-    expect(host.removeFrame).toHaveBeenCalledWith(expect.anything(), frameId);
-    await host.release();
-    expect(host.removeFrame).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps a frame a replay leased while the last release waited", async () => {
-    let clock = 0;
-    let wake!: () => void;
-    const removeFrame = vi.fn(async () => undefined);
-    const functions = createDataFetchFunctions(async () => ready, {
-      replayMs: 5_000,
-      now: () => clock,
-      sleep: () =>
-        new Promise<void>((resolve) => {
-          wake = () => {
-            clock += 5_000;
-            resolve();
-          };
-        }),
-      removeFrame,
-    });
-    const fetch = () =>
-      functions.fetchData(fetchContext(), {
-        insight: previewDefinition,
-        lease: true,
-      });
-    const release = () =>
-      functions.releaseDataFrame(fetchContext(), { id: frameId });
-
-    await fetch();
-    const first = release();
-    await Promise.resolve();
-    await fetch(); // a sibling receives the replay mid-wait
-    wake();
-    await first;
-    expect(removeFrame).not.toHaveBeenCalled();
-
-    const second = release();
-    await Promise.resolve();
-    wake();
-    await second;
-    expect(removeFrame).toHaveBeenCalledTimes(1);
-  });
-
-  it("never removes a frame a caller received without a lease", async () => {
-    const host = leasedHost();
-    await host.fetchLeased();
-    await host.fetchLeased(true);
-    await host.release();
-    expect(host.removeFrame).not.toHaveBeenCalled();
-  });
-
-  it("removes at once when the replay window has already closed", async () => {
-    const host = leasedHost();
-    await host.fetchLeased(true);
-    host.advance(6_000);
-    await host.release();
-    expect(host.sleeps).toEqual([]);
-    expect(host.removeFrame).toHaveBeenCalledTimes(1);
+    await fetchData(fetchContext(), { insight: previewDefinition });
+    expect(execute.mock.calls.map(([args]) => args.target)).toEqual([
+      { kind: "ephemeral", exclusive: true },
+      { kind: "ephemeral" },
+    ]);
   });
 });

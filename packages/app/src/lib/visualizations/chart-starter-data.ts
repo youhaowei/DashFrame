@@ -1,9 +1,6 @@
 import { requestHost } from "@/data/host";
 import { formatCellValue } from "@/lib/cell-formatter";
-import {
-  queryDataFrame,
-  releaseDataFrame,
-} from "@/lib/data-access/data-frames";
+import { queryDataFrame, removeDataFrame } from "@/lib/data-access/data-frames";
 import type {
   Insight,
   InsightFetchDefinition,
@@ -99,17 +96,17 @@ export async function fetchChartStarterAggregate(
   const result = await requestHost("fetchData", {
     insight: definition,
     presentation: { dimensions: [suggestion.group.id] },
-    // The host may replay this frame to a sibling request, so it owns the
-    // removal: the frame goes once every holder has released it.
-    lease: true,
+    // Skip the host's coalescing and short replay, so no other request can
+    // receive this frame and removing it after the read is safe.
+    exclusive: true,
   });
   if (result.status === "failed") throw new Error(result.message);
   try {
     return await readAggregate(result, suggestion);
   } finally {
-    // Release the lease once read so thumbnails never pile up in the
-    // workspace's frame list.
-    releaseDataFrame(result.dataFrameId as UUID).catch((error: unknown) =>
+    // The frame is this card's alone (exclusive); remove it once read so
+    // thumbnails never pile up in the workspace's frame list.
+    removeDataFrame(result.dataFrameId as UUID).catch((error: unknown) =>
       console.warn("[chart-starter] releasing a thumbnail frame failed", error),
     );
   }

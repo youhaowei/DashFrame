@@ -10,7 +10,6 @@ export type HostOperationName =
   | "clearAllData"
   | "getOrCreateDataSource"
   | "fetchData"
-  | "releaseDataFrame"
   | "refreshDataTable"
   | "runInsight"
   | "getConnectorCatalog"
