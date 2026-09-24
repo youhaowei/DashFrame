@@ -116,14 +116,7 @@ export {
 // Date Transforms
 // ============================================================================
 
-export {
-  applyDateTransformToSql,
-  categoricalTransform,
-  getAxisTypeForTransform,
-  getDateTransformLabel,
-  selectTemporalAggregation,
-  temporalTransform,
-} from "./sql";
+export { applyDateTransformToSql } from "./sql";
 
 // ============================================================================
 // Override Resolution (dashboard per-cell compile-time coalesce)
@@ -161,7 +154,6 @@ export {
 // ============================================================================
 
 export {
-  formatAggregationLabel,
   getMetricDisplayLabel,
   isGeneratedColumnLabel,
 } from "./visualization-labels";

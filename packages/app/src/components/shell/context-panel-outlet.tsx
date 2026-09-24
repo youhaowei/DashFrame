@@ -2,9 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -98,16 +96,6 @@ export function ContextPanelProvider({ children }: { children: ReactNode }) {
   );
 }
 
-function useContextPanelRegistry() {
-  const registry = useContext(ContextPanelRegistryContext);
-  if (!registry) {
-    throw new Error(
-      "Context panel outlet hooks must be used inside ContextPanelProvider",
-    );
-  }
-  return registry;
-}
-
 export function useContextPanelSections() {
   const sections = useContext(ContextPanelSectionsContext);
   if (!sections) {
@@ -116,38 +104,4 @@ export function useContextPanelSections() {
     );
   }
   return sections;
-}
-
-export function useContextPanelSection(section: ContextPanelSection | null) {
-  const { upsertSection, releaseSection } = useContextPanelRegistry();
-  const sectionId = section?.id;
-  const sectionTitle = section?.title;
-  const sectionContent = section?.content;
-
-  // One identity for this component's whole lifetime. Minting a fresh owner per
-  // effect run would make a content update remove-then-append the section,
-  // moving it to the end of the panel; ownership must outlive the content.
-  const [owner] = useState(() => Symbol("context-panel-section"));
-  // Written and read only inside effects — the first run claims the slot, every
-  // later run is an update that must not reclaim a superseded one.
-  const hasClaimedRef = useRef(false);
-
-  // Content changes update the section in place — no removal, so order holds.
-  useEffect(() => {
-    if (!sectionId || sectionTitle === undefined) return;
-    upsertSection(
-      { id: sectionId, title: sectionTitle, content: sectionContent },
-      owner,
-      !hasClaimedRef.current,
-    );
-    hasClaimedRef.current = true;
-  }, [upsertSection, owner, sectionContent, sectionId, sectionTitle]);
-
-  // Removal happens only on unmount or when the id itself changes, and only
-  // while this owner still holds the slot — a newer binder that took the same
-  // id keeps it.
-  useEffect(() => {
-    if (!sectionId) return;
-    return () => releaseSection(sectionId, owner);
-  }, [releaseSection, owner, sectionId]);
 }
