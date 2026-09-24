@@ -148,9 +148,17 @@ export default function DashboardDetailContent({
         : new Set(visualizations.map((visualization) => visualization.id)),
     [visualizations, visualizationsLoading],
   );
+  // The tab just closed. Its id stays in the URL until navigation opens the
+  // next tab; until then it must neither show nor count as a stale link.
+  const [closedChartId, setClosedChartId] = useState<string | null>(null);
   const chartTabs = useMemo(
-    () => resolveChartTabs(storedChartTabs, chartId, chartIds),
-    [storedChartTabs, chartId, chartIds],
+    () =>
+      resolveChartTabs(
+        storedChartTabs,
+        chartId === closedChartId ? null : chartId,
+        chartIds,
+      ),
+    [storedChartTabs, chartId, chartIds, closedChartId],
   );
   const activeChartTab = chartTabs.find((tab) => tab.id === chartId) ?? null;
 
@@ -167,11 +175,14 @@ export default function DashboardDetailContent({
     openChartTab(dashboardId, activeChartTab);
   }, [activeChartTab, dashboardId, openChartTab, storedChartTabs]);
   useEffect(() => {
-    if (chartId && chartIds && !activeChartTab) selectChart(null);
-  }, [activeChartTab, chartId, chartIds, selectChart]);
+    if (!chartId || !chartIds || activeChartTab) return;
+    if (chartId === closedChartId) return;
+    selectChart(null);
+  }, [activeChartTab, chartId, chartIds, closedChartId, selectChart]);
 
   const editChart = useCallback(
     (visualizationId: string) => {
+      setClosedChartId(null);
       openChartTab(dashboardId, { id: visualizationId });
       selectChart(visualizationId);
     },
@@ -181,6 +192,7 @@ export default function DashboardDetailContent({
   const closeChartTab = useCallback(
     (tabId: string) => {
       const closing = chartTabs.find((tab) => tab.id === tabId);
+      if (tabId === chartId) setClosedChartId(tabId);
       closeStoredChartTab(dashboardId, tabId);
       // A new chart that never reached the report exists only in its tab;
       // closing the tab discards the insight it was being built on.

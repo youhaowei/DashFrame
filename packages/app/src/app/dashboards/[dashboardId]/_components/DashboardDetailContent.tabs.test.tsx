@@ -12,7 +12,7 @@ import {
  * - Closing the open tab opens its neighbour, else the report; closing a new
  *   chart that never reached the report discards the insight it was built on.
  */
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -166,7 +166,10 @@ function Page({ initialChart = null }: { initialChart?: string | null }) {
         <DashboardDetailContent
           dashboardId={REPORT_ID}
           chartId={chart}
-          onSelectChart={setChart}
+          onSelectChart={(id) =>
+            // Like the router, the URL changes after the click returns.
+            setTimeout(() => setChart(id), 0)
+          }
         />
       </TopBarTabsProvider>
     </PlatformProvider>
@@ -174,6 +177,8 @@ function Page({ initialChart = null }: { initialChart?: string | null }) {
 }
 
 const urlChart = () => screen.getByTestId("url-chart").textContent;
+const expectUrl = (chart: string) =>
+  waitFor(() => expect(urlChart()).toBe(chart));
 const tabs = () =>
   within(screen.getByRole("tablist", { name: "Report and its charts" }));
 const tabLabels = () =>
@@ -209,7 +214,7 @@ describe("DashboardDetailContent — chart tabs", () => {
       screen.getByRole("button", { name: `Edit ${REVENUE.id}` }),
     );
 
-    expect(urlChart()).toBe(REVENUE.id);
+    await expectUrl(REVENUE.id);
     expect(tabLabels()).toEqual(["Weekly sales", "Revenue by region"]);
     expect(selectedTab()).toBe("Revenue by region");
     screen.getByText(`Editing ${REVENUE.id}`);
@@ -217,12 +222,12 @@ describe("DashboardDetailContent — chart tabs", () => {
 
     // The report tab brings the report back; the chart stays open.
     await user.click(tabs().getByRole("tab", { name: "Weekly sales" }));
-    expect(urlChart()).toBe("");
+    await expectUrl("");
     expect(tabLabels()).toEqual(["Weekly sales", "Revenue by region"]);
     screen.getByRole("tabpanel", { name: "Report" });
   });
 
-  it("opens the chart a link names, and the report for a chart that is gone", () => {
+  it("opens the chart a link names, and the report for a chart that is gone", async () => {
     const { unmount } = render(<Page initialChart={ORDERS.id} />);
     expect(selectedTab()).toBe("Orders by month");
     screen.getByText(`Editing ${ORDERS.id}`);
@@ -230,7 +235,7 @@ describe("DashboardDetailContent — chart tabs", () => {
 
     useReportChartTabs.setState({ tabsByReport: {} });
     render(<Page initialChart="deleted-chart" />);
-    expect(urlChart()).toBe("");
+    await expectUrl("");
     expect(tabLabels()).toEqual(["Weekly sales"]);
   });
 
@@ -247,13 +252,13 @@ describe("DashboardDetailContent — chart tabs", () => {
     await user.click(
       tabs().getByRole("button", { name: "Close Revenue by region" }),
     );
-    expect(urlChart()).toBe(ORDERS.id);
+    await expectUrl(ORDERS.id);
     expect(tabLabels()).toEqual(["Weekly sales", "Orders by month"]);
 
     await user.click(
       tabs().getByRole("button", { name: "Close Orders by month" }),
     );
-    expect(urlChart()).toBe("");
+    await expectUrl("");
     expect(tabLabels()).toEqual(["Weekly sales"]);
     expect(mockCommitBatch).not.toHaveBeenCalled();
   });
@@ -274,7 +279,7 @@ describe("DashboardDetailContent — chart tabs", () => {
       );
     });
 
-    expect(urlChart()).toBe("");
+    await expectUrl("");
     expect(tabLabels()).toEqual(["Weekly sales"]);
   });
 
@@ -292,7 +297,7 @@ describe("DashboardDetailContent — chart tabs", () => {
       tabs().getByRole("button", { name: "Close Untitled chart" }),
     );
 
-    expect(urlChart()).toBe("");
+    await expectUrl("");
     expect(mockCommitBatch).toHaveBeenCalledWith({
       commands: [
         expect.objectContaining({
