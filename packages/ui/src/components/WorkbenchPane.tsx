@@ -280,7 +280,7 @@ export function WorkbenchChip({
         className,
       )}
     >
-      <span className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <span className="grid h-4 w-4 shrink-0 place-items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         {dragHandle}
       </span>
       <span className="grid h-4 w-4 shrink-0 place-items-center text-neutral-fg-subtle">

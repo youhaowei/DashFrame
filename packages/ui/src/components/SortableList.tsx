@@ -495,7 +495,7 @@ function SortableItem<T extends SortableListItem>({
     const dragHandle = item.disabled ? null : (
       <button
         type="button"
-        className="shrink-0 cursor-grab text-neutral-fg-subtle hover:text-neutral-fg active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+        className="grid h-4 w-4 shrink-0 cursor-grab place-items-center rounded text-neutral-fg-subtle hover:text-neutral-fg active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
         aria-label="Drag to reorder"
         {...attributes}
         {...listeners}
