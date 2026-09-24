@@ -494,6 +494,7 @@
       },
       "devDependencies": {
         "typescript": "5.7.2",
+        "vite": "catalog:",
         "vite-plus": "catalog:",
       },
     },

@@ -9,3 +9,15 @@ export {
   type GoogleOAuthTokenBundle,
   type PersistTokenBundle,
 } from "./connector.js";
+export { checkCompatibility, parseCompatibility } from "./compatibility.js";
+export * from "./catalogue.js";
+export { getMetadata, parseMetadata, type Ga4ApiClient } from "./metadata.js";
+export {
+  dimensionValue,
+  isoYearIsoWeekStart,
+  legacyDefinition,
+  reportBody,
+  runReport,
+  type RunDefinitionOptions,
+  type RunReportResponse,
+} from "./query.js";
