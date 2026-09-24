@@ -33,7 +33,6 @@ import {
 } from "@/lib/insights/canvas-view";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { analyzeFrameSample } from "@/lib/visualizations/analyze-frame-sample";
-import { suggestChartStarters } from "@/lib/visualizations/chart-starter";
 import { validateEncoding } from "@/lib/visualizations/encoding-enforcer";
 import { api } from "@dashframe/convex-backend/api";
 import { buildInsightAvailableFields } from "@dashframe/engine";
@@ -60,9 +59,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ChartStarter, type ChartStarterSample } from "./ChartStarter";
+import { ChartStarter } from "./ChartStarter";
+import { useChartStarterSample } from "./useChartStarterSample";
 import { InsightConfigPanel } from "./config-panel";
-import { isPlainSumColumn } from "./config-panel/MetricsSection";
 import {
   INSIGHT_CANVAS_CHART_TYPES,
   VisualizationConfigPanel,
@@ -630,54 +629,22 @@ export function InsightWorkbench({
     );
   }, [activeVisualization, areEncodingsReady, canChangeChartType]);
 
-  // The rows the new chart opened on. Kept through a partial pick, which
-  // groups the result, so the preview and its header actions stay put.
-  const pristine =
-    insight.selectedFields.length === 0 && (insight.metrics ?? []).length === 0;
-  const [starterSample, setStarterSample] = useState<
-    (ChartStarterSample & { insightId: string }) | null
-  >(null);
-  // Rows of a result with picks in it. Right after the picks are removed the
-  // result still holds them until the new run lands; never snapshot those.
-  const [pickedRows, setPickedRows] = useState<unknown>(null);
-  if (!pristine && pickedRows !== encodingRows) setPickedRows(encodingRows);
-  if (
-    starter &&
-    pristine &&
-    areEncodingsReady &&
-    encodingRows !== pickedRows &&
-    (starterSample?.insightId !== insightId ||
-      starterSample.rows !== encodingRows)
-  ) {
-    setStarterSample({
-      insightId,
+  const {
+    sample,
+    suggestions: starterSuggestions,
+    cards: starterCards,
+  } = useChartStarterSample({
+    enabled: !!starter,
+    insight,
+    dataTable: authoringTable,
+    result: {
+      isReady: areEncodingsReady,
       schema: encodingSchema,
       rows: encodingRows,
       totalCount: encodingRowCount,
       analysis: encodingColumnAnalysis,
-    });
-  }
-  const sample = starterSample?.insightId === insightId ? starterSample : null;
-  const starterSuggestions = useMemo(
-    () =>
-      sample
-        ? suggestChartStarters(
-            authoringTable?.fields ?? [],
-            sample.analysis,
-            sample.totalCount,
-            {
-              // Every candidate: a card that turns out not to fit gives way
-              // to the next one.
-              limit: Infinity,
-              canSum: (field) =>
-                !!authoringTable &&
-                !!field.columnName &&
-                isPlainSumColumn(authoringTable, field.columnName),
-            },
-          )
-        : [],
-    [authoringTable, sample],
-  );
+    },
+  });
   const sourceRevision = useMemo(
     () => buildInsightSourceRevision(insight, allDataTables, allInsights),
     [allDataTables, allInsights, insight],
@@ -796,7 +763,7 @@ export function InsightWorkbench({
               insight={insight}
               dataTable={authoringTable}
               sample={sample}
-              suggestions={pristine ? starterSuggestions : []}
+              suggestions={starterCards}
               sourceRevision={sourceRevision}
               columnDisplayNames={encodingColumnDisplayNames}
               onPickChartType={starter.onPickChartType}
