@@ -73,8 +73,9 @@ describe("encoding-resolution", () => {
     });
 
     it("should leave metric encodings to the materialized result column", () => {
-      // Only buildInsightSQL aggregates a metric, because it applies the
-      // metric's contract; charts read `metric_<uuid>` from the result frame.
+      // Only buildInsightSQL aggregates a metric from source rows, because it
+      // applies the metric's contract; charts read `metric_<uuid>` from the
+      // result frame.
       for (const id of ["metric-1", "metric-2", "metric-3"]) {
         expect(
           resolveToSql(metricEncoding(id as UUID), context),

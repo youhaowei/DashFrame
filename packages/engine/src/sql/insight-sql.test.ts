@@ -271,6 +271,38 @@ describe("buildInsightSQL — measure aggregation contracts", () => {
     ).toThrow("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE");
   });
 
+  it("reports a cyclic Top N measure as a cycle before the ranking guard", () => {
+    // `active` is guarded, so a guard check that ran before compiling would
+    // report RUNTIME_TOPN_MEASURE_NOT_ADDITIVE and hide the broken graph.
+    const cyclic: InsightMetric = {
+      ...REVENUE_METRIC,
+      id: "15151515-1515-1515-1515-151515151515" as UUID,
+      name: "Cyclic",
+      columnName: undefined,
+      expression: {
+        kind: "binary",
+        operator: "add",
+        left: { kind: "measure", measureId: active.id },
+        right: {
+          kind: "measure",
+          measureId: "15151515-1515-1515-1515-151515151515" as UUID,
+        },
+      },
+    };
+    expect(() =>
+      sqlFor([week.id, channel.id], [active, cyclic], {
+        reporting: {
+          topN: {
+            fieldId: channel.id,
+            measureId: cyclic.id,
+            count: 5,
+            direction: "desc",
+          },
+        },
+      }),
+    ).toThrow("Cyclic measure reference");
+  });
+
   it("rejects Top N for a repaired non-additive measure with legacy unscoped fields", () => {
     const legacyTable = {
       ...table,

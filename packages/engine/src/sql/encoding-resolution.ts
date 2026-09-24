@@ -72,10 +72,10 @@ function applyTransform(
 /**
  * Resolve an encoding string to a SQL expression for chart rendering.
  * Returns undefined for missing prefixed references and for metric encodings:
- * only `buildInsightSQL` aggregates a metric, because it applies the metric's
- * contract, and a chart reads the materialized column through
- * `resolveEncodingToResultFrame`. Raw column names are returned as-is for
- * existing saved visualizations.
+ * only `buildInsightSQL` aggregates a metric from source rows, because it
+ * applies the metric's contract, and a chart reads the materialized column
+ * through `resolveEncodingToResultFrame`, which may re-aggregate those partials.
+ * Raw column names are returned as-is for existing saved visualizations.
  *
  * Optionally applies a date transform to the resolved value (for temporal fields).
  *

@@ -1374,7 +1374,8 @@ function guardMeasureAggregation(
   if (!contract || contract.kind === "ratio") return unguarded;
   const filteredCount = (count: string) =>
     filterPredicate ? `${count} FILTER (WHERE ${filterPredicate})` : count;
-  // Refusing even with nothing dropped means rows never combine (non-additive).
+  // With ratio handled above, refusing even with nothing dropped can only mean
+  // a non-additive contract: its rows never combine.
   if (!measureCombinesOver(contract, []))
     return {
       sql: `CASE WHEN ${filteredCount("COUNT(*)")} = 1 THEN ${aggregate} END`,
