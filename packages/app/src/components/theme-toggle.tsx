@@ -34,7 +34,7 @@ export function ThemeToggle() {
         iconOnly
         label="Toggle theme"
         disabled
-        className="opacity-50"
+        className="h-7 w-7 opacity-50"
       />
     );
   }
@@ -43,9 +43,14 @@ export function ThemeToggle() {
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button variant="ghost" iconOnly label="Toggle theme">
-            <LightModeIcon className="h-[1.2rem] w-[1.2rem] scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
-            <DarkModeIcon className="absolute h-[1.2rem] w-[1.2rem] scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
+          <Button
+            variant="ghost"
+            iconOnly
+            label="Toggle theme"
+            className="h-7 w-7 text-neutral-fg-subtle hover:text-neutral-fg"
+          >
+            <LightModeIcon className="size-4 scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
+            <DarkModeIcon className="absolute size-4 scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
           </Button>
         }
       />
