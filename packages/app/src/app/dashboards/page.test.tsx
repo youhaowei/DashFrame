@@ -484,12 +484,22 @@ describe("DashboardsPage – empty state", () => {
     insights = [],
     visualizations = [],
     dataSources = [{ id: "source-1", type: "csv" }],
+    failing = [],
+    pending = [],
   }: {
     insights?: unknown[];
     visualizations?: unknown[];
     dataSources?: unknown[];
+    /** Query paths that fail independently. */
+    failing?: string[];
+    /** Query paths still loading. */
+    pending?: string[];
   }) {
     mockUseQuery.mockImplementation((ref: { _path: string }) => {
+      if (failing.includes(ref._path)) {
+        return { isError: true, error: new Error(`${ref._path} failed`) };
+      }
+      if (pending.includes(ref._path)) return { isLoading: true };
       const data: Record<string, unknown[]> = {
         listDashboards: [],
         listVisualizations: visualizations,
@@ -625,6 +635,41 @@ describe("DashboardsPage – empty state", () => {
         },
       ],
     });
+  });
+
+  it("says when recent questions could not load instead of claiming none", () => {
+    mockProject({ failing: ["listInsights"] });
+
+    render(<DashboardsPage />);
+
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /Couldn't load your recent questions/,
+    );
+    // The report itself does not depend on questions, so creating stays open.
+    screen.getByRole("button", { name: "Create your first report" });
+  });
+
+  it("does not claim a load failure when the question list is empty", () => {
+    mockProject({});
+
+    render(<DashboardsPage />);
+
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("holds the cards until the tables that name them have loaded", () => {
+    mockProject({
+      insights: [question("q-recent", "Revenue by region", NOW - DAY)],
+      visualizations: [
+        { id: "view-1", insightId: "q-recent", createdAt: NOW, updatedAt: NOW },
+      ],
+      pending: ["listDataTables"],
+    });
+
+    render(<DashboardsPage />);
+
+    expect(screen.queryByText("Unknown table")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start report" })).toBeNull();
   });
 
   it("points to connecting data only when the project has none", () => {

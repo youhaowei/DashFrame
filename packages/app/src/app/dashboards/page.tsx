@@ -124,10 +124,16 @@ function useUnplacedRecentQuestions(
   }, [dashboards, visualizations, insights, dataTables, dataSources, openedAt]);
 
   return {
-    isLoading: insightsQuery.isLoading || sourcesQuery.isLoading,
+    // Cards name their table, so wait for tables too or they flash "Unknown".
+    isLoading:
+      insightsQuery.isLoading ||
+      tablesQuery.isLoading ||
+      sourcesQuery.isLoading,
     candidates,
     // Unknown is not zero: a failed load must not claim there is no data.
     hasNoDataSources: !sourcesQuery.isError && dataSources?.length === 0,
+    // A failed question load is not an empty candidate list either.
+    questionsLoadError: insightsQuery.isError,
   };
 }
 
@@ -147,7 +153,7 @@ function ReportsStart({
   isCreating: boolean;
   onCreate: CreateReport;
 }) {
-  const { isLoading, candidates, hasNoDataSources } =
+  const { isLoading, candidates, hasNoDataSources, questionsLoadError } =
     useUnplacedRecentQuestions(dashboards, visualizations);
 
   if (isLoading) return null;
@@ -159,6 +165,14 @@ function ReportsStart({
         description="A report is a page of charts and tables over your data. Create one and add the first chart from inside it."
         action={
           <div className="flex flex-col items-center gap-3">
+            {/* Creating a report needs no question, so the action stays; the
+                notice says why no recent question is offered. */}
+            {questionsLoadError && (
+              <p role="alert" className="text-sm text-palette-danger">
+                Couldn't load your recent questions. Check your connection and
+                reload.
+              </p>
+            )}
             <Button
               icon={PlusIcon}
               label="Create your first report"
