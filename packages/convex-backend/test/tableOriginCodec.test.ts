@@ -73,6 +73,14 @@ describe("parseTableOrigin", () => {
       version: 1,
       definition: {
         ...definition,
+        dateRange: { kind: "absolute", start: "2026-02-01", end: "2026-02-31" },
+      },
+    },
+    {
+      kind: "definition",
+      version: 1,
+      definition: {
+        ...definition,
         dateRange: { kind: "absolute", start: "2026-02-01", end: "2026-01-01" },
       },
     },
