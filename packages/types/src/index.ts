@@ -109,22 +109,13 @@ export { fixedRuntimeIds, isUnmodifiedDraft } from "./insights";
 
 export type {
   AxisType,
-  ChartTag,
-  ChartTypeMetadata,
   VegaLiteSpec,
   Visualization,
   VisualizationEncoding,
   VisualizationType,
 } from "./visualizations";
 
-export {
-  CHART_TAG_METADATA,
-  CHART_TYPE_METADATA,
-  SCATTER_MAX_POINTS,
-  getAvailableTags,
-  getChartTypesForTag,
-  getTagsForChartType,
-} from "./visualizations";
+export { CHART_TYPE_METADATA } from "./visualizations";
 
 // =============================================================================
 // Encoding Helpers

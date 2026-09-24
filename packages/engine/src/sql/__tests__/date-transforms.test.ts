@@ -1,10 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import {
-  applyDateTransformToSql,
-  categoricalTransform,
-  temporalTransform,
-} from "../date-transforms";
+import { applyDateTransformToSql } from "../date-transforms";
 
 // ---------------------------------------------------------------------------
 // applyDateTransformToSql — identifier sink-guard tests
@@ -18,80 +14,80 @@ import {
 describe("applyDateTransformToSql — identifier sink-guard", () => {
   describe("temporal aggregations", () => {
     it("normal column name is quoted", () => {
-      const sql = applyDateTransformToSql(
-        "created_at",
-        temporalTransform("yearMonth"),
-      );
+      const sql = applyDateTransformToSql("created_at", {
+        kind: "temporal",
+        aggregation: "yearMonth",
+      });
       expect(sql).toBe(`date_trunc('month', "created_at")`);
     });
 
     it("hostile column name with embedded double-quote is escaped", () => {
       // Contract: the embedded " is escaped to "" so the identifier boundary
       // is never broken. The raw hostile string must not appear in the output.
-      const sql = applyDateTransformToSql(
-        'amount"malicious',
-        temporalTransform("yearMonth"),
-      );
+      const sql = applyDateTransformToSql('amount"malicious', {
+        kind: "temporal",
+        aggregation: "yearMonth",
+      });
       expect(sql).toBe(`date_trunc('month', "amount""malicious")`);
       expect(sql).not.toContain('amount"m');
     });
 
     it("'none' aggregation returns the quoted column as-is (passthrough)", () => {
-      const sql = applyDateTransformToSql(
-        "order_date",
-        temporalTransform("none"),
-      );
+      const sql = applyDateTransformToSql("order_date", {
+        kind: "temporal",
+        aggregation: "none",
+      });
       expect(sql).toBe('"order_date"');
     });
 
     it("year aggregation quotes the identifier", () => {
-      const sql = applyDateTransformToSql(
-        'year"col',
-        temporalTransform("year"),
-      );
+      const sql = applyDateTransformToSql('year"col', {
+        kind: "temporal",
+        aggregation: "year",
+      });
       expect(sql).toBe(`date_trunc('year', "year""col")`);
     });
 
     it("yearWeek aggregation quotes the identifier", () => {
-      const sql = applyDateTransformToSql(
-        "shipped_at",
-        temporalTransform("yearWeek"),
-      );
+      const sql = applyDateTransformToSql("shipped_at", {
+        kind: "temporal",
+        aggregation: "yearWeek",
+      });
       expect(sql).toBe(`date_trunc('week', "shipped_at")`);
     });
   });
 
   describe("categorical groupings", () => {
     it("monthName transform quotes the identifier", () => {
-      const sql = applyDateTransformToSql(
-        "order_date",
-        categoricalTransform("monthName"),
-      );
+      const sql = applyDateTransformToSql("order_date", {
+        kind: "categorical",
+        groupBy: "monthName",
+      });
       expect(sql).toBe(`monthname("order_date")`);
     });
 
     it("hostile column name is escaped in categorical monthName", () => {
-      const sql = applyDateTransformToSql(
-        'amount"malicious',
-        categoricalTransform("monthName"),
-      );
+      const sql = applyDateTransformToSql('amount"malicious', {
+        kind: "categorical",
+        groupBy: "monthName",
+      });
       expect(sql).toBe(`monthname("amount""malicious")`);
       expect(sql).not.toContain('amount"m');
     });
 
     it("dayOfWeek transform quotes the identifier", () => {
-      const sql = applyDateTransformToSql(
-        "event_date",
-        categoricalTransform("dayOfWeek"),
-      );
+      const sql = applyDateTransformToSql("event_date", {
+        kind: "categorical",
+        groupBy: "dayOfWeek",
+      });
       expect(sql).toBe(`dayname("event_date")`);
     });
 
     it("quarter transform quotes the identifier", () => {
-      const sql = applyDateTransformToSql(
-        "sale_date",
-        categoricalTransform("quarter"),
-      );
+      const sql = applyDateTransformToSql("sale_date", {
+        kind: "categorical",
+        groupBy: "quarter",
+      });
       expect(sql).toBe(`quarter("sale_date")`);
     });
   });
