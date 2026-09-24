@@ -204,6 +204,7 @@ export const repairGa4MeasureContracts = internalMutation({
           if (
             metric.columnName !== "activeUsers" ||
             metric.aggregation !== "sum" ||
+            metric.expression !== undefined ||
             metric.contract !== undefined
           )
             return metric;
@@ -261,6 +262,7 @@ export const repairGa4MeasureContracts = internalMutation({
             !ga4TableIds.has(String(metric.sourceTable)) ||
             metric.columnName !== "activeUsers" ||
             metric.aggregation !== "sum" ||
+            metric.expression !== undefined ||
             metric.contract !== undefined
           )
             return metric;

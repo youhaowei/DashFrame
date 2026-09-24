@@ -3,7 +3,6 @@ import type {
   DataTable,
   InsightMetric,
   MeasureContract,
-  Metric,
   UUID,
 } from "@dashframe/types";
 import { GA4_FIELD_SCOPES, ga4MeasureContract } from "@dashframe/connector-ga4";
@@ -59,10 +58,7 @@ const AGGREGATIONS: Array<{ value: AggregationType; label: string }> = [
 
 type MetricField = { id: string; columnName?: string; name: string };
 type ColumnDisplayNames = Readonly<Record<string, string>>;
-type SavedMeasure = Pick<
-  Metric,
-  "id" | "name" | "columnName" | "aggregation" | "contract"
->;
+type SavedMeasure = { id: string; name: string };
 
 function isNumericMetricField(field: { type: string }): boolean {
   return ["number", "integer", "float", "decimal"].includes(
@@ -199,6 +195,7 @@ function inheritedMeasureContract(
 
 function contractForSave(
   metric: InsightMetric | undefined,
+  dataTable: DataTable,
   columnName: string | undefined,
   aggregation: AggregationType,
   expression: InsightMetric["expression"],
@@ -211,7 +208,9 @@ function contractForSave(
     JSON.stringify(expression) === JSON.stringify(metric.expression)
   )
     return metric.contract;
-  return undefined;
+  return !expression && columnName
+    ? defaultMeasureContract(dataTable, columnName, aggregation)
+    : undefined;
 }
 
 function MetricEditor({
@@ -321,6 +320,7 @@ function MetricEditor({
         const nextColumnName = metricColumnNameForSave(aggregation, columnName);
         const contract = contractForSave(
           metric,
+          dataTable,
           nextColumnName,
           aggregation,
           options.expression,

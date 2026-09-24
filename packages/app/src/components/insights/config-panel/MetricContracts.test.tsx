@@ -166,4 +166,50 @@ describe("new metric contracts", () => {
       contract: { kind: "non-additive" },
     });
   });
+
+  it("inherits the GA4 contract when changing an existing sessions measure to active users", async () => {
+    const dataTable = table("activeUsers", true);
+    dataTable.fields.push({
+      id: "sessions",
+      name: "Sessions",
+      tableId: dataTable.id,
+      columnName: "sessions",
+      type: "number",
+    });
+    const onEdit = vi.fn();
+    const user = userEvent.setup({ delay: null });
+    render(
+      <MetricsSection
+        metrics={[
+          {
+            id: "session-measure",
+            name: "Sum of Sessions",
+            sourceTable: dataTable.id,
+            columnName: "sessions",
+            aggregation: "sum",
+            contract: expectedContracts.sessions,
+          },
+        ]}
+        dataTable={dataTable}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+        onEdit={onEdit}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Edit Sum of Sessions" }),
+    );
+    await user.click(screen.getByRole("combobox", { name: "Column" }));
+    await user.click(
+      await screen.findByRole("option", { name: "Active users" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onEdit).toHaveBeenCalledTimes(1));
+    expect(onEdit.mock.calls[0]![0]).toMatchObject({
+      columnName: "activeUsers",
+      contract: expectedContracts.activeUsers,
+    });
+  });
 });

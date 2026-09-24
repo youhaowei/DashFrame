@@ -187,6 +187,7 @@ it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => 
           tableId: "table",
           columnName: "yearWeek",
           type: "date",
+          scope: "time",
         },
         {
           id: "channel",
@@ -211,6 +212,14 @@ it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => 
           aggregation: "sum",
           name: "Sum of Active users",
         },
+        {
+          id: "formula-users",
+          tableId: "table",
+          columnName: "activeUsers",
+          aggregation: "sum",
+          name: "Formula audience",
+          expression: { kind: "constant", value: 1 },
+        },
       ],
     });
     await ctx.db.insert("insights", {
@@ -231,6 +240,21 @@ it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => 
             columnName: "activeUsers",
             aggregation: "sum",
             name: "Weekly audience",
+          },
+          {
+            id: "default-users",
+            sourceTable: "table",
+            columnName: "activeUsers",
+            aggregation: "sum",
+            name: "Sum of Active users",
+          },
+          {
+            id: "formula-users",
+            sourceTable: "table",
+            columnName: "activeUsers",
+            aggregation: "sum",
+            name: "Formula audience",
+            expression: { kind: "constant", value: 1 },
           },
         ],
         createdAt: 1,
@@ -262,6 +286,8 @@ it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => 
     name: "Active users",
     contract: { kind: "non-additive" },
   });
+  expect(table?.metrics?.[1]).toMatchObject({ name: "Formula audience" });
+  expect(table?.metrics?.[1]).not.toHaveProperty("contract");
   expect(table?.fields?.map((field) => field.scope)).toEqual([
     "time",
     "time",
@@ -285,6 +311,20 @@ it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => 
     name: "Weekly audience",
     contract: { kind: "non-additive" },
   });
+  expect(
+    Array.isArray(repairedMetrics) ? repairedMetrics[1] : undefined,
+  ).toMatchObject({
+    name: "Active users",
+    contract: { kind: "non-additive" },
+  });
+  expect(
+    Array.isArray(repairedMetrics) ? repairedMetrics[2] : undefined,
+  ).toMatchObject({
+    name: "Formula audience",
+  });
+  expect(
+    Array.isArray(repairedMetrics) ? repairedMetrics[2] : undefined,
+  ).not.toHaveProperty("contract");
 });
 
 it("skips malformed legacy tables and repairs the remaining GA4 tables", async () => {
@@ -382,10 +422,10 @@ it("skips a malformed legacy insight without rolling back table repairs", async 
         selectedFields: ["week"],
         metrics: [
           {
-            id: "users",
+            id: "",
             sourceTable: "table",
             columnName: "activeUsers",
-            aggregation: "bogus",
+            aggregation: "sum",
             name: "Sum of Active users",
           },
         ],
@@ -403,5 +443,14 @@ it("skips a malformed legacy insight without rolling back table repairs", async 
   expect(rows[0]?.metrics?.[0]).toMatchObject({
     name: "Active users",
     contract: { kind: "non-additive" },
+  });
+  const insights = await t.run((ctx) => ctx.db.query("insights").collect());
+  expect(insights[0]?.revision).toBe(1);
+  const originalMetrics = insights[0]?.definition?.metrics;
+  expect(
+    Array.isArray(originalMetrics) ? originalMetrics[0] : undefined,
+  ).toMatchObject({
+    id: "",
+    name: "Sum of Active users",
   });
 });
