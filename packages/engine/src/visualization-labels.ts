@@ -2,9 +2,7 @@ import type { Field, InsightMetric } from "@dashframe/types";
 
 import { fieldIdToColumnAlias } from "./sql";
 
-export function formatAggregationLabel(
-  aggregation: InsightMetric["aggregation"],
-) {
+function formatAggregationLabel(aggregation: InsightMetric["aggregation"]) {
   switch (aggregation) {
     case "avg":
       return "Average";

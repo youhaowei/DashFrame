@@ -288,4 +288,35 @@ describe("encoding resolution — materialized Insight results", () => {
       "sum(metric_measure)",
     );
   });
+
+  it("rolls up an unrestricted additive measure over an unscoped field, as SQL does", () => {
+    const encoding = {
+      x: "field:date",
+      y: "metric:measure",
+      xTransform: {
+        type: "date" as const,
+        transform: {
+          kind: "temporal" as const,
+          aggregation: "yearMonth" as const,
+        },
+      },
+    };
+    const context = {
+      fields: [
+        { id: "date", tableId: "table", name: "Date", type: "date" as const },
+      ],
+      metrics: [
+        {
+          id: "measure",
+          name: "Value",
+          sourceTable: "table",
+          aggregation: "sum" as const,
+          contract: { kind: "additive" as const },
+        },
+      ],
+    };
+    expect(resolveEncodingToResultFrame(encoding, context).y).toBe(
+      "sum(metric_measure)",
+    );
+  });
 });
