@@ -158,7 +158,7 @@ export const initializeProject = internalMutation({
   },
 });
 
-/** Repair the v2 GA4 active-user measure shipped before aggregation contracts. */
+/** Repair legacy GA4 field scopes and active-user measures shipped before contracts. */
 export const repairGa4MeasureContracts = internalMutation({
   args: workspace,
   returns: v.object({
@@ -178,7 +178,12 @@ export const repairGa4MeasureContracts = internalMutation({
     let tablesRepaired = 0;
     const ga4TableIds = new Set<string>();
     for (const source of sources) {
-      if (source.config?.sourceBindingVersion !== "v2") continue;
+      if (
+        source.config?.sourceBindingVersion !== undefined &&
+        source.config.sourceBindingVersion !== "v1" &&
+        source.config.sourceBindingVersion !== "v2"
+      )
+        continue;
       const tables = await ctx.db
         .query("dataTables")
         .withIndex("by_workspaceId_and_dataSourceId", (q) =>

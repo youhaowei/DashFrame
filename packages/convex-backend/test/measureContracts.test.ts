@@ -133,14 +133,16 @@ describe("measure aggregation contract validation", () => {
   });
 });
 
-it("leaves v1 bindings, other connectors, and other workspaces untouched", async () => {
+it("scopes legacy GA4 dates without changing Count measures or other sources", async () => {
   await t.run(async (ctx) => {
     for (const [workspaceId, kind, version] of [
       ["workspace", "googleAnalytics", "v1"],
+      ["workspace", "googleAnalytics", undefined],
+      ["workspace", "googleAnalytics", "v3"],
       ["workspace", "csv", "v2"],
       ["other", "googleAnalytics", "v2"],
     ]) {
-      const id = `${workspaceId}-${kind}`;
+      const id = `${workspaceId}-${kind}-${version ?? "unversioned"}`;
       await ctx.db.insert("dataSources", {
         workspaceId: workspaceId!,
         id,
@@ -148,7 +150,7 @@ it("leaves v1 bindings, other connectors, and other workspaces untouched", async
         name: id,
         createdAt: 1,
         kind,
-        config: { sourceBindingVersion: version! },
+        config: version === undefined ? {} : { sourceBindingVersion: version },
       });
       await ctx.db.insert("dataTables", {
         workspaceId: workspaceId!,
@@ -158,13 +160,28 @@ it("leaves v1 bindings, other connectors, and other workspaces untouched", async
         createdAt: 1,
         dataSourceId: id,
         table: "properties/1",
+        fields: [
+          {
+            id: "date",
+            name: "Date",
+            tableId: id,
+            columnName: "date",
+            type: "date",
+          },
+        ],
         metrics: [
           {
             id: "users",
             tableId: id,
-            name: "Sum of Active users",
-            columnName: "activeUsers",
-            aggregation: "sum",
+            name:
+              version === "v1" || version === undefined
+                ? "Count"
+                : "Sum of Active users",
+            ...(version === "v1" || version === undefined
+              ? {}
+              : { columnName: "activeUsers" }),
+            aggregation:
+              version === "v1" || version === undefined ? "count" : "sum",
           },
         ],
       });
@@ -174,12 +191,37 @@ it("leaves v1 bindings, other connectors, and other workspaces untouched", async
     await t.mutation(internal.host.repairGa4MeasureContracts, {
       workspaceId: "workspace",
     }),
+  ).toEqual({ tablesRepaired: 2, insightsRepaired: 0 });
+  expect(
+    await t.mutation(internal.host.repairGa4MeasureContracts, {
+      workspaceId: "workspace",
+    }),
   ).toEqual({ tablesRepaired: 0, insightsRepaired: 0 });
   const rows = await t.run((ctx) => ctx.db.query("dataTables").collect());
+  const repairedIds = new Set([
+    "workspace-googleAnalytics-v1",
+    "workspace-googleAnalytics-unversioned",
+  ]);
+  for (const row of rows.filter((row) => repairedIds.has(row.id))) {
+    expect(row.revision).toBe(2);
+    expect(row.fields?.[0]?.scope).toBe("time");
+    expect(row.metrics?.[0]).toMatchObject({
+      name: "Count",
+      aggregation: "count",
+    });
+    expect(row.metrics?.[0]).not.toHaveProperty("columnName");
+    expect(row.metrics?.[0]).not.toHaveProperty("contract");
+  }
   expect(
-    rows.every(
-      (row) => row.revision === 1 && row.metrics?.[0]?.contract === undefined,
-    ),
+    rows
+      .filter((row) => !repairedIds.has(row.id))
+      .every(
+        (row) =>
+          row.revision === 1 &&
+          row.fields?.[0]?.scope === undefined &&
+          row.metrics?.[0]?.contract === undefined &&
+          row.metrics?.[0]?.name === "Sum of Active users",
+      ),
   ).toBe(true);
 });
 
