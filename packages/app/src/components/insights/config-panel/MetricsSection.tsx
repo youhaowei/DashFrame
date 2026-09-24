@@ -5,10 +5,7 @@ import type {
   MeasureContract,
   UUID,
 } from "@dashframe/types";
-import {
-  DIMENSION_SCOPES,
-  METRIC_CONTRACTS,
-} from "@dashframe/connector-ga4/catalogue";
+import { METRIC_CONTRACTS } from "@dashframe/connector-ga4/catalogue";
 import {
   SortableList,
   WorkbenchAddRow,
