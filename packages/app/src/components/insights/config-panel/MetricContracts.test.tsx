@@ -11,7 +11,7 @@ const expectedContracts = {
 
 function table(
   columnName: "activeUsers" | "sessions",
-  ga4: boolean,
+  ga4: boolean | "v1",
 ): DataTable {
   return {
     id: "table-1",
@@ -19,7 +19,19 @@ function table(
     dataSourceId: "source-1",
     table: ga4 ? "properties/1" : "report.csv",
     fields: [
-      ...(ga4
+      ...(ga4 === "v1"
+        ? [
+            {
+              id: "date",
+              name: "Date",
+              tableId: "table-1",
+              columnName: "date",
+              type: "date" as const,
+              scope: "time" as const,
+            },
+          ]
+        : []),
+      ...(ga4 === true
         ? [
             {
               id: "week",
@@ -113,6 +125,40 @@ describe("new metric contracts", () => {
     },
     10_000,
   );
+
+  it("guards active users on a repaired v1 GA4 table that only has a date", async () => {
+    const onAdd = vi.fn();
+    const user = await addSum(table("activeUsers", "v1"), onAdd);
+    await user.click(screen.getByRole("button", { name: "Add", exact: true }));
+
+    await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(1));
+    expect(onAdd.mock.calls[0]![0]).toMatchObject({
+      contract: expectedContracts.activeUsers,
+    });
+  });
+
+  it("ignores a saved ratio measure that still carries a column name", async () => {
+    const onAdd = vi.fn();
+    const dataTable = table("sessions", true);
+    dataTable.metrics = [
+      {
+        id: "ratio",
+        name: "Engagement rate",
+        tableId: "table-1",
+        columnName: "sessions",
+        aggregation: "sum",
+        expression: { kind: "constant", value: 1 },
+        contract: { kind: "ratio" },
+      },
+    ] as DataTable["metrics"];
+    const user = await addSum(dataTable, onAdd);
+    await user.click(screen.getByRole("button", { name: "Add", exact: true }));
+
+    await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(1));
+    expect(onAdd.mock.calls[0]![0]).toMatchObject({
+      contract: expectedContracts.sessions,
+    });
+  });
 
   it("does not treat a same-named CSV column as GA4 metadata", async () => {
     const onAdd = vi.fn();

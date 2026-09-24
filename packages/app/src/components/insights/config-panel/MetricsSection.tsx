@@ -139,19 +139,12 @@ function autoMetricName(
   return `${prefix[aggregation]} ${field.name}`;
 }
 
-function hasGa4AcquisitionScopes(dataTable: DataTable): boolean {
-  return (
-    dataTable.fields?.some(
-      (field) =>
-        field.columnName === "yearWeek" &&
-        field.scope === DIMENSION_SCOPES.yearWeek,
-    ) === true &&
-    dataTable.fields.some(
-      (field) =>
-        field.columnName === "sessionDefaultChannelGroup" &&
-        field.scope === DIMENSION_SCOPES.sessionDefaultChannelGroup,
-    )
-  );
+// Only the GA4 connector sets field scopes today, so a scoped field marks a
+// GA4 table (v1 date-only tables included, once the startup repair has
+// backfilled their scopes). Source provenance on the table replaces this once
+// Convex records the table origin.
+function hasConnectorScopes(dataTable: DataTable): boolean {
+  return dataTable.fields?.some((field) => field.scope !== undefined) === true;
 }
 
 function defaultMeasureContract(
@@ -163,10 +156,11 @@ function defaultMeasureContract(
     (measure) =>
       measure.columnName === columnName &&
       measure.aggregation === aggregation &&
+      measure.expression === undefined &&
       measure.contract !== undefined,
   );
   if (saved?.contract) return saved.contract;
-  if (!hasGa4AcquisitionScopes(dataTable)) return undefined;
+  if (!hasConnectorScopes(dataTable)) return undefined;
   // Only a plain sum over a known GA4 metric carries a connector default.
   return aggregation === "sum" ? METRIC_CONTRACTS[columnName] : undefined;
 }
