@@ -697,6 +697,17 @@ describe("DashboardsPage – empty state", () => {
     screen.getByRole("button", { name: "Create your first report" });
   });
 
+  it("does not welcome a project that still has questions but lost its data", () => {
+    mockProject({ dataSources: [], insights: [{ id: "insight-1" }] });
+
+    render(<DashboardsPage />);
+
+    screen.getByRole("heading", { name: "No reports yet" });
+    expect(
+      screen.queryByRole("heading", { name: "Welcome to DashFrame" }),
+    ).toBeNull();
+  });
+
   it("does not welcome a project whose data sources failed to load", () => {
     mockProject({ failing: ["listDataSources"] });
 

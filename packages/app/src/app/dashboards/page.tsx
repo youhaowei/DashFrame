@@ -172,8 +172,12 @@ function ReportsStart({
     return (
       <ArtifactEmptyState
         // A project with nothing in it is the one place the product
-        // introduces itself.
-        title={hasNoDataSources ? "Welcome to DashFrame" : "No reports yet"}
+        // introduces itself; a project that lost its data is not new.
+        title={
+          hasNoDataSources && hasNoQuestions
+            ? "Welcome to DashFrame"
+            : "No reports yet"
+        }
         description="A report is a page of charts and tables over your data. Create one and add the first chart from inside it."
         action={
           <div className="flex flex-col items-center gap-3">
