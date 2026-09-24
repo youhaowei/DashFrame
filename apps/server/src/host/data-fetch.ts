@@ -5,6 +5,7 @@ import type {
   InsightFetchResult,
   InsightPresentation,
   InsightRuntimeInput,
+  MeasureContract,
   MeasureExpression,
   UUID,
 } from "@dashframe/types";
@@ -12,7 +13,9 @@ import { reportingSchema } from "@dashframe/convex-backend/codecs";
 import {
   AGGREGATIONS,
   fixedRuntimeIds,
+  isMeasureContract,
   isMeasureExpression,
+  measureContractProblem,
 } from "@dashframe/types";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -86,48 +89,58 @@ const definitionSchema = z
     selectedFields: z.array(z.string().min(1)),
     reporting: reportingSchema.optional(),
     metrics: z.array(
-      z.object({
-        id: z.string(),
-        name: z.string(),
-        sourceTable: z.string(),
-        columnName: z.string().optional(),
-        expression: z.custom<MeasureExpression>(isMeasureExpression).optional(),
-        filters: z
-          .array(
-            filterSchema.extend({
-              value: z.union([
-                z.string(),
-                z.number().finite(),
-                z.boolean(),
-                z.null(),
-                z.array(
-                  z.union([
-                    z.string(),
-                    z.number().finite(),
-                    z.boolean(),
-                    z.null(),
-                  ]),
-                ),
-                z.object({
-                  low: z.union([z.string(), z.number().finite()]),
-                  high: z.union([z.string(), z.number().finite()]),
-                }),
-              ]),
-            }),
-          )
-          .optional(),
-        format: z
-          .object({
-            style: z.enum(["number", "currency", "percent"]),
-            decimals: z.number().int().min(0).max(20).optional(),
-            currency: z
-              .string()
-              .regex(/^[A-Z]{3}$/)
-              .optional(),
-          })
-          .optional(),
-        aggregation: z.enum(AGGREGATIONS),
-      }),
+      z
+        .object({
+          id: z.string(),
+          name: z.string(),
+          sourceTable: z.string(),
+          columnName: z.string().optional(),
+          expression: z
+            .custom<MeasureExpression>(isMeasureExpression)
+            .optional(),
+          // The same contract a saved metric carries, so a preview aggregates
+          // the way the saved chart will.
+          contract: z.custom<MeasureContract>(isMeasureContract).optional(),
+          filters: z
+            .array(
+              filterSchema.extend({
+                value: z.union([
+                  z.string(),
+                  z.number().finite(),
+                  z.boolean(),
+                  z.null(),
+                  z.array(
+                    z.union([
+                      z.string(),
+                      z.number().finite(),
+                      z.boolean(),
+                      z.null(),
+                    ]),
+                  ),
+                  z.object({
+                    low: z.union([z.string(), z.number().finite()]),
+                    high: z.union([z.string(), z.number().finite()]),
+                  }),
+                ]),
+              }),
+            )
+            .optional(),
+          format: z
+            .object({
+              style: z.enum(["number", "currency", "percent"]),
+              decimals: z.number().int().min(0).max(20).optional(),
+              currency: z
+                .string()
+                .regex(/^[A-Z]{3}$/)
+                .optional(),
+            })
+            .optional(),
+          aggregation: z.enum(AGGREGATIONS),
+        })
+        .superRefine((metric, ctx) => {
+          const problem = measureContractProblem(metric);
+          if (problem) ctx.addIssue({ code: "custom", message: problem });
+        }),
     ),
     filters: z.array(filterSchema).optional(),
     sorts: z
@@ -640,8 +653,8 @@ export function toFetchFailure(
 }
 
 /**
- * Host-only factory, deliberately not registered until a real executor exists.
- * Both routes are closed: validation, saved-definition, binding, compilation,
+ * Host operation factory; registry.ts binds it to the production executor.
+ * Every route is closed: validation, saved-definition, binding, compilation,
  * and connector errors all return a safe failed result rather than an RPC error.
  */
 export function createDataFetchFunctions(execute: LiveFetchExecutor) {
@@ -657,18 +670,23 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
     }
   };
   /**
-   * Materializes an unsaved preview. Its returned frame handle is leased for
-   * this server session; startup retires prior-session preview rows/files.
-   * Saved runInsight generations remain durable and are not session-leased.
+   * Materializes an unsaved preview. Its frame lives for this server session
+   * (startup retires prior-session preview rows and files) unless the caller
+   * removes it. Saved runInsight generations remain durable.
+   *
+   * `exclusive: true` gives the caller a frame no other request can receive:
+   * the request skips coalescing and the short completed-result replay, so
+   * the caller may remove the frame once it has read it.
    */
   const fetchData = hostOperation({
     input: z
       .object({
         insight: z.unknown(),
         presentation: z.unknown().optional(),
+        exclusive: z.literal(true).optional(),
       })
       .strict(),
-    run: async (ctx, { insight, presentation }) => {
+    run: async (ctx, { insight, presentation, exclusive }) => {
       const parsed = definitionSchema.safeParse(insight);
       if (!parsed.success)
         return failed(
@@ -693,7 +711,11 @@ export function createDataFetchFunctions(execute: LiveFetchExecutor) {
           source,
         };
         applyInsightPresentation(effective, parsedPresentation.data);
-        return materialize(ctx, effective, { kind: "ephemeral" });
+        return materialize(
+          ctx,
+          effective,
+          exclusive ? { kind: "ephemeral", exclusive } : { kind: "ephemeral" },
+        );
       } catch (error) {
         return toFetchFailure(error, "FETCH_SOURCE_FAILED");
       }

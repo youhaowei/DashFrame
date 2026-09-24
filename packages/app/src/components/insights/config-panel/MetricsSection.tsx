@@ -167,6 +167,44 @@ function defaultMeasureContract(
   return aggregation === "sum" ? METRIC_CONTRACTS[columnName] : undefined;
 }
 
+/**
+ * Whether a plain sum of this column is a valid metric as saved: no measure
+ * contract, or an additive one. A ratio needs an expression and a
+ * non-additive measure cannot be summed, so neither makes a one-click metric.
+ */
+export function isPlainSumColumn(
+  dataTable: DataTable,
+  columnName: string,
+): boolean {
+  const contract = defaultMeasureContract(dataTable, columnName, "sum");
+  return !contract || contract.kind === "additive";
+}
+
+/**
+ * A new metric as the add-metric popover saves it when its name is left to
+ * default: "Count" for a row count, "Total Sales" for a sum, carrying the
+ * table's measure contract. Shared with the empty chart's starter so a
+ * one-click metric is the same metric a picked one would be.
+ */
+export function buildDefaultMetric(
+  dataTable: DataTable,
+  aggregation: AggregationType,
+  columnName = "",
+): InsightMetric {
+  const savedColumnName = metricColumnNameForSave(aggregation, columnName);
+  const contract = savedColumnName
+    ? defaultMeasureContract(dataTable, savedColumnName, aggregation)
+    : undefined;
+  return {
+    id: crypto.randomUUID() as UUID,
+    name: autoMetricName(aggregation, columnName, dataTable),
+    sourceTable: dataTable.id,
+    columnName: savedColumnName,
+    aggregation,
+    ...(contract ? { contract } : {}),
+  };
+}
+
 function measureContractDescription(
   contract: MeasureContract | undefined,
 ): string | undefined {

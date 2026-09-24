@@ -107,6 +107,7 @@ export const hostOperations = {
       .object({
         insight: z.unknown(),
         presentation: insightPresentationSchema.optional(),
+        exclusive: z.literal(true).optional(),
       })
       .strict(),
     fetchOperations.fetchData,

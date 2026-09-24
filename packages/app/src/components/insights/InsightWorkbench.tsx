@@ -20,6 +20,7 @@ import {
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 import { getVisualizationTypeChange } from "@/components/visualizations/visualization-type-change";
 import {
+  buildInsightSourceRevision,
   resolveInsightSourceDataTable,
   useInsightPagination,
 } from "@/hooks/useInsightPagination";
@@ -58,6 +59,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { ChartStarter } from "./ChartStarter";
+import { useChartStarterSample } from "./useChartStarterSample";
 import { InsightConfigPanel } from "./config-panel";
 import {
   INSIGHT_CANVAS_CHART_TYPES,
@@ -312,45 +315,60 @@ function InsightCanvasWell({
   insight,
   result,
   showChart,
+  starter,
   children,
 }: {
   insight?: Insight;
   result: InsightPaginationResult;
   showChart: boolean;
+  /** An empty chart's starting points, shown instead of the result table. */
+  starter?: ReactNode;
   children: ReactNode;
 }) {
   const [resultCollapsed, setResultCollapsed] = useState(false);
+  let content: ReactNode;
+  if (starter && !showChart) {
+    content = (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg p-3 shadow-[var(--surface-shadow)] dark:bg-neutral-bg-subtle">
+        {starter}
+      </div>
+    );
+  } else if (showChart) {
+    content = (
+      <>
+        <div className="min-h-0 flex-[1_1_68%] overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg p-3 shadow-[var(--surface-shadow)] dark:bg-neutral-bg-subtle">
+          {children}
+        </div>
+        <InsightResultTable
+          insight={insight}
+          result={result}
+          collapsed={resultCollapsed}
+          onToggleCollapsed={() =>
+            setResultCollapsed((collapsed) => !collapsed)
+          }
+          // The strip stays visible while the body fades out and its space shrinks.
+          className={cn(
+            "overflow-hidden pt-1 transition-[flex-grow,flex-basis] duration-300 ease-out motion-reduce:transition-none",
+            resultCollapsed ? "flex-[0_0_2.25rem]" : "flex-[1_1_32%]",
+          )}
+        />
+      </>
+    );
+  } else {
+    content = (
+      <InsightResultTable
+        insight={insight}
+        result={result}
+        className="flex-1"
+      />
+    );
+  }
   return (
     <div
       aria-label="Canvas"
       className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg-muted p-2 shadow-inner dark:bg-neutral-bg-dim"
     >
-      {showChart ? (
-        <>
-          <div className="min-h-0 flex-[1_1_68%] overflow-hidden rounded-[var(--surface-radius)] bg-neutral-bg p-3 shadow-[var(--surface-shadow)] dark:bg-neutral-bg-subtle">
-            {children}
-          </div>
-          <InsightResultTable
-            insight={insight}
-            result={result}
-            collapsed={resultCollapsed}
-            onToggleCollapsed={() =>
-              setResultCollapsed((collapsed) => !collapsed)
-            }
-            // The strip stays visible while the body fades out and its space shrinks.
-            className={cn(
-              "overflow-hidden pt-1 transition-[flex-grow,flex-basis] duration-300 ease-out motion-reduce:transition-none",
-              resultCollapsed ? "flex-[0_0_2.25rem]" : "flex-[1_1_32%]",
-            )}
-          />
-        </>
-      ) : (
-        <InsightResultTable
-          insight={insight}
-          result={result}
-          className="flex-1"
-        />
-      )}
+      {content}
     </div>
   );
 }
@@ -365,6 +383,14 @@ export interface InsightWorkbenchProps {
   leftPaneNote?: ReactNode;
   /** Shown instead of the workbench when the insight's table is gone. */
   missingTable?: ReactNode;
+  /**
+   * A new chart: while its canvas shows the table, it offers suggested charts
+   * and column actions. Called with the chart type a picked suggestion plots,
+   * and with `undefined` when writing that pick fails.
+   */
+  starter?: {
+    onPickChartType?: (chartType: VisualizationType | undefined) => void;
+  };
 }
 
 /**
@@ -378,6 +404,7 @@ export function InsightWorkbench({
   header,
   leftPaneNote,
   missingTable,
+  starter,
 }: InsightWorkbenchProps) {
   const insightId = insight.id;
   const [viewerState, setViewerState] = useState<{
@@ -602,6 +629,27 @@ export function InsightWorkbench({
     );
   }, [activeVisualization, areEncodingsReady, canChangeChartType]);
 
+  const {
+    sample,
+    suggestions: starterSuggestions,
+    cards: starterCards,
+  } = useChartStarterSample({
+    enabled: !!starter,
+    insight,
+    dataTable: authoringTable,
+    result: {
+      isReady: areEncodingsReady,
+      schema: encodingSchema,
+      rows: encodingRows,
+      totalCount: encodingRowCount,
+      analysis: encodingColumnAnalysis,
+    },
+  });
+  const sourceRevision = useMemo(
+    () => buildInsightSourceRevision(insight, allDataTables, allInsights),
+    [allDataTables, allInsights, insight],
+  );
+
   const visualizationPane = resolveVisualizationPaneState(
     activeView,
     activeVisualization?.visualizationType,
@@ -704,6 +752,24 @@ export function InsightWorkbench({
         insight={displayInsight}
         result={savedInsightResult}
         showChart={activeView.kind === "visualization"}
+        starter={
+          // A failed run shows the result's error and retry, not rows from
+          // an earlier run.
+          starter &&
+          sample &&
+          !encodingResultError &&
+          starterSuggestions.length > 0 ? (
+            <ChartStarter
+              insight={insight}
+              dataTable={authoringTable}
+              sample={sample}
+              suggestions={starterCards}
+              sourceRevision={sourceRevision}
+              columnDisplayNames={encodingColumnDisplayNames}
+              onPickChartType={starter.onPickChartType}
+            />
+          ) : undefined
+        }
       >
         {activeVisualization && (
           <VisualizationPreview

@@ -36,7 +36,12 @@ export type EffectiveInsightDefinition = InsightFetchDefinition & {
 };
 
 export type MaterializationTarget =
-  | { kind: "ephemeral" }
+  /**
+   * `exclusive`: the frame is the caller's alone. The request neither joins
+   * nor leaves behind a coalesced or replayed operation, so no other request
+   * receives its frame id and the caller may remove the frame once read.
+   */
+  | { kind: "ephemeral"; exclusive?: true }
   | { kind: "refresh" }
   | { kind: "transient" }
   | { kind: "saved"; insightId: UUID };
@@ -209,12 +214,13 @@ export function createInsightMaterializer(
   const start = (
     key: string,
     args: Parameters<InsightMaterializer["materialize"]>[0],
+    share = true,
   ): Promise<InsightFetchReady> => {
     const streaming = supportsStreaming(args.ctx);
     if (streaming && args.ctx.requestSignal?.aborted)
       return Promise.reject(args.ctx.requestSignal.reason);
     const waiterSignal = streaming ? args.ctx.requestSignal : undefined;
-    const existing = inFlight.get(key);
+    const existing = share ? inFlight.get(key) : undefined;
     if (existing) {
       if (existing.joinable) return existing.wait(waiterSignal);
       const restart = () => {
@@ -275,12 +281,15 @@ export function createInsightMaterializer(
             [],
             [],
             transfer,
+            // A presentation reads published source generations rather than
+            // pulling the source again. The empty chart's suggestion
+            // thumbnails rely on this to never cost a live connector fetch.
             operationArgs.insight.presentation !== undefined,
           );
         })()
           .then(
             (result) => {
-              if (replayMs > 0) {
+              if (share && replayMs > 0) {
                 // Remote publication advances its own source generation. Install the
                 // replay alias before resolving callers so an immediate sibling sees
                 // the immutable result under the exact generation it published. Never
@@ -315,6 +324,7 @@ export function createInsightMaterializer(
             release?.();
           });
       });
+    if (!share) return operation.wait(waiterSignal);
     remember(key, operation);
     const clear = () => {
       for (const replayKey of replayKeys) {
@@ -331,6 +341,8 @@ export function createInsightMaterializer(
 
   return {
     materialize(args) {
+      if (args.target.kind === "ephemeral" && args.target.exclusive)
+        return start("", args, false);
       const scope = dependencies.coalescingScope(
         args.ctx,
         args.target,
