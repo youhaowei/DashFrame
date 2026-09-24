@@ -26,7 +26,6 @@ export function AddDataSourceModal({
       onClose={onClose}
       title="Add Data Source"
       onTableSelect={onClose}
-      showInsights={false}
       showSources={false}
     />
   );

@@ -7,7 +7,7 @@ import {
 
 interface StartFromDataProps extends Pick<
   DataPickerContentProps,
-  "onTableSelect" | "onInsightSelect" | "showInsights" | "onActivityChange"
+  "onTableSelect" | "onActivityChange"
 > {
   /** The one line that says where the reader is. */
   title: string;
@@ -26,10 +26,9 @@ interface StartFromDataProps extends Pick<
  * and the data picker.
  *
  * The terminal action is the caller's. Picking a table means something
- * different on each surface it appears on — a first insight on an empty
- * project, a first question on an empty report list — and the layout is the
- * only part those surfaces actually share. Baking a `useCreateInsight` call in
- * here would make every future caller inherit one surface's product decision.
+ * different on each surface it appears on, and the layout is the only part
+ * those surfaces share. Baking a `useOpenChartInReport` call in here would
+ * make every future caller inherit one surface's product decision.
  *
  * Deliberately unadorned. The Stage is already the elevated surface these pages
  * sit on, so this adds no panel or card of its own — per DESIGN.md the app is a
@@ -39,8 +38,11 @@ interface StartFromDataProps extends Pick<
  * ```tsx
  * <StartFromData
  *   title="Welcome to DashFrame"
- *   description="Connect a data source to build your first insight."
- *   onTableSelect={createInsightFromTable}
+ *   description="Connect a data source to build your first report."
+ *   // `null` tells the picker the start failed (already reported).
+ *   onTableSelect={async (id, name) =>
+ *     (await startChart({ kind: "new" }, { id, name })) ? true : null
+ *   }
  * />
  * ```
  */
@@ -49,8 +51,6 @@ export function StartFromData({
   description,
   headingLevel = 1,
   onTableSelect,
-  onInsightSelect,
-  showInsights = true,
   onActivityChange,
 }: StartFromDataProps) {
   const headingId = useId();
@@ -68,8 +68,6 @@ export function StartFromData({
       <div className="mt-8">
         <DataPickerContent
           onTableSelect={onTableSelect}
-          onInsightSelect={onInsightSelect}
-          showInsights={showInsights}
           onActivityChange={onActivityChange}
         />
       </div>

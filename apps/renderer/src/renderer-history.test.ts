@@ -43,13 +43,13 @@ it("preserves the trusted packaged document while routing and reloading", () => 
   const trust = { dev: false, devUrl: "http://localhost:5173", productionFile };
   history.replace("/");
   history.flush();
-  history.push("/insights");
+  history.push("/drafts");
   history.flush();
-  expect(target.location.hash).toBe("#/insights");
+  expect(target.location.hash).toBe("#/drafts");
   expect(isTrustedRendererUrl(target.location.href, trust)).toBe(true);
   history.destroy();
   const reloaded = createRendererHistory(target);
-  expect(reloaded.location.pathname).toBe("/insights");
+  expect(reloaded.location.pathname).toBe("/drafts");
   expect(isTrustedRendererUrl(target.location.href, trust)).toBe(true);
   reloaded.destroy();
 });
@@ -57,9 +57,9 @@ it("preserves the trusted packaged document while routing and reloading", () => 
 it("keeps ordinary path navigation for the HTTP development renderer", () => {
   const target = browserWindow("http://localhost:5173/");
   const history = createRendererHistory(target);
-  history.push("/insights");
+  history.push("/drafts");
   history.flush();
-  expect(target.location.pathname).toBe("/insights");
+  expect(target.location.pathname).toBe("/drafts");
   expect(target.location.hash).toBe("");
   history.destroy();
 });

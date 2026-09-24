@@ -10,7 +10,7 @@ import {
 import {
   TABLE_CANVAS_VIEW,
   type InsightCanvasView,
-} from "@/lib/stores/insight-canvas-store";
+} from "@/lib/insights/canvas-view";
 import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
@@ -36,8 +36,6 @@ interface ReportChartTabProps {
   /** A new chart's tile is now on the report. */
   onLanded: (tabId: string) => void;
 }
-
-const ignoreViewChange = (_view: InsightCanvasView) => {};
 
 function CentreMessage({ children }: { children: string }) {
   return (
@@ -138,15 +136,13 @@ export function ReportChartTab({
     <InsightWorkbench
       insight={insight}
       view={view}
-      onViewChange={ignoreViewChange}
-      reportId={report.id}
       leftPaneNote={usedIn}
       missingTable={
         <CentreMessage>
           This chart's table is gone. It may have been deleted.
         </CentreMessage>
       }
-      header={() =>
+      header={
         visualization ? (
           <ChartNameInput
             key={visualization.id}

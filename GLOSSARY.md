@@ -24,7 +24,7 @@ A saved query: source, joins, fields, metrics, filters, sort, and viewer control
 
 Model: `Insight`
 
-Shipped copy still says **question** — the insights page, dashboard detail, and data-source pickers are entry points, not an inventory. Do not use “query” as the name of an insight in user-facing copy; definitions and code may still describe an insight as a saved query.
+Shipped copy still says **question** in a few places: the report list's counts and its empty state, a report's subtitle, and the report controls manager. That list is the full set of places, so check it before adding another. Do not use “query” as the name of an insight in user-facing copy; definitions and code may still describe an insight as a saved query.
 
 ### Field
 

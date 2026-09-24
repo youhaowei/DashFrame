@@ -22,6 +22,7 @@ import {
   reconcileNewChartTab,
   reportBottom,
   resolveChartTabs,
+  startNewChartTab,
   tabAfterClose,
   useChartWrites,
   useReportChartTabs,
@@ -295,31 +296,19 @@ export default function DashboardDetailContent({
   const startNewChart = async (tableId: string, tableName: string) => {
     if (startingChartRef.current) return null;
     startingChartRef.current = true;
-    // The tab is recorded before the create is sent: a reload in between
-    // leaves a tab to reconcile, never an insight nothing points at.
-    const insightId = crypto.randomUUID() as UUID;
-    const tabId = crypto.randomUUID();
-    openChartTab(dashboardId, { id: tabId, insightId, creating: true });
-    chartCreating.start(tabId);
-    const created = await createChartInsight(
-      tableId,
-      tableName,
-      insightId,
+    const tabId = await startNewChartTab(dashboardId, (insightId) =>
+      createChartInsight(tableId, tableName, insightId),
     ).finally(() => {
       startingChartRef.current = false;
     });
-    if (!created) {
-      chartCreating.finish(tabId);
-      closeStoredChartTab(dashboardId, tabId);
-      return null;
-    }
+    if (!tabId) return null;
     setIsChartPickerOpen(false);
     // Closed while it was being created: the reconcile effect discards it.
     const stillOpen = (
       useReportChartTabs.getState().tabsByReport[dashboardId] ?? []
     ).some((tab) => tab.id === tabId && !tab.closing);
     if (stillOpen) selectChart(tabId);
-    return insightId;
+    return tabId;
   };
 
   const visualizationById = useMemo(
@@ -538,7 +527,6 @@ export default function DashboardDetailContent({
       onClose={() => setIsChartPickerOpen(false)}
       title="New chart"
       onTableSelect={startNewChart}
-      showInsights={false}
     />
   );
 

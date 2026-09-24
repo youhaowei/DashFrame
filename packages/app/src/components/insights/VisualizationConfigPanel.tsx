@@ -3,11 +3,9 @@ import { useVisualizationEncodingChange } from "@/components/visualizations/useV
 import {
   extractColumnAliasComponents,
   fieldIdToColumnAlias,
-  formatAggregationLabel,
   getMetricDisplayLabel,
 } from "@dashframe/engine";
 import type {
-  ChartEncoding,
   ColumnAnalysis,
   CompiledInsight,
   DataFrameColumn,
@@ -63,7 +61,6 @@ interface VisualizationConfigPanelProps {
     visualization: Pick<Visualization, "visualizationType" | "encoding">,
     chartType: VisualizationType,
   ) => boolean;
-  activeSuggestionEncoding?: ChartEncoding;
   activeVisualization?: Visualization;
   compiledInsight: CompiledInsight;
   /** Color the chart takes from a pivoted field while its own color is unset. */
@@ -77,92 +74,12 @@ interface VisualizationConfigPanelProps {
   encodingsError?: boolean;
   onRetryEncodings?: () => void;
   onPendingVisualizationChange?: (pending: boolean) => void;
-  onSelectChartType: (chartType: VisualizationType) => void;
   updateVisualization: (args: {
     id: UUID;
     updates: Partial<
       Pick<Visualization, "visualizationType" | "encoding" | "spec">
     >;
   }) => Promise<unknown>;
-}
-
-function ReadOnlySlot({
-  label,
-  value,
-  className,
-}: {
-  label: string;
-  value?: string;
-  className?: string;
-}) {
-  return (
-    <div className={cn("min-w-0", className)}>
-      {label && (
-        <span className="mb-1 block text-[11px] text-neutral-fg-subtle">
-          {label}
-        </span>
-      )}
-      <div
-        className={cn(
-          "truncate rounded-md border border-neutral-border bg-neutral-bg-subtle px-2 py-1.5 text-xs",
-          !value && "border-dashed text-neutral-fg-subtle",
-        )}
-      >
-        {value || "None"}
-      </div>
-    </div>
-  );
-}
-
-function unwrapSuggestionValue(value: string): string {
-  const aggregate = value.match(
-    /^(?:sum|avg|count|min|max|count_distinct)\(([^)]+)\)$/i,
-  );
-  if (aggregate?.[1]) return aggregate[1];
-  const legacyDate = value.match(
-    /^(?:dateMonth|dateYear|dateDay|monthname|dayname|quarter)\(([^)]+)\)$/i,
-  );
-  if (legacyDate?.[1]) return legacyDate[1];
-  const dateTrunc = value.match(/^date_trunc\('[^']+',\s*"([^"]+)"\)$/i);
-  return (dateTrunc?.[1] ?? value).replace(/(?:^["'])|(?:["']$)/g, "");
-}
-
-export function getUnsavedEncodingLabel(
-  value: string | undefined,
-  fields: Field[],
-  metrics: CompiledInsight["metrics"],
-  columnDisplayNames: Record<string, string>,
-): string | undefined {
-  if (!value) return undefined;
-  const rawColumn = unwrapSuggestionValue(value);
-  const field = fields.find(
-    (candidate) =>
-      fieldIdToColumnAlias(candidate.id) === rawColumn ||
-      candidate.columnName === rawColumn ||
-      candidate.name === rawColumn,
-  );
-  const fieldLabel =
-    columnDisplayNames[rawColumn] ?? field?.name ?? "Unavailable field";
-  const aggregate = value.match(
-    /^(sum|avg|count|min|max|count_distinct)\(([^)]+)\)$/i,
-  );
-  if (!aggregate?.[1]) return fieldLabel;
-
-  const aggregation =
-    aggregate[1].toLowerCase() as (typeof metrics)[number]["aggregation"];
-  const metric = metrics.find(
-    (candidate) =>
-      candidate.aggregation === aggregation &&
-      (candidate.columnName === rawColumn ||
-        fields.some(
-          (candidateField) =>
-            candidateField.columnName === candidate.columnName &&
-            fieldIdToColumnAlias(candidateField.id) === rawColumn,
-        )),
-  );
-  return metric
-    ? getMetricDisplayLabel(metric, fields, columnDisplayNames)
-    : `${formatAggregationLabel(aggregation)} of ${fieldLabel}`;
 }
 
 /**
@@ -187,38 +104,6 @@ function EncodingMap({
       </div>
       <div className="ml-auto w-4/5 min-w-0">{x}</div>
     </div>
-  );
-}
-
-function UnsavedEncodings({
-  encoding,
-  fields,
-  metrics,
-  columnDisplayNames,
-}: {
-  encoding?: ChartEncoding;
-  fields: Field[];
-  metrics: CompiledInsight["metrics"];
-  columnDisplayNames: Record<string, string>;
-}) {
-  const label = (value: string | undefined) =>
-    getUnsavedEncodingLabel(value, fields, metrics, columnDisplayNames);
-  return (
-    <>
-      <EncodingMap
-        legend={
-          <>
-            <ReadOnlySlot label="Color" value={label(encoding?.color)} />
-            <ReadOnlySlot label="Size" value={label(encoding?.size)} />
-          </>
-        }
-        y={<ReadOnlySlot label="Y" value={label(encoding?.y)} />}
-        x={<ReadOnlySlot label="X" value={label(encoding?.x)} />}
-      />
-      <p className="mt-2 text-[11px] leading-4 text-neutral-fg-subtle">
-        Save this chart to edit its encodings.
-      </p>
-    </>
   );
 }
 
@@ -378,7 +263,6 @@ export function VisualizationConfigPanel({
   activeChartType,
   availableChartTypes,
   canChangeChartType,
-  activeSuggestionEncoding,
   activeVisualization,
   compiledInsight,
   pivotColor,
@@ -391,7 +275,6 @@ export function VisualizationConfigPanel({
   encodingsError = false,
   onRetryEncodings,
   onPendingVisualizationChange,
-  onSelectChartType,
   updateVisualization,
 }: VisualizationConfigPanelProps) {
   const {
@@ -427,11 +310,7 @@ export function VisualizationConfigPanel({
   };
   const selectedMetadata = CHART_TYPE_METADATA[activeChartType];
   const handleChartTypeChange = (chartType: VisualizationType) => {
-    if (!availableChartTypes.has(chartType)) return;
-    if (!activeVisualization) {
-      onSelectChartType(chartType);
-      return;
-    }
+    if (!activeVisualization || !availableChartTypes.has(chartType)) return;
     changeType(chartType).catch(() =>
       toast.error("Failed to update chart type"),
     );
@@ -486,14 +365,11 @@ export function VisualizationConfigPanel({
         onEncodingChange={handleEncodingChange}
       />
     );
-  } else {
+  } else if (activeVisualization) {
     encodingContent = (
-      <UnsavedEncodings
-        encoding={activeSuggestionEncoding}
-        fields={availableFields}
-        metrics={compiledInsight.metrics}
-        columnDisplayNames={columnDisplayNames}
-      />
+      <p className="text-[11px] leading-4 text-neutral-fg-subtle">
+        Loading encoding options…
+      </p>
     );
   }
 

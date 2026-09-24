@@ -65,7 +65,7 @@ const navItems: NavItem[] = [
     href: "/dashboards",
     description: "Build and view reports",
     icon: GridIcon,
-    activePrefixes: ["/dashboards", "/insights", "/visualizations"],
+    activePrefixes: ["/dashboards"],
   },
   {
     name: "Data Sources",

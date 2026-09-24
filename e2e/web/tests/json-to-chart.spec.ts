@@ -1,50 +1,25 @@
 /**
  * JSON to Chart Workflow
  *
- * Core user journey: Upload JSON -> Data-first Insight -> Save Chart View
+ * Core user journey: upload a JSON file on the home page -> a new report
+ * opens on a new chart of the file's table -> a field and a metric place the
+ * chart on the report.
  */
+import { buildCountChart, expectNewChartTab } from "../lib/chart-tab";
 import { expect, test } from "../lib/test-fixtures";
 
 test.describe("JSON to Chart", () => {
-  test("upload JSON and create suggested chart", async ({
+  test("upload JSON and build a chart on a new report", async ({
     page,
     homePage,
     uploadFile,
     waitForChart,
   }) => {
     await homePage();
-
-    // Upload JSON file
     await uploadFile("users_data.json");
 
-    // Verify redirect to insight page
-    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/, {
-      timeout: 15_000,
-    });
-
-    // Verify the insight opens data-first.
-    await expect(
-      page.getByRole("tab", { name: "Data", exact: true }),
-    ).toBeVisible({
-      timeout: 30_000,
-    });
-
-    // Switch to an ephemeral chart view, then save it as a Visualization.
-    // `exact: true` avoids matching "Horizontal bar" / "Hide sidebar", which
-    // both contain "bar" as a substring under Playwright's default name match.
-    await page.getByRole("tab", { name: "Chart", exact: true }).click();
-    await page.getByRole("button", { name: "Bar", exact: true }).click();
-    // "Save chart" appears once chart suggestions are computed (DuckDB init +
-    // column analysis run after the table loads), so allow a generous wait.
-    await expect(page.getByRole("button", { name: "Save chart" })).toBeVisible({
-      timeout: 30_000,
-    });
-    await page.getByRole("button", { name: "Save chart" }).click();
-
-    // Saving keeps the user on the insight canvas.
-    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
-
-    // Verify chart renders
+    await expectNewChartTab(page);
+    await buildCountChart(page, "department");
     await waitForChart();
   });
 
@@ -55,10 +30,7 @@ test.describe("JSON to Chart", () => {
   }) => {
     await homePage();
     await uploadFile("users_data.json");
-
-    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/, {
-      timeout: 15_000,
-    });
+    await expectNewChartTab(page);
 
     // users_data.json has 5 records
     await expect(page.getByText(/5 rows/).first()).toBeVisible({

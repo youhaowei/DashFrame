@@ -9,15 +9,14 @@ const { mockNavigate } = vi.hoisted(() => ({
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
+  // Opened from a chart tab in a report.
+  useParams: () => ({ dashboardId: "report-b" }),
+  useSearch: () => ({ chart: "chart-c" }),
 }));
 
 vi.mock("@/components/data-sources/DataPickerModal", () => ({
   DataPickerModal: (props: DataPickerModalProps) => (
     <div>
-      <span>{props.showInsights ? "insights enabled" : "tables only"}</span>
-      {props.onInsightSelect ? (
-        <button type="button">Choose insight</button>
-      ) : null}
       <button
         type="button"
         onClick={() => props.onTableSelect?.("table-b", "Table B")}
@@ -35,7 +34,7 @@ describe("JoinFlowModal", () => {
     mockNavigate.mockReset();
   });
 
-  it("offers only supported table targets and keeps report context", () => {
+  it("offers only table targets and returns to the report's chart tab", () => {
     const onOpenChange = vi.fn();
 
     render(
@@ -44,19 +43,15 @@ describe("JoinFlowModal", () => {
         dataTable={{ id: "table-a" } as DataTable}
         isOpen
         onOpenChange={onOpenChange}
-        reportId="report-b"
       />,
     );
-
-    expect(screen.getByText("tables only")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Choose insight" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Choose table" }));
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(mockNavigate).toHaveBeenCalledWith({
-      to: "/insights/insight-a/join/table-b",
-      search: { reportId: "report-b" },
+      to: "/dashboards/report-b/join/insight-a/table-b",
+      search: { chart: "chart-c" },
     });
   });
 });

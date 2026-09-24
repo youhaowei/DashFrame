@@ -51,13 +51,16 @@ import { runJoinSubmit } from "./join-preview-run";
 interface JoinConfigureContentProps {
   insightId: string;
   tableId: string;
-  reportId?: string;
+  reportId: string;
+  /** The chart tab the join started from, reopened when it is done. */
+  chartId?: string;
 }
 
-export function joinSourceQuestionLink(insightId: string, reportId?: string) {
+/** Back to the report, on the chart tab the join started from. */
+export function joinReturnLink(reportId: string, chartId?: string) {
   return {
-    to: `/insights/${insightId}`,
-    search: reportId ? { reportId } : {},
+    to: `/dashboards/${reportId}`,
+    search: chartId ? { chart: chartId } : {},
   } as const;
 }
 
@@ -139,8 +142,13 @@ export default function JoinConfigureContent({
   insightId,
   tableId: joinTableId,
   reportId,
+  chartId,
 }: JoinConfigureContentProps) {
   const navigate = useNavigate();
+  const backToReport = useCallback(
+    () => navigate(joinReturnLink(reportId, chartId) as never),
+    [chartId, navigate, reportId],
+  );
 
   const { data: allInsights, isLoading: isInsightsLoading } = queryStatus(
     useQuery({ query: api.app.listInsights, args: {} }),
@@ -454,8 +462,7 @@ export default function JoinConfigureContent({
         // which ensures we always show raw joined data (not aggregated data).
       },
       // Navigate back to the same insight only on success.
-      onSuccess: () =>
-        navigate(joinSourceQuestionLink(insightId, reportId) as never),
+      onSuccess: backToReport,
       setError,
       setSubmitting: setIsSubmitting,
     });
@@ -471,8 +478,7 @@ export default function JoinConfigureContent({
     insightId,
     commitBatch,
     previewResult,
-    navigate,
-    reportId,
+    backToReport,
     toConfigType,
   ]);
 
@@ -501,8 +507,8 @@ export default function JoinConfigureContent({
             The insight you&apos;re looking for doesn&apos;t exist.
           </p>
           <Button
-            label="Go to Questions"
-            onClick={() => navigate({ to: "/insights" })}
+            label="Back to the report"
+            onClick={backToReport}
             className="mt-4"
           />
         </Surface>
@@ -520,8 +526,8 @@ export default function JoinConfigureContent({
             The data table for this insight no longer exists.
           </p>
           <Button
-            label="Go to Questions"
-            onClick={() => navigate({ to: "/insights" })}
+            label="Back to the report"
+            onClick={backToReport}
             className="mt-4"
           />
         </Surface>
@@ -539,10 +545,8 @@ export default function JoinConfigureContent({
             The table you&apos;re trying to join with doesn&apos;t exist.
           </p>
           <Button
-            label="Back to Insight"
-            onClick={() =>
-              navigate(joinSourceQuestionLink(insightId, reportId) as never)
-            }
+            label="Back to the report"
+            onClick={backToReport}
             className="mt-4"
           />
         </Surface>
@@ -564,9 +568,7 @@ export default function JoinConfigureContent({
                 icon={ArrowLeftIcon}
                 label="Cancel"
                 size="sm"
-                onClick={() =>
-                  navigate(joinSourceQuestionLink(insightId, reportId) as never)
-                }
+                onClick={backToReport}
               />
               <div>
                 <h1 className="text-xl font-semibold">

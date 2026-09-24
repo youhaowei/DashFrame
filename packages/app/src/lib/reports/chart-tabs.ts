@@ -218,6 +218,30 @@ export const chartLanding = trackWrite("landing");
  */
 export const chartDiscards = new Set<string>();
 
+/**
+ * Starts a new chart as a tab of the report; the tab's id, for the report's
+ * URL, or `null` when its insight could not be created (already reported).
+ * The tab is recorded before `createInsight` sends anything, so a reload in
+ * between leaves a tab for the report to reconcile, never an insight nothing
+ * points at; and it is stored before the report opens on it, since a link to
+ * a chart the report does not know opens the report instead. The report marks
+ * it created once the insight is listed.
+ */
+export async function startNewChartTab(
+  reportId: string,
+  createInsight: (insightId: UUID) => Promise<unknown>,
+): Promise<string | null> {
+  const insightId = crypto.randomUUID() as UUID;
+  const tabId = crypto.randomUUID();
+  const tabs = useReportChartTabs.getState();
+  tabs.open(reportId, { id: tabId, insightId, creating: true });
+  chartCreating.start(tabId);
+  if (await createInsight(insightId)) return tabId;
+  chartCreating.finish(tabId);
+  tabs.close(reportId, tabId);
+  return null;
+}
+
 export type NewChartTabStep =
   /** Wait: a write is in flight, or the data to decide on has not loaded. */
   | "wait"

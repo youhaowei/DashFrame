@@ -26,11 +26,11 @@ vi.mock("@/components/insights/InsightWorkbench", () => ({
     leftPaneNote,
   }: {
     view: { kind: string };
-    header: (context: unknown) => ReactNode;
+    header: ReactNode;
     leftPaneNote?: ReactNode;
   }) => (
     <div data-testid="workbench" data-view={view.kind}>
-      <header>{header({})}</header>
+      <header>{header}</header>
       {leftPaneNote && <p>{leftPaneNote}</p>}
     </div>
   ),

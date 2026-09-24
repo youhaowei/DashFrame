@@ -47,7 +47,7 @@ const {
   mockListPostgresTables,
   mockPrepareRemoteDataTable,
   mockInitialFetch,
-  mockCreateInsightFromTable,
+  mockStartChart,
   mockNavigate,
 } = vi.hoisted(() => ({
   mockUseDataSources: vi.fn(),
@@ -62,7 +62,7 @@ const {
   mockListPostgresTables: vi.fn(),
   mockPrepareRemoteDataTable: vi.fn(),
   mockInitialFetch: vi.fn(),
-  mockCreateInsightFromTable: vi.fn(),
+  mockStartChart: vi.fn(),
   mockNavigate: vi.fn(),
 }));
 
@@ -97,10 +97,34 @@ vi.mock("@/data/host", () => ({
   }),
 }));
 
-vi.mock("@/hooks/useCreateInsight", () => ({
-  useCreateInsight: () => ({
-    createInsightFromTable: mockCreateInsightFromTable,
-  }),
+vi.mock("@/hooks/useOpenChartInReport", () => ({
+  useOpenChartInReport: () => ({ startChart: mockStartChart }),
+}));
+
+// The picker's report list is covered on its own; here it offers a new report.
+vi.mock("@/components/dashboards/ReportPickerDialog", () => ({
+  ReportPickerDialog: ({
+    isOpen,
+    title,
+    busy,
+    onPick,
+  }: {
+    isOpen: boolean;
+    title: string;
+    busy?: boolean;
+    onPick: (target: { kind: "new" }) => void;
+  }) =>
+    isOpen ? (
+      <div role="dialog" aria-label={title}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onPick({ kind: "new" })}
+        >
+          New report
+        </button>
+      </div>
+    ) : null,
 }));
 
 vi.mock("@/hooks/useDataFrameData", () => ({
@@ -389,7 +413,7 @@ beforeEach(() => {
   mockCommitBatch.mockResolvedValue({ results: [] });
   mockUseDataFrames.mockReturnValue({ data: [{ id: FRAME_ID, rowCount: 3 }] });
   mockUseDataFrameData.mockReturnValue(previewResult());
-  mockCreateInsightFromTable.mockResolvedValue("insight-1");
+  mockStartChart.mockResolvedValue(true);
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -578,72 +602,61 @@ describe("DataSourcePageContent — table actions", () => {
     );
   });
 
-  it("starts a report and opens the table's question in that report", async () => {
+  it("asks which report, then starts a chart on the table there", async () => {
     givenSource(FILE_SOURCE, [ORDERS]);
     render(<Page />);
 
     await act(async () =>
       fireEvent.click(screen.getByRole("button", { name: "Start a report" })),
     );
-
-    const [{ commands }] = mockCommitBatch.mock.calls[0];
-    expect(commands).toEqual([
-      {
-        path: "createDashboardCmd",
-        args: { id: expect.any(String), name: "Untitled report" },
-      },
-    ]);
-    expect(mockCreateInsightFromTable).toHaveBeenCalledWith(
-      "table-orders",
-      "Orders",
-      { visualize: true, reportId: commands[0].args.id },
+    const picker = screen.getByRole("dialog", { name: "Chart Orders" });
+    await act(async () =>
+      fireEvent.click(
+        within(picker).getByRole("button", { name: "New report" }),
+      ),
     );
+
+    expect(mockStartChart).toHaveBeenCalledWith(
+      { kind: "new" },
+      expect.objectContaining({ id: "table-orders", name: "Orders" }),
+    );
+    expect(screen.queryByRole("dialog", { name: "Chart Orders" })).toBeNull();
   });
 
-  it("removes the new report again when its question cannot be opened", async () => {
+  it("keeps the picker open when the chart cannot start", async () => {
     givenSource(FILE_SOURCE, [ORDERS]);
-    mockCreateInsightFromTable.mockResolvedValue(null);
+    mockStartChart.mockResolvedValue(false);
     render(<Page />);
 
     await act(async () =>
       fireEvent.click(screen.getByRole("button", { name: "Start a report" })),
     );
+    await act(async () =>
+      fireEvent.click(screen.getByRole("button", { name: "New report" })),
+    );
 
-    const reportId = mockCommitBatch.mock.calls[0][0].commands[0].args.id;
-    expect(mockCommitBatch).toHaveBeenLastCalledWith({
-      commands: [{ path: "deleteNode", args: { id: reportId } }],
-    });
+    screen.getByRole("dialog", { name: "Chart Orders" });
   });
 
-  it("starts one report however often the button is pressed while it works", async () => {
+  it("starts one chart however often a report is picked while it works", async () => {
     givenSource(FILE_SOURCE, [ORDERS]);
-    let openQuestion: (id: string) => void = () => {};
-    mockCreateInsightFromTable.mockReturnValue(
+    let finish: (ok: boolean) => void = () => {};
+    mockStartChart.mockReturnValue(
       new Promise((resolve) => {
-        openQuestion = resolve;
+        finish = resolve;
       }),
     );
     render(<Page />);
 
-    const start = screen.getByRole("button", { name: "Start a report" });
-    await act(async () => fireEvent.click(start));
-    await act(async () => fireEvent.click(start));
-    await act(async () => openQuestion("insight-1"));
-
-    expect(mockCommitBatch).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not open a question when the report cannot be created", async () => {
-    givenSource(FILE_SOURCE, [ORDERS]);
-    mockCommitBatch.mockRejectedValue(new Error("write failed"));
-    render(<Page />);
-
     await act(async () =>
       fireEvent.click(screen.getByRole("button", { name: "Start a report" })),
     );
+    const pick = screen.getByRole("button", { name: "New report" });
+    await act(async () => fireEvent.click(pick));
+    await act(async () => fireEvent.click(pick));
+    await act(async () => finish(true));
 
-    expect(mockToastError).toHaveBeenCalledWith("Couldn't start a report");
-    expect(mockCreateInsightFromTable).not.toHaveBeenCalled();
+    expect(mockStartChart).toHaveBeenCalledTimes(1);
   });
 
   it("deletes the open table only after confirmation", async () => {

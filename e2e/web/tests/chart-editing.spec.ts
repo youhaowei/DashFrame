@@ -1,120 +1,71 @@
 /**
  * Chart Editing Tests
  *
- * Tests for saving a chart and editing its type in place
+ * A chart on a report is edited in its own tab of that report: changing its
+ * type edits the saved chart in place.
  */
+import { buildCountChart, expectNewChartTab } from "../lib/chart-tab";
+import { query } from "../lib/native-api";
 import { expect, test } from "../lib/test-fixtures";
+
+const CHART_TAB = "Count by Product";
 
 test.describe("Chart Editing", () => {
   test.beforeEach(async ({ page, homePage, uploadFile }) => {
-    // Setup: Create an insight first
+    // Setup: a report holding one chart, open in its tab.
     await homePage();
     await uploadFile("sales_data.csv");
-
-    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/, {
-      timeout: 15_000,
-    });
-
-    // Start from the data canvas and save one chart view.
-    await expect(
-      page.getByRole("tab", { name: "Data", exact: true }),
-    ).toBeVisible({
-      timeout: 30_000,
-    });
-    await page.getByRole("tab", { name: "Chart", exact: true }).click();
-    // `exact: true` disambiguates against the view switcher's other buttons —
-    // "Horizontal bar" and "Hide sidebar" both contain "bar" as a substring,
-    // which Playwright's default (non-exact) name matching would also match.
-    await page.getByRole("button", { name: "Bar", exact: true }).click();
-    // "Save chart" appears once chart suggestions are computed (DuckDB init +
-    // column analysis run after the table loads), so allow a generous wait.
-    await expect(page.getByRole("button", { name: "Save chart" })).toBeVisible({
-      timeout: 30_000,
-    });
-    await page.getByRole("button", { name: "Save chart" }).click();
-    // The preview already renders before save completes. Wait for the saved
-    // state (Save chart gives way to the saved view) so a later Data click
-    // cannot race the save callback selecting it.
-    await expect(
-      page.getByRole("button", { name: "Save chart" }),
-    ).not.toBeVisible({ timeout: 10_000 });
-    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/);
+    await expectNewChartTab(page);
+    await buildCountChart(page, "Product");
   });
 
   test("can switch between chart types", async ({ page, waitForChart }) => {
-    // Wait for initial pinned chart.
     await waitForChart();
 
-    // Saving wrote the chart's config (Product + sum(Quantity)) into the
-    // insight, so the table view now runs query mode: 4 distinct products
-    // grouped from the 5 source rows, dimension + metric = 2 fields.
-    // Saving opened the new chart's own tab; note its name before leaving it.
-    const savedChartName =
-      (await page.getByRole("tab", { selected: true }).textContent()) ?? "";
-    expect(savedChartName).not.toBe("");
-    await page.getByRole("tab", { name: "Data", exact: true }).click();
-    await expect(page.getByText("4 rows • 2 fields")).toBeVisible();
-
-    // Reopening the saved chart from its tab and changing its type edits that
-    // chart in place: no "Save chart" offer and no second saved chart.
-    await page.getByRole("tab", { name: savedChartName, exact: true }).click();
-    // The saved encoding is category + metric, so only chart types compatible
-    // with that result are offered. Switching bar orientation exercises the
+    // The chart is category + metric, so only chart types compatible with
+    // that result are offered. Switching bar orientation exercises the
     // persisted type and encoding swap in both directions.
     for (const chartType of ["Horizontal bar", "Bar"]) {
       const tile = page.getByRole("button", { name: chartType, exact: true });
       await tile.click();
       await expect(tile).toHaveAttribute("aria-pressed", "true");
-      await expect(
-        page.getByRole("button", { name: "Save chart" }),
-      ).not.toBeVisible();
       await waitForChart();
     }
 
-    // Editing in place kept one saved chart: the canvas tabs are Data, that
-    // chart, and the new-chart slot.
-    await expect(page.getByRole("tab")).toHaveCount(3);
+    // Editing in place kept one saved chart.
+    await expect
+      .poll(
+        async () => (await query<unknown[]>("listVisualizations", {})).length,
+      )
+      .toBe(1);
   });
 
-  test("keeps an unsaved chart when switching canvas tabs", async ({
+  test("keeps the chart's tab and its edits across a reload", async ({
     page,
     waitForChart,
   }) => {
     await waitForChart();
-
-    await page.getByRole("tab", { name: "Chart", exact: true }).click();
-    await page.getByRole("button", { name: "Line", exact: true }).click();
-    await expect(
-      page.getByRole("button", { name: "Line", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-
-    // The active draft view is persisted. Reloading remounts the workbench,
-    // so the tab has to be reconstructed before it can be kept while inactive.
-    await page.reload();
-    await expect(
-      page.getByRole("tab", { name: "Untitled chart", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
-    await expect(
-      page.getByRole("button", { name: "Line", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-
-    await page.getByRole("tab", { name: "Data", exact: true }).click();
-    await page.reload();
-    await expect(
-      page.getByRole("tab", { name: "Data", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
-    const draftTab = page.getByRole("tab", {
-      name: "Untitled chart",
+    const horizontal = page.getByRole("button", {
+      name: "Horizontal bar",
       exact: true,
     });
-    await expect(draftTab).toBeVisible();
-    await draftTab.click();
+    await horizontal.click();
+    await expect(horizontal).toHaveAttribute("aria-pressed", "true");
+
+    // The report's tab and the chart's tab both survive a reload; the URL
+    // names the one that is active.
+    await page
+      .getByRole("tab", { name: "Untitled report", exact: true })
+      .click();
+    await page.reload();
+    const chartTab = page.getByRole("tab", { name: CHART_TAB, exact: true });
+    await expect(chartTab).toBeVisible({ timeout: 15_000 });
+    await chartTab.click();
+    await expect(page).toHaveURL(/\?chart=/);
 
     await expect(
-      page.getByRole("button", { name: "Line", exact: true }),
-    ).toHaveAttribute("aria-pressed", "true");
-    await expect(
-      page.getByRole("button", { name: "Save chart" }),
-    ).toBeVisible();
+      page.getByRole("button", { name: "Horizontal bar", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true", { timeout: 15_000 });
+    await waitForChart();
   });
 });

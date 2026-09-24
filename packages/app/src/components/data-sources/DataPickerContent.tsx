@@ -25,7 +25,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddConnectionPanel } from "./AddConnectionPanel";
 import { DataSourceList, type DataSourceInfo } from "./DataSourceList";
 import { DataTableList } from "./DataTableList";
-import { InsightList, type InsightDisplayInfo } from "./InsightList";
 import {
   RemoteImportUserError,
   RemoteResourceList,
@@ -61,21 +60,14 @@ function requestFileTableReplacement(
 
 export interface DataPickerContentProps {
   /**
-   * Called when an existing insight is selected.
-   * If not provided, the insights section is hidden.
-   */
-  onInsightSelect?: (insightId: string, insightName: string) => void;
-  /**
-   * Called when a table is selected (existing or newly uploaded)
+   * Called when a table is selected (existing or newly uploaded). Resolve
+   * to `null` when the selection failed and the caller already reported it;
+   * any other value, including `false` or `undefined`, counts as success.
    */
   onTableSelect: (
     tableId: string,
     tableName: string,
   ) => void | Promise<unknown>;
-  /**
-   * Exclude specific insight IDs from selection
-   */
-  excludeInsightIds?: string[];
   /**
    * Exclude specific table IDs from selection
    */
@@ -84,11 +76,6 @@ export interface DataPickerContentProps {
    * Optional cancel button handler
    */
   onCancel?: () => void;
-  /**
-   * Whether to show insights section (requires onInsightSelect to be provided)
-   * @default true
-   */
-  showInsights?: boolean;
   /**
    * Whether to show existing data sources (the "Start from Raw Data" section
    * and its table drill-down). Set false for a connect-only dialog.
@@ -112,22 +99,18 @@ interface RemoteResourceState {
 }
 
 /**
- * Reusable data picker content for selecting insights or tables.
+ * Reusable data picker content for selecting a table.
  *
- * Supports three selection modes:
- * 1. Existing Insights - insights with computed DataFrames for chaining
- * 2. Raw Tables - from data sources (two-level hierarchy)
- * 3. New data upload - via connector pattern (CSV, Notion, etc.)
+ * Supports two selection modes:
+ * 1. Raw Tables - from data sources (two-level hierarchy)
+ * 2. New data upload - via connector pattern (CSV, Notion, etc.)
  *
  * Shared by several flows; find the consumers by its call sites.
  */
 export function DataPickerContent({
-  onInsightSelect,
   onTableSelect,
-  excludeInsightIds = [],
   excludeTableIds = [],
   onCancel,
-  showInsights = true,
   showSources = true,
   onActivityChange,
   connectorSourceTypes,
@@ -142,12 +125,6 @@ export function DataPickerContent({
   );
   const { data: allDataTables = [], isLoading: isLoadingDataTables } =
     dataTablesQuery;
-  const { data: allInsights = [] } = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
-  );
-  const { data: dataFrames = [] } = queryStatus(
-    useQuery({ query: api.app.listDataFrames, args: {} }),
-  );
   const commitBatch = useMutation(api.app.commitBatch);
   const { mutateAsync: listNotionDatabasesMutation } = useHostMutation(
     "listNotionDatabases",
@@ -237,7 +214,7 @@ export function DataPickerContent({
       const selection = await onTableSelect(tableId, resource.title);
       if (selection === null) {
         throw new RemoteImportUserError(
-          "Couldn't create a question from the imported table. Try again.",
+          "Couldn't open the imported table. Try again.",
         );
       }
     },
@@ -277,38 +254,6 @@ export function DataPickerContent({
       isRemoteResourceImported,
       remoteResourceState,
     ],
-  );
-
-  // Build DataFrame lookup by insight ID
-  const dataFrameByInsightId = useMemo(() => {
-    return new Map(
-      dataFrames.filter((df) => df.insightId).map((df) => [df.insightId!, df]),
-    );
-  }, [dataFrames]);
-
-  // Filter and transform insights for display
-  const insightsForDisplay: InsightDisplayInfo[] = useMemo(() => {
-    return allInsights
-      .filter((insight) => {
-        // Exclude specified IDs
-        if (excludeInsightIds.includes(insight.id)) return false;
-        // Only show insights with computed data (have a DataFrame)
-        return dataFrameByInsightId.has(insight.id);
-      })
-      .map((insight) => ({
-        id: insight.id,
-        name: insight.name,
-        metricCount: insight.metrics?.length || 0,
-        rowCount: dataFrameByInsightId.get(insight.id)?.rowCount,
-      }));
-  }, [allInsights, excludeInsightIds, dataFrameByInsightId]);
-
-  // Handle insight click
-  const handleInsightClick = useCallback(
-    (insightId: string, insightName: string) => {
-      onInsightSelect?.(insightId, insightName);
-    },
-    [onInsightSelect],
   );
 
   // Handle table click
@@ -399,15 +344,13 @@ export function DataPickerContent({
 
         const tableName = file.name.replace(FILE_TABLE_NAME_EXTENSION, "");
         // Ingestion has persisted the source/table, so keep HomePage's
-        // onboarding hold until question creation is confirmed. The callback's
+        // onboarding hold until the chart has started. The callback's
         // void contract makes `undefined` a success; `null` explicitly means
         // the caller caught a creation failure.
         retainOnboardingActivityRef.current = true;
         const selection = await onTableSelect(dataTableId, tableName);
         if (selection === null) {
-          throw new Error(
-            "Couldn't create a question from the imported table. Try again.",
-          );
+          throw new Error("Couldn't open the imported table. Try again.");
         }
         retainOnboardingActivityRef.current = false;
       } catch (err) {
@@ -511,23 +454,11 @@ export function DataPickerContent({
     [listGa4PropertiesMutation],
   );
 
-  const hasInsights =
-    showInsights && insightsForDisplay.length > 0 && onInsightSelect;
   const hasDataSources = dataSourcesInfo.length > 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto pr-2">
-        {/* Section: Existing Insights (only if they have DataFrames) */}
-        {hasInsights && !selectedSourceId && (
-          <SectionList title="Use Existing Insight">
-            <InsightList
-              insights={insightsForDisplay}
-              onInsightClick={handleInsightClick}
-            />
-          </SectionList>
-        )}
-
         {/* Section: Data Sources (Level 1) */}
         {!selectedSourceId && showSources && hasDataSources && (
           <SectionList title="Start from Raw Data">

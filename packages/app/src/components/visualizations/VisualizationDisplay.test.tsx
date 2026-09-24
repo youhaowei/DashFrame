@@ -139,27 +139,6 @@ vi.mock("@wystack/ui-react", () => ({
   Toggle: () => <div data-testid="view-toggle" />,
 }));
 
-vi.mock("@tanstack/react-router", () => ({
-  Link: ({
-    to,
-    params,
-    search,
-    children,
-  }: {
-    to: string;
-    params: Record<string, string>;
-    search: Record<string, unknown>;
-    children: React.ReactNode;
-  }) => (
-    <a
-      href={to.replace("$insightId", params.insightId ?? "")}
-      data-report-id={String(search.reportId)}
-    >
-      {children}
-    </a>
-  ),
-}));
-
 vi.mock("@wystack/ui-react/icons", () => ({
   ChartIcon: () => null,
   LayersIcon: () => null,
@@ -558,14 +537,14 @@ describe("VisualizationDisplay — report tile", () => {
     expect(screen.queryByText(/rows •/)).toBeNull();
   });
 
-  it("names the question a tile came from, scoped to the report", async () => {
+  it("names the question a tile came from", async () => {
     render(
       <VisualizationDisplay visualizationId="viz-1" reportId="report-a" />,
     );
 
-    const source = await screen.findByRole("link", { name: insight.name });
-    expect(source.getAttribute("href")).toBe(`/insights/${insight.id}`);
-    expect(source.getAttribute("data-report-id")).toBe("report-a");
+    await screen.findByText(`from ${insight.name}`);
+    // Charts are edited from the tile's Edit chart, not by leaving the report.
+    expect(screen.queryByRole("link", { name: insight.name })).toBeNull();
   });
 
   it("says a tile's saved view was deleted instead of loading forever", async () => {

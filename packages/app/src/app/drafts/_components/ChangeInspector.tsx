@@ -44,6 +44,8 @@ export interface ChangeInspectorProps {
   busy: boolean;
   /** Takes one command out of the draft. */
   onRemoveStep: (commandIndex: number) => Promise<boolean>;
+  /** Opens the changed artifact where it is edited, when it can be. */
+  openAction?: ReactNode;
 }
 
 /**
@@ -54,6 +56,7 @@ export function ChangeInspector({
   change,
   busy,
   onRemoveStep,
+  openAction,
 }: ChangeInspectorProps) {
   const [confirming, setConfirming] = useState<number | null>(null);
   const details = change.type === "node" ? getChangeDetails(change.node) : [];
@@ -78,6 +81,7 @@ export function ChangeInspector({
                   {CHANGE_LABELS[change.node.change]}
                 </Badge>
               </span>
+              {openAction && <span className="mt-2 block">{openAction}</span>}
             </Row>
           ) : (
             <Row label="Status">

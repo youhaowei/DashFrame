@@ -7,4 +7,3 @@ export { DataSourceDisplay } from "./DataSourceDisplay";
 export { DataSourceList } from "./DataSourceList";
 export { DataSourceSelector } from "./DataSourceSelector";
 export { DataTableList } from "./DataTableList";
-export { InsightList } from "./InsightList";

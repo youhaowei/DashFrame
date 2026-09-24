@@ -1,9 +1,7 @@
 // Core visualization components
-export { CreateVisualizationModal } from "./CreateVisualizationModal";
 export { DateTransformPicker } from "./DateTransformPicker";
 export { JoinFlowModal } from "./JoinFlowModal";
 export { VisualizationDisplay } from "./VisualizationDisplay";
-export { VisualizationItemCard } from "./VisualizationItemCard";
 export { VisualizationPreview } from "./VisualizationPreview";
 
 // Re-export VirtualTable from @dashframe/ui for backward compatibility
