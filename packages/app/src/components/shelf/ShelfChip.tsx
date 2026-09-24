@@ -62,7 +62,7 @@ export function ShelfChip({
   const reveal =
     "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100";
   const rowButton =
-    "grid h-5 w-5 shrink-0 place-items-center rounded text-neutral-fg-subtle transition-opacity motion-reduce:transition-none hover:bg-neutral-bg-emphasis hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none";
+    "grid h-5 w-5 shrink-0 place-items-center rounded text-neutral-fg-subtle transition-opacity motion-reduce:transition-none hover:bg-neutral-fg/[0.06] hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none";
 
   // Set like a nav row: flat, icon and label on one line, a light tonal fill
   // on hover, and its pin and × revealed on hover or focus.
@@ -73,7 +73,7 @@ export function ShelfChip({
       data-shelf-item={state.label}
       data-shelf-kind={item.kind}
       className={cn(
-        "group flex min-h-7 list-none items-center gap-2 rounded-md px-2 py-1 text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:bg-neutral-bg-subtle hover:text-neutral-fg focus-within:bg-neutral-bg-subtle",
+        "group flex min-h-7 list-none items-center gap-2 rounded-md px-2 py-1 text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:bg-neutral-fg/[0.035] hover:text-neutral-fg focus-within:bg-neutral-fg/[0.035]",
         missing ? "cursor-default" : "cursor-grab touch-none",
         isDragging && "opacity-40",
       )}

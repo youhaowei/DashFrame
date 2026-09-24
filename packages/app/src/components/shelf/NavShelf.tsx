@@ -148,7 +148,8 @@ export function ShelfPanel({
       data-shelf-drop={dropState(offered, over)}
       className={cn(
         "rounded-lg text-xs outline-1 outline-offset-2 outline-transparent transition-[outline-color,background-color] duration-150 motion-reduce:transition-none",
-        offered && "bg-neutral-bg-subtle outline-dashed outline-neutral-border",
+        offered &&
+          "bg-neutral-fg/[0.035] outline-dashed outline-neutral-border",
         over && "outline-palette-primary",
         className,
       )}
@@ -239,7 +240,7 @@ function HeaderRow({
       aria-controls={controls}
       aria-label={shelfCountLabel(count)}
       onClick={onToggle}
-      className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:bg-neutral-bg-subtle hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+      className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:bg-neutral-fg/[0.035] hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
     >
       {content}
       <ChevronDownIcon
@@ -273,7 +274,7 @@ function ElsewhereRow({
         aria-expanded={expanded}
         aria-controls={controls}
         onClick={onToggle}
-        className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[11px] text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:bg-neutral-bg-subtle hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+        className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[11px] text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:bg-neutral-fg/[0.035] hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
       >
         <span>Not for this page · {items.length}</span>
         <ChevronDownIcon
