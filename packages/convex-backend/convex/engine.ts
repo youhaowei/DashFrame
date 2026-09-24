@@ -771,6 +771,8 @@ async function run(
     await graph.get("dataSources", id(a.dataSourceId, "dataSourceId"));
     if (a.dataFrameId) await graph.get("dataFrames", id(a.dataFrameId));
     const state = clean(parseStoredDataTableState(a, "CreateDataTable"));
+    for (const metric of state.metrics)
+      validateMetric(metric as unknown as ObjectValue, false);
     return await create("dataTables", {
       dataSourceId: id(a.dataSourceId),
       refreshRevision: crypto.randomUUID(),

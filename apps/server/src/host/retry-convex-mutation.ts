@@ -1,11 +1,10 @@
 /** Retry the brief 429 window while a Convex deployment becomes available. */
-export async function retryConvexMutation(
-  run: () => Promise<unknown>,
-): Promise<void> {
+export async function retryConvexMutation<T>(
+  run: () => Promise<T>,
+): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
-      await run();
-      return;
+      return await run();
     } catch (error) {
       if (
         attempt >= 5 ||

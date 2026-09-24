@@ -225,11 +225,21 @@ export async function createHostedServerSurface(options: {
         let recovery = recovered.get(resources);
         if (!recovery) {
           recovery = Promise.all([
-            retryConvexMutation(() =>
-              metadata.repairGa4MeasureContracts({}),
-            ).catch((error) =>
-              console.error("Failed to repair GA4 measure contracts", error),
-            ),
+            retryConvexMutation(() => metadata.repairGa4MeasureContracts({}))
+              .then(({ tablesRepaired, insightsRepaired }) => {
+                if (tablesRepaired === 0 && insightsRepaired === 0) return;
+                console.info("Repaired GA4 measure contracts", {
+                  workspaceId,
+                  tablesRepaired,
+                  insightsRepaired,
+                });
+              })
+              .catch((error) =>
+                console.error(
+                  "GA4 measure contract repair was refused or failed",
+                  error,
+                ),
+              ),
             hosted.cleanup
               .recoverPendingBatches()
               .then(() => hosted.cleanup.run()),

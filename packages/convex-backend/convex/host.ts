@@ -43,6 +43,12 @@ import type {
 import { parseStoredDataTableState } from "./tableCodec";
 const workspace = { workspaceId: v.string() };
 const GA4_REPAIR_LIMIT = 10_000;
+// Keep this map aligned with DIMENSION_SCOPES in connector-ga4/src/metadata.ts.
+const GA4_FIELD_SCOPES = {
+  date: "time",
+  yearWeek: "time",
+  sessionDefaultChannelGroup: "session",
+} as const;
 /**
  * Bound the frames a data table accumulates across refreshes: keep the frame
  * the table now points at and the one it pointed at before (one-step rollback,
@@ -184,23 +190,37 @@ export const repairGa4MeasureContracts = internalMutation({
       for (const table of tables) {
         ga4TableIds.add(table.id);
         let changed = false;
+        const fields = (table.fields ?? []).map((field) => {
+          const columnName = field.columnName;
+          const scope =
+            typeof columnName === "string"
+              ? GA4_FIELD_SCOPES[columnName as keyof typeof GA4_FIELD_SCOPES]
+              : undefined;
+          if (field.scope !== undefined || scope === undefined) return field;
+          changed = true;
+          return { ...field, scope };
+        });
         const metrics = (table.metrics ?? []).map((metric) => {
           if (
             metric.columnName !== "activeUsers" ||
-            metric.name !== "Sum of Active users"
+            metric.aggregation !== "sum" ||
+            metric.expression !== undefined ||
+            metric.contract !== undefined
           )
             return metric;
           changed = true;
           return {
             ...metric,
-            name: "Active users",
+            ...(metric.name === "Sum of Active users"
+              ? { name: "Active users" }
+              : {}),
             contract: { kind: "non-additive" },
           };
         });
         if (!changed) continue;
         try {
           parseStoredDataTableState(
-            { ...table, metrics },
+            { ...table, fields, metrics },
             "GA4 measure repair",
           );
         } catch (error) {
@@ -208,6 +228,7 @@ export const repairGa4MeasureContracts = internalMutation({
           continue;
         }
         await ctx.db.patch(table._id, {
+          fields,
           metrics,
           revision: table.revision + 1,
           // Saved measure edits invalidate imported data; this metadata-only
@@ -240,12 +261,16 @@ export const repairGa4MeasureContracts = internalMutation({
           if (
             !ga4TableIds.has(String(metric.sourceTable)) ||
             metric.columnName !== "activeUsers" ||
-            metric.name !== "Sum of Active users"
+            metric.aggregation !== "sum" ||
+            metric.expression !== undefined ||
+            metric.contract !== undefined
           )
             return metric;
           const repaired = {
             ...metric,
-            name: "Active users",
+            ...(metric.name === "Sum of Active users"
+              ? { name: "Active users" }
+              : {}),
             contract: { kind: "non-additive" },
           } satisfies ObjectValue;
           validateMetric(repaired, true);

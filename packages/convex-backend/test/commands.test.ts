@@ -5057,6 +5057,32 @@ describe("existing command behavior on native Convex", () => {
     const [row] = await tablesById(tableId);
     expect(row?.metrics).toEqual([]);
   });
+  it("rejects a ratio measure without an expression in CreateDataTable", async () => {
+    const sourceId = id();
+    const tableId = id();
+
+    await expect(
+      commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+          metrics: [
+            {
+              id: id(),
+              name: "Broken ratio",
+              tableId,
+              aggregation: "sum",
+              columnName: "value",
+              contract: { kind: "ratio" },
+            },
+          ],
+        }),
+      ),
+    ).rejects.toThrow("Ratio measures require an expression");
+  });
   it("should reject a corrupt source arg in CreateInsight with a clear validation error (not a crash)", async () => {
     const { tableId } = await makeTable();
 
