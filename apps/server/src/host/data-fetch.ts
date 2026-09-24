@@ -5,6 +5,7 @@ import type {
   InsightFetchResult,
   InsightPresentation,
   InsightRuntimeInput,
+  MeasureContract,
   MeasureExpression,
   UUID,
 } from "@dashframe/types";
@@ -12,7 +13,9 @@ import { reportingSchema } from "@dashframe/convex-backend/codecs";
 import {
   AGGREGATIONS,
   fixedRuntimeIds,
+  isMeasureContract,
   isMeasureExpression,
+  measureContractProblem,
 } from "@dashframe/types";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -86,48 +89,58 @@ const definitionSchema = z
     selectedFields: z.array(z.string().min(1)),
     reporting: reportingSchema.optional(),
     metrics: z.array(
-      z.object({
-        id: z.string(),
-        name: z.string(),
-        sourceTable: z.string(),
-        columnName: z.string().optional(),
-        expression: z.custom<MeasureExpression>(isMeasureExpression).optional(),
-        filters: z
-          .array(
-            filterSchema.extend({
-              value: z.union([
-                z.string(),
-                z.number().finite(),
-                z.boolean(),
-                z.null(),
-                z.array(
-                  z.union([
-                    z.string(),
-                    z.number().finite(),
-                    z.boolean(),
-                    z.null(),
-                  ]),
-                ),
-                z.object({
-                  low: z.union([z.string(), z.number().finite()]),
-                  high: z.union([z.string(), z.number().finite()]),
-                }),
-              ]),
-            }),
-          )
-          .optional(),
-        format: z
-          .object({
-            style: z.enum(["number", "currency", "percent"]),
-            decimals: z.number().int().min(0).max(20).optional(),
-            currency: z
-              .string()
-              .regex(/^[A-Z]{3}$/)
-              .optional(),
-          })
-          .optional(),
-        aggregation: z.enum(AGGREGATIONS),
-      }),
+      z
+        .object({
+          id: z.string(),
+          name: z.string(),
+          sourceTable: z.string(),
+          columnName: z.string().optional(),
+          expression: z
+            .custom<MeasureExpression>(isMeasureExpression)
+            .optional(),
+          // The same contract a saved metric carries, so a preview aggregates
+          // the way the saved chart will.
+          contract: z.custom<MeasureContract>(isMeasureContract).optional(),
+          filters: z
+            .array(
+              filterSchema.extend({
+                value: z.union([
+                  z.string(),
+                  z.number().finite(),
+                  z.boolean(),
+                  z.null(),
+                  z.array(
+                    z.union([
+                      z.string(),
+                      z.number().finite(),
+                      z.boolean(),
+                      z.null(),
+                    ]),
+                  ),
+                  z.object({
+                    low: z.union([z.string(), z.number().finite()]),
+                    high: z.union([z.string(), z.number().finite()]),
+                  }),
+                ]),
+              }),
+            )
+            .optional(),
+          format: z
+            .object({
+              style: z.enum(["number", "currency", "percent"]),
+              decimals: z.number().int().min(0).max(20).optional(),
+              currency: z
+                .string()
+                .regex(/^[A-Z]{3}$/)
+                .optional(),
+            })
+            .optional(),
+          aggregation: z.enum(AGGREGATIONS),
+        })
+        .superRefine((metric, ctx) => {
+          const problem = measureContractProblem(metric);
+          if (problem) ctx.addIssue({ code: "custom", message: problem });
+        }),
     ),
     filters: z.array(filterSchema).optional(),
     sorts: z

@@ -13,6 +13,8 @@ import {
 } from "./data-fetch";
 import type { HostContext } from "./context";
 import { PublishedSourceMaterializationError } from "./data-fetch/published-source-error";
+import { productionMaterializerDependencies } from "./data-fetch/production";
+import { fieldIdToColumnAlias } from "@dashframe/engine";
 
 const insight: Insight = {
   id: "insight-1",
@@ -1049,5 +1051,102 @@ describe("fetchData exclusive", () => {
       { kind: "ephemeral", exclusive: true },
       { kind: "ephemeral" },
     ]);
+  });
+});
+
+describe("fetchData measure contracts", () => {
+  const tableId = "50000000-0000-4000-8000-000000000000";
+  const week = "50000000-0000-4000-8000-000000000001";
+  const channel = "50000000-0000-4000-8000-000000000002";
+  const sessions = "50000000-0000-4000-8000-000000000003";
+  const table = {
+    id: tableId,
+    name: "ga4",
+    dataFrameId: "50000000-0000-4000-8000-0000000000ff",
+    fields: [
+      {
+        id: week,
+        name: "Week",
+        columnName: "week",
+        type: "date",
+        scope: "time",
+      },
+      {
+        id: channel,
+        name: "Channel",
+        columnName: "channel",
+        type: "string",
+        scope: "session",
+      },
+      {
+        id: sessions,
+        name: "Sessions",
+        columnName: "sessions",
+        type: "number",
+      },
+    ].map((field) => ({ ...field, tableId })),
+    metrics: [],
+    createdAt: 0,
+  };
+  const metric = (contract?: unknown) => ({
+    id: "50000000-0000-4000-8000-0000000000aa",
+    name: "Total Sessions",
+    sourceTable: tableId,
+    columnName: "sessions",
+    aggregation: "sum",
+    ...(contract ? { contract } : {}),
+  });
+
+  /** Compiles what the host would run, with the production compiler. */
+  async function compiledSql(contract?: unknown) {
+    let sql: string | undefined;
+    const { fetchData } = createDataFetchFunctions(async ({ insight }) => {
+      sql = productionMaterializerDependencies().compile({
+        insight,
+        tables: new Map([[tableId, table as never]]),
+      } as never);
+      return {
+        status: "failed",
+        code: "EXPECTED",
+        message: "compiled",
+        retryable: false,
+        diagnosticId: "d",
+      };
+    });
+    const result = await fetchData(fetchContext(), {
+      insight: {
+        baseTableId: tableId,
+        selectedFields: [week],
+        metrics: [metric(contract)],
+      },
+      presentation: { dimensions: [week] },
+      exclusive: true,
+    });
+    return { sql, result };
+  }
+
+  it("honours a scope-restricted additive measure in a preview", async () => {
+    // Summed over time only: grouping by week drops the session-scoped
+    // channel, which must block the total rather than sum across it.
+    const { sql } = await compiledSql({
+      kind: "additive",
+      additiveOver: ["time"],
+    });
+    expect(sql).toContain(
+      `COUNT(DISTINCT ROW("${fieldIdToColumnAlias(channel)}")) <= 1`,
+    );
+    const plain = await compiledSql();
+    expect(plain.sql).not.toContain("COUNT(DISTINCT ROW");
+  });
+
+  it("rejects a malformed or invalid contract", async () => {
+    for (const contract of [
+      { kind: "ratio" },
+      { kind: "additive", additiveOver: ["galaxy"] },
+    ]) {
+      const { sql, result } = await compiledSql(contract);
+      expect(sql).toBeUndefined();
+      expect(result).toMatchObject({ code: "FETCH_INVALID_DEFINITION" });
+    }
   });
 });
