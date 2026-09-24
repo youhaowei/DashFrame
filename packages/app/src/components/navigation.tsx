@@ -150,8 +150,8 @@ function SidebarContent({
               className={cn(
                 "group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors duration-150 motion-reduce:transition-none",
                 isActive
-                  ? "bg-neutral-bg-emphasis text-neutral-fg"
-                  : "text-neutral-fg-subtle hover:bg-neutral-bg-emphasis/50 hover:text-neutral-fg",
+                  ? "bg-neutral-fg/[0.06] text-neutral-fg"
+                  : "text-neutral-fg-subtle hover:bg-neutral-fg/[0.035] hover:text-neutral-fg",
               )}
             >
               <item.icon
