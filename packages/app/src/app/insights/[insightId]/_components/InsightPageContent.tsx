@@ -5,7 +5,7 @@ import { useAppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import { useRenderPerf } from "@/lib/perf";
 
 import { Spinner } from "@wystack/ui-react";
-import { InsightView } from "./InsightView";
+import { InsightView } from "@/components/insights/InsightWorkbench";
 import { NotFoundView } from "./NotFoundView";
 
 interface InsightPageContentProps {

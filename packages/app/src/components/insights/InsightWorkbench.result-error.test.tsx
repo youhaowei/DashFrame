@@ -36,7 +36,10 @@ vi.mock("@dashframe/visualization", () => ({
 
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import { InsightResultErrorState, InsightResultTable } from "./InsightView";
+import {
+  InsightResultErrorState,
+  InsightResultTable,
+} from "./InsightWorkbench";
 
 const tableId = "10000000-0000-4000-8000-000000000001" as UUID;
 const fieldId = "10000000-0000-4000-8000-000000000002" as UUID;

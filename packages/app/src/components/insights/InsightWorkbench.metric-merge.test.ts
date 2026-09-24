@@ -6,7 +6,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
-import { mergeFieldsAndMetrics, parseChartEncoding } from "./InsightView";
+import { mergeFieldsAndMetrics, parseChartEncoding } from "./InsightWorkbench";
 
 const TABLE_ID = "10000000-0000-4000-8000-000000000001" as UUID;
 const REVENUE_FIELD_ID = "20000000-0000-4000-8000-000000000001" as UUID;

@@ -113,7 +113,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { InsightConfigPanel } from "./config-panel";
-import { NotFoundView } from "./NotFoundView";
+import { NotFoundView } from "@/app/insights/[insightId]/_components/NotFoundView";
 import {
   INSIGHT_CANVAS_CHART_TYPES,
   VisualizationConfigPanel,
