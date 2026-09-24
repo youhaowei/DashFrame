@@ -521,6 +521,7 @@ export function validateMetric(metric: ObjectValue, derived: boolean) {
     const contract = record(metric.contract);
     const kind = str(contract.kind, "metric.contract.kind");
     if (!isMeasureContract(metric.contract)) {
+      // Only word the error here; isMeasureContract decides acceptance.
       if (
         Object.keys(contract).some(
           (key) =>
@@ -534,7 +535,7 @@ export function validateMetric(metric: ObjectValue, derived: boolean) {
         array(contract.additiveOver, "metric.contract.additiveOver");
         throw new Error("Invalid additive measure scope");
       }
-      throw new Error("Only additive measures may declare additive scopes");
+      throw new Error("Invalid measure contract");
     }
     const problem = measureContractProblem(metric);
     if (problem) throw new Error(problem);

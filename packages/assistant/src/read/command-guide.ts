@@ -24,7 +24,15 @@
  * source.
  */
 
-import { CHART_TYPE_METADATA, ENCODING_VALUE_FORMAT } from "@dashframe/types";
+import {
+  AGGREGATIONS,
+  CHART_TYPE_METADATA,
+  ENCODING_VALUE_FORMAT,
+} from "@dashframe/types";
+
+const AGGREGATION_TYPE_CONTRACT = AGGREGATIONS.map(
+  (aggregation) => `'${aggregation}'`,
+).join("|");
 
 const VISUALIZATION_TYPE_CONTRACT = Object.keys(CHART_TYPE_METADATA)
   .map((type) => `'${type}'`)
@@ -226,8 +234,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       name: "display name",
       source: "{ sourceType: 'dataTable'|'insight', sourceId: UUID }",
       "selectedFields?": "UUID[]",
-      "metrics?":
-        "{ id: UUID, name: display name, sourceTable: UUID, columnName: source column name (required for sum, avg, min, max, and count_distinct; optional for count), aggregation: 'sum'|'avg'|'count'|'min'|'max'|'count_distinct' }[]",
+      "metrics?": `{ id: UUID, name: display name, sourceTable: UUID, columnName: source column name (required for sum, avg, min, max, and count_distinct; optional for count), aggregation: ${AGGREGATION_TYPE_CONTRACT} }[]`,
     },
     notes: "Validates source exists; rejects self-reference cycles.",
   },

@@ -90,6 +90,18 @@ describe("measure aggregation contract validation", () => {
     ).toThrow();
   });
 
+  it("rejects nested additive scopes that stringify to a valid scope", () => {
+    expect(() =>
+      validateMetric(
+        {
+          ...state().metrics[0],
+          contract: { kind: "additive", additiveOver: [["time"]] },
+        },
+        false,
+      ),
+    ).toThrow("Invalid additive measure scope");
+  });
+
   it("rejects ratio contracts without an expression", () => {
     expect(() =>
       validateMetric(
