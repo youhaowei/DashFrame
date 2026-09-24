@@ -151,7 +151,10 @@ A submodule change is a two-repository change:
    that repository's gate, open its PR, and merge it first. DashFrame's checks
    exclude `@wystack/*` and do not validate submodule source.
 2. In the DashFrame worktree, check out the merged submodule commit, stage the
-   submodule path, run `bun run build:wystack`, and run `bun run check`.
+   submodule path, run `bun install --frozen-lockfile` (a pin that changes a
+   `@wystack/*` manifest needs a `bun.lock` update, and neither `build:wystack`
+   nor `bun run check` re-runs the install), run `bun run build:wystack`, and
+   run `bun run check`.
 3. Pin the commit that landed on the submodule's default branch. If its PR was
    squashed or rebased, do not pin the pre-merge feature commit.
 
