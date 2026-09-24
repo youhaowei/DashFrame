@@ -38,6 +38,8 @@ An aggregation definition — sum, count, avg. Row counts (`count()`) need no co
 
 Model: `Metric` (table-owned), `InsightMetric` (insight-local)
 
+The engine's aggregation contract is called a **measure** in code (`MeasureContract`, `measureId`). That word names the engine-level type only; user-facing copy always says metric.
+
 ### Filter
 
 A row condition, phrased as “channel is not beta”.
