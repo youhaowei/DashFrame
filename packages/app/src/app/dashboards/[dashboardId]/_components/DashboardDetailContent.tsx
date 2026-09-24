@@ -17,6 +17,7 @@ import {
 } from "@/lib/insights/compute-combined-fields";
 import {
   chartCreating,
+  chartDiscards,
   disambiguateLabels,
   reconcileNewChartTab,
   reportBottom,
@@ -224,12 +225,14 @@ export default function DashboardDetailContent({
   // Brings each new chart's tab in line with what the server has: a create
   // that finished or never happened, a landing a reload interrupted, a close
   // waiting to discard. Decides nothing from a list that has not loaded.
-  const discardingRef = useRef(new Set<string>());
   useEffect(() => {
-    const insightIds = insightsLoading
-      ? null
-      : new Set(insights.map((insight) => insight.id));
-    const loadedVisualizations = visualizationsLoading ? null : visualizations;
+    // A failed query is not an empty one: it decides nothing either.
+    const insightIds =
+      insightsLoading || insightsLoadError
+        ? null
+        : new Set(insights.map((insight) => insight.id));
+    const loadedVisualizations =
+      visualizationsLoading || visualizationsLoadError ? null : visualizations;
     for (const tab of storedChartTabs) {
       const step = reconcileNewChartTab(tab, {
         insightIds,
@@ -245,8 +248,8 @@ export default function DashboardDetailContent({
       }
       if (step === "landed") landChartTab(dashboardId, tab.id);
       if (step === "remove") closeStoredChartTab(dashboardId, tab.id);
-      if (step !== "discard" || discardingRef.current.has(tab.id)) continue;
-      discardingRef.current.add(tab.id);
+      if (step !== "discard" || chartDiscards.has(tab.id)) continue;
+      chartDiscards.add(tab.id);
       commitBatch({
         commands: [cmd("DeleteNode", { id: tab.insightId as UUID })],
       })
@@ -262,7 +265,7 @@ export default function DashboardDetailContent({
             },
           });
         })
-        .finally(() => discardingRef.current.delete(tab.id));
+        .finally(() => chartDiscards.delete(tab.id));
     }
   }, [
     chartWrites,
@@ -270,12 +273,14 @@ export default function DashboardDetailContent({
     commitBatch,
     dashboardId,
     insights,
+    insightsLoadError,
     insightsLoading,
     landChartTab,
     markChartCreated,
     setChartTabClosing,
     storedChartTabs,
     visualizations,
+    visualizationsLoadError,
     visualizationsLoading,
   ]);
 

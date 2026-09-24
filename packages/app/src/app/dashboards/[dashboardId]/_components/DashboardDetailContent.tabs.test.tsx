@@ -348,6 +348,7 @@ describe("DashboardDetailContent — chart tabs", () => {
 
   it("discards the insight of a new chart closed before it reached the report", async () => {
     const user = userEvent.setup();
+    server.insights = [{ id: "draft-insight", name: "orders" }];
     useReportChartTabs.setState({
       tabsByReport: {
         [REPORT_ID]: [{ id: "new-chart", insightId: "draft-insight" }],
@@ -432,6 +433,7 @@ describe("DashboardDetailContent — chart tabs", () => {
   it("discards a new chart closed mid-landing once the landing fails", async () => {
     const user = userEvent.setup();
     withNewChart({ insightId: "draft-insight" });
+    server.insights = [{ id: "draft-insight", name: "orders" }];
     act(() => chartLanding.start("new-chart"));
     render(<Page initialChart="new-chart" />);
 
@@ -477,9 +479,10 @@ describe("DashboardDetailContent — chart tabs", () => {
     expect(discards()).toHaveLength(0);
   });
 
-  it("keeps a new chart's tab when discarding its insight fails", async () => {
+  it("keeps a new chart's tab when discarding its insight fails, and retries", async () => {
     const user = userEvent.setup();
     withNewChart({ insightId: "draft-insight" });
+    server.insights = [{ id: "draft-insight", name: "orders" }];
     mockCommitBatch.mockRejectedValueOnce(new Error("write failed"));
     render(<Page initialChart="new-chart" />);
 
@@ -499,6 +502,28 @@ describe("DashboardDetailContent — chart tabs", () => {
         action: expect.objectContaining({ label: "Try again" }),
       }),
     );
+
+    // Try again sends the discard again; this time it goes through.
+    const [, { action }] = mockToastError.mock.calls[0] as [
+      string,
+      { action: { onClick: () => void } },
+    ];
+    act(() => action.onClick());
+    await waitFor(() => expect(discards()).toHaveLength(2));
+    await waitFor(() => expect(storedTabs()).toEqual([]));
+  });
+
+  it("closes a new chart whose insight was deleted elsewhere", async () => {
+    const user = userEvent.setup();
+    withNewChart({ insightId: "deleted-insight" });
+    render(<Page initialChart="new-chart" />);
+
+    await user.click(
+      tabs().getByRole("button", { name: "Close Untitled chart" }),
+    );
+
+    await waitFor(() => expect(storedTabs()).toEqual([]));
+    expect(discards()).toHaveLength(0);
   });
 
   it("records a new chart's tab before its insight is created", async () => {
@@ -540,7 +565,7 @@ describe("DashboardDetailContent — chart tabs", () => {
     expect(discards()).toHaveLength(0);
   });
 
-  it("keeps a tab whose create a reload interrupted after it landed", async () => {
+  it("keeps a tab whose create a reload interrupted after it committed", async () => {
     withNewChart({ insightId: "insight-new", creating: true });
     server.insights = [{ id: "insight-new", name: "orders" }];
     render(<Page />);

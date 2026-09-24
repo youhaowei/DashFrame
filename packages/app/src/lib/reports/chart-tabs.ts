@@ -124,7 +124,8 @@ export const useReportChartTabs = create<ReportChartTabsState>()(
         setClosing: (reportId, tabId, closing) =>
           update(reportId, (tabs) =>
             tabs.map((tab) => {
-              if (tab.id !== tabId) return tab;
+              // Only a new chart has an insight to settle before it goes.
+              if (tab.id !== tabId || tab.insightId === undefined) return tab;
               return closing
                 ? { ...tab, closing: true as const }
                 : withoutFlag(tab, "closing");
@@ -211,6 +212,12 @@ function trackWrite(kind: keyof ChartWritesState) {
 export const chartCreating = trackWrite("creating");
 export const chartLanding = trackWrite("landing");
 
+/**
+ * New charts whose insight is being discarded. Module-level so leaving and
+ * reopening the report mid-discard does not send the delete twice.
+ */
+export const chartDiscards = new Set<string>();
+
 export type NewChartTabStep =
   /** Wait: a write is in flight, or the data to decide on has not loaded. */
   | "wait"
@@ -245,7 +252,9 @@ export function reconcileNewChartTab(
     // The create never reached the server: there is nothing to discard.
     return "remove";
   }
-  if (context.landing || !visualizations) return "wait";
+  if (context.landing || !visualizations || !insightIds) return "wait";
+  // Its insight is gone (deleted elsewhere): nothing is left to discard.
+  if (!insightIds.has(tab.insightId)) return tab.closing ? "remove" : "wait";
   // Any chart on the insight means it is not the tab's alone any more.
   const hasChart = visualizations.some(
     (visualization) => visualization.insightId === tab.insightId,

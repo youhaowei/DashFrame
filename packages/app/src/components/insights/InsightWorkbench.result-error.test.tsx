@@ -120,11 +120,16 @@ describe("resultErrorCopy", () => {
       'Binder Error: Referenced column "x" not found',
       "RuntimeError: unreachable\n    at wasm-function[42]",
       "TypeError: undefined is not a function (at query (engine.js:12))",
+      "TypeError: Cannot read properties of undefined",
+      "Error: Node abc not found",
     ]) {
       expect(resultErrorCopy(raw)).toBe(
         "The data for this chart couldn't be read. Try again, or check its data source.",
       );
     }
+    // Plain words about an error are copy, not runtime output.
+    const human = "Connection error: the host did not answer. Try again.";
+    expect(resultErrorCopy(human)).toBe(human);
   });
 });
 

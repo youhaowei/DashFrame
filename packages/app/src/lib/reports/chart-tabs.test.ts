@@ -110,6 +110,16 @@ describe("reconcileNewChartTab", () => {
     ).toBe("remove");
   });
 
+  it("drops a closed chart whose insight is already gone, and never guesses", () => {
+    const closing = { ...tab, closing: true as const };
+    expect(
+      reconcileNewChartTab(closing, { ...loaded, insightIds: new Set() }),
+    ).toBe("remove");
+    expect(reconcileNewChartTab(closing, { ...loaded, insightIds: null })).toBe(
+      "wait",
+    );
+  });
+
   it("turns an open tab whose chart landed into a saved chart", () => {
     expect(
       reconcileNewChartTab(tab, {

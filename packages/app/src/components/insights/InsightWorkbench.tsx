@@ -713,8 +713,8 @@ function getVisualizationEncodingSignature(
 type InsightPaginationResult = ReturnType<typeof useInsightPagination>;
 
 /** Runtime output — a stack, a WASM or engine error — is not copy. */
-const RUNTIME_OUTPUT =
-  /\n|\bat \S+ \(|wasm|emscripten|\b[A-Z][a-z]+ Error:|Exception/i;
+const RUNTIME_OUTPUT = /\n|\bat \S+ \(|\b\w*(?:Error|Exception):/;
+const RUNTIME_NAMES = /wasm|emscripten/i;
 
 const UNREADABLE_RESULT_COPY =
   "The data for this chart couldn't be read. Try again, or check its data source.";
@@ -725,7 +725,9 @@ const UNREADABLE_RESULT_COPY =
  * copy, and the error state's Retry is the way out.
  */
 export function resultErrorCopy(error: string): string {
-  return RUNTIME_OUTPUT.test(error) ? UNREADABLE_RESULT_COPY : error;
+  return RUNTIME_OUTPUT.test(error) || RUNTIME_NAMES.test(error)
+    ? UNREADABLE_RESULT_COPY
+    : error;
 }
 
 /** Shared error element so the workbench's table and chart halves agree. */
