@@ -15,6 +15,8 @@ import { ConnectorSetup } from "@/components/providers/ConnectorSetup";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ContextPanelProvider } from "@/components/shell/context-panel-outlet";
 import { ShellRails } from "@/components/shell/ShellRails";
+import { Shelf } from "@/components/shelf/Shelf";
+import { ShelfDndProvider } from "@/components/shelf/ShelfDnd";
 import { TopBarTabsProvider } from "@/components/shell/topbar-tabs";
 import { ThemeProvider } from "@/components/theme-provider";
 import { WebMCPProvider } from "@/components/webmcp/WebMCPProvider";
@@ -76,6 +78,7 @@ function Shell() {
         <div className="relative flex min-h-0 flex-1 flex-row gap-[var(--surface-inset)] pb-[var(--surface-inset)]">
           <Stage>
             <Outlet />
+            <Shelf />
           </Stage>
           <ShellRails shellWidth={shellWidth} />
         </div>
@@ -120,7 +123,9 @@ export function RouteRoot({
                 <PlatformProvider>
                   <TopBarTabsProvider>
                     <WebMCPProvider>
-                      <Shell />
+                      <ShelfDndProvider>
+                        <Shell />
+                      </ShelfDndProvider>
                     </WebMCPProvider>
                   </TopBarTabsProvider>
                 </PlatformProvider>

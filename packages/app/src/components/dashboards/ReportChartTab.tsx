@@ -1,4 +1,6 @@
 import { InsightWorkbench } from "@/components/insights/InsightWorkbench";
+import { putOnShelf } from "@/components/shelf/Shelf";
+import { Button } from "@wystack/ui-react";
 import {
   buildLandChartCommands,
   chartLanding,
@@ -144,10 +146,29 @@ export function ReportChartTab({
       }
       header={
         visualization ? (
-          <ChartNameInput
-            key={visualization.id}
-            visualization={visualization}
-          />
+          <>
+            <ChartNameInput
+              key={visualization.id}
+              visualization={visualization}
+            />
+            {/* SPIKE: carry this chart to another page or tab. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              label="Put on shelf"
+              onClick={() =>
+                putOnShelf({
+                  id: `chart:${visualization.id}`,
+                  kind: "chart",
+                  label: visualization.name || "Untitled chart",
+                  ref: {
+                    reportId: report.id,
+                    visualizationId: visualization.id,
+                  },
+                })
+              }
+            />
+          </>
         ) : (
           <>
             <span className="px-1 text-sm font-semibold text-neutral-fg">

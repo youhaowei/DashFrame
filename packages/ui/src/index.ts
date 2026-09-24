@@ -103,3 +103,18 @@ export {
   OverlayScrollbar,
   type OverlayScrollAreaProps,
 } from "./components/OverlayScrollArea";
+
+// -- Drag and drop (spike: the app shell's root drag context) --
+export {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  useDndMonitor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";

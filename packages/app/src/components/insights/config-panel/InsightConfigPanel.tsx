@@ -1,3 +1,4 @@
+import { registerShelfMeasureImporter } from "@/components/shelf/shelf-importers";
 import { measureFilterFields } from "@/lib/insights/measure-filter-fields";
 import type { PivotSortOption } from "@/lib/insights/pivot-sort-options";
 import { ReportPeriodControl, ReportResultOptions } from "./ReportSettings";
@@ -613,8 +614,8 @@ export function InsightConfigPanel({
   const measureLibraryAvailable =
     insight.source.sourceType === "dataTable" && !insight.joins?.length;
 
-  const handleReuseMeasure = useCallback(
-    async (metricId: string) => {
+  const importMeasure = useCallback(
+    async (metricId: string): Promise<string> => {
       const imported = importReusableMeasure(
         dataTable.metrics ?? [],
         metricId,
@@ -639,8 +640,20 @@ export function InsightConfigPanel({
           ];
         },
       );
+      return imported.at(-1)!.id;
     },
     [dataTable.id, dataTable.metrics, writeMetrics],
+  );
+  const handleReuseMeasure = useCallback(
+    async (metricId: string) => {
+      await importMeasure(metricId);
+    },
+    [importMeasure],
+  );
+  // SPIKE: a shelf metric dropped on this chart's Y well imports through here.
+  useEffect(
+    () => registerShelfMeasureImporter(insight.id, importMeasure),
+    [insight.id, importMeasure],
   );
 
   const handleEditMetric = useCallback(

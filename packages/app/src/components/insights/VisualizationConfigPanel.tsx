@@ -1,4 +1,5 @@
 import { AxisSelectField } from "@/components/visualizations/AxisSelectField";
+import { ShelfAxisDropZone } from "@/components/shelf/ShelfAxisDropZone";
 import { useVisualizationEncodingChange } from "@/components/visualizations/useVisualizationEncodingChange";
 import {
   extractColumnAliasComponents,
@@ -117,6 +118,7 @@ function SavedEncodings({
   columnDisplayNames,
   columnAnalysis,
   onEncodingChange,
+  tableId,
 }: Pick<
   VisualizationConfigPanelProps,
   | "compiledInsight"
@@ -132,6 +134,7 @@ function SavedEncodings({
     field: "x" | "y" | "color" | "size",
     value: string,
   ) => void;
+  tableId: string | undefined;
 }) {
   const encodingsReady = columnAnalysis.length > 0;
   const options = useMemo(() => {
@@ -212,23 +215,32 @@ function SavedEncodings({
           </>
         }
         y={
-          <AxisSelectField
-            label="Y"
-            value={visualization.encoding?.y || ""}
-            onChange={(value) => onEncodingChange("y", value)}
-            placeholder="None"
-            emptyDashed
-            disabled={!encodingsReady}
+          <ShelfAxisDropZone
             axis="y"
-            chartType={visualization.visualizationType}
+            insightId={compiledInsight.id}
+            tableId={tableId}
+            metrics={compiledInsight.metrics}
             columnAnalysis={columnAnalysis}
-            compiledInsight={compiledInsight}
-            availableFields={availableFields}
-            metricLabelFields={metricLabelFields}
-            availableColumns={availableColumns}
-            columnDisplayNames={columnDisplayNames}
-            otherAxisColumn={visualization.encoding?.x}
-          />
+            onSet={(value) => onEncodingChange("y", value)}
+          >
+            <AxisSelectField
+              label="Y"
+              value={visualization.encoding?.y || ""}
+              onChange={(value) => onEncodingChange("y", value)}
+              placeholder="None"
+              emptyDashed
+              disabled={!encodingsReady}
+              axis="y"
+              chartType={visualization.visualizationType}
+              columnAnalysis={columnAnalysis}
+              compiledInsight={compiledInsight}
+              availableFields={availableFields}
+              metricLabelFields={metricLabelFields}
+              availableColumns={availableColumns}
+              columnDisplayNames={columnDisplayNames}
+              otherAxisColumn={visualization.encoding?.x}
+            />
+          </ShelfAxisDropZone>
         }
         x={
           <AxisSelectField
@@ -363,6 +375,7 @@ export function VisualizationConfigPanel({
         columnDisplayNames={columnDisplayNames}
         columnAnalysis={columnAnalysis}
         onEncodingChange={handleEncodingChange}
+        tableId={dataTable.id}
       />
     );
   } else if (activeVisualization) {
