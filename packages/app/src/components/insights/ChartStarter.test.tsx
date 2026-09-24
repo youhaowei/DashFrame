@@ -421,7 +421,7 @@ describe("chart starter metrics", () => {
 });
 
 describe("thumbnailGeometry", () => {
-  const points = (...values: number[]) =>
+  const points = (...values: (number | null)[]) =>
     values.map((value, index) => ({ label: `${index}`, value }));
 
   it("draws all-negative bars down from a zero baseline", () => {
@@ -458,11 +458,35 @@ describe("thumbnailGeometry", () => {
 
   it("keeps an all-negative line inside the frame", () => {
     const geometry = thumbnailGeometry("line", points(-1, -3, -2))!;
+    expect(geometry.lines).toHaveLength(1);
     const ys = geometry
-      .line!.split(" ")
+      .lines![0]!.split(" ")
       .map((pair) => Number(pair.split(",")[1]));
     expect(new Set(ys).size).toBe(3);
     expect(Math.max(...ys)).toBeGreaterThan(geometry.zero!.y1);
+  });
+
+  it("draws no bar where a group has no value", () => {
+    const geometry = thumbnailGeometry("barY", points(4, null, 2))!;
+    expect(geometry.rects).toHaveLength(2);
+    // The missing group keeps its slot: the third bar sits in the third band.
+    const band = 180 / 3; // the thumbnail's width over three groups
+    expect(geometry.rects[1]!.x - geometry.rects[0]!.x).toBeCloseTo(2 * band);
+    expect(thumbnailGeometry("barX", points(null, 3))!.rects).toHaveLength(1);
+  });
+
+  it("breaks the line where a date has no value, never dipping to zero", () => {
+    const geometry = thumbnailGeometry("line", points(5, 6, null, 7, 8))!;
+    expect(geometry.lines).toHaveLength(2);
+    for (const run of geometry.lines!) expect(run.split(" ")).toHaveLength(2);
+    // No point is drawn at the zero line; the scale is the values' own.
+    expect(geometry.zero).toBeUndefined();
+  });
+
+  it("draws nothing when no group has a value", () => {
+    expect(thumbnailGeometry("line", points(null, null))).toBeNull();
+    expect(thumbnailGeometry("barY", points(null))).toBeNull();
+    expect(thumbnailGeometry("barY", [])).toBeNull();
   });
 
   it("adds no baseline for all-positive data", () => {

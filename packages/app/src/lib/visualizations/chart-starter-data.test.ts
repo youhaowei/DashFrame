@@ -205,6 +205,22 @@ describe("fetchChartStarterAggregate", () => {
     expect(aggregate.points).toHaveLength(520);
   });
 
+  it("keeps a group without a value as no value, not zero", async () => {
+    hostReturns();
+    queryDataFrame.mockResolvedValue(
+      page([
+        ["North", 3],
+        ["South", null as unknown as number],
+      ]),
+    );
+    const aggregate = await fetchChartStarterAggregate(
+      INSIGHT,
+      countBar,
+      metricFor(countBar),
+    );
+    expect(aggregate.points.map((point) => point.value)).toEqual([3, null]);
+  });
+
   it("removes the result frame when reading it fails", async () => {
     hostReturns();
     queryDataFrame.mockResolvedValue({

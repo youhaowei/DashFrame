@@ -16,7 +16,9 @@ import {
 
 export interface ChartStarterPoint {
   label: string;
-  value: number;
+  /** Null where the aggregate has no value (all-null input, or a measure
+   * its contract suppresses); the chart draws no mark there. */
+  value: number | null;
 }
 
 export interface ChartStarterAggregate {
@@ -83,10 +85,10 @@ function starterReporting(
   };
 }
 
-function toNumber(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "bigint") return Number(value);
-  return Number(value ?? 0);
+function toValue(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 /**
@@ -174,7 +176,7 @@ async function readAggregate(
     groups,
     points: rows.map((row) => ({
       label: formatCellValue(row[groupColumn.id], suggestion.group.type),
-      value: toNumber(row[metricColumn.id]),
+      value: toValue(row[metricColumn.id]),
     })),
   };
 }

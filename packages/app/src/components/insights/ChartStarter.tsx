@@ -158,13 +158,16 @@ const THUMB_HEIGHT = 62;
 function summary(points: readonly ChartStarterPoint[]): string {
   const shown = points
     .slice(0, 4)
-    .map((point) => `${point.label} ${point.value.toLocaleString()}`);
+    .map(
+      (point) =>
+        `${point.label} ${point.value === null ? "no value" : point.value.toLocaleString()}`,
+    );
   return points.length > 4 ? `${shown.join(", ")}, …` : shown.join(", ");
 }
 
 export interface ThumbnailGeometry {
-  /** A line's points, "x,y x,y …"; bars' rectangles otherwise. */
-  line?: string;
+  /** A line's runs, each "x,y x,y …", broken where a value is missing. */
+  lines?: string[];
   rects: { x: number; y: number; width: number; height: number }[];
   /** The zero baseline, drawn when negative values put it inside the box. */
   zero?: { x1: number; y1: number; x2: number; y2: number };
@@ -175,14 +178,18 @@ const THUMB_PAD = 4;
 /**
  * Marks for a card thumbnail, scaled over the values' range together with
  * zero, so bars grow from a zero baseline in either direction and a series
- * that is all negative still draws.
+ * that is all negative still draws. A point without a value keeps its slot but
+ * draws nothing, as in the chart: no bar, and a break in the line. With no
+ * value at all there is nothing to draw.
  */
 export function thumbnailGeometry(
   chartType: ChartStarterSuggestion["chartType"],
   points: readonly ChartStarterPoint[],
 ): ThumbnailGeometry | null {
-  if (points.length === 0) return null;
-  const values = points.map((point) => point.value);
+  const values = points.flatMap((point) =>
+    point.value === null ? [] : [point.value],
+  );
+  if (values.length === 0) return null;
   const lo = Math.min(0, ...values);
   let hi = Math.max(0, ...values);
   // All zero: an empty range would divide by zero; draw along the baseline.
@@ -197,12 +204,18 @@ export function thumbnailGeometry(
     const x = (value: number) => share(value) * THUMB_WIDTH;
     const zero = x(0);
     return {
-      rects: shown.map((point, index) => ({
-        x: Math.min(zero, x(point.value)),
-        y: index * band + band * 0.12,
-        width: minimum(Math.abs(x(point.value) - zero), point.value),
-        height: band * 0.76,
-      })),
+      rects: shown.flatMap(({ value }, index) =>
+        value === null
+          ? []
+          : [
+              {
+                x: Math.min(zero, x(value)),
+                y: index * band + band * 0.12,
+                width: minimum(Math.abs(x(value) - zero), value),
+                height: band * 0.76,
+              },
+            ],
+      ),
       ...(lo < 0
         ? { zero: { x1: zero, y1: 0, x2: zero, y2: THUMB_HEIGHT } }
         : {}),
@@ -218,23 +231,34 @@ export function thumbnailGeometry(
       points.length > 1
         ? (THUMB_WIDTH - THUMB_PAD * 2) / (points.length - 1)
         : 0;
-    const line = points
-      .map((point, index) => {
-        const x =
-          points.length > 1 ? THUMB_PAD + index * step : THUMB_WIDTH / 2;
-        return `${x.toFixed(1)},${y(point.value).toFixed(1)}`;
-      })
-      .join(" ");
-    return { line, rects: [], ...(zero ? { zero } : {}) };
+    const lines: string[] = [];
+    let run: string[] = [];
+    points.forEach(({ value }, index) => {
+      if (value === null) {
+        if (run.length) lines.push(run.join(" "));
+        run = [];
+        return;
+      }
+      const x = points.length > 1 ? THUMB_PAD + index * step : THUMB_WIDTH / 2;
+      run.push(`${x.toFixed(1)},${y(value).toFixed(1)}`);
+    });
+    if (run.length) lines.push(run.join(" "));
+    return { lines, rects: [], ...(zero ? { zero } : {}) };
   }
   const band = THUMB_WIDTH / points.length;
   return {
-    rects: points.map((point, index) => ({
-      x: index * band + band * 0.18,
-      y: Math.min(zeroY, y(point.value)),
-      width: band * 0.64,
-      height: minimum(Math.abs(y(point.value) - zeroY), point.value),
-    })),
+    rects: points.flatMap(({ value }, index) =>
+      value === null
+        ? []
+        : [
+            {
+              x: index * band + band * 0.18,
+              y: Math.min(zeroY, y(value)),
+              width: band * 0.64,
+              height: minimum(Math.abs(y(value) - zeroY), value),
+            },
+          ],
+    ),
     ...(zero ? { zero } : {}),
   };
 }
@@ -264,16 +288,17 @@ function Thumbnail({
           vectorEffect="non-scaling-stroke"
         />
       )}
-      {geometry.line !== undefined && (
+      {geometry.lines?.map((line, index) => (
         <polyline
-          points={geometry.line}
+          key={index}
+          points={line}
           fill="none"
           className="stroke-chart-1"
           strokeWidth={1.75}
           strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
         />
-      )}
+      ))}
       {geometry.rects.map((rect, index) => (
         <rect key={index} {...rect} rx={1.5} className="fill-chart-1" />
       ))}
