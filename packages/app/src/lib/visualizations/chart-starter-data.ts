@@ -27,6 +27,12 @@ export interface ChartStarterAggregate {
   groups: number;
 }
 
+/** What a card's query reads from the insight. */
+type StarterQueryInsight = Pick<
+  Insight,
+  "source" | "filters" | "joins" | "reporting"
+>;
+
 /** The host's largest page; a line reads its dates a page at a time. */
 const PAGE_SIZE = 500;
 /** A bar card draws its first (or largest) groups. */
@@ -99,7 +105,7 @@ function toValue(value: unknown): number | null {
  * rules can only estimate.
  */
 export async function fetchChartStarterAggregate(
-  insight: Pick<Insight, "source" | "filters" | "joins" | "reporting">,
+  insight: StarterQueryInsight,
   suggestion: ChartStarterSuggestion,
   /** The metric a pick would save, so the preview computes the same value. */
   metric: InsightMetric,
@@ -128,9 +134,38 @@ export async function fetchChartStarterAggregate(
   } finally {
     // The frame is this card's alone (exclusive); remove it once read so
     // thumbnails never pile up in the workspace's frame list.
-    removeDataFrame(result.dataFrameId as UUID).catch((error: unknown) =>
-      console.warn("[chart-starter] releasing a thumbnail frame failed", error),
-    );
+    removeFrame(result.dataFrameId);
+  }
+}
+
+/** Removals retried after a failure, by frame id: how many tries failed. */
+const failedRemovals = new Map<string, number>();
+const removing = new Set<string>();
+/** Tries per frame before giving up; startup retires leftovers anyway. */
+const REMOVAL_ATTEMPTS = 3;
+
+function removeFrame(id: string): void {
+  // Each read is also a cleanup pass: frames whose removal failed go again.
+  for (const pending of [id, ...failedRemovals.keys()]) {
+    if (removing.has(pending)) continue;
+    removing.add(pending);
+    removeDataFrame(pending as UUID)
+      .then(
+        () => failedRemovals.delete(pending),
+        (error: unknown) => {
+          const attempts = (failedRemovals.get(pending) ?? 0) + 1;
+          if (attempts < REMOVAL_ATTEMPTS)
+            failedRemovals.set(pending, attempts);
+          else {
+            failedRemovals.delete(pending);
+            console.warn(
+              "[chart-starter] removing a thumbnail frame failed",
+              error,
+            );
+          }
+        },
+      )
+      .finally(() => removing.delete(pending));
   }
 }
 
@@ -192,21 +227,74 @@ export type ChartStarterPointsState =
  * The points one starter card draws. `revision` names the table generation
  * (see `buildInsightSourceRevision`), so a refreshed table queries again.
  */
+/**
+ * Group counts by grouping field and table generation. The count does not
+ * depend on the metric, so the first card to query a field answers for every
+ * other card grouped by it: a field with too many groups costs one query, not
+ * one per metric. Bounded like the aggregate cache.
+ */
+const groupCounts = new Map<string, Promise<number>>();
+
+function rememberGroupCount(
+  key: string,
+  pending: Promise<ChartStarterAggregate>,
+) {
+  if (groupCounts.has(key)) return;
+  const count = pending.then(({ groups }) => groups);
+  count.catch(() => {
+    if (groupCounts.get(key) === count) groupCounts.delete(key);
+  });
+  groupCounts.set(key, count);
+  while (groupCounts.size > CHART_STARTER_CACHE_LIMIT) {
+    const oldest = groupCounts.keys().next().value;
+    if (oldest === undefined) break;
+    groupCounts.delete(oldest);
+  }
+}
+
+async function loadChartStarterAggregate(
+  key: string,
+  countKey: string,
+  insight: StarterQueryInsight,
+  suggestion: ChartStarterSuggestion,
+  metric: InsightMetric,
+): Promise<ChartStarterAggregate> {
+  const known = groupCounts.get(countKey);
+  if (known) {
+    const groups = await known.catch(() => undefined);
+    // Too many groups for this rule: no need to ask for this metric's values.
+    if (
+      groups !== undefined &&
+      groups > chartStarterGroupLimit(suggestion.rule)
+    )
+      return { points: [], groups };
+  }
+  return cached(key, () => {
+    const pending = fetchChartStarterAggregate(insight, suggestion, metric);
+    rememberGroupCount(countKey, pending);
+    return pending;
+  });
+}
+
 export function useChartStarterPoints(
-  insight: Pick<Insight, "source" | "filters" | "joins" | "reporting">,
+  insight: StarterQueryInsight,
   suggestion: ChartStarterSuggestion,
   revision: string,
   metric: InsightMetric,
 ): ChartStarterPointsState & { retry: () => void } {
   const { id: _metricId, ...metricDefinition } = metric;
+  const scope = [
+    insight.filters ?? [],
+    insight.joins ?? [],
+    starterReporting(insight.reporting) ?? null,
+  ];
   const key = JSON.stringify([
     revision,
     suggestion.key,
     metricDefinition,
-    insight.filters ?? [],
-    insight.joins ?? [],
-    starterReporting(insight.reporting) ?? null,
+    ...scope,
   ]);
+  const countKey = JSON.stringify([revision, suggestion.group.id, ...scope]);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
     key: string;
@@ -216,8 +304,12 @@ export function useChartStarterPoints(
 
   useEffect(() => {
     let live = true;
-    const pending = cached(key, () =>
-      fetchChartStarterAggregate(insight, suggestion, metric),
+    const pending = loadChartStarterAggregate(
+      key,
+      countKey,
+      insight,
+      suggestion,
+      metric,
     );
     pending.then(
       ({ points, groups }) => {

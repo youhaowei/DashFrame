@@ -332,6 +332,77 @@ describe("useChartStarterPoints", () => {
     await waitFor(() => expect(result.current.status).toBe("unfit"));
   });
 
+  it("asks once per grouping field, whatever metrics pair with it", async () => {
+    hostReturns();
+    // Every field has 60 groups: over the sorted bar's limit of 50.
+    queryDataFrame.mockResolvedValue(page([["x", 1]], 60));
+    const texts = ["a", "b", "c"].map(
+      (name, index) =>
+        ({
+          ...REGION,
+          id: `30000000-0000-4000-8000-00000000010${index}` as UUID,
+          name,
+        }) as Field,
+    );
+    const numbers = ["x", "y", "z"].map(
+      (name, index) =>
+        ({
+          ...SALES,
+          id: `30000000-0000-4000-8000-00000000020${index}` as UUID,
+          name,
+        }) as Field,
+    );
+    const suggestions = texts.flatMap((text) =>
+      numbers.map((number): ChartStarterSuggestion => ({
+        ...sortedBar,
+        key: `sum-sorted:${text.id}:${number.id}`,
+        group: text,
+        measure: number,
+      })),
+    );
+    const { result } = renderHook(() =>
+      suggestions.map((suggestion) =>
+        useChartStarterPoints(
+          INSIGHT,
+          suggestion,
+          "rev-per-field",
+          metricFor(suggestion),
+        ),
+      ),
+    );
+    await waitFor(() =>
+      expect(result.current.every((state) => state.status === "unfit")).toBe(
+        true,
+      ),
+    );
+    expect(requestHost).toHaveBeenCalledTimes(3);
+  });
+
+  it("tries a failed frame removal again on the next read", async () => {
+    hostReturns();
+    queryDataFrame.mockResolvedValue(page([["North", 1]]));
+    removeDataFrame.mockRejectedValueOnce(new Error("busy"));
+    await fetchChartStarterAggregate(INSIGHT, countBar, metricFor(countBar));
+    await waitFor(() => expect(removeDataFrame).toHaveBeenCalledTimes(1));
+
+    requestHost.mockResolvedValueOnce({
+      status: "ready",
+      dataFrameId: "frame-2",
+      schema: [
+        { id: GROUP_COLUMN, name: "group", type: "string" },
+        { id: METRIC_COLUMN, name: "value", type: "number" },
+      ],
+    });
+    await fetchChartStarterAggregate(INSIGHT, countBar, metricFor(countBar));
+    await waitFor(() =>
+      expect(removeDataFrame.mock.calls.map(([id]) => id)).toEqual([
+        "frame-1",
+        "frame-2",
+        "frame-1",
+      ]),
+    );
+  });
+
   it("retries a failed query without remounting", async () => {
     requestHost.mockRejectedValueOnce(new Error("offline"));
     const { result } = renderHook(() =>

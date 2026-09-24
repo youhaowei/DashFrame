@@ -51,6 +51,7 @@ import {
 import {
   buildColumnActionCommands,
   ChartStarter,
+  MAX_CHART_STARTER_CANDIDATES,
   chartStarterMetric,
   thumbnailGeometry,
 } from "./ChartStarter";
@@ -105,6 +106,7 @@ function starter(
   onPickChartType: (type: unknown) => void,
   sourceRevision: string,
   table: DataTable = TABLE,
+  suggestions = suggestChartStarters(FIELDS, ANALYSIS, ROWS.length),
 ) {
   return (
     <ChartStarter
@@ -116,7 +118,7 @@ function starter(
         totalCount: ROWS.length,
         analysis: ANALYSIS,
       }}
-      suggestions={suggestChartStarters(FIELDS, ANALYSIS, ROWS.length)}
+      suggestions={suggestions}
       sourceRevision={sourceRevision}
       columnDisplayNames={{
         [alias(CATEGORY)]: "Category",
@@ -325,6 +327,21 @@ describe("ChartStarter", () => {
     expect(item.textContent).toContain("Sales can't be totalled");
     fireEvent.click(item);
     expect(mockCommitBatch).not.toHaveBeenCalled();
+  });
+
+  it("tries at most eight candidates when none fits", async () => {
+    pointsState.mockReturnValue({ status: "unfit" });
+    const [base] = suggestChartStarters(FIELDS, ANALYSIS, ROWS.length);
+    const many = Array.from({ length: 12 }, (_, index) => ({
+      ...base!,
+      key: `${base!.key}:${index}`,
+    }));
+    render(starter(INSIGHT, vi.fn(), "rev-1", TABLE, many));
+    await waitFor(() =>
+      expect(screen.queryByText("Suggested charts")).toBe(null),
+    );
+    const tried = new Set(pointsState.mock.calls.map(([key]) => key));
+    expect(tried.size).toBe(MAX_CHART_STARTER_CANDIDATES);
   });
 
   it("brings back a card that no longer fits once the source changes", async () => {

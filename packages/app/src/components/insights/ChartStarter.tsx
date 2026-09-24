@@ -152,6 +152,9 @@ function isNumberType(type: string): boolean {
 // Thumbnails: drawn from the card's own aggregate, never illustrated.
 // ---------------------------------------------------------------------------
 
+/** Candidates a starter tries: its four cards plus up to four stand-ins. */
+export const MAX_CHART_STARTER_CANDIDATES = 8;
+
 const THUMB_WIDTH = 180;
 const THUMB_HEIGHT = 62;
 
@@ -623,7 +626,10 @@ export function ChartStarter({
       }),
     [sourceRevision],
   );
+  // At most this many candidates are ever tried, so a table whose columns
+  // mostly do not fit costs a bounded number of aggregates.
   const shown = suggestions
+    .slice(0, MAX_CHART_STARTER_CANDIDATES)
     .filter((suggestion) => !unfitKeys.has(suggestion.key))
     .slice(0, MAX_CHART_STARTER_SUGGESTIONS);
 
