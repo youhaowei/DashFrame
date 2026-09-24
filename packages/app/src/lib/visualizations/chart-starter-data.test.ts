@@ -24,6 +24,7 @@ vi.mock("@/lib/data-access/data-frames", () => ({
 }));
 
 import type { Field, Insight, InsightMetric, UUID } from "@dashframe/types";
+import { metricIdToColumnAlias } from "@dashframe/engine";
 import { act } from "react";
 import type { ChartStarterSuggestion } from "./chart-starter";
 import {
@@ -330,6 +331,52 @@ describe("useChartStarterPoints", () => {
       ),
     );
     await waitFor(() => expect(result.current.status).toBe("unfit"));
+  });
+
+  it("limits a sorted bar to its largest groups, as the saved chart does", async () => {
+    hostReturns();
+    queryDataFrame.mockResolvedValue(page([["North", 1]]));
+    const limited = { ...INSIGHT, reporting: { limit: 5 } };
+    const metric = metricFor(sortedBar);
+    await fetchChartStarterAggregate(limited, sortedBar, metric);
+    expect(requestHost.mock.calls[0]![1].insight).toMatchObject({
+      reporting: { limit: 5 },
+      sorts: [{ field: metricIdToColumnAlias(metric.id), direction: "desc" }],
+    });
+    // A card with no value order keeps the insight's own (none).
+    await fetchChartStarterAggregate(limited, countBar, metricFor(countBar));
+    expect(requestHost.mock.calls[1]![1].insight.sorts).toBeUndefined();
+  });
+
+  it("gives way when its aggregate would draw nothing", async () => {
+    hostReturns();
+    const stateFor = async (
+      suggestion: ChartStarterSuggestion,
+      values: (number | null)[],
+      revision: string,
+    ) => {
+      queryDataFrame.mockResolvedValue(
+        page(values.map((value, index) => [`g${index}`, value as number])),
+      );
+      const { result } = renderHook(() =>
+        useChartStarterPoints(
+          INSIGHT,
+          suggestion,
+          revision,
+          metricFor(suggestion),
+        ),
+      );
+      await waitFor(() => expect(result.current.status).not.toBe("loading"));
+      return result.current.status;
+    };
+    expect(await stateFor(sortedBar, [null, null], "rev-null-bar")).toBe(
+      "unfit",
+    );
+    expect(await stateFor(line, [null, 4, null], "rev-null-line")).toBe(
+      "unfit",
+    );
+    expect(await stateFor(line, [3, null, 4], "rev-two-line")).toBe("ready");
+    expect(await stateFor(sortedBar, [null, 2], "rev-one-bar")).toBe("ready");
   });
 
   it("asks once per grouping field, whatever metrics pair with it", async () => {

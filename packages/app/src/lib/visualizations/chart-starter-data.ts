@@ -1,5 +1,6 @@
 import { requestHost } from "@/data/host";
 import { formatCellValue } from "@/lib/cell-formatter";
+import { metricIdToColumnAlias } from "@dashframe/engine";
 import { queryDataFrame, removeDataFrame } from "@/lib/data-access/data-frames";
 import type {
   Insight,
@@ -117,6 +118,18 @@ export async function fetchChartStarterAggregate(
     filters: insight.filters,
     joins: insight.joins,
     reporting: starterReporting(insight.reporting),
+    // A sorted bar saves a largest-first sort; with a row limit it decides
+    // which groups the chart keeps, so the preview keeps the same ones.
+    ...(suggestion.sortByValue
+      ? {
+          sorts: [
+            {
+              field: metricIdToColumnAlias(metric.id),
+              direction: "desc" as const,
+            },
+          ],
+        }
+      : {}),
   };
   // A presentation makes the host read the table's published data instead of
   // pulling the source again (see createInsightMaterializer), so a card never costs
@@ -276,6 +289,19 @@ async function loadChartStarterAggregate(
   });
 }
 
+/**
+ * Whether the points draw anything: a bar needs one value, a line two. A card
+ * that would draw nothing makes way for the next candidate, as does the
+ * chart it would land, which would be blank too.
+ */
+function drawable(
+  suggestion: ChartStarterSuggestion,
+  points: readonly ChartStarterPoint[],
+): boolean {
+  const values = points.filter((point) => point.value !== null).length;
+  return values >= (suggestion.chartType === "line" ? 2 : 1);
+}
+
 export function useChartStarterPoints(
   insight: StarterQueryInsight,
   suggestion: ChartStarterSuggestion,
@@ -292,6 +318,7 @@ export function useChartStarterPoints(
     revision,
     suggestion.key,
     metricDefinition,
+    suggestion.sortByValue,
     ...scope,
   ]);
   const countKey = JSON.stringify([revision, suggestion.group.id, ...scope]);
@@ -318,7 +345,8 @@ export function useChartStarterPoints(
           key,
           attempt,
           value:
-            groups > chartStarterGroupLimit(suggestion.rule)
+            groups > chartStarterGroupLimit(suggestion.rule) ||
+            !drawable(suggestion, points)
               ? { status: "unfit" }
               : { status: "ready", points },
         });
