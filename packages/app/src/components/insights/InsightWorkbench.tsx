@@ -993,6 +993,8 @@ export interface InsightWorkbenchProps {
   header: (context: InsightWorkbenchHeaderContext) => ReactNode;
   /** One line under the left pane's title. */
   leftPaneNote?: ReactNode;
+  /** Shown instead of the workbench when the insight's table is gone. */
+  missingTable?: ReactNode;
 }
 
 function CanvasTopBarTabs({ tabs }: { tabs: TopBarTabs | null }) {
@@ -1014,6 +1016,7 @@ export function InsightWorkbench({
   canvasTabs = false,
   header,
   leftPaneNote,
+  missingTable,
 }: InsightWorkbenchProps) {
   const insightId = insight.id;
   const [viewerState, setViewerState] = useState<{
@@ -1661,7 +1664,7 @@ export function InsightWorkbench({
 
     autoPinAttemptRef.current = insightId;
     pinChartSuggestion(firstChartSuggestion).catch((error) => {
-      console.error("[InsightView] Auto-save failed:", error);
+      console.error("[InsightWorkbench] Auto-save failed:", error);
       toast.error("Couldn't save the chart");
     });
   }, [
@@ -1698,7 +1701,7 @@ export function InsightWorkbench({
       }
       toast.success("Chart saved");
     } catch (error) {
-      console.error("[InsightView] Save failed:", error);
+      console.error("[InsightWorkbench] Save failed:", error);
       toast.error("Couldn't save the chart");
     }
   }, [
@@ -1874,6 +1877,7 @@ export function InsightWorkbench({
 
   // Data table not found - check after all hooks are called
   if (!dataTable || !authoringTable) {
+    if (missingTable) return missingTable;
     return (
       <div className="flex h-full items-center justify-center p-6 text-center">
         <div>

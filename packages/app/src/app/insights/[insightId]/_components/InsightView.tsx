@@ -5,6 +5,7 @@ import {
   type InsightWorkbenchHeaderContext,
 } from "@/components/insights/InsightWorkbench";
 import { AppLayout } from "@/components/layouts/AppLayout";
+import { NotFoundView } from "./NotFoundView";
 import { visualizationDetailLink } from "@/components/visualizations/visualization-navigation";
 import { queryStatus } from "@/data/query-status";
 import { useConfirmDialogStore } from "@/lib/stores/confirm-dialog-store";
@@ -336,6 +337,7 @@ export function InsightView({
         visualizeIntent={visualizeIntent}
         canvasTabs
         header={renderHeader}
+        missingTable={<NotFoundView type="dataTable" />}
       />
     </AppLayout>
   );

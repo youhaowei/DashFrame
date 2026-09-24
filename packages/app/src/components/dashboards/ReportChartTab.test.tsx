@@ -84,6 +84,7 @@ function renderNewChart(chartInsight: Insight, onLanded = vi.fn()) {
     reports: [REPORT],
     visualizations: [] as Visualization[],
     dataTables: [TABLE],
+    insightsLoaded: true,
     onLanded,
   };
   const view = render(<ReportChartTab {...props} insights={[chartInsight]} />);
@@ -133,6 +134,49 @@ describe("ReportChartTab — a new chart", () => {
   });
 });
 
+describe("ReportChartTab — a new chart remounted mid-landing", () => {
+  it("does not place the chart a second time", async () => {
+    let resolveLanding: (value: null) => void = () => {};
+    mockCommitBatch.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveLanding = resolve;
+      }),
+    );
+    const ready = insight({ selectedFields: [FIELD_ID], metrics: [METRIC] });
+    const onLanded = vi.fn();
+    const first = renderNewChart(ready, onLanded);
+    expect(mockCommitBatch).toHaveBeenCalledTimes(1);
+
+    // Switching to the report and back mounts the tab afresh.
+    first.unmount();
+    renderNewChart(ready, onLanded);
+    expect(mockCommitBatch).toHaveBeenCalledTimes(1);
+
+    resolveLanding(null);
+    await waitFor(() => expect(onLanded).toHaveBeenCalledWith("new-chart"));
+  });
+});
+
+describe("ReportChartTab — a new chart whose insight is gone", () => {
+  it("says so instead of loading forever", () => {
+    render(
+      <ReportChartTab
+        report={REPORT}
+        tab={{ id: "new-chart", insightId: "deleted-insight" }}
+        reports={[REPORT]}
+        visualizations={[]}
+        insights={[]}
+        insightsLoaded
+        dataTables={[TABLE]}
+        onLanded={vi.fn()}
+      />,
+    );
+    screen.getByText(
+      "This chart is gone. Close its tab to go back to the report.",
+    );
+  });
+});
+
 describe("ReportChartTab — a saved chart", () => {
   it("opens the chart and says how many reports use it", () => {
     const chart = {
@@ -159,6 +203,7 @@ describe("ReportChartTab — a saved chart", () => {
         reports={[usedBy("report-1"), usedBy("report-2"), REPORT]}
         visualizations={[chart]}
         insights={[insight({})]}
+        insightsLoaded
         dataTables={[TABLE]}
         onLanded={vi.fn()}
       />,

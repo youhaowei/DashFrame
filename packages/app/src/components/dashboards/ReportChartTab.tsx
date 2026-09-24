@@ -30,6 +30,8 @@ interface ReportChartTabProps {
   reports: readonly Dashboard[];
   visualizations: readonly Visualization[];
   insights: readonly Insight[];
+  /** The insights have loaded, so one missing from them is gone. */
+  insightsLoaded: boolean;
   dataTables: readonly DataTable[];
   /** A new chart's tile is now on the report. */
   onLanded: (tabId: string) => void;
@@ -72,6 +74,7 @@ export function ReportChartTab({
   reports,
   visualizations,
   insights,
+  insightsLoaded,
   dataTables,
   onLanded,
 }: ReportChartTabProps) {
@@ -85,8 +88,10 @@ export function ReportChartTab({
   const landAttemptRef = useRef<string | null>(null);
   useEffect(() => {
     if (!tab.insightId || !insight || !isReadyToLand(insight)) return;
-    // One attempt per tab: StrictMode replays and re-renders while the batch
-    // is in flight must not place the chart twice.
+    // One attempt per tab: StrictMode replays, re-renders, and a remount while
+    // the batch is in flight must not place the chart twice. Once it commits,
+    // the report sees the chart and hands this tab over as a saved chart.
+    if (chartLanding.isPending(tab.id)) return;
     if (landAttemptRef.current === tab.id) return;
     landAttemptRef.current = tab.id;
     const commands = buildLandChartCommands({
@@ -115,7 +120,13 @@ export function ReportChartTab({
   );
 
   if (!insight || (!tab.insightId && !visualization)) {
-    return <CentreMessage>Loading chart...</CentreMessage>;
+    return (
+      <CentreMessage>
+        {insightsLoaded
+          ? "This chart is gone. Close its tab to go back to the report."
+          : "Loading chart..."}
+      </CentreMessage>
+    );
   }
 
   const usedIn = visualization
@@ -129,6 +140,11 @@ export function ReportChartTab({
       onViewChange={ignoreViewChange}
       reportId={report.id}
       leftPaneNote={usedIn}
+      missingTable={
+        <CentreMessage>
+          This chart's table is gone. It may have been deleted.
+        </CentreMessage>
+      }
       header={() =>
         visualization ? (
           <ChartNameInput

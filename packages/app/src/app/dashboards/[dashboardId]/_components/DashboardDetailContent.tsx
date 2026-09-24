@@ -62,7 +62,7 @@ import {
   FileIcon,
   PlusIcon,
 } from "@wystack/ui-react/icons";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface DashboardDetailContentProps {
@@ -152,6 +152,10 @@ export default function DashboardDetailContent({
   // The tab just closed. Its id stays in the URL until navigation opens the
   // next tab; until then it must neither show nor count as a stale link.
   const [closedChartId, setClosedChartId] = useState<string | null>(null);
+  // Once the URL has moved on, a later link to the closed chart opens it.
+  if (closedChartId !== null && chartId !== closedChartId) {
+    setClosedChartId(null);
+  }
   const chartTabs = useMemo(
     () =>
       resolveChartTabs(
@@ -197,7 +201,14 @@ export default function DashboardDetailContent({
       closeStoredChartTab(dashboardId, tabId);
       // A new chart that never reached the report exists only in its tab;
       // closing the tab discards the insight it was being built on.
-      if (closing?.insightId && !chartLanding.isPending(tabId)) {
+      // A chart on that insight means it is no longer the tab's alone.
+      if (
+        closing?.insightId &&
+        !chartLanding.isPending(tabId) &&
+        !visualizations.some(
+          (visualization) => visualization.insightId === closing.insightId,
+        )
+      ) {
         commitBatch({
           commands: [cmd("DeleteNode", { id: closing.insightId as UUID })],
         }).catch((error: unknown) => {
@@ -214,6 +225,7 @@ export default function DashboardDetailContent({
       commitBatch,
       dashboardId,
       selectChart,
+      visualizations,
     ],
   );
 
@@ -223,8 +235,16 @@ export default function DashboardDetailContent({
   );
 
   const [isChartPickerOpen, setIsChartPickerOpen] = useState(false);
+  // A double click on a table must start one chart, not two.
+  const startingChartRef = useRef(false);
   const startNewChart = async (tableId: string, tableName: string) => {
-    const insightId = await createChartInsight(tableId, tableName);
+    if (startingChartRef.current) return null;
+    startingChartRef.current = true;
+    const insightId = await createChartInsight(tableId, tableName).finally(
+      () => {
+        startingChartRef.current = false;
+      },
+    );
     if (!insightId) return null;
     const tabId = crypto.randomUUID();
     openChartTab(dashboardId, { id: tabId, insightId });
@@ -468,6 +488,7 @@ export default function DashboardDetailContent({
           reports={dashboards}
           visualizations={visualizations}
           insights={insights}
+          insightsLoaded={!insightsLoading}
           dataTables={dataTables}
           onLanded={handleChartLanded}
         />

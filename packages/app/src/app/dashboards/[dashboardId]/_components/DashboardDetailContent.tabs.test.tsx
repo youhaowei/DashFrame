@@ -318,6 +318,21 @@ describe("DashboardDetailContent — chart tabs", () => {
     });
   });
 
+  it("keeps the insight of a new chart once a chart is built on it", async () => {
+    const user = userEvent.setup();
+    useReportChartTabs.setState({
+      tabsByReport: {
+        [REPORT_ID]: [{ id: "new-chart", insightId: REVENUE.insightId }],
+      },
+    });
+    render(<Page initialChart="new-chart" />);
+    await user.click(
+      tabs().getByRole("button", { name: "Close Untitled chart" }),
+    );
+    await expectUrl("");
+    expect(mockCommitBatch).not.toHaveBeenCalled();
+  });
+
   it("keeps the insight of a new chart whose landing is still in flight", async () => {
     const user = userEvent.setup();
     useReportChartTabs.setState({
