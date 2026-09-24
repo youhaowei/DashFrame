@@ -63,6 +63,13 @@ export function newChartName(
 }
 
 /**
+ * New-chart tabs whose chart type a suggestion picked during this page
+ * session. A type restored from session storage without one belongs to a pick
+ * whose write never landed before a reload.
+ */
+const pickedThisSession = new Set<string>();
+
+/**
  * One chart open inside a report: the insight workbench on the chart. A new
  * chart shows its data until it has a field and a metric, then lands on the
  * report as a tile and becomes a saved chart in the same tab.
@@ -82,6 +89,21 @@ export function ReportChartTab({
     : visualizations.find((candidate) => candidate.id === tab.id);
   const insightId = tab.insightId ?? visualization?.insightId;
   const insight = insights.find((candidate) => candidate.id === insightId);
+
+  // A restored suggestion type whose write never landed (the insight is still
+  // pristine) must not shape a chart then built another way, such as from
+  // the left pane.
+  const stalePick =
+    !!tab.insightId &&
+    !!tab.chartType &&
+    !!insight &&
+    insight.selectedFields.length === 0 &&
+    (insight.metrics ?? []).length === 0 &&
+    !pickedThisSession.has(tab.id);
+  useEffect(() => {
+    if (stalePick)
+      useReportChartTabs.getState().setChartType(report.id, tab.id, undefined);
+  }, [report.id, stalePick, tab.id]);
 
   const commitBatch = useMutation(api.app.commitBatch);
   const landAttemptRef = useRef<string | null>(null);
@@ -143,10 +165,13 @@ export function ReportChartTab({
         visualization
           ? undefined
           : {
-              onPickChartType: (chartType) =>
+              onPickChartType: (chartType) => {
+                if (chartType) pickedThisSession.add(tab.id);
+                else pickedThisSession.delete(tab.id);
                 useReportChartTabs
                   .getState()
-                  .setChartType(report.id, tab.id, chartType),
+                  .setChartType(report.id, tab.id, chartType);
+              },
             }
       }
       missingTable={

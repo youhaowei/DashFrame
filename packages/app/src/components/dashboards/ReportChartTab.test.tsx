@@ -304,4 +304,67 @@ describe("newChartName", () => {
     };
     expect(commands[0]!.args.visualizationType).not.toBe("line");
   });
+
+  it("drops a restored type whose write never landed, before any build", async () => {
+    const store = useReportChartTabs.getState();
+    store.open(REPORT.id, { id: "restored", insightId: "insight-1" });
+    store.setChartType(REPORT.id, "restored", "line");
+    const tabOf = () =>
+      useReportChartTabs
+        .getState()
+        .tabsByReport[REPORT.id]!.find((tab) => tab.id === "restored")!;
+    const onLanded = vi.fn();
+    const props = {
+      report: REPORT,
+      reports: [REPORT],
+      visualizations: [] as Visualization[],
+      dataTables: [TABLE],
+      insightsLoaded: true,
+      onLanded,
+    };
+    const view = render(
+      <ReportChartTab {...props} tab={tabOf()} insights={[insight({})]} />,
+    );
+    // No pick this session: the type is stale as soon as the tab opens.
+    await waitFor(() => expect(tabOf().chartType).toBeUndefined());
+
+    // The left pane then builds the chart; it lands as the default type.
+    view.rerender(
+      <ReportChartTab
+        {...props}
+        tab={tabOf()}
+        insights={[insight({ selectedFields: [FIELD_ID], metrics: [METRIC] })]}
+      />,
+    );
+    await waitFor(() => expect(onLanded).toHaveBeenCalledWith("restored"));
+    const { commands } = mockCommitBatch.mock.calls[0]![0] as {
+      commands: { path: string; args: Record<string, unknown> }[];
+    };
+    expect(commands[0]!.args.visualizationType).not.toBe("line");
+  });
+
+  it("keeps a type picked this session while its write is pending", () => {
+    const store = useReportChartTabs.getState();
+    store.open(REPORT.id, { id: "picked", insightId: "insight-1" });
+    const tabOf = () =>
+      useReportChartTabs
+        .getState()
+        .tabsByReport[REPORT.id]!.find((tab) => tab.id === "picked")!;
+    const props = {
+      report: REPORT,
+      reports: [REPORT],
+      visualizations: [] as Visualization[],
+      dataTables: [TABLE],
+      insightsLoaded: true,
+      onLanded: vi.fn(),
+    };
+    const view = render(
+      <ReportChartTab {...props} tab={tabOf()} insights={[insight({})]} />,
+    );
+    workbenchProps.starter!.onPickChartType!("line");
+    view.rerender(
+      <ReportChartTab {...props} tab={tabOf()} insights={[insight({})]} />,
+    );
+    expect(tabOf().chartType).toBe("line");
+  });
 });
