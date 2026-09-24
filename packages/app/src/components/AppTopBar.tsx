@@ -3,12 +3,17 @@ import { DESKTOP_NAV_TRAFFIC_LIGHTS_OVER_NAV_CLASS } from "@/components/shell/la
 import { useRegisteredTopBarTabs } from "@/components/shell/topbar-tabs";
 import { usePlatform } from "@/lib/platform";
 import { useShellStore } from "@/lib/stores/shell-store";
+import {
+  useCommandPalette,
+  useCommandPaletteShortcutLabel,
+} from "@/components/shell/command-palette-store";
 import { WorkbenchTabs } from "@dashframe/ui";
 import { Button, TopBar, cn } from "@wystack/ui-react";
 import {
   PaletteIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
+  SearchIcon,
 } from "@wystack/ui-react/icons";
 
 /**
@@ -42,6 +47,8 @@ export function AppTopBar() {
   const appearanceOpen = useShellStore((s) => s.contextAppearanceOpen);
   const toggleAppearance = useShellStore((s) => s.toggleContextAppearance);
   const tabs = useRegisteredTopBarTabs();
+  const openPalette = useCommandPalette((s) => s.setOpen);
+  const paletteShortcut = useCommandPaletteShortcutLabel();
 
   return (
     <TopBar
@@ -70,6 +77,20 @@ export function AppTopBar() {
             tooltip={leftNavOpen ? "Hide sidebar" : "Show sidebar"}
             onClick={toggleLeftNav}
             className="hidden h-7 w-7 shrink-0 text-neutral-fg-subtle hover:text-neutral-fg lg:flex"
+          />
+          {/* The nav's search row, while the nav is out of view: collapsed on
+              desktop, a drawer below the desktop breakpoint. */}
+          <Button
+            variant="ghost"
+            icon={SearchIcon}
+            iconOnly
+            label="Search"
+            tooltip={`Search (${paletteShortcut})`}
+            onClick={() => openPalette(true)}
+            className={cn(
+              "h-7 w-7 shrink-0 text-neutral-fg-subtle hover:text-neutral-fg",
+              leftNavOpen && "lg:hidden",
+            )}
           />
           <AppBreadcrumbs
             beforeTabs={tabs !== null}

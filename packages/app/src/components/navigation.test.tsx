@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { useCommandPalette } from "@/components/shell/command-palette-store";
 
 const { mockClearAllData, mockLocation, mockPlatform, mockReloadRoot } =
   vi.hoisted(() => ({
@@ -81,7 +82,7 @@ vi.mock("@wystack/ui-react", () => ({
     onClick?: () => void;
   }) => (
     <button type="button" onClick={onClick}>
-      {label ?? children}
+      {children ?? label}
     </button>
   ),
   Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
@@ -137,6 +138,7 @@ vi.mock("@wystack/ui-react/icons", () => ({
   GithubIcon: () => null,
   GridIcon: () => null,
   MenuIcon: () => null,
+  SearchIcon: () => null,
   SettingsIcon: () => null,
   SparklesIcon: () => null,
   UserIcon: () => null,
@@ -168,6 +170,23 @@ describe("Navigation", () => {
       "/data-sources",
       "/drafts",
     ]);
+  });
+
+  it("opens the command palette from the search row above the roots, closing the drawer", () => {
+    useCommandPalette.setState({ open: false });
+    render(<Navigation />);
+    const nav = screen.getByRole("navigation");
+    const search = within(nav).getByRole("button", { name: /^Search…/ });
+    expect(
+      search.compareDocumentPosition(within(nav).getAllByRole("link")[0]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    const drawer = screen.getByTestId("mobile-drawer");
+    fireEvent.click(within(drawer).getByRole("button", { name: /^Search…/ }));
+    expect(useCommandPalette.getState().open).toBe(true);
+    expect(screen.queryByTestId("mobile-drawer")).toBeNull();
   });
 
   it("shows the DashFrame logo linking to Reports", () => {

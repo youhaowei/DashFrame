@@ -13,6 +13,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Navigation } from "@/components/navigation";
 import { ConnectorSetup } from "@/components/providers/ConnectorSetup";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
+import { CommandPalette } from "@/components/shell/command-palette";
 import { ContextPanelProvider } from "@/components/shell/context-panel-outlet";
 import { ShellRails } from "@/components/shell/ShellRails";
 import { TopBarTabsProvider } from "@/components/shell/topbar-tabs";
@@ -80,6 +81,7 @@ function Shell() {
           <ShellRails shellWidth={shellWidth} />
         </div>
       </div>
+      <CommandPalette />
     </div>
   );
 }

@@ -11,6 +11,10 @@ import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
 import { usePlatform } from "@/lib/platform";
 import { useShellStore } from "@/lib/stores/shell-store";
+import {
+  useCommandPalette,
+  useCommandPaletteShortcutLabel,
+} from "@/components/shell/command-palette-store";
 import { api } from "@dashframe/convex-backend/api";
 import { Link, useLocation } from "@tanstack/react-router";
 
@@ -41,6 +45,7 @@ import {
   GithubIcon,
   GridIcon,
   MenuIcon,
+  SearchIcon,
   SettingsIcon,
   UserIcon,
 } from "@wystack/ui-react/icons";
@@ -130,6 +135,7 @@ function SidebarContent({
 
       {/* Navigation Links */}
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
+        <SearchRow onOpen={onNavigate} />
         {navItems.map((item) => {
           const isActive = item.activePrefixes.some(
             (prefix) =>
@@ -229,6 +235,39 @@ function SidebarContent({
         {footerSlot}
       </div>
     </div>
+  );
+}
+
+/**
+ * Opens the command palette. A flat row like the links below it, not a
+ * search well: typing happens in the palette.
+ */
+function SearchRow({ onOpen }: { onOpen?: () => void }) {
+  const openPalette = useCommandPalette((state) => state.setOpen);
+  const shortcut = useCommandPaletteShortcutLabel();
+  const { isMacOS } = usePlatform();
+  return (
+    <Button
+      variant="ghost"
+      color="secondary"
+      label="Search"
+      onClick={() => {
+        // Close the mobile drawer first, so the palette is not stacked on it.
+        onOpen?.();
+        openPalette(true);
+      }}
+      aria-keyshortcuts={isMacOS ? "Meta+K" : "Control+K"}
+      className="group h-auto w-full justify-start gap-3 rounded-lg px-2.5 py-2 font-normal text-neutral-fg-subtle hover:bg-neutral-bg/60 hover:text-neutral-fg"
+    >
+      <SearchIcon
+        aria-hidden
+        className="h-4 w-4 shrink-0 text-neutral-fg-subtle group-hover:text-neutral-fg"
+      />
+      <span className="truncate text-sm font-medium">Search…</span>
+      <kbd className="ml-auto font-sans text-xs text-neutral-fg-subtle">
+        {shortcut}
+      </kbd>
+    </Button>
   );
 }
 

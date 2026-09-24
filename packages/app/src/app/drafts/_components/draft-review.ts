@@ -101,7 +101,8 @@ export function draftStatus(review: DraftReview): DraftStatus {
   return { tone: "ready", label: "Ready to publish" };
 }
 
-function epoch(value: string | null): number {
+/** A draft timestamp in milliseconds; 0 when it is missing or unreadable. */
+export function epoch(value: string | null): number {
   if (!value) return 0;
   const ms = new Date(value).getTime();
   return Number.isNaN(ms) ? 0 : ms;
