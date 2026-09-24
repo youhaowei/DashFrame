@@ -40,7 +40,7 @@ import type {
   DataFrameRow,
   InsightRow,
 } from "./model";
-import { parseStoredDataTableState } from "./tableCodec";
+import { parseStoredDataTableState, parseTableOrigin } from "./tableCodec";
 const workspace = { workspaceId: v.string() };
 const GA4_REPAIR_LIMIT = 10_000;
 // Keep this map aligned with DIMENSION_SCOPES in connector-ga4/src/metadata.ts.
@@ -697,14 +697,21 @@ export const prepareRemoteDataTable = internalMutation({
     table: v.string(),
     fields: v.array(object),
     metrics: v.optional(v.array(object)),
+    origin: v.optional(object),
   },
   returns: v.array(object),
   handler: async (ctx, args) => {
     const row = await find(ctx, args.workspaceId, "dataTables", args.id);
+    const origin =
+      args.origin === undefined
+        ? undefined
+        : parseTableOrigin(args.origin, "Remote origin");
     if (
       !row ||
       row.dataSourceId !== args.dataSourceId ||
-      row.table !== args.table
+      row.table !== args.table ||
+      stable(row.origin ?? { kind: "resource" }) !==
+        stable(origin ?? { kind: "resource" })
     )
       throw new Error("SOURCE_BINDING_CHANGED");
     const structural = (fields: ObjectValue[]) =>

@@ -1,4 +1,5 @@
 import { api } from "@dashframe/convex-backend/api";
+import type { FunctionArgs } from "convex/server";
 import type { SecretRef, SecretVault } from "@wystack/secret-vault";
 import { isSecretRef } from "@wystack/secret-vault";
 import {
@@ -63,7 +64,9 @@ export function createHostedSourceMetadata(
         await client()
       ).mutation(
         api.hostedSourceOperations.prepareRemoteDataTable,
-        wire(input),
+        wire(input) as FunctionArgs<
+          typeof api.hostedSourceOperations.prepareRemoteDataTable
+        >,
       );
       return parseStoredDataTableState(
         { sourceSchema: null, fields, metrics: [] },

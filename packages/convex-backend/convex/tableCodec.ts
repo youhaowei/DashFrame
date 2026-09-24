@@ -6,6 +6,7 @@ import {
   type Metric,
   type MeasureContract,
   type SourceSchema,
+  type TableOrigin,
 } from "@dashframe/types";
 import { z } from "zod";
 
@@ -101,7 +102,60 @@ const metricSchema = z
   })
   .passthrough();
 
+export const tableOriginSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("resource") }).strict(),
+  z
+    .object({
+      kind: z.literal("definition"),
+      version: z.literal(1),
+      presetId: z.string().min(1).optional(),
+      definition: z
+        .object({
+          dimensions: z.array(z.string().min(1)).min(1),
+          metrics: z.array(z.string().min(1)).min(1),
+          dateRange: z.discriminatedUnion("kind", [
+            z
+              .object({ kind: z.literal("relative"), months: z.number() })
+              .strict(),
+            z
+              .object({
+                kind: z.literal("absolute"),
+                start: z.string(),
+                end: z.string(),
+              })
+              .strict(),
+          ]),
+          grain: z.enum(["day", "week", "month"]),
+          filters: z
+            .array(
+              z.discriminatedUnion("kind", [
+                z
+                  .object({
+                    kind: z.literal("dimension"),
+                    field: z.string().min(1),
+                    operator: z.enum(["exact", "inList"]),
+                    values: z.array(z.string()),
+                  })
+                  .strict(),
+                z
+                  .object({
+                    kind: z.literal("metric"),
+                    field: z.string().min(1),
+                    operator: z.literal("greaterThan"),
+                    value: z.number(),
+                  })
+                  .strict(),
+              ]),
+            )
+            .optional(),
+        })
+        .passthrough(),
+    })
+    .strict(),
+]);
+
 export const storedDataTableStateSchema = z.object({
+  origin: tableOriginSchema.nullish().transform((value) => value ?? undefined),
   sourceSchema: sourceSchemaSchema
     .nullish()
     .transform((value) => value ?? undefined),
@@ -116,9 +170,20 @@ export const storedDataTableStateSchema = z.object({
 });
 
 export interface StoredDataTableState {
+  origin?: TableOrigin;
   sourceSchema?: SourceSchema;
   fields: Field[];
   metrics: Metric[];
+}
+
+export function parseTableOrigin(value: unknown, subject: string): TableOrigin {
+  const parsed = tableOriginSchema.safeParse(value);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.join(".") || "origin";
+    throw new Error(`${subject} is invalid: ${path} ${issue?.message}`);
+  }
+  return parsed.data as TableOrigin;
 }
 
 export function parseStoredDataTableState(

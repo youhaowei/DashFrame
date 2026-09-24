@@ -11,6 +11,7 @@ import type {
   DashboardItemOverridePatch,
 } from "./dashboards";
 import type { Field, SourceSchema } from "./field";
+import type { TableOrigin } from "./data-tables";
 import type {
   Insight,
   InsightFilter,
@@ -181,8 +182,10 @@ export interface CommandPayloads {
     fields?: Field[];
     metrics?: Metric[];
     dataFrameId?: UUID;
+    origin?: TableOrigin;
   };
   SetDataTableSchema: { id: UUID; sourceSchema: SourceSchema };
+  SetDataTableOrigin: { id: UUID; origin: TableOrigin };
   RefreshDataTable: { id: UUID; dataFrameId: UUID };
   // Fields & Metrics (targets DataTable or Insight via nodeId)
   AddField: { nodeId: UUID; field: Field };
@@ -289,6 +292,7 @@ export const COMMAND_PATHS = {
   SetDataSourceConfig: "setDataSourceConfig",
   CreateDataTable: "createDataTable",
   SetDataTableSchema: "setDataTableSchema",
+  SetDataTableOrigin: "setDataTableOrigin",
   RefreshDataTable: "refreshDataTableCmd",
   AddField: "addField",
   UpdateField: "updateField",

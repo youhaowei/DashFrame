@@ -11,12 +11,30 @@ import {
 import type { Insight } from "./insights";
 import type { InsightMetric } from "./metric";
 import type { UUID } from "./uuid";
+import { tableOrigin } from "./data-tables";
 
 const id = "11111111-1111-4111-8111-111111111111" as UUID;
 const midA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as UUID;
 const midB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as UUID;
 const midC = "dddddddd-dddd-4ddd-8ddd-dddddddddddd" as UUID;
 const tableId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc" as UUID;
+
+describe("tableOrigin", () => {
+  it("treats an absent origin as a resource origin", () => {
+    expect(tableOrigin({})).toEqual({ kind: "resource" });
+    const definition = {
+      kind: "definition" as const,
+      version: 1 as const,
+      definition: {
+        dimensions: ["date"],
+        metrics: ["sessions"],
+        dateRange: { kind: "relative" as const, months: 1 },
+        grain: "day" as const,
+      },
+    };
+    expect(tableOrigin({ origin: definition })).toBe(definition);
+  });
+});
 
 function metric(mid: UUID, name: string): InsightMetric {
   return {

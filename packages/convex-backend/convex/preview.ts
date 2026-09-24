@@ -77,6 +77,7 @@ export function publicRow(table: ArtifactTable, row: ArtifactRow): ObjectValue {
       dataFrameId: row.dataFrameId ?? undefined,
       lastFetchedAt: row.lastFetchedAt ?? undefined,
       refreshRevision: row.refreshRevision ?? `legacy-${row.createdAt}`,
+      origin: row.origin ?? undefined,
     }) as ObjectValue;
   if (table === "insights")
     return clean({ ...base, ...row.definition }) as ObjectValue;
@@ -182,6 +183,7 @@ export function describeCommand(
     setDataSourceConfig: "Update data source settings",
     createDataTable: name ? `Add table ${name}` : "Add table",
     setDataTableSchema: "Update table schema",
+    setDataTableOrigin: "Update table origin",
     refreshDataTableCmd: "Refresh table data",
     addField: fieldName ? `Add field ${fieldName}` : "Add field",
     updateField: updatedFieldName
@@ -348,6 +350,7 @@ export async function preview(
         setDataSourceConfig: "dataSources",
         createDataTable: "dataTables",
         setDataTableSchema: "dataTables",
+        setDataTableOrigin: "dataTables",
         refreshDataTableCmd: "dataTables",
         getOrCreateInsightDraft: "insights",
         createInsightCmd: "insights",

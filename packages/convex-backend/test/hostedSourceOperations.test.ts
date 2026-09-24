@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import schema from "../convex/schema";
 import { api } from "../convex/_generated/api";
+import type { TableOrigin } from "@dashframe/types";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -215,6 +216,63 @@ it("preserves source binding and field identities when preparing remote table me
       fields: [{ ...fields[0]!, type: "string" }],
     }),
   ).rejects.toThrow("SOURCE_SCHEMA_CHANGED");
+});
+
+it("checks a supplied origin against the stored remote table binding", async () => {
+  const workspaceId = await admit();
+  const { user, sourceId, tableId } = await seed(workspaceId);
+  const origin = {
+    kind: "definition",
+    version: 1,
+    definition: {
+      dimensions: ["date"],
+      metrics: ["sessions"],
+      dateRange: { kind: "relative", months: 1 },
+      grain: "day",
+    },
+  } satisfies TableOrigin;
+  const input = {
+    id: tableId,
+    dataSourceId: sourceId,
+    table: "t.csv",
+    fields: [],
+  };
+  expect(
+    await user.mutation(
+      api.hostedSourceOperations.prepareRemoteDataTable,
+      input,
+    ),
+  ).toEqual([]);
+  await expect(
+    user.mutation(api.hostedSourceOperations.prepareRemoteDataTable, {
+      ...input,
+      origin,
+    }),
+  ).rejects.toThrow("SOURCE_BINDING_CHANGED");
+  await user.mutation(api.hostedMetadata.commitBatch, {
+    commands: [{ path: "setDataTableOrigin", args: { id: tableId, origin } }],
+  });
+  await expect(
+    user.mutation(api.hostedSourceOperations.prepareRemoteDataTable, input),
+  ).rejects.toThrow("SOURCE_BINDING_CHANGED");
+  expect(
+    await user.mutation(api.hostedSourceOperations.prepareRemoteDataTable, {
+      ...input,
+      origin,
+    }),
+  ).toEqual([]);
+  await expect(
+    user.mutation(api.hostedSourceOperations.prepareRemoteDataTable, {
+      ...input,
+      origin: { kind: "resource" },
+    }),
+  ).rejects.toThrow("SOURCE_BINDING_CHANGED");
+  await expect(
+    user.mutation(api.hostedSourceOperations.prepareRemoteDataTable, {
+      ...input,
+      origin: { kind: "bogus" },
+    }),
+  ).rejects.toThrow(/Remote origin is invalid: kind /);
 });
 
 it("removes and clears only the signed workspace while preserving atomic cleanup records", async () => {

@@ -135,7 +135,7 @@ export interface HostMetadata {
       DataFrameRow,
       "createdAt" | "updatedAt" | "workspaceId" | "revision"
     >;
-    tableUpdate: Partial<DataTableRow>;
+    tableUpdate: Partial<Omit<DataTableRow, "origin">>;
   }): Promise<void>;
   revokeCredential(credentialId: string): Promise<void>;
   publishMaterialization(value: PublicationMetadata): Promise<void>;
@@ -152,6 +152,7 @@ export interface HostMetadata {
     fields: Field[];
     /** Replaces the table's measures, only on the call that first sets fields. */
     metrics?: Metric[];
+    origin?: import("@dashframe/types").TableOrigin;
   }): Promise<Field[]>;
 }
 
