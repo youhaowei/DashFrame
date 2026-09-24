@@ -41,6 +41,8 @@ import {
   AppBreadcrumbs,
   useBreadcrumbStore,
 } from "@/components/shell/app-breadcrumbs";
+import { TopBarTabsProvider } from "@/components/shell/topbar-tabs";
+import { PlatformProvider } from "@/lib/platform";
 import DashboardDetailContent from "./DashboardDetailContent";
 
 beforeEach(() => {
@@ -50,10 +52,12 @@ beforeEach(() => {
 describe("DashboardDetailContent breadcrumb", () => {
   it("names the report in the app bar trail, once", () => {
     render(
-      <>
-        <AppBreadcrumbs />
-        <DashboardDetailContent dashboardId={REPORT.id} />
-      </>,
+      <PlatformProvider>
+        <TopBarTabsProvider>
+          <AppBreadcrumbs />
+          <DashboardDetailContent dashboardId={REPORT.id} />
+        </TopBarTabsProvider>
+      </PlatformProvider>,
     );
 
     const breadcrumbs = screen.getAllByRole("navigation", {

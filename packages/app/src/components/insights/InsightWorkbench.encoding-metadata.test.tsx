@@ -10,7 +10,7 @@ vi.mock("@/hooks/useInsightPagination", () => ({
   useInsightPagination,
 }));
 
-import { useInsightEncodingMetadata } from "./InsightView";
+import { useInsightEncodingMetadata } from "./InsightWorkbench";
 
 it("uses one rendered materialization for all saved-chart encoding metadata", () => {
   const retry = vi.fn();

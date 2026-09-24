@@ -27,7 +27,7 @@ import {
   shouldMaterializeChartSuggestion,
   shouldMaterializeReportResult,
   shouldClearSavedDraft,
-} from "./InsightView";
+} from "./InsightWorkbench";
 
 describe("buildInsightModelMetadata", () => {
   it("keeps unselected declared dimensions in the workbench switcher catalog", () => {

@@ -99,6 +99,8 @@ interface InsightConfigPanelProps {
     pending: boolean;
     generation: number;
   };
+  /** One line under the pane's title, such as where the chart is used. */
+  note?: ReactNode;
 }
 
 /**
@@ -201,6 +203,7 @@ export function InsightConfigPanel({
   reportId,
   columnDisplayNames,
   getVisualizationWriteStatus = () => ({ pending: false, generation: 0 }),
+  note,
 }: InsightConfigPanelProps) {
   const {
     openSections,
@@ -1241,6 +1244,11 @@ export function InsightConfigPanel({
           onToggleAll={toggleAll}
         />
       </WorkbenchPaneHeader>
+      {note && (
+        <p className="shrink-0 px-3.5 pb-2 text-xs text-neutral-fg-subtle">
+          {note}
+        </p>
+      )}
       <OverlayScrollArea className="min-h-0 flex-1">
         <div className="px-3 pb-3">
           {renderSection(

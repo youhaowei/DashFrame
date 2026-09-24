@@ -15,7 +15,7 @@ import {
   inputTypeForField,
   isFilterDraftValid,
   type FilterDraft,
-} from "@/app/insights/[insightId]/_components/config-panel/filter-value";
+} from "@/components/insights/config-panel/filter-value";
 import type { CombinedField } from "@/lib/insights/compute-combined-fields";
 import type {
   DashboardControl,

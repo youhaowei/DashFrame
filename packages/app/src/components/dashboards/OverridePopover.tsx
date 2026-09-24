@@ -48,7 +48,7 @@ import {
   Separator,
   cn,
 } from "@wystack/ui-react";
-import { SettingsIcon } from "@wystack/ui-react/icons";
+import { EditIcon, SettingsIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -69,6 +69,8 @@ interface OverridePopoverProps {
   dashboardId: string;
   /** Dashboard-level controls (from dashboard.controls ?? []). */
   controls: DashboardControl[];
+  /** Opens the tile's chart for editing, as a tab in the report. */
+  onEditChart?: (visualizationId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +273,7 @@ export function OverridePopover({
   item,
   dashboardId,
   controls,
+  onEditChart,
 }: OverridePopoverProps) {
   const commitBatch = useMutation(api.app.commitBatch);
 
@@ -518,11 +521,22 @@ export function OverridePopover({
           <span className="text-sm font-semibold text-neutral-fg">
             Cell overrides
           </span>
-          {overridePresent && (
-            <Badge variant="soft" color="primary" className="text-xs">
-              active
-            </Badge>
-          )}
+          <span className="flex items-center gap-1.5">
+            {overridePresent && (
+              <Badge variant="soft" color="primary" className="text-xs">
+                active
+              </Badge>
+            )}
+            {onEditChart && item.visualizationId && (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={EditIcon}
+                label="Edit chart"
+                onClick={() => onEditChart(item.visualizationId!)}
+              />
+            )}
+          </span>
         </div>
 
         <ScrollArea className="max-h-96">
