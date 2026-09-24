@@ -3,6 +3,7 @@ export const DRAFT_SAFE_COMMANDS = new Set([
   "SetDataSourceConfig",
   "CreateDataTable",
   "SetDataTableSchema",
+  "SetDataTableOrigin",
   "RefreshDataTable",
   "AddField",
   "UpdateField",

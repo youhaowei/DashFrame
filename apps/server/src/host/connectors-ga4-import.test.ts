@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { internal } from "@dashframe/convex-backend/api";
 import schema from "@dashframe/convex-backend/schema";
-import type { Field, Metric } from "@dashframe/types";
+import type { Field, Metric, TableOrigin } from "@dashframe/types";
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { HostContext } from "./context";
@@ -37,7 +37,10 @@ const runReport = {
   ],
 };
 
-async function importedTable(sourceBindingVersion: "v1" | "v2") {
+async function importedTable(
+  sourceBindingVersion: "v1" | "v2",
+  origin?: TableOrigin,
+) {
   const native = convexTest(schema, modules);
   const dataSourceId = crypto.randomUUID(),
     tableId = crypto.randomUUID();
@@ -71,6 +74,8 @@ async function importedTable(sourceBindingVersion: "v1" | "v2") {
       fields: [],
       metrics: [count],
       sourceSchema: null,
+      // The stored column is untyped JSON; TableOrigin is its parsed shape.
+      ...(origin ? { origin: origin as never } : {}),
       createdAt: 0,
     });
   });
@@ -206,6 +211,20 @@ describe("importing a GA4 property", () => {
     await prepareRemoteDataTable(ctx, { id: tableId });
     const again = await ctx.metadata.getDataTable(tableId);
     expect((again as { metrics: Metric[] }).metrics).toEqual(table.metrics);
+  });
+
+  it("prepares a table that stores a definition origin", async () => {
+    const { table } = await importedTable("v2", {
+      kind: "definition",
+      version: 1,
+      definition: {
+        dimensions: ["yearWeek", "sessionDefaultChannelGroup"],
+        metrics: ["sessions"],
+        dateRange: { kind: "relative", months: 1 },
+        grain: "week",
+      },
+    });
+    expect(table.fields.map((field) => field.columnName)).toContain("sessions");
   });
 
   it("leaves a legacy report's table with its Count", async () => {

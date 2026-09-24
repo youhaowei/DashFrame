@@ -13,13 +13,14 @@ export type DataSourceRow = HostRow & {
 };
 export type DataTableRow = Omit<
   HostRow,
-  "fields" | "metrics" | "sourceSchema"
+  "fields" | "metrics" | "sourceSchema" | "origin"
 > & {
   dataSourceId: string;
   table: string;
   fields: import("@dashframe/types").Field[];
   metrics: import("@dashframe/types").Metric[];
   sourceSchema?: import("@dashframe/types").SourceSchema | null;
+  origin?: import("@dashframe/types").TableOrigin;
 };
 export type DataFrameRow = Omit<HostRow, "storage"> & {
   storage: import("@dashframe/types").DataFrameStorageLocation;

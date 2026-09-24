@@ -6,6 +6,7 @@ import {
   type Metric,
   type MeasureContract,
   type SourceSchema,
+  type TableOrigin,
 } from "@dashframe/types";
 import { z } from "zod";
 
@@ -101,7 +102,104 @@ const metricSchema = z
   })
   .passthrough();
 
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+const isoDate = z
+  .string()
+  .regex(ISO_DATE, "expected YYYY-MM-DD")
+  // A stored definition must be reproducible, so an impossible calendar day
+  // such as 2026-02-31 is rejected here, not only by the connector at use.
+  .refine((value) => {
+    const match = ISO_DATE.exec(value);
+    if (!match) return false;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return (
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day
+    );
+  }, "expected a real calendar date");
+
+export const tableOriginSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("resource") }).strict(),
+  z
+    .object({
+      kind: z.literal("definition"),
+      version: z.literal(1),
+      presetId: z.string().min(1).optional(),
+      definition: z
+        .object({
+          dimensions: z.array(z.string().min(1)).min(1),
+          metrics: z.array(z.string().min(1)).min(1),
+          dateRange: z
+            .discriminatedUnion("kind", [
+              z
+                .object({
+                  kind: z.literal("relative"),
+                  months: z.number().int().positive(),
+                })
+                .strict(),
+              z
+                .object({
+                  kind: z.literal("absolute"),
+                  start: isoDate,
+                  end: isoDate,
+                })
+                .strict(),
+            ])
+            // ISO dates order lexically; the connector repeats this check.
+            .refine((r) => r.kind !== "absolute" || r.start <= r.end, {
+              message: "start must not be after end",
+            }),
+          grain: z.enum(["day", "week", "month"]),
+          filters: z
+            .array(
+              z
+                .discriminatedUnion("kind", [
+                  z
+                    .object({
+                      kind: z.literal("dimension"),
+                      field: z.string().min(1),
+                      operator: z.enum(["exact", "inList"]),
+                      values: z.array(z.string()).min(1),
+                    })
+                    .strict(),
+                  z
+                    .object({
+                      kind: z.literal("metric"),
+                      field: z.string().min(1),
+                      operator: z.literal("greaterThan"),
+                      value: z.number(),
+                    })
+                    .strict(),
+                ])
+                .refine(
+                  (f) =>
+                    f.kind !== "dimension" ||
+                    f.operator !== "exact" ||
+                    f.values.length === 1,
+                  { message: "exact filter takes exactly one value" },
+                ),
+            )
+            .optional(),
+        })
+        .passthrough()
+        // The connector rejects a field named twice, across both lists.
+        .refine(
+          (d) =>
+            new Set([...d.dimensions, ...d.metrics]).size ===
+            d.dimensions.length + d.metrics.length,
+          "dimensions and metrics must not repeat a field",
+        ),
+    })
+    .strict(),
+]);
+
 export const storedDataTableStateSchema = z.object({
+  origin: tableOriginSchema.nullish().transform((value) => value ?? undefined),
   sourceSchema: sourceSchemaSchema
     .nullish()
     .transform((value) => value ?? undefined),
@@ -116,9 +214,20 @@ export const storedDataTableStateSchema = z.object({
 });
 
 export interface StoredDataTableState {
+  origin?: TableOrigin;
   sourceSchema?: SourceSchema;
   fields: Field[];
   metrics: Metric[];
+}
+
+export function parseTableOrigin(value: unknown, subject: string): TableOrigin {
+  const parsed = tableOriginSchema.safeParse(value);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.join(".") || "origin";
+    throw new Error(`${subject} is invalid: ${path} ${issue?.message}`);
+  }
+  return parsed.data as TableOrigin;
 }
 
 export function parseStoredDataTableState(

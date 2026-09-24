@@ -1260,6 +1260,55 @@ describe("MCP route", () => {
     }
   });
 
+  it("rejects credential material inside a table origin", async () => {
+    const { client, transport } = await connect();
+    const plaintextToken = `tok-${crypto.randomUUID()}`;
+    const origin = {
+      kind: "definition",
+      version: 1,
+      definition: {
+        dimensions: ["date"],
+        metrics: ["sessions"],
+        dateRange: { kind: "relative", months: 1 },
+        grain: "day",
+        apiToken: plaintextToken,
+      },
+    };
+    try {
+      for (const command of [
+        {
+          type: "CreateDataTable",
+          args: {
+            id: crypto.randomUUID(),
+            dataSourceId: crypto.randomUUID(),
+            name: "T",
+            table: "t",
+            origin,
+          },
+        },
+        {
+          type: "SetDataTableOrigin",
+          args: { id: crypto.randomUUID(), origin },
+        },
+      ]) {
+        const written = await client.callTool({
+          name: "draft_batch",
+          arguments: { commands: [command] },
+        });
+        expect(written.isError).toBe(true);
+        expect(resultText(written)).toMatch(
+          /credential material.*not accepted/i,
+        );
+        expect(JSON.stringify(written).includes(plaintextToken)).toBe(false);
+      }
+      expect(
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
+      ).toHaveLength(0);
+    } finally {
+      await transport.close();
+    }
+  });
+
   it("keeps the service principal out of canonical commits and draft revision", async () => {
     const { client, transport } = await connect();
     try {

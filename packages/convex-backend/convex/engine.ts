@@ -23,7 +23,7 @@ import {
   type ArtifactRow,
   type ArtifactTable,
 } from "./model";
-import { parseStoredDataTableState } from "./tableCodec";
+import { parseStoredDataTableState, parseTableOrigin } from "./tableCodec";
 import { parseStoredDashboardState } from "./dashboardCodec";
 import {
   storedInsightDefinitionSchema,
@@ -780,6 +780,9 @@ async function run(
       sourceSchema: (state.sourceSchema ?? null) as unknown as Json,
       fields: state.fields as unknown as ObjectValue[],
       metrics: state.metrics as unknown as ObjectValue[],
+      ...(state.origin
+        ? { origin: state.origin as unknown as ObjectValue }
+        : {}),
       dataFrameId: a.dataFrameId ? str(a.dataFrameId, "dataFrameId") : null,
     });
   }
@@ -787,6 +790,12 @@ async function run(
     const row = await graph.get("dataTables", id(a.id));
     parseStoredDataTableState({ ...row, sourceSchema: a.sourceSchema }, p);
     row.sourceSchema = a.sourceSchema!;
+    row.refreshRevision = crypto.randomUUID();
+    return { ok: true };
+  }
+  if (p === "setDataTableOrigin") {
+    const row = await graph.get("dataTables", id(a.id));
+    row.origin = parseTableOrigin(a.origin, p) as unknown as ObjectValue;
     row.refreshRevision = crypto.randomUUID();
     return { ok: true };
   }

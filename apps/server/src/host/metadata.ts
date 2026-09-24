@@ -7,7 +7,7 @@ import type {
   DataFrameRow,
   InsightRow,
 } from "@dashframe/convex-backend/model";
-import type { Field, Command, Metric } from "@dashframe/types";
+import type { Field, Command, Metric, TableOrigin } from "@dashframe/types";
 import type { Principal } from "@wystack/identity";
 import type { ConnectorSetupStore } from "../connector-setup/session-store";
 
@@ -135,7 +135,7 @@ export interface HostMetadata {
       DataFrameRow,
       "createdAt" | "updatedAt" | "workspaceId" | "revision"
     >;
-    tableUpdate: Partial<DataTableRow>;
+    tableUpdate: Partial<Omit<DataTableRow, "origin">>;
   }): Promise<void>;
   revokeCredential(credentialId: string): Promise<void>;
   publishMaterialization(value: PublicationMetadata): Promise<void>;
@@ -152,6 +152,7 @@ export interface HostMetadata {
     fields: Field[];
     /** Replaces the table's measures, only on the call that first sets fields. */
     metrics?: Metric[];
+    origin?: TableOrigin;
   }): Promise<Field[]>;
 }
 

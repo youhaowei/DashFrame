@@ -2,6 +2,44 @@ import type { Field, SourceSchema } from "./field";
 import type { Metric } from "./metric";
 import type { UUID } from "./uuid";
 
+/** Provider-neutral shape persisted for a table materialized from a definition. */
+export interface TableDefinition {
+  dimensions: string[];
+  metrics: string[];
+  dateRange:
+    | { kind: "relative"; months: number }
+    | { kind: "absolute"; start: string; end: string };
+  grain: "day" | "week" | "month";
+  filters?: Array<
+    | {
+        kind: "dimension";
+        field: string;
+        operator: "exact" | "inList";
+        values: string[];
+      }
+    | {
+        kind: "metric";
+        field: string;
+        operator: "greaterThan";
+        value: number;
+      }
+  >;
+}
+
+/** How a materialized table can be reproduced. */
+export type TableOrigin =
+  | { kind: "resource" }
+  | {
+      kind: "definition";
+      version: 1;
+      presetId?: string;
+      definition: TableDefinition;
+    };
+
+export function tableOrigin(table: Pick<DataTable, "origin">): TableOrigin {
+  return table.origin ?? { kind: "resource" };
+}
+
 // ============================================================================
 // DataTable Type
 // ============================================================================
@@ -33,4 +71,5 @@ export interface DataTable {
   lastFetchedAt?: number;
   /** Opaque revision of external data or source-definition changes; Insight publications preserve it. */
   refreshRevision?: string;
+  origin?: TableOrigin;
 }

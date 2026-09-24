@@ -9,6 +9,8 @@ import {
   type Insight,
   type CommandName,
   type Command,
+  tableOrigin,
+  type TableOrigin,
 } from "@dashframe/types";
 import type { ArtifactTable } from "../convex/model";
 const modules = import.meta.glob("../convex/**/*.ts");
@@ -109,6 +111,118 @@ async function makeFrame(frameId = id()) {
   );
   return frameId;
 }
+
+const definitionOrigin: TableOrigin = {
+  kind: "definition",
+  version: 1,
+  presetId: "acquisition",
+  definition: {
+    dimensions: ["date"],
+    metrics: ["sessions"],
+    dateRange: { kind: "relative", months: 1 },
+    grain: "day",
+    filters: [
+      {
+        kind: "dimension",
+        field: "country",
+        operator: "exact",
+        values: ["US"],
+      },
+    ],
+  },
+};
+
+describe("data table origins", () => {
+  it("round-trips a definition through the row and client DataTable", async () => {
+    const sourceId = id(),
+      tableId = id();
+    await commit(
+      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+      cmd("CreateDataTable", {
+        id: tableId,
+        dataSourceId: sourceId,
+        name: "T",
+        table: "t.csv",
+        origin: definitionOrigin,
+      }),
+    );
+    expect((await tablesById(tableId))[0]?.origin).toEqual(definitionOrigin);
+    const table = await client.query(api.app.getDataTable, { id: tableId });
+    expect(table?.origin).toEqual(definitionOrigin);
+  });
+
+  it.each([{ ...definitionOrigin, version: 2 }, { kind: "bogus" }])(
+    "rejects invalid CreateDataTable origin %#",
+    async (origin) => {
+      const sourceId = id(),
+        tableId = id();
+      await commit(
+        cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+      );
+      await expect(
+        commit(
+          cmd("CreateDataTable", {
+            id: tableId,
+            dataSourceId: sourceId,
+            name: "T",
+            table: "t.csv",
+            origin,
+          } as never),
+        ),
+      ).rejects.toThrow(/CreateDataTable is invalid: origin\./);
+      expect(await tablesById(tableId)).toEqual([]);
+    },
+  );
+
+  it("defaults a legacy row and updates origin with a new refresh revision", async () => {
+    const { tableId } = await makeTable();
+    const before = (await tablesById(tableId))[0]!;
+    const legacy = await client.query(api.app.getDataTable, { id: tableId });
+    expect(legacy?.origin).toBeUndefined();
+    expect(tableOrigin(legacy!)).toEqual({ kind: "resource" });
+    await commit(
+      cmd("SetDataTableOrigin", { id: tableId, origin: definitionOrigin }),
+    );
+    const after = (await tablesById(tableId))[0]!;
+    expect(after.origin).toEqual(definitionOrigin);
+    expect(after.refreshRevision).not.toBe(before.refreshRevision);
+  });
+
+  it("rejects a malformed SetDataTableOrigin and keeps the stored origin", async () => {
+    const { tableId } = await makeTable();
+    await expect(
+      commit(
+        cmd("SetDataTableOrigin", {
+          id: tableId,
+          origin: { kind: "bogus" } as never,
+        }),
+      ),
+    ).rejects.toThrow(/setDataTableOrigin is invalid: /);
+    expect((await tablesById(tableId))[0]?.origin).toBeUndefined();
+  });
+
+  it("publishes a drafted CreateDataTable origin", async () => {
+    const sourceId = id(),
+      tableId = id();
+    await commit(
+      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
+    );
+    const { draftId } = await client.mutation(api.app.draftBatch, {
+      commands: [
+        cmd("CreateDataTable", {
+          id: tableId,
+          dataSourceId: sourceId,
+          name: "T",
+          table: "t.csv",
+          origin: definitionOrigin,
+        }),
+      ],
+    });
+    expect(await tablesById(tableId)).toEqual([]);
+    await client.mutation(api.app.publishDraft, { draftId });
+    expect((await tablesById(tableId))[0]?.origin).toEqual(definitionOrigin);
+  });
+});
 function rawCmd(name: CommandName, args: Record<string, unknown>): Command {
   return { path: COMMAND_PATHS[name], args };
 }
@@ -861,6 +975,13 @@ describe("existing command behavior on native Convex", () => {
     await expect(
       commit(
         cmd("SetDataTableSchema", { id: id(), sourceSchema: {} as never }),
+      ),
+    ).rejects.toThrow();
+  });
+  it("should throw on a missing id for SetDataTableOrigin (no silent no-op)", async () => {
+    await expect(
+      commit(
+        cmd("SetDataTableOrigin", { id: id(), origin: { kind: "resource" } }),
       ),
     ).rejects.toThrow();
   });

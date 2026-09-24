@@ -5,6 +5,7 @@ import type {
   SourceSchema,
   UUID,
 } from "@dashframe/types";
+export type { TableDefinition, TableOrigin } from "@dashframe/types";
 
 /**
  * Discriminated union for connector source types.
@@ -114,40 +115,6 @@ export interface QueryOptions {
   maxResponseBytes?: number;
   // Future: Add filters, sorting, etc.
 }
-
-/** Provider-neutral shape persisted for a table materialized from a definition. */
-export interface TableDefinition {
-  dimensions: string[];
-  metrics: string[];
-  dateRange:
-    | { kind: "relative"; months: number }
-    | { kind: "absolute"; start: string; end: string };
-  grain: "day" | "week" | "month";
-  filters?: Array<
-    | {
-        kind: "dimension";
-        field: string;
-        operator: "exact" | "inList";
-        values: string[];
-      }
-    | {
-        kind: "metric";
-        field: string;
-        operator: "greaterThan";
-        value: number;
-      }
-  >;
-}
-
-/** How a materialized table can be reproduced. */
-export type TableOrigin =
-  | { kind: "resource" }
-  | {
-      kind: "definition";
-      version: 1;
-      presetId?: string;
-      definition: TableDefinition;
-    };
 
 export interface ConnectorFieldMetadata {
   category: string;

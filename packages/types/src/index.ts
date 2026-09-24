@@ -82,7 +82,8 @@ export type {
   DataSource,
 } from "./data-sources";
 
-export type { DataTable } from "./data-tables";
+export type { DataTable, TableDefinition, TableOrigin } from "./data-tables";
+export { tableOrigin } from "./data-tables";
 
 export type {
   CompiledInsight,
