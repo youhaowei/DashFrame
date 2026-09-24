@@ -7,6 +7,11 @@
  * Storage is the only source of truth: every change reads the stored list,
  * edits it, and writes it back, so a write in one tab builds on what another
  * tab wrote before it.
+ *
+ * Each project has its own shelf. One origin can serve several projects over
+ * time (another workspace, another local project), and an item from one means
+ * nothing in the other, so the key carries the project's id. Until the shelf
+ * knows which project is open it reads empty and refuses writes.
  */
 import { useSyncExternalStore } from "react";
 
@@ -30,14 +35,32 @@ export interface ShelfItem {
 /** What a drag source hands over: pinning is the shelf's business. */
 export type ShelfItemRef = Omit<ShelfItem, "pinned">;
 
-export const SHELF_STORAGE_KEY = "dashframe.shelf.v1";
+const SHELF_STORAGE_PREFIX = "dashframe.shelf.v1";
 /** Recent items kept; the oldest unpinned one drops off past this. */
 export const SHELF_RECENT_LIMIT = 8;
 const LOCAL_EVENT = "dashframe:shelf";
 
 const EMPTY: readonly ShelfItem[] = [];
+let storageKey: string | null = null;
+let cachedKey: string | null = null;
 let cachedRaw: string | null = null;
 let cachedItems: readonly ShelfItem[] = EMPTY;
+
+/** The storage key of a project's shelf. */
+export function shelfStorageKey(projectId: string): string {
+  return `${SHELF_STORAGE_PREFIX}:${projectId}`;
+}
+
+/**
+ * Points the shelf at the open project's items, or at none while the project
+ * is unknown. Every reader re-renders with that project's shelf.
+ */
+export function setShelfProject(projectId: string | null): void {
+  const next = projectId ? shelfStorageKey(projectId) : null;
+  if (next === storageKey) return;
+  storageKey = next;
+  window.dispatchEvent(new Event(LOCAL_EVENT));
+}
 
 /** The key that makes two shelf items the same thing. */
 export function shelfItemKey(item: Pick<ShelfItem, "kind" | "id">): string {
@@ -86,8 +109,9 @@ function capRecent(items: readonly ShelfItem[]): ShelfItem[] {
 }
 
 function readRaw(): string | null {
+  if (!storageKey) return null;
   try {
-    return window.localStorage.getItem(SHELF_STORAGE_KEY);
+    return window.localStorage.getItem(storageKey);
   } catch {
     return null;
   }
@@ -95,7 +119,8 @@ function readRaw(): string | null {
 
 function getSnapshot(): readonly ShelfItem[] {
   const raw = readRaw();
-  if (raw !== cachedRaw) {
+  if (raw !== cachedRaw || storageKey !== cachedKey) {
+    cachedKey = storageKey;
     cachedRaw = raw;
     cachedItems = parseShelf(raw);
   }
@@ -105,7 +130,7 @@ function getSnapshot(): readonly ShelfItem[] {
 function subscribe(onChange: () => void): () => void {
   const onStorage = (event: StorageEvent) => {
     // `key` is null when another tab clears all of storage.
-    if (event.key === null || event.key === SHELF_STORAGE_KEY) onChange();
+    if (event.key === null || event.key === storageKey) onChange();
   };
   window.addEventListener("storage", onStorage);
   window.addEventListener(LOCAL_EVENT, onChange);
@@ -116,9 +141,10 @@ function subscribe(onChange: () => void): () => void {
 }
 
 function write(items: readonly ShelfItem[]): boolean {
+  if (!storageKey) return false;
   let saved = true;
   try {
-    window.localStorage.setItem(SHELF_STORAGE_KEY, JSON.stringify(items));
+    window.localStorage.setItem(storageKey, JSON.stringify(items));
   } catch {
     saved = false;
   }
@@ -156,16 +182,21 @@ export function putOnShelf(ref: ShelfItemRef): boolean {
   );
 }
 
+/**
+ * Pins or unpins an item. An unpinned item becomes the newest recent one, so
+ * unpinning never makes the recent limit drop the item just released.
+ */
 export function setShelfItemPinned(key: string, pinned: boolean): boolean {
   const items = getSnapshot();
-  if (!items.some((item) => shelfItemKey(item) === key)) return true;
-  return write(
-    capRecent(
-      items.map((item) =>
-        shelfItemKey(item) === key ? { ...item, pinned } : item,
-      ),
-    ),
-  );
+  const item = items.find((entry) => shelfItemKey(entry) === key);
+  if (!item) return true;
+  if (pinned) {
+    return write(
+      items.map((entry) => (entry === item ? { ...entry, pinned } : entry)),
+    );
+  }
+  const others = items.filter((entry) => entry !== item);
+  return write(capRecent([{ ...item, pinned: false }, ...others]));
 }
 
 export function removeFromShelf(key: string): boolean {

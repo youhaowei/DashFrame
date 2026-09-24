@@ -118,9 +118,9 @@ export function SourceConfigPane({
             <Setting label="Connected">{formatTime(source.createdAt)}</Setting>
           )}
         </dl>
-        {table && (
+        {(table?.metrics?.length ?? 0) > 0 && (
           <div className="px-3.5 pb-4">
-            <SavedMetricsList metrics={table.metrics ?? []} />
+            <SavedMetricsList metrics={table!.metrics} />
           </div>
         )}
       </OverlayScrollArea>

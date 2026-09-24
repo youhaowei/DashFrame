@@ -95,7 +95,7 @@ export function AppTopBar() {
           />
           {/* While the sidebar is hidden, its shelf lives here. */}
           {!leftNavOpen && (
-            <CollapsedShelf className="hidden shrink-0 lg:block" />
+            <CollapsedShelf className="hidden shrink-0 lg:grid" />
           )}
           <AppBreadcrumbs
             beforeTabs={tabs !== null}

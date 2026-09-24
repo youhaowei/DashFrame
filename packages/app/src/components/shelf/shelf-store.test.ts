@@ -7,12 +7,13 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
   SHELF_RECENT_LIMIT,
-  SHELF_STORAGE_KEY,
   parseShelf,
   putOnShelf,
   readShelf,
   removeFromShelf,
   setShelfItemPinned,
+  setShelfProject,
+  shelfStorageKey,
   useShelfItems,
   type ShelfItemRef,
 } from "./shelf-store";
@@ -23,8 +24,13 @@ function metric(n: number): ShelfItemRef {
 
 const labels = () => readShelf().map((item) => item.label);
 
+const SHELF_STORAGE_KEY = shelfStorageKey("p1");
+
 describe("shelf store", () => {
-  beforeEach(() => window.localStorage.clear());
+  beforeEach(() => {
+    window.localStorage.clear();
+    setShelfProject("p1");
+  });
 
   it("puts the newest item first and moves a repeat to the front", () => {
     putOnShelf(metric(1));
@@ -52,6 +58,29 @@ describe("shelf store", () => {
     setShelfItemPinned("metric:m1", true);
     putOnShelf(metric(1));
     expect(readShelf()[0]).toMatchObject({ id: "m1", pinned: true });
+  });
+
+  it("makes an unpinned item the newest recent one, so the limit keeps it", () => {
+    putOnShelf(metric(0));
+    setShelfItemPinned("metric:m0", true);
+    for (let n = 1; n <= SHELF_RECENT_LIMIT; n++) putOnShelf(metric(n));
+
+    setShelfItemPinned("metric:m0", false);
+    expect(readShelf()[0]).toMatchObject({ id: "m0", pinned: false });
+    expect(labels()).toContain("Metric 0");
+    expect(readShelf()).toHaveLength(SHELF_RECENT_LIMIT);
+  });
+
+  it("keeps each project's shelf apart, and reads empty with no project", () => {
+    putOnShelf(metric(1));
+    setShelfProject("p2");
+    expect(readShelf()).toEqual([]);
+    putOnShelf(metric(2));
+    setShelfProject(null);
+    expect(readShelf()).toEqual([]);
+    expect(putOnShelf(metric(3))).toBe(false);
+    setShelfProject("p1");
+    expect(labels()).toEqual(["Metric 1"]);
   });
 
   it("removes an item by key", () => {

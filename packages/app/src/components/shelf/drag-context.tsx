@@ -20,6 +20,7 @@ import {
   useDroppable,
   useSensor,
   useSensors,
+  type Announcements,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dashframe/ui";
@@ -31,6 +32,7 @@ import {
   useId,
   useMemo,
   useState,
+  type PointerEvent,
   type ReactNode,
 } from "react";
 import type { ShelfItemRef } from "./shelf-store";
@@ -76,11 +78,13 @@ export interface RegisteredDropTarget {
   id: string;
   role: DropTargetRole;
   accepts: DropTargetSpec["accepts"];
+  /** The hook instance that registered it; two owners of one id is a bug. */
+  owner?: string;
 }
 
 interface TargetRegistry {
   register: (target: RegisteredDropTarget) => void;
-  unregister: (id: string) => void;
+  unregister: (id: string, owner: string) => void;
 }
 
 const ActiveDragContext = createContext<ActiveDrag | null>(null);
@@ -106,6 +110,29 @@ function readTarget(data: unknown): TargetPayload["dashframeTarget"] | null {
   return (data as Partial<TargetPayload> | undefined)?.dashframeTarget ?? null;
 }
 
+/** What a drag ending over `overData` should do, if anything. */
+export type DropResolution =
+  | { kind: "drop"; drag: ActiveDrag; verdict: { ok: true; label: string } }
+  | { kind: "refused"; drag: ActiveDrag; reason: string }
+  | { kind: "none" };
+
+/**
+ * Decides a drop from the drag's and the target's data: nothing carried or no
+ * target under the pointer is no drop, and a target that says no refuses.
+ */
+export function resolveDrop(
+  activeData: unknown,
+  overData: unknown,
+): DropResolution {
+  const drag = readDrag(activeData);
+  const target = readTarget(overData);
+  if (!drag || !target) return { kind: "none" };
+  const verdict = target.accepts(drag.item, drag.from);
+  return verdict.ok
+    ? { kind: "drop", drag, verdict }
+    : { kind: "refused", drag, reason: verdict.reason };
+}
+
 function withTarget(
   current: readonly RegisteredDropTarget[],
   target: RegisteredDropTarget,
@@ -113,8 +140,17 @@ function withTarget(
   const index = current.findIndex((entry) => entry.id === target.id);
   if (index === -1) return [...current, target];
   const existing = current[index]!;
+  if (import.meta.env.DEV && existing.owner !== target.owner) {
+    console.warn(
+      `[shelf] Two drop targets share the id "${target.id}"; the later one replaces the earlier.`,
+    );
+  }
   // Same answer as before: keep the list, so the shelf does not re-render.
-  if (existing.accepts === target.accepts && existing.role === target.role) {
+  if (
+    existing.accepts === target.accepts &&
+    existing.role === target.role &&
+    existing.owner === target.owner
+  ) {
     return current;
   }
   const next = [...current];
@@ -125,11 +161,45 @@ function withTarget(
 function withoutTarget(
   current: readonly RegisteredDropTarget[],
   id: string,
+  owner: string,
 ): readonly RegisteredDropTarget[] {
-  return current.some((entry) => entry.id === id)
-    ? current.filter((entry) => entry.id !== id)
+  // Only the registering hook takes its target away, so a replaced target's
+  // late cleanup cannot remove its replacement.
+  return current.some((entry) => entry.id === id && entry.owner === owner)
+    ? current.filter((entry) => !(entry.id === id && entry.owner === owner))
     : current;
 }
+
+/** Says what is being carried and where it would land, by name. */
+const announcements: Announcements = {
+  onDragStart: ({ active }) => {
+    const drag = readDrag(active.data.current);
+    return drag ? `Picked up ${drag.item.label}.` : undefined;
+  },
+  onDragOver: ({ active, over }) => {
+    const result = resolveDrop(active.data.current, over?.data.current);
+    if (result.kind === "drop") return `${result.verdict.label}.`;
+    if (result.kind === "refused") return `${result.reason}.`;
+    return undefined;
+  },
+  onDragEnd: ({ active, over }) => {
+    const result = resolveDrop(active.data.current, over?.data.current);
+    if (result.kind === "drop") {
+      return `${result.drag.item.label}: ${result.verdict.label.toLowerCase()}, done.`;
+    }
+    const drag = readDrag(active.data.current);
+    return drag ? `${drag.item.label} was not dropped.` : undefined;
+  },
+  onDragCancel: ({ active }) => {
+    const drag = readDrag(active.data.current);
+    return drag ? `Stopped carrying ${drag.item.label}.` : undefined;
+  },
+};
+
+const screenReaderInstructions = {
+  draggable:
+    "Drag with a pointer to carry this item. Its buttons put it on the shelf, pin it, or take it off.",
+};
 
 export function AppDragProvider({
   children,
@@ -150,7 +220,8 @@ export function AppDragProvider({
     () => ({
       register: (target) =>
         setTargets((current) => withTarget(current, target)),
-      unregister: (id) => setTargets((current) => withoutTarget(current, id)),
+      unregister: (id, owner) =>
+        setTargets((current) => withoutTarget(current, id, owner)),
     }),
     [],
   );
@@ -160,18 +231,23 @@ export function AppDragProvider({
   }, []);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const drag = readDrag(event.active.data.current);
     setActive(null);
-    const target = readTarget(event.over?.data.current);
-    if (!drag || !target) return;
-    if (!target.accepts(drag.item, drag.from).ok) return;
-    target.onDrop(drag.item, drag.from);
+    const result = resolveDrop(
+      event.active.data.current,
+      event.over?.data.current,
+    );
+    if (result.kind !== "drop") return;
+    readTarget(event.over?.data.current)?.onDrop(
+      result.drag.item,
+      result.drag.from,
+    );
   }, []);
 
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={pointerWithin}
+      accessibility={{ announcements, screenReaderInstructions }}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActive(null)}
@@ -190,9 +266,14 @@ export function AppDragProvider({
   );
 }
 
+const CONTROLS = "button, a, input, select, textarea";
+
 /**
- * Makes an element carry `item`. Spread `attributes` and `listeners` on it and
- * give it `setNodeRef`.
+ * Makes an element carry `item`. Spread `handleProps` on it. The element is
+ * reached by pointer only: its buttons (or the element itself, when it is a
+ * button) are the keyboard path, so it takes no role or tab stop of its own.
+ * A press on a control inside the element stays a click and never starts a
+ * carry, however much the pointer wobbles.
  */
 export function useCarryable(
   item: ShelfItemRef,
@@ -202,11 +283,20 @@ export function useCarryable(
   // The same item can show in two places at once (a tile and its chart tab).
   const instance = useId();
   const data: DragPayload = { dashframeDrag: { item, from } };
-  return useDraggable({
+  const { setNodeRef, listeners, isDragging } = useDraggable({
     id: `${from}:${item.kind}:${item.id}:${instance}`,
     data,
     disabled,
   });
+  const onPointerDown = (event: PointerEvent<HTMLElement>) => {
+    const control = (event.target as Element).closest(CONTROLS);
+    if (control && control !== event.currentTarget) return;
+    listeners?.onPointerDown?.(event);
+  };
+  return {
+    isDragging,
+    handleProps: { ref: setNodeRef, onPointerDown },
+  };
 }
 
 /**
@@ -219,11 +309,12 @@ export function useDropTarget(spec: DropTargetSpec) {
   const { id, role, accepts, onDrop } = spec;
   const registry = useContext(TargetRegistryContext);
   const active = useActiveDrag();
+  const owner = useId();
 
   useEffect(() => {
-    registry?.register({ id, role, accepts });
-  }, [registry, id, role, accepts]);
-  useEffect(() => () => registry?.unregister(id), [registry, id]);
+    registry?.register({ id, role, accepts, owner });
+  }, [registry, id, role, accepts, owner]);
+  useEffect(() => () => registry?.unregister(id, owner), [registry, id, owner]);
 
   const data: TargetPayload = { dashframeTarget: { accepts, onDrop } };
   const { setNodeRef, isOver } = useDroppable({ id: `target:${id}`, data });

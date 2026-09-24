@@ -30,22 +30,13 @@ export function metricShelfRef(metric: Metric): ShelfItemRef {
 /** A table's saved metric: drag it onto the shelf, or press +. */
 function SavedMetricRow({ metric }: { metric: Metric }) {
   const ref = metricShelfRef(metric);
-  const { setNodeRef, attributes, listeners, isDragging } = useCarryable(
-    ref,
-    "source",
-  );
+  const { handleProps, isDragging } = useCarryable(ref, "source");
   return (
     <li
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      // Reached by pointer; the buttons inside are the keyboard path.
-      role={undefined}
-      tabIndex={-1}
-      aria-roledescription="draggable metric"
+      {...handleProps}
       data-saved-metric={metric.name}
       className={cn(
-        "cursor-grab touch-none list-none rounded-lg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
+        "cursor-grab touch-none list-none rounded-lg",
         isDragging && "opacity-40",
       )}
     >
@@ -56,14 +47,13 @@ function SavedMetricRow({ metric }: { metric: Metric }) {
         trailing={
           <button
             type="button"
-            aria-label={`Put ${metric.name} on the shelf`}
+            aria-label={`Put ${metric.name} on shelf`}
             title="Put on shelf"
-            onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
               keepOnShelf(ref);
             }}
-            className="grid h-5 w-5 shrink-0 place-items-center rounded text-neutral-fg-subtle opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-neutral-bg-emphasis hover:text-neutral-fg focus:opacity-100 focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+            className="grid h-5 w-5 shrink-0 place-items-center rounded text-neutral-fg-subtle opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-neutral-bg-emphasis hover:text-neutral-fg focus:opacity-100 focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
           >
             <PlusIcon aria-hidden className="h-3 w-3" />
           </button>
@@ -102,49 +92,64 @@ interface ShelfChart {
   insightId: string;
 }
 
+const PUT_ON_SHELF = "Put on shelf";
+
 /**
  * "Put on shelf" for a saved chart. The button is also a drag handle: press
- * to put it on the shelf, or drag it there.
+ * it to put the chart on the shelf, or drag it there.
  */
 export function PutChartOnShelfButton({
   chart,
   className,
 }: {
-  /** Undefined while the chart is loading: the button waits. */
+  /** Undefined while the chart is loading: the button waits, disabled. */
   chart: ShelfChart | undefined;
+  className?: string;
+}) {
+  if (!chart) {
+    return (
+      <Button
+        label={PUT_ON_SHELF}
+        aria-label={PUT_ON_SHELF}
+        variant="ghost"
+        size="sm"
+        disabled
+        className={cn("h-6 w-6", className)}
+      >
+        <LayersIcon aria-hidden className="h-3.5 w-3.5" />
+      </Button>
+    );
+  }
+  return <CarryableChartButton chart={chart} className={className} />;
+}
+
+function CarryableChartButton({
+  chart,
+  className,
+}: {
+  chart: ShelfChart;
   className?: string;
 }) {
   const ref: ShelfItemRef = {
     kind: "chart",
-    id: chart?.id ?? "",
-    scope: chart?.insightId ?? "",
-    label: chart?.name || "Untitled chart",
+    id: chart.id,
+    scope: chart.insightId,
+    label: chart.name || "Untitled chart",
   };
-  const { setNodeRef, attributes, listeners } = useCarryable(ref, "source", {
-    disabled: !chart,
-  });
+  const { handleProps } = useCarryable(ref, "source");
   return (
-    <span
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      // The button inside is the control; this is only the drag handle.
-      role={undefined}
-      tabIndex={-1}
-      className="touch-none"
+    <Button
+      {...handleProps}
+      label={PUT_ON_SHELF}
+      aria-label={PUT_ON_SHELF}
+      tooltip={PUT_ON_SHELF}
+      variant="ghost"
+      size="sm"
+      className={cn("h-6 w-6 touch-none", className)}
+      onClick={() => keepOnShelf(ref)}
     >
-      <Button
-        label="Put on shelf"
-        tooltip="Put on shelf"
-        variant="ghost"
-        size="sm"
-        disabled={!chart}
-        className={cn("h-6 w-6", className)}
-        onClick={() => keepOnShelf(ref)}
-      >
-        <LayersIcon aria-hidden className="h-3.5 w-3.5" />
-      </Button>
-    </span>
+      <LayersIcon aria-hidden className="h-3.5 w-3.5" />
+    </Button>
   );
 }
 

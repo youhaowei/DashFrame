@@ -188,7 +188,11 @@ function SidebarContent({
         })}
       </nav>
 
-      {shelfSlot ? <div className="px-2 pt-2">{shelfSlot}</div> : null}
+      {shelfSlot ? (
+        <div className="mx-2 border-t border-neutral-border-subtle pt-2">
+          {shelfSlot}
+        </div>
+      ) : null}
 
       {/* Footer with Settings and GitHub */}
       <div className="space-y-2 px-4 py-3">

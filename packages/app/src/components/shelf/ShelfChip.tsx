@@ -3,6 +3,7 @@ import { cn } from "@wystack/ui-react";
 import {
   CalculatorIcon,
   ChartIcon,
+  CloseIcon,
   DragHandleVerticalIcon,
   FileIcon,
   TextTypeIcon,
@@ -66,76 +67,68 @@ export function ShelfChip({
     scope: item.scope,
     label: state.label,
   };
-  const { setNodeRef, attributes, listeners, isDragging } = useCarryable(
-    ref,
-    "shelf",
-    { disabled: missing },
-  );
+  const { handleProps, isDragging } = useCarryable(ref, "shelf", {
+    disabled: missing,
+  });
   const key = shelfItemKey(item);
   const Icon = SHELF_KIND_ICONS[item.kind];
 
+  const reveal =
+    "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100";
+  const rowButton =
+    "grid h-5 w-5 shrink-0 place-items-center rounded text-neutral-fg-subtle transition-opacity motion-reduce:transition-none hover:bg-neutral-bg-emphasis hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none";
+
+  // Set like a nav row: flat, icon and label on one line, a light tonal fill
+  // on hover, and its pin and × revealed on hover or focus.
   return (
     <li
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      // Reached by pointer; the buttons inside are the keyboard path.
-      role={undefined}
-      tabIndex={-1}
-      aria-roledescription={missing ? undefined : "draggable shelf item"}
+      {...handleProps}
       aria-label={`${KIND_NAMES[item.kind]}: ${state.label}${missing ? ", no longer exists" : ""}`}
       data-shelf-item={state.label}
       data-shelf-kind={item.kind}
       className={cn(
-        "list-none rounded-lg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none",
+        "group flex min-h-7 list-none items-center gap-2 rounded-md px-2 py-1 text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:bg-neutral-bg-subtle hover:text-neutral-fg focus-within:bg-neutral-bg-subtle",
         missing ? "cursor-default" : "cursor-grab touch-none",
         isDragging && "opacity-40",
       )}
     >
-      <WorkbenchChip
-        // The whole chip is the handle; the nav is too narrow to spare a slot.
-        dragHandle={false}
-        className="pl-2"
-        icon={<Icon aria-hidden />}
-        stacked={missing}
-        title={
-          <span className={cn(missing && "text-neutral-fg-subtle italic")}>
-            {state.label}
+      <Icon aria-hidden className="h-4 w-4 shrink-0" />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className={cn("truncate", missing && "italic opacity-70")}>
+          {state.label}
+        </span>
+        {missing && (
+          <span className="truncate text-[11px] opacity-70">
+            no longer exists
           </span>
-        }
-        description={missing ? "no longer exists" : undefined}
-        trailing={
-          missing ? null : (
-            <button
-              type="button"
-              aria-pressed={item.pinned}
-              aria-label={
-                item.pinned ? `Unpin ${state.label}` : `Pin ${state.label}`
-              }
-              title={item.pinned ? "Unpin" : "Pin"}
-              // A press here is a click, never the start of a carry.
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                report(setShelfItemPinned(key, !item.pinned));
-              }}
-              className={cn(
-                "grid h-5 w-5 shrink-0 place-items-center rounded text-neutral-fg-subtle transition-opacity hover:bg-neutral-bg-emphasis hover:text-neutral-fg focus:opacity-100 focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none motion-reduce:transition-none",
-                item.pinned
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
-              )}
-            >
-              <Pin
-                aria-hidden
-                className={cn("h-3 w-3", item.pinned && "fill-current")}
-              />
-            </button>
-          )
-        }
-        removeLabel={`Take ${state.label} off the shelf`}
-        onRemove={() => report(removeFromShelf(key))}
-      />
+        )}
+      </span>
+      {!missing && (
+        <button
+          type="button"
+          aria-pressed={item.pinned}
+          aria-label={
+            item.pinned ? `Unpin ${state.label}` : `Pin ${state.label}`
+          }
+          title={item.pinned ? "Unpin" : "Pin"}
+          onClick={() => report(setShelfItemPinned(key, !item.pinned))}
+          className={cn(rowButton, item.pinned ? "opacity-100" : reveal)}
+        >
+          <Pin
+            aria-hidden
+            className={cn("h-3 w-3", item.pinned && "fill-current")}
+          />
+        </button>
+      )}
+      <button
+        type="button"
+        aria-label={`Take ${state.label} off shelf`}
+        title="Take off shelf"
+        onClick={() => report(removeFromShelf(key))}
+        className={cn(rowButton, reveal)}
+      >
+        <CloseIcon aria-hidden className="h-3 w-3" />
+      </button>
     </li>
   );
 }

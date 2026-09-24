@@ -116,6 +116,7 @@ export {
   useDroppable,
   useSensor,
   useSensors,
+  type Announcements,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";

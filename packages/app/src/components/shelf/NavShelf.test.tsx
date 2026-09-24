@@ -40,7 +40,12 @@ import {
   type DropVerdict,
 } from "./drag-context";
 import { ShelfPanel } from "./NavShelf";
-import { putOnShelf, readShelf, setShelfItemPinned } from "./shelf-store";
+import {
+  putOnShelf,
+  readShelf,
+  setShelfItemPinned,
+  setShelfProject,
+} from "./shelf-store";
 
 function MetricsOnlyTarget() {
   const accepts = useCallback(
@@ -90,6 +95,7 @@ function seed() {
 describe("ShelfPanel", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    setShelfProject("p1");
     server.tables = [];
     server.visualizations = [];
     useShellStore.setState({ shelfOpen: true });
@@ -118,7 +124,7 @@ describe("ShelfPanel", () => {
     expect(readShelf().every((item) => item.pinned)).toBe(true);
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Take Sum of Sales off the shelf" }),
+      screen.getByRole("button", { name: "Take Sum of Sales off shelf" }),
     );
     expect(readShelf().map((item) => item.id)).toEqual(["v1"]);
     expect(screen.queryByText("Sum of Sales")).toBeNull();
@@ -135,7 +141,7 @@ describe("ShelfPanel", () => {
     ).toBeNull();
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Take Sales by Product off the shelf",
+        name: "Take Sales by Product off shelf",
       }),
     );
     expect(screen.queryByText("no longer exists")).toBeNull();
@@ -165,6 +171,7 @@ describe("ShelfPanel", () => {
 describe("CollapsedShelf", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    setShelfProject("p1");
     seed();
   });
 

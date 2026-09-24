@@ -67,7 +67,7 @@ describe("partitionForPage", () => {
   const shelfTarget: RegisteredDropTarget = {
     id: "shelf-nav",
     role: "shelf",
-    accepts: () => ({ ok: true, label: "Keep on the shelf" }),
+    accepts: () => ({ ok: true, label: "Put on shelf" }),
   };
   // A no-op example of the seam later targets use: it takes metrics only.
   const metricWell: RegisteredDropTarget = {

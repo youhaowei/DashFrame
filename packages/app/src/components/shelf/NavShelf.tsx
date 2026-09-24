@@ -1,7 +1,7 @@
 import { queryStatus } from "@/data/query-status";
 import { useShellStore } from "@/lib/stores/shell-store";
 import { api } from "@dashframe/convex-backend/api";
-import { Surface, cn } from "@wystack/ui-react";
+import { cn } from "@wystack/ui-react";
 import { ChevronDownIcon, LayersIcon } from "@wystack/ui-react/icons";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { useCallback, useState } from "react";
@@ -62,7 +62,7 @@ export function useShelfView() {
 function acceptOntoShelf(_item: ShelfItemRef, from: DragOrigin): DropVerdict {
   return from === "shelf"
     ? { ok: false, reason: "Already on the shelf" }
-    : { ok: true, label: "Keep on the shelf" };
+    : { ok: true, label: "Put on shelf" };
 }
 
 /** Makes an element a place to drop things onto the shelf. */
@@ -85,7 +85,7 @@ function dropState(offered: boolean, over: boolean) {
 
 function GroupLabel({ children }: { children: string }) {
   return (
-    <p className="px-1.5 pt-1.5 pb-0.5 text-[11px] text-neutral-fg-subtle">
+    <p className="px-2 pt-2 pb-0.5 text-[11px] text-neutral-fg-subtle">
       {children}
     </p>
   );
@@ -101,7 +101,7 @@ function ChipList({
   label: string;
 }) {
   return (
-    <ul aria-label={label} className="space-y-1">
+    <ul aria-label={label} className="space-y-px">
       {items.map((item) => {
         const key = shelfItemKey(item);
         return <ShelfChip key={key} item={item} state={states.get(key)!} />;
@@ -111,10 +111,12 @@ function ChipList({
 }
 
 /**
- * The shelf's own panel: a raised surface inside the flat nav, with a header
+ * The shelf: a flat block of the nav, set like its footer rows, with a header
  * that collapses it, pinned items above recent ones, and the items no target
- * on this page takes folded into one muted row. The whole panel is a drop
- * target, collapsed or not.
+ * on this page takes folded into one muted row. The whole block is a drop
+ * target, collapsed or not, and a carried item over it is the only moment it
+ * lifts: a dashed outline and a light tonal fill. Where it needs a surface
+ * (the collapsed flyout), the caller supplies it.
  */
 export function ShelfPanel({
   targetId,
@@ -137,16 +139,15 @@ export function ShelfPanel({
   const bodyId = `${targetId}-body`;
 
   return (
-    <Surface
+    <div
       ref={setNodeRef}
-      elevation="raised"
       role="region"
       aria-label="Shelf"
       data-shelf-panel={targetId}
       data-shelf-drop={dropState(offered, over)}
       className={cn(
-        "rounded-[var(--surface-radius)] p-1 text-xs outline-1 outline-offset-2 outline-transparent transition-[outline-color] duration-150 motion-reduce:transition-none",
-        offered && "outline-dashed outline-neutral-border",
+        "rounded-lg text-xs outline-1 outline-offset-2 outline-transparent transition-[outline-color,background-color] duration-150 motion-reduce:transition-none",
+        offered && "bg-neutral-bg-subtle outline-dashed outline-neutral-border",
         over && "outline-palette-primary",
         className,
       )}
@@ -163,7 +164,7 @@ export function ShelfPanel({
           {items.length === 0 ? (
             <div
               className={cn(
-                "flex min-h-8 items-center rounded-lg border border-dashed px-2 text-neutral-fg-subtle transition-colors duration-150 motion-reduce:transition-none",
+                "mt-0.5 flex h-7 items-center rounded-md border border-dashed px-2 text-neutral-fg-subtle transition-colors duration-150 motion-reduce:transition-none",
                 over
                   ? "border-palette-primary text-neutral-fg"
                   : "border-neutral-border",
@@ -198,7 +199,7 @@ export function ShelfPanel({
           )}
         </div>
       )}
-    </Surface>
+    </div>
   );
 }
 
@@ -217,16 +218,17 @@ function HeaderRow({
 }) {
   const content = (
     <>
-      <LayersIcon aria-hidden className="h-3.5 w-3.5 text-neutral-fg-subtle" />
-      <span className="font-medium text-neutral-fg">Shelf</span>
-      {count > 0 && (
-        <span className="text-neutral-fg-subtle tabular-nums">{count}</span>
-      )}
+      <LayersIcon aria-hidden className="h-4 w-4 shrink-0" />
+      <span className="tabular-nums">
+        {count > 0 ? `Shelf · ${count}` : "Shelf"}
+      </span>
     </>
   );
   if (!collapsible) {
     return (
-      <div className="flex h-7 items-center gap-1.5 px-1.5">{content}</div>
+      <div className="flex h-7 items-center gap-2 px-2 text-neutral-fg">
+        {content}
+      </div>
     );
   }
   return (
@@ -236,13 +238,13 @@ function HeaderRow({
       aria-controls={controls}
       aria-label={shelfCountLabel(count)}
       onClick={onToggle}
-      className="flex h-7 w-full items-center gap-1.5 rounded-lg px-1.5 text-left transition-colors hover:bg-neutral-bg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+      className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:bg-neutral-bg-subtle hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
     >
       {content}
       <ChevronDownIcon
         aria-hidden
         className={cn(
-          "ml-auto h-3.5 w-3.5 text-neutral-fg-subtle transition-transform duration-150 motion-reduce:transition-none",
+          "ml-auto h-3.5 w-3.5 transition-transform duration-150 motion-reduce:transition-none",
           !open && "-rotate-90",
         )}
       />
@@ -270,7 +272,7 @@ function ElsewhereRow({
         aria-expanded={expanded}
         aria-controls={controls}
         onClick={onToggle}
-        className="flex h-7 w-full items-center gap-1.5 rounded-lg px-1.5 text-left text-[11px] text-neutral-fg-subtle transition-colors hover:bg-neutral-bg-subtle hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
+        className="flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[11px] text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:bg-neutral-bg-subtle hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
       >
         <span>Not for this page · {items.length}</span>
         <ChevronDownIcon
