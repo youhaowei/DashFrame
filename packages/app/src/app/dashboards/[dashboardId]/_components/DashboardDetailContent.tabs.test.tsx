@@ -177,8 +177,18 @@ function Page({ initialChart = null }: { initialChart?: string | null }) {
 }
 
 const urlChart = () => screen.getByTestId("url-chart").textContent;
+const LABELS: Record<string, string> = {
+  "": REPORT.name,
+  [REVENUE.id]: REVENUE.name,
+  [ORDERS.id]: ORDERS.name,
+};
+// The top bar hears about tabs in an effect, a commit after the URL changes,
+// so wait for both.
 const expectUrl = (chart: string) =>
-  waitFor(() => expect(urlChart()).toBe(chart));
+  waitFor(() => {
+    expect(urlChart()).toBe(chart);
+    expect(selectedTab()).toBe(LABELS[chart]);
+  });
 const tabs = () =>
   within(screen.getByRole("tablist", { name: "Report and its charts" }));
 const tabLabels = () =>
