@@ -18,7 +18,7 @@ import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { api } from "@dashframe/convex-backend/api";
 import { cmd, type Insight, type UUID } from "@dashframe/types";
 import { ControlTooltip } from "@dashframe/ui";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Button,
   ButtonPrimitive,
@@ -260,18 +260,6 @@ export function InsightView({
       addToReportTarget.kind !== "pending";
     return (
       <>
-        <Link
-          to="/insights"
-          className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
-        >
-          Insights
-        </Link>
-        <span
-          aria-hidden
-          className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
-        >
-          ›
-        </span>
         <label className="sr-only" htmlFor="insight-name">
           Insight name
         </label>
