@@ -157,6 +157,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       "fields?": "Field[]",
       "metrics?": "Metric[]",
       "dataFrameId?": "UUID",
+      "origin?": "TableOrigin",
     },
   },
   {
@@ -164,6 +165,15 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     group: "dataTable",
     summary: "Replace a data table's discovered source schema.",
     args: { id: "UUID", sourceSchema: "discovered schema" },
+  },
+  {
+    name: "SetDataTableOrigin",
+    group: "dataTable",
+    summary: "Replace how a data table is produced from its source.",
+    args: { id: "UUID", origin: "TableOrigin" },
+    notes:
+      'TableOrigin is { kind: "resource" } or { kind: "definition", version: 1, ' +
+      "presetId?, definition: { dimensions, metrics, dateRange, grain, filters? } }.",
   },
   {
     name: "RefreshDataTable",

@@ -188,6 +188,19 @@ describe("data table origins", () => {
     expect(after.refreshRevision).not.toBe(before.refreshRevision);
   });
 
+  it("rejects a malformed SetDataTableOrigin and keeps the stored origin", async () => {
+    const { tableId } = await makeTable();
+    await expect(
+      commit(
+        cmd("SetDataTableOrigin", {
+          id: tableId,
+          origin: { kind: "bogus" } as never,
+        }),
+      ),
+    ).rejects.toThrow(/setDataTableOrigin is invalid: /);
+    expect((await tablesById(tableId))[0]?.origin).toBeUndefined();
+  });
+
   it("publishes a drafted CreateDataTable origin", async () => {
     const sourceId = id(),
       tableId = id();
@@ -962,6 +975,13 @@ describe("existing command behavior on native Convex", () => {
     await expect(
       commit(
         cmd("SetDataTableSchema", { id: id(), sourceSchema: {} as never }),
+      ),
+    ).rejects.toThrow();
+  });
+  it("should throw on a missing id for SetDataTableOrigin (no silent no-op)", async () => {
+    await expect(
+      commit(
+        cmd("SetDataTableOrigin", { id: id(), origin: { kind: "resource" } }),
       ),
     ).rejects.toThrow();
   });

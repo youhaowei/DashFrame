@@ -710,8 +710,11 @@ export const prepareRemoteDataTable = internalMutation({
       !row ||
       row.dataSourceId !== args.dataSourceId ||
       row.table !== args.table ||
-      stable(row.origin ?? { kind: "resource" }) !==
-        stable(origin ?? { kind: "resource" })
+      // Origins are compared only when both sides carry one: legacy rows and
+      // callers that never pass an origin keep the pre-origin binding check.
+      (row.origin !== undefined &&
+        origin !== undefined &&
+        stable(row.origin) !== stable(origin))
     )
       throw new Error("SOURCE_BINDING_CHANGED");
     const structural = (fields: ObjectValue[]) =>

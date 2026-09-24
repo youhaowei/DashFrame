@@ -102,6 +102,8 @@ const metricSchema = z
   })
   .passthrough();
 
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
+
 export const tableOriginSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("resource") }).strict(),
   z
@@ -113,39 +115,55 @@ export const tableOriginSchema = z.discriminatedUnion("kind", [
         .object({
           dimensions: z.array(z.string().min(1)).min(1),
           metrics: z.array(z.string().min(1)).min(1),
-          dateRange: z.discriminatedUnion("kind", [
-            z
-              .object({ kind: z.literal("relative"), months: z.number() })
-              .strict(),
-            z
-              .object({
-                kind: z.literal("absolute"),
-                start: z.string(),
-                end: z.string(),
-              })
-              .strict(),
-          ]),
+          dateRange: z
+            .discriminatedUnion("kind", [
+              z
+                .object({
+                  kind: z.literal("relative"),
+                  months: z.number().int().positive(),
+                })
+                .strict(),
+              z
+                .object({
+                  kind: z.literal("absolute"),
+                  start: isoDate,
+                  end: isoDate,
+                })
+                .strict(),
+            ])
+            // ISO dates order lexically; the connector repeats this check.
+            .refine((r) => r.kind !== "absolute" || r.start <= r.end, {
+              message: "start must not be after end",
+            }),
           grain: z.enum(["day", "week", "month"]),
           filters: z
             .array(
-              z.discriminatedUnion("kind", [
-                z
-                  .object({
-                    kind: z.literal("dimension"),
-                    field: z.string().min(1),
-                    operator: z.enum(["exact", "inList"]),
-                    values: z.array(z.string()),
-                  })
-                  .strict(),
-                z
-                  .object({
-                    kind: z.literal("metric"),
-                    field: z.string().min(1),
-                    operator: z.literal("greaterThan"),
-                    value: z.number(),
-                  })
-                  .strict(),
-              ]),
+              z
+                .discriminatedUnion("kind", [
+                  z
+                    .object({
+                      kind: z.literal("dimension"),
+                      field: z.string().min(1),
+                      operator: z.enum(["exact", "inList"]),
+                      values: z.array(z.string()).min(1),
+                    })
+                    .strict(),
+                  z
+                    .object({
+                      kind: z.literal("metric"),
+                      field: z.string().min(1),
+                      operator: z.literal("greaterThan"),
+                      value: z.number(),
+                    })
+                    .strict(),
+                ])
+                .refine(
+                  (f) =>
+                    f.kind !== "dimension" ||
+                    f.operator !== "exact" ||
+                    f.values.length === 1,
+                  { message: "exact filter takes exactly one value" },
+                ),
             )
             .optional(),
         })

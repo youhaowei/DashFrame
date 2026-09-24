@@ -7,7 +7,7 @@ import type {
   DataFrameRow,
   InsightRow,
 } from "@dashframe/convex-backend/model";
-import type { Field, Command, Metric } from "@dashframe/types";
+import type { Field, Command, Metric, TableOrigin } from "@dashframe/types";
 import type { Principal } from "@wystack/identity";
 import type { ConnectorSetupStore } from "../connector-setup/session-store";
 
@@ -152,7 +152,7 @@ export interface HostMetadata {
     fields: Field[];
     /** Replaces the table's measures, only on the call that first sets fields. */
     metrics?: Metric[];
-    origin?: import("@dashframe/types").TableOrigin;
+    origin?: TableOrigin;
   }): Promise<Field[]>;
 }
 

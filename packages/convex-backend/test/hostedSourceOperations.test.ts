@@ -218,7 +218,7 @@ it("preserves source binding and field identities when preparing remote table me
   ).rejects.toThrow("SOURCE_SCHEMA_CHANGED");
 });
 
-it("checks a supplied origin against the stored remote table binding", async () => {
+it("checks origins only when both the stored table and the caller supply one", async () => {
   const workspaceId = await admit();
   const { user, sourceId, tableId } = await seed(workspaceId);
   const origin = {
@@ -243,18 +243,23 @@ it("checks a supplied origin against the stored remote table binding", async () 
       input,
     ),
   ).toEqual([]);
-  await expect(
-    user.mutation(api.hostedSourceOperations.prepareRemoteDataTable, {
+  // A legacy row with no stored origin keeps the pre-origin binding check.
+  expect(
+    await user.mutation(api.hostedSourceOperations.prepareRemoteDataTable, {
       ...input,
       origin,
     }),
-  ).rejects.toThrow("SOURCE_BINDING_CHANGED");
+  ).toEqual([]);
   await user.mutation(api.hostedMetadata.commitBatch, {
     commands: [{ path: "setDataTableOrigin", args: { id: tableId, origin } }],
   });
-  await expect(
-    user.mutation(api.hostedSourceOperations.prepareRemoteDataTable, input),
-  ).rejects.toThrow("SOURCE_BINDING_CHANGED");
+  // The connector refresh path passes no origin; it must still prepare.
+  expect(
+    await user.mutation(
+      api.hostedSourceOperations.prepareRemoteDataTable,
+      input,
+    ),
+  ).toEqual([]);
   expect(
     await user.mutation(api.hostedSourceOperations.prepareRemoteDataTable, {
       ...input,
