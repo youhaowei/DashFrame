@@ -38,7 +38,7 @@ export function useShelfView() {
   const tables = queryStatus(
     useQuery({
       query: api.app.listDataTables,
-      args: needs("metric") || needs("field") ? {} : "skip",
+      args: needs("metric") ? {} : "skip",
     }),
   ).data;
   const visualizations = queryStatus(
@@ -47,11 +47,8 @@ export function useShelfView() {
       args: needs("chart") ? {} : "skip",
     }),
   ).data;
-  const drafts = queryStatus(
-    useQuery({ query: api.app.listDrafts, args: needs("draft") ? {} : "skip" }),
-  ).data;
 
-  const lists: ShelfLiveLists = { tables, visualizations, drafts };
+  const lists: ShelfLiveLists = { tables, visualizations };
   const states = new Map<string, ShelfItemState>(
     items.map((item) => [shelfItemKey(item), resolveShelfItem(item, lists)]),
   );

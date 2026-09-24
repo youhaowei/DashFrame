@@ -10,11 +10,9 @@ import type { ShelfItem } from "./shelf-store";
 export interface ShelfLiveLists {
   tables?: ReadonlyArray<{
     id: string;
-    fields: ReadonlyArray<{ id: string; name: string }>;
     metrics: ReadonlyArray<{ id: string; name: string }>;
   }>;
   visualizations?: ReadonlyArray<{ id: string; name: string }>;
-  drafts?: ReadonlyArray<{ draftId: string; title: string | null }>;
 }
 
 export type ShelfItemState =
@@ -25,8 +23,8 @@ export type ShelfItemState =
   /** Deleted, or never reachable from here: show it muted, offer ×. */
   | { status: "missing"; label: string };
 
-function found(name: string | null | undefined, fallback: string) {
-  return { status: "live", label: name?.trim() || fallback } as const;
+function found(name: string, fallback: string) {
+  return { status: "live", label: name.trim() || fallback } as const;
 }
 
 export function resolveShelfItem(
@@ -36,23 +34,16 @@ export function resolveShelfItem(
   const loading = { status: "loading", label: item.label } as const;
   const missing = { status: "missing", label: item.label } as const;
   switch (item.kind) {
-    case "metric":
-    case "field": {
+    case "metric": {
       if (!lists.tables) return loading;
       const table = lists.tables.find((entry) => entry.id === item.scope);
-      const members = item.kind === "metric" ? table?.metrics : table?.fields;
-      const member = members?.find((entry) => entry.id === item.id);
-      return member ? found(member.name, item.label) : missing;
+      const metric = table?.metrics.find((entry) => entry.id === item.id);
+      return metric ? found(metric.name, item.label) : missing;
     }
     case "chart": {
       if (!lists.visualizations) return loading;
       const chart = lists.visualizations.find((entry) => entry.id === item.id);
       return chart ? found(chart.name, "Untitled chart") : missing;
-    }
-    case "draft": {
-      if (!lists.drafts) return loading;
-      const draft = lists.drafts.find((entry) => entry.draftId === item.id);
-      return draft ? found(draft.title, item.label) : missing;
     }
   }
 }

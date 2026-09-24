@@ -35,7 +35,6 @@ vi.mock("convex/react", async (importOriginal) => ({
     data: {
       listDataTables: server.tables,
       listVisualizations: server.visualizations,
-      listDrafts: [],
     }[ref._path],
   })),
 }));
@@ -90,7 +89,6 @@ function seed() {
   server.tables = [
     {
       id: "t1",
-      fields: [],
       metrics: [{ id: "m1", name: "Sum of Sales" }],
     },
   ];

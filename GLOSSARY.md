@@ -72,7 +72,7 @@ Shipped copy still says **report** — navigation, `lib/reports/`, and the MCP s
 
 ### Shelf
 
-A per-device holding place, in the navigation, for items the user carries to another page or another open tab: charts, drafts, fields, and metrics. It keeps references, never data; an item whose artifact is deleted stays, marked as no longer existing, until removed.
+A per-device holding place, in the navigation, for items the user carries to another page or another open tab: charts and metrics. It keeps references, never data; an item whose artifact is deleted stays, marked as no longer existing, until removed.
 
 - **Put on shelf:** the action that adds an item. Use this verb for every button, menu item, and drop label that adds one.
 - **Pinned:** items kept until unpinned.

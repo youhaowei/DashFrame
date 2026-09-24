@@ -18,13 +18,12 @@
  */
 import { useMemo, useSyncExternalStore } from "react";
 
-export const SHELF_KINDS = ["chart", "draft", "field", "metric"] as const;
+export const SHELF_KINDS = ["chart", "metric"] as const;
 export type ShelfKind = (typeof SHELF_KINDS)[number];
 
 /**
  * A reference to something the user can carry, never its data. `scope` is
- * what the item belongs to: the table for a metric or field, the insight for
- * a chart or draft.
+ * what the item belongs to: the table for a metric, the insight for a chart.
  */
 export interface ShelfItem {
   kind: ShelfKind;

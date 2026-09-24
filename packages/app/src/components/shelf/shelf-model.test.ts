@@ -27,7 +27,6 @@ describe("resolveShelfItem", () => {
   const tables = [
     {
       id: "t1",
-      fields: [{ id: "f1", name: "Category" }],
       metrics: [{ id: "m1", name: "Total sales" }],
     },
   ];

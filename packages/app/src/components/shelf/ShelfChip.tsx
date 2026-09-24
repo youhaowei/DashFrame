@@ -5,8 +5,6 @@ import {
   ChartIcon,
   CloseIcon,
   DragHandleVerticalIcon,
-  FileIcon,
-  TextTypeIcon,
 } from "@wystack/ui-react/icons";
 import { Pin } from "lucide-react";
 import { useCarryable, useHasPageTargets } from "./drag-context";
@@ -21,15 +19,11 @@ import {
 
 export const SHELF_KIND_ICONS: Record<ShelfKind, typeof ChartIcon> = {
   chart: ChartIcon,
-  draft: FileIcon,
-  field: TextTypeIcon,
   metric: CalculatorIcon,
 };
 
 const KIND_NAMES: Record<ShelfKind, string> = {
   chart: "Chart",
-  draft: "Draft",
-  field: "Field",
   metric: "Metric",
 };
 

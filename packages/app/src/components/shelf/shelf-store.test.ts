@@ -92,6 +92,7 @@ describe("shelf store", () => {
       { kind: "metric", id: "a", scope: "t", label: "A", pinned: false },
       { kind: "metric", id: "a", scope: "t", label: "Again", pinned: true },
       { kind: "report", id: "b", scope: "t", label: "B", pinned: false },
+      { kind: "field", id: "f", scope: "t", label: "F", pinned: false },
       { kind: "chart", id: "c", label: "No scope", pinned: false },
       "junk",
     ]);
