@@ -16,11 +16,13 @@ import {
   type CombinedField,
 } from "@/lib/insights/compute-combined-fields";
 import {
-  chartLanding,
+  chartCreating,
   disambiguateLabels,
+  reconcileNewChartTab,
   reportBottom,
   resolveChartTabs,
   tabAfterClose,
+  useChartWrites,
   useReportChartTabs,
   type ChartTab,
 } from "@/lib/reports/chart-tabs";
@@ -141,7 +143,10 @@ export default function DashboardDetailContent({
     NO_CHART_TABS;
   const openChartTab = useReportChartTabs((state) => state.open);
   const closeStoredChartTab = useReportChartTabs((state) => state.close);
+  const setChartTabClosing = useReportChartTabs((state) => state.setClosing);
+  const markChartCreated = useReportChartTabs((state) => state.created);
   const landChartTab = useReportChartTabs((state) => state.land);
+  const chartWrites = useChartWrites();
   const chartIds = useMemo(
     () =>
       visualizationsLoading
@@ -194,27 +199,15 @@ export default function DashboardDetailContent({
     [dashboardId, openChartTab, selectChart],
   );
 
+  // Closing a saved chart only takes its tab away. Closing a new chart also
+  // discards the insight it was built on — but only once nothing about it is
+  // in flight or unknown; the reconcile effect below finishes the close.
   const closeChartTab = useCallback(
     (tabId: string) => {
       const closing = chartTabs.find((tab) => tab.id === tabId);
       if (tabId === chartId) setClosedChartId(tabId);
-      closeStoredChartTab(dashboardId, tabId);
-      // A new chart that never reached the report exists only in its tab;
-      // closing the tab discards the insight it was being built on.
-      // A chart on that insight means it is no longer the tab's alone.
-      if (
-        closing?.insightId &&
-        !chartLanding.isPending(tabId) &&
-        !visualizations.some(
-          (visualization) => visualization.insightId === closing.insightId,
-        )
-      ) {
-        commitBatch({
-          commands: [cmd("DeleteNode", { id: closing.insightId as UUID })],
-        }).catch((error: unknown) => {
-          console.error("Failed to discard the new chart", error);
-        });
-      }
+      if (closing?.insightId) setChartTabClosing(dashboardId, tabId, true);
+      else closeStoredChartTab(dashboardId, tabId);
       const next = tabAfterClose(chartTabs, tabId, chartId);
       if (next !== chartId) selectChart(next);
     },
@@ -222,12 +215,69 @@ export default function DashboardDetailContent({
       chartId,
       chartTabs,
       closeStoredChartTab,
-      commitBatch,
       dashboardId,
       selectChart,
-      visualizations,
+      setChartTabClosing,
     ],
   );
+
+  // Brings each new chart's tab in line with what the server has: a create
+  // that finished or never happened, a landing a reload interrupted, a close
+  // waiting to discard. Decides nothing from a list that has not loaded.
+  const discardingRef = useRef(new Set<string>());
+  useEffect(() => {
+    const insightIds = insightsLoading
+      ? null
+      : new Set(insights.map((insight) => insight.id));
+    const loadedVisualizations = visualizationsLoading ? null : visualizations;
+    for (const tab of storedChartTabs) {
+      const step = reconcileNewChartTab(tab, {
+        insightIds,
+        visualizations: loadedVisualizations,
+        creating: chartWrites.creating.has(tab.id),
+        landing: chartWrites.landing.has(tab.id),
+      });
+      if (step === "created") {
+        // Created once the insight is listed, so the tab never shows a
+        // chart it cannot find yet.
+        markChartCreated(dashboardId, tab.id);
+        chartCreating.finish(tab.id);
+      }
+      if (step === "landed") landChartTab(dashboardId, tab.id);
+      if (step === "remove") closeStoredChartTab(dashboardId, tab.id);
+      if (step !== "discard" || discardingRef.current.has(tab.id)) continue;
+      discardingRef.current.add(tab.id);
+      commitBatch({
+        commands: [cmd("DeleteNode", { id: tab.insightId as UUID })],
+      })
+        .then(() => closeStoredChartTab(dashboardId, tab.id))
+        .catch((error: unknown) => {
+          console.error("Failed to discard the new chart", error);
+          // Keep the chart: its tab comes back so nothing is left unowned.
+          setChartTabClosing(dashboardId, tab.id, false);
+          toast.error("Couldn't discard the new chart", {
+            action: {
+              label: "Try again",
+              onClick: () => setChartTabClosing(dashboardId, tab.id, true),
+            },
+          });
+        })
+        .finally(() => discardingRef.current.delete(tab.id));
+    }
+  }, [
+    chartWrites,
+    closeStoredChartTab,
+    commitBatch,
+    dashboardId,
+    insights,
+    insightsLoading,
+    landChartTab,
+    markChartCreated,
+    setChartTabClosing,
+    storedChartTabs,
+    visualizations,
+    visualizationsLoading,
+  ]);
 
   const handleChartLanded = useCallback(
     (tabId: string) => landChartTab(dashboardId, tabId),
@@ -240,16 +290,30 @@ export default function DashboardDetailContent({
   const startNewChart = async (tableId: string, tableName: string) => {
     if (startingChartRef.current) return null;
     startingChartRef.current = true;
-    const insightId = await createChartInsight(tableId, tableName).finally(
-      () => {
-        startingChartRef.current = false;
-      },
-    );
-    if (!insightId) return null;
+    // The tab is recorded before the create is sent: a reload in between
+    // leaves a tab to reconcile, never an insight nothing points at.
+    const insightId = crypto.randomUUID() as UUID;
     const tabId = crypto.randomUUID();
-    openChartTab(dashboardId, { id: tabId, insightId });
+    openChartTab(dashboardId, { id: tabId, insightId, creating: true });
+    chartCreating.start(tabId);
+    const created = await createChartInsight(
+      tableId,
+      tableName,
+      insightId,
+    ).finally(() => {
+      startingChartRef.current = false;
+    });
+    if (!created) {
+      chartCreating.finish(tabId);
+      closeStoredChartTab(dashboardId, tabId);
+      return null;
+    }
     setIsChartPickerOpen(false);
-    selectChart(tabId);
+    // Closed while it was being created: the reconcile effect discards it.
+    const stillOpen = (
+      useReportChartTabs.getState().tabsByReport[dashboardId] ?? []
+    ).some((tab) => tab.id === tabId && !tab.closing);
+    if (stillOpen) selectChart(tabId);
     return insightId;
   };
 

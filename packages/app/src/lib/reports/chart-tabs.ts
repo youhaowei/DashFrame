@@ -19,13 +19,33 @@ export interface ChartTab {
   id: string;
   /** Set while the chart is new and not on the report yet. */
   insightId?: string;
+  /**
+   * The new chart's insight is being created. The record is stored before the
+   * create is sent, so a reload mid-create leaves a tab to reconcile rather
+   * than an insight nothing points at.
+   */
+  creating?: true;
+  /**
+   * Closed, but a new chart's insight is not settled yet: its landing is in
+   * flight, or its discard has not succeeded. Hidden from the strip; the
+   * report finishes the close (see `reconcileNewChartTab`).
+   */
+  closing?: true;
 }
 
 interface ReportChartTabsState {
   tabsByReport: Record<string, ChartTab[]>;
   open: (reportId: string, tab: ChartTab) => void;
+  /** Takes the tab off the strip for good. */
   close: (reportId: string, tabId: string) => void;
-  /** The new chart's tile is on the report; the tab is a saved chart now. */
+  /** Its insight exists now. */
+  created: (reportId: string, tabId: string) => void;
+  /** Starts (or, after a failed discard, cancels) closing a new chart. */
+  setClosing: (reportId: string, tabId: string, closing: boolean) => void;
+  /**
+   * The new chart's tile is on the report; the tab is a saved chart now — or,
+   * when it was closed while landing, the close is done.
+   */
   land: (reportId: string, tabId: string) => void;
 }
 
@@ -56,6 +76,11 @@ const safeSessionStorage = {
   },
 };
 
+function withoutFlag(tab: ChartTab, flag: "creating" | "closing"): ChartTab {
+  const { [flag]: _dropped, ...rest } = tab;
+  return rest;
+}
+
 /**
  * The charts open in each report, for this browser session. Closing a tab
  * only takes it off the strip. Kept in session storage so a reload keeps the
@@ -64,38 +89,56 @@ const safeSessionStorage = {
  */
 export const useReportChartTabs = create<ReportChartTabsState>()(
   persist(
-    (set) => ({
-      tabsByReport: {},
-      open: (reportId, tab) =>
-        set((state) => {
-          const current = state.tabsByReport[reportId] ?? [];
-          if (current.some((open) => open.id === tab.id)) return state;
-          return {
-            tabsByReport: {
-              ...state.tabsByReport,
-              [reportId]: [...current, tab],
-            },
-          };
-        }),
-      close: (reportId, tabId) =>
+    (set) => {
+      const update = (
+        reportId: string,
+        change: (tabs: ChartTab[]) => ChartTab[],
+      ) =>
         set((state) => ({
           tabsByReport: {
             ...state.tabsByReport,
-            [reportId]: (state.tabsByReport[reportId] ?? []).filter(
-              (tab) => tab.id !== tabId,
-            ),
+            [reportId]: change(state.tabsByReport[reportId] ?? []),
           },
-        })),
-      land: (reportId, tabId) =>
-        set((state) => ({
-          tabsByReport: {
-            ...state.tabsByReport,
-            [reportId]: (state.tabsByReport[reportId] ?? []).map((tab) =>
-              tab.id === tabId ? { id: tab.id } : tab,
+        }));
+      return {
+        tabsByReport: {},
+        open: (reportId, tab) =>
+          set((state) => {
+            const current = state.tabsByReport[reportId] ?? [];
+            if (current.some((open) => open.id === tab.id)) return state;
+            return {
+              tabsByReport: {
+                ...state.tabsByReport,
+                [reportId]: [...current, tab],
+              },
+            };
+          }),
+        close: (reportId, tabId) =>
+          update(reportId, (tabs) => tabs.filter((tab) => tab.id !== tabId)),
+        created: (reportId, tabId) =>
+          update(reportId, (tabs) =>
+            tabs.map((tab) =>
+              tab.id === tabId ? withoutFlag(tab, "creating") : tab,
             ),
-          },
-        })),
-    }),
+          ),
+        setClosing: (reportId, tabId, closing) =>
+          update(reportId, (tabs) =>
+            tabs.map((tab) => {
+              if (tab.id !== tabId) return tab;
+              return closing
+                ? { ...tab, closing: true as const }
+                : withoutFlag(tab, "closing");
+            }),
+          ),
+        land: (reportId, tabId) =>
+          update(reportId, (tabs) =>
+            tabs.flatMap((tab) => {
+              if (tab.id !== tabId) return [tab];
+              return tab.closing ? [] : [{ id: tab.id }];
+            }),
+          ),
+      };
+    },
     {
       name: "dashframe:report-chart-tabs",
       storage: createJSONStorage(() => safeSessionStorage),
@@ -106,7 +149,8 @@ export const useReportChartTabs = create<ReportChartTabsState>()(
 /**
  * The tabs a report shows. The chart in the URL is always open. A saved chart
  * that no longer exists drops out once the charts have loaded (`chartIds` is
- * `null` until then); a new chart stays until it lands or is closed.
+ * `null` until then); a new chart stays until it lands or is closed. A closed
+ * new chart whose close is still settling is not shown.
  */
 export function resolveChartTabs(
   stored: readonly ChartTab[],
@@ -114,6 +158,8 @@ export function resolveChartTabs(
   chartIds: ReadonlySet<string> | null,
 ): ChartTab[] {
   const tabs = stored.flatMap((tab): ChartTab[] => {
+    // Closed: the report is only settling what the new chart left behind.
+    if (tab.closing) return [];
     // A new chart whose chart exists already landed — the page reloaded
     // before the tab heard back. It is a saved chart now.
     if (tab.insightId !== undefined)
@@ -122,7 +168,7 @@ export function resolveChartTabs(
   });
   if (
     urlChartId &&
-    !tabs.some((tab) => tab.id === urlChartId) &&
+    !stored.some((tab) => tab.id === urlChartId) &&
     chartIds?.has(urlChartId)
   ) {
     tabs.push({ id: urlChartId });
@@ -131,17 +177,84 @@ export function resolveChartTabs(
 }
 
 /**
- * New charts whose landing batch is in flight. Closing such a tab must not
- * discard its insight: the batch may commit first, and the delete would then
- * take the chart off the report with it.
+ * New charts with a write in flight from this page: their insight being
+ * created, or their chart and tile landing. Nothing decides a new chart's fate
+ * while one is pending — a discard could run before the landing commits and
+ * take the landed chart with it. Kept in memory: after a reload nothing is in
+ * flight here, and the report reconciles from what the server has.
  */
-const landingChartIds = new Set<string>();
+interface ChartWritesState {
+  creating: ReadonlySet<string>;
+  landing: ReadonlySet<string>;
+}
 
-export const chartLanding = {
-  start: (tabId: string) => landingChartIds.add(tabId),
-  finish: (tabId: string) => landingChartIds.delete(tabId),
-  isPending: (tabId: string) => landingChartIds.has(tabId),
-};
+export const useChartWrites = create<ChartWritesState>()(() => ({
+  creating: new Set(),
+  landing: new Set(),
+}));
+
+function trackWrite(kind: keyof ChartWritesState) {
+  const change = (tabId: string, pending: boolean) =>
+    useChartWrites.setState((state) => {
+      const next = new Set(state[kind]);
+      if (pending) next.add(tabId);
+      else next.delete(tabId);
+      return { [kind]: next };
+    });
+  return {
+    start: (tabId: string) => change(tabId, true),
+    finish: (tabId: string) => change(tabId, false),
+    isPending: (tabId: string) => useChartWrites.getState()[kind].has(tabId),
+  };
+}
+
+export const chartCreating = trackWrite("creating");
+export const chartLanding = trackWrite("landing");
+
+export type NewChartTabStep =
+  /** Wait: a write is in flight, or the data to decide on has not loaded. */
+  | "wait"
+  /** Its insight exists: the tab can show it. */
+  | "created"
+  /** Its chart is on the report: it is a saved chart now. */
+  | "landed"
+  /** Drop the record: nothing of the new chart is left to discard. */
+  | "remove"
+  /** Discard the insight, then drop the record. */
+  | "discard";
+
+/**
+ * What to do next with a new chart's tab, from what the server has. Never
+ * decides from a list that has not loaded (`null`): an empty list before the
+ * load would read a landed chart as unlanded, and discard it.
+ */
+export function reconcileNewChartTab(
+  tab: ChartTab,
+  context: {
+    insightIds: ReadonlySet<string> | null;
+    visualizations: readonly { id: string; insightId: string }[] | null;
+    creating: boolean;
+    landing: boolean;
+  },
+): NewChartTabStep {
+  const { insightIds, visualizations } = context;
+  if (tab.insightId === undefined) return "wait";
+  if (tab.creating) {
+    if (insightIds?.has(tab.insightId)) return "created";
+    if (context.creating || !insightIds) return "wait";
+    // The create never reached the server: there is nothing to discard.
+    return "remove";
+  }
+  if (context.landing || !visualizations) return "wait";
+  // Any chart on the insight means it is not the tab's alone any more.
+  const hasChart = visualizations.some(
+    (visualization) => visualization.insightId === tab.insightId,
+  );
+  if (tab.closing) return hasChart ? "remove" : "discard";
+  return visualizations.some((visualization) => visualization.id === tab.id)
+    ? "landed"
+    : "wait";
+}
 
 /**
  * Which tab is open after closing `closingId`: the same one when another tab

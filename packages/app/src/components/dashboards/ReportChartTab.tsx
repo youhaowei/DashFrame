@@ -119,6 +119,7 @@ export function ReportChartTab({
     [visualization],
   );
 
+  if (tab.creating) return <CentreMessage>Starting the chart...</CentreMessage>;
   if (!insight || (!tab.insightId && !visualization)) {
     return (
       <CentreMessage>

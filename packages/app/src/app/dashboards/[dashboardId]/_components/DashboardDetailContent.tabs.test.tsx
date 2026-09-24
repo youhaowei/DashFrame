@@ -17,9 +17,22 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { mockCommitBatch, mockNavigate } = vi.hoisted(() => ({
+const {
+  mockCommitBatch,
+  mockNavigate,
+  mockCreateChartInsight,
+  mockToastError,
+  server,
+} = vi.hoisted(() => ({
   mockCommitBatch: vi.fn(),
   mockNavigate: vi.fn(),
+  mockCreateChartInsight: vi.fn(),
+  mockToastError: vi.fn(),
+  // What the queries return; `undefined` is still loading.
+  server: {
+    visualizations: undefined as unknown[] | undefined,
+    insights: undefined as unknown[] | undefined,
+  },
 }));
 
 const REPORT_ID = "report-1";
@@ -69,8 +82,9 @@ vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
   useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
     if (ref._path === "listDashboards") return { data: [REPORT] };
-    if (ref._path === "listVisualizations") return { data: [REVENUE, ORDERS] };
-    if (ref._path === "listInsights") return { data: [] };
+    if (ref._path === "listVisualizations")
+      return { data: server.visualizations };
+    if (ref._path === "listInsights") return { data: server.insights };
     if (ref._path === "listDataTables") return { data: [] };
     throw new Error(`Unexpected query: ${ref._path}`);
   }),
@@ -81,7 +95,9 @@ vi.mock("convex/react", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+vi.mock("sonner", () => ({
+  toast: { error: mockToastError, success: vi.fn() },
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
@@ -89,7 +105,23 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("@/hooks/useCreateInsight", () => ({
-  useCreateInsight: () => ({ createChartInsight: vi.fn() }),
+  useCreateInsight: () => ({ createChartInsight: mockCreateChartInsight }),
+}));
+
+// The table picker is covered on its own; here it offers one table.
+vi.mock("@/components/data-sources/DataPickerModal", () => ({
+  DataPickerModal: ({
+    isOpen,
+    onTableSelect,
+  }: {
+    isOpen: boolean;
+    onTableSelect: (tableId: string, tableName: string) => unknown;
+  }) =>
+    isOpen ? (
+      <button type="button" onClick={() => onTableSelect("table-1", "orders")}>
+        Pick orders
+      </button>
+    ) : null,
 }));
 
 // The grid's layout engine is not under test: each tile is its Edit button.
@@ -125,7 +157,12 @@ import {
   useRegisteredTopBarTabs,
 } from "@/components/shell/topbar-tabs";
 import { PlatformProvider } from "@/lib/platform";
-import { chartLanding, useReportChartTabs } from "@/lib/reports/chart-tabs";
+import {
+  chartCreating,
+  chartLanding,
+  useChartWrites,
+  useReportChartTabs,
+} from "@/lib/reports/chart-tabs";
 import DashboardDetailContent from "./DashboardDetailContent";
 
 /** Mirrors the top-bar slot: what the page registered, as clickable tabs. */
@@ -200,9 +237,25 @@ const selectedTab = () =>
     .getAllByRole("tab")
     .find((tab) => tab.getAttribute("aria-selected") === "true")?.textContent;
 
+const storedTabs = () =>
+  useReportChartTabs.getState().tabsByReport[REPORT_ID] ?? [];
+const withNewChart = (tab: Record<string, unknown>) =>
+  useReportChartTabs.setState({
+    tabsByReport: { [REPORT_ID]: [{ id: "new-chart", ...tab }] },
+  });
+const discards = () =>
+  mockCommitBatch.mock.calls.filter(([batch]) =>
+    (batch as { commands: { path: string }[] }).commands.some(
+      (command) => command.path === "deleteNode",
+    ),
+  );
+
 beforeEach(() => {
   vi.clearAllMocks();
   useReportChartTabs.setState({ tabsByReport: {} });
+  useChartWrites.setState({ creating: new Set(), landing: new Set() });
+  server.visualizations = [REVENUE, ORDERS];
+  server.insights = [];
   mockCommitBatch.mockResolvedValue(null);
 });
 
@@ -351,5 +404,151 @@ describe("DashboardDetailContent — chart tabs", () => {
     } finally {
       chartLanding.finish("new-chart");
     }
+  });
+
+  it("never discards a landed chart while the charts are still loading", async () => {
+    const user = userEvent.setup();
+    // The landing committed, then the page reloaded before the tab heard.
+    withNewChart({ insightId: "insight-new" });
+    server.visualizations = undefined;
+    const { rerender } = render(<Page initialChart="new-chart" />);
+
+    await user.click(
+      tabs().getByRole("button", { name: "Close Untitled chart" }),
+    );
+    expect(discards()).toHaveLength(0);
+
+    server.visualizations = [
+      REVENUE,
+      ORDERS,
+      { ...REVENUE, id: "new-chart", insightId: "insight-new" },
+    ];
+    rerender(<Page initialChart="new-chart" />);
+
+    await waitFor(() => expect(storedTabs()).toEqual([]));
+    expect(discards()).toHaveLength(0);
+  });
+
+  it("discards a new chart closed mid-landing once the landing fails", async () => {
+    const user = userEvent.setup();
+    withNewChart({ insightId: "draft-insight" });
+    act(() => chartLanding.start("new-chart"));
+    render(<Page initialChart="new-chart" />);
+
+    await user.click(
+      tabs().getByRole("button", { name: "Close Untitled chart" }),
+    );
+    await expectUrl("");
+    expect(discards()).toHaveLength(0);
+    expect(storedTabs()).toEqual([
+      { id: "new-chart", insightId: "draft-insight", closing: true },
+    ]);
+
+    // The landing batch rejects: nothing reached the report.
+    act(() => chartLanding.finish("new-chart"));
+
+    await waitFor(() => expect(discards()).toHaveLength(1));
+    expect(discards()[0]![0]).toEqual({
+      commands: [
+        expect.objectContaining({
+          path: "deleteNode",
+          args: { id: "draft-insight" },
+        }),
+      ],
+    });
+    await waitFor(() => expect(storedTabs()).toEqual([]));
+  });
+
+  it("finishes the close of a new chart whose landing then succeeds", async () => {
+    const user = userEvent.setup();
+    withNewChart({ insightId: "draft-insight" });
+    act(() => chartLanding.start("new-chart"));
+    render(<Page initialChart="new-chart" />);
+
+    await user.click(
+      tabs().getByRole("button", { name: "Close Untitled chart" }),
+    );
+    act(() => {
+      useReportChartTabs.getState().land(REPORT_ID, "new-chart");
+      chartLanding.finish("new-chart");
+    });
+
+    expect(storedTabs()).toEqual([]);
+    expect(discards()).toHaveLength(0);
+  });
+
+  it("keeps a new chart's tab when discarding its insight fails", async () => {
+    const user = userEvent.setup();
+    withNewChart({ insightId: "draft-insight" });
+    mockCommitBatch.mockRejectedValueOnce(new Error("write failed"));
+    render(<Page initialChart="new-chart" />);
+
+    await user.click(
+      tabs().getByRole("button", { name: "Close Untitled chart" }),
+    );
+
+    await waitFor(() =>
+      expect(tabLabels()).toEqual(["Weekly sales", "Untitled chart"]),
+    );
+    expect(storedTabs()).toEqual([
+      { id: "new-chart", insightId: "draft-insight" },
+    ]);
+    expect(mockToastError).toHaveBeenCalledWith(
+      "Couldn't discard the new chart",
+      expect.objectContaining({
+        action: expect.objectContaining({ label: "Try again" }),
+      }),
+    );
+  });
+
+  it("records a new chart's tab before its insight is created", async () => {
+    const user = userEvent.setup();
+    let finishCreate: (id: string | null) => void = () => {};
+    mockCreateChartInsight.mockImplementation(
+      (_tableId: string, _tableName: string, id: string) => {
+        // The record exists before the create is sent.
+        expect(storedTabs()).toEqual([
+          { id: expect.any(String), insightId: id, creating: true },
+        ]);
+        return new Promise((resolve) => {
+          finishCreate = resolve;
+        });
+      },
+    );
+    render(<Page />);
+
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Chart/ }));
+    await user.click(screen.getByRole("button", { name: "Pick orders" }));
+    expect(mockCreateChartInsight).toHaveBeenCalledTimes(1);
+    const [{ insightId }] = storedTabs() as [{ insightId: string }];
+
+    // Listed on the server: the tab is a new chart now.
+    server.insights = [{ id: insightId, name: "orders" }];
+    await act(async () => finishCreate(insightId));
+    await waitFor(() =>
+      expect(storedTabs()).toEqual([{ id: expect.any(String), insightId }]),
+    );
+    expect(chartCreating.isPending(storedTabs()[0]!.id)).toBe(false);
+  });
+
+  it("drops a tab whose create a reload interrupted before it was sent", async () => {
+    withNewChart({ insightId: "never-created", creating: true });
+    render(<Page />);
+
+    await waitFor(() => expect(storedTabs()).toEqual([]));
+    expect(discards()).toHaveLength(0);
+  });
+
+  it("keeps a tab whose create a reload interrupted after it landed", async () => {
+    withNewChart({ insightId: "insight-new", creating: true });
+    server.insights = [{ id: "insight-new", name: "orders" }];
+    render(<Page />);
+
+    await waitFor(() =>
+      expect(storedTabs()).toEqual([
+        { id: "new-chart", insightId: "insight-new" },
+      ]),
+    );
   });
 });

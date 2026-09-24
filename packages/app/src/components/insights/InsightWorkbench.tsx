@@ -712,6 +712,22 @@ function getVisualizationEncodingSignature(
 
 type InsightPaginationResult = ReturnType<typeof useInsightPagination>;
 
+/** Runtime output — a stack, a WASM or engine error — is not copy. */
+const RUNTIME_OUTPUT =
+  /\n|\bat \S+ \(|wasm|emscripten|\b[A-Z][a-z]+ Error:|Exception/i;
+
+const UNREADABLE_RESULT_COPY =
+  "The data for this chart couldn't be read. Try again, or check its data source.";
+
+/**
+ * What a result failure says. The host writes its failures for people, but
+ * nothing reaches the screen that reads as runtime output: that becomes plain
+ * copy, and the error state's Retry is the way out.
+ */
+export function resultErrorCopy(error: string): string {
+  return RUNTIME_OUTPUT.test(error) ? UNREADABLE_RESULT_COPY : error;
+}
+
 /** Shared error element so the workbench's table and chart halves agree. */
 export function InsightResultErrorState({
   error,
@@ -725,7 +741,7 @@ export function InsightResultErrorState({
   return (
     <ErrorState
       title="Couldn't load data"
-      description={error}
+      description={resultErrorCopy(error)}
       size="sm"
       className={className}
       retryAction={onRetry ? { label: "Retry", onClick: onRetry } : undefined}

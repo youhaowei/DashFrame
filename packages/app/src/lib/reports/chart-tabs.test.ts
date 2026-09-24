@@ -5,6 +5,7 @@ import {
   countReportsUsingChart,
   disambiguateLabels,
   isReadyToLand,
+  reconcileNewChartTab,
   resolveChartTabs,
   tabAfterClose,
   useReportChartTabs,
@@ -57,6 +58,66 @@ describe("resolveChartTabs", () => {
     expect(resolveChartTabs([fresh], "new-1", new Set(["new-1"]))).toEqual([
       { id: "new-1" },
     ]);
+  });
+});
+
+describe("reconcileNewChartTab", () => {
+  const tab = { id: "new-1", insightId: "insight-1" };
+  const loaded = {
+    insightIds: new Set(["insight-1"]),
+    visualizations: [] as { id: string; insightId: string }[],
+    creating: false,
+    landing: false,
+  };
+
+  it("decides nothing from a list that has not loaded, or mid-write", () => {
+    const closing = { ...tab, closing: true as const };
+    expect(
+      reconcileNewChartTab(closing, { ...loaded, visualizations: null }),
+    ).toBe("wait");
+    expect(reconcileNewChartTab(closing, { ...loaded, landing: true })).toBe(
+      "wait",
+    );
+    const creating = { ...tab, creating: true as const };
+    expect(
+      reconcileNewChartTab(creating, { ...loaded, insightIds: null }),
+    ).toBe("wait");
+    expect(
+      reconcileNewChartTab(creating, {
+        ...loaded,
+        insightIds: new Set(),
+        creating: true,
+      }),
+    ).toBe("wait");
+  });
+
+  it("settles a create from whether the insight is listed", () => {
+    const creating = { ...tab, creating: true as const };
+    expect(reconcileNewChartTab(creating, loaded)).toBe("created");
+    expect(
+      reconcileNewChartTab(creating, { ...loaded, insightIds: new Set() }),
+    ).toBe("remove");
+  });
+
+  it("discards a closed chart only when nothing is built on its insight", () => {
+    const closing = { ...tab, closing: true as const };
+    expect(reconcileNewChartTab(closing, loaded)).toBe("discard");
+    expect(
+      reconcileNewChartTab(closing, {
+        ...loaded,
+        visualizations: [{ id: "other", insightId: "insight-1" }],
+      }),
+    ).toBe("remove");
+  });
+
+  it("turns an open tab whose chart landed into a saved chart", () => {
+    expect(
+      reconcileNewChartTab(tab, {
+        ...loaded,
+        visualizations: [{ id: "new-1", insightId: "insight-1" }],
+      }),
+    ).toBe("landed");
+    expect(reconcileNewChartTab(tab, loaded)).toBe("wait");
   });
 });
 

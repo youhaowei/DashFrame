@@ -39,6 +39,7 @@ import { VisualizationPreview } from "@/components/visualizations/VisualizationP
 import {
   InsightResultErrorState,
   InsightResultTable,
+  resultErrorCopy,
 } from "./InsightWorkbench";
 
 const tableId = "10000000-0000-4000-8000-000000000001" as UUID;
@@ -111,6 +112,21 @@ function WorkbenchHalvesHarness() {
     </>
   );
 }
+
+describe("resultErrorCopy", () => {
+  it("keeps the host's copy and replaces runtime output", () => {
+    expect(resultErrorCopy(NO_DATA_MESSAGE)).toBe(NO_DATA_MESSAGE);
+    for (const raw of [
+      'Binder Error: Referenced column "x" not found',
+      "RuntimeError: unreachable\n    at wasm-function[42]",
+      "TypeError: undefined is not a function (at query (engine.js:12))",
+    ]) {
+      expect(resultErrorCopy(raw)).toBe(
+        "The data for this chart couldn't be read. Try again, or check its data source.",
+      );
+    }
+  });
+});
 
 describe("InsightResultTable data states", () => {
   beforeEach(() => {
