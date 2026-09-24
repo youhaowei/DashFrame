@@ -12,13 +12,18 @@ export interface Platform {
   isElectron: boolean;
   /** macOS — where the traffic lights live top-left and need a spacer. */
   isMacOS: boolean;
+  /**
+   * The window's traffic lights are drawn over the page's top-left corner
+   * (macOS desktop, hidden title bar), so the chrome must leave them room.
+   */
+  hasInsetTrafficLights: boolean;
 }
 
 const PlatformContext = createContext<Platform | null>(null);
 
 function detectPlatform(): Platform {
   if (typeof window === "undefined") {
-    return { isElectron: false, isMacOS: false };
+    return { isElectron: false, isMacOS: false, hasInsetTrafficLights: false };
   }
   // The preload bridge exposes `window.dashframe`; its presence is the Electron
   // signal (web host never defines it).
@@ -30,7 +35,7 @@ function detectPlatform(): Platform {
     navigator.platform ??
     "";
   const isMacOS = /mac/i.test(platform);
-  return { isElectron, isMacOS };
+  return { isElectron, isMacOS, hasInsetTrafficLights: isElectron && isMacOS };
 }
 
 /**

@@ -1,8 +1,8 @@
 import { CreateVisualizationModal } from "@/components/visualizations/CreateVisualizationModal";
 import { ArtifactEmptyState } from "@/components/artifacts/ArtifactCollection";
 import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
+import { useAppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import { queryStatus } from "@/data/query-status";
-import { Breadcrumb } from "@dashframe/ui";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardControlsManager } from "@/components/dashboards/DashboardControlsManager";
@@ -23,7 +23,7 @@ import {
   type InsightFilter,
   type UUID,
 } from "@dashframe/types";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Button,
   Dialog,
@@ -97,6 +97,14 @@ export default function DashboardDetailContent({
     [dashboard, visualizations],
   );
   const questionMetadataAvailable = !insightsLoading && !insightsLoadError;
+  useAppBreadcrumbs(
+    dashboard
+      ? [
+          { label: "Reports", to: "/dashboards" },
+          { label: dashboard.name || "Untitled report" },
+        ]
+      : null,
+  );
 
   // ── Controls ─────────────────────────────────────────────────────────────
   // View-local transient values for dashboard controls.  A viewer (or author)
@@ -263,15 +271,6 @@ export default function DashboardDetailContent({
                 reportContents.questionIds.length,
                 reportContents.savedViews.length,
               )
-        }
-        navigation={
-          <Breadcrumb
-            LinkComponent={Link}
-            items={[
-              { label: "Reports", to: "/dashboards" },
-              { label: dashboard.name },
-            ]}
-          />
         }
         actions={
           <>

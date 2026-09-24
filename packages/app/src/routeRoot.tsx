@@ -48,10 +48,13 @@ const PassThrough: ProviderWrapper = ({ children }) => <>{children}</>;
 /**
  * The chrome layout, built on the @wystack/ui-react layout shell:
  *
- *   TopBar  (full-width window chrome)
- *   ├── Dock side=left   — Navigation (flat, on the canvas)
- *   ├── Stage            — the primary content surface (artifact/page)
- *   └── Dock side=right  — page-scoped context panel family
+ *   row (full window height)
+ *   ├── Dock side=left       — Navigation (flat, on the canvas)
+ *   └── column
+ *       ├── TopBar           — window chrome above the content
+ *       └── row
+ *           ├── Stage            — the primary content surface (artifact/page)
+ *           └── Dock side=right  — page-scoped context panel family
  *
  * The left nav and top bar sit *flat* on the canvas (window chrome); the Stage
  * is the elevated primary surface; side rails float as vibrancy Docks. Region
@@ -64,17 +67,19 @@ function Shell() {
   useRenderPerf(`shell:${pathname}`);
 
   return (
-    <div className="relative isolate flex h-screen flex-col text-neutral-fg">
-      <AppTopBar />
-      <div
-        ref={shellRowRef}
-        className="relative flex min-h-0 flex-1 flex-row gap-[var(--surface-inset)] px-[var(--surface-inset)] pb-[var(--surface-inset)]"
-      >
-        <Navigation />
-        <Stage>
-          <Outlet />
-        </Stage>
-        <ShellRails shellWidth={shellWidth} />
+    <div
+      ref={shellRowRef}
+      className="relative isolate flex h-screen flex-row gap-[var(--surface-inset)] px-[var(--surface-inset)] text-neutral-fg"
+    >
+      <Navigation />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <AppTopBar />
+        <div className="relative flex min-h-0 flex-1 flex-row gap-[var(--surface-inset)] pb-[var(--surface-inset)]">
+          <Stage>
+            <Outlet />
+          </Stage>
+          <ShellRails shellWidth={shellWidth} />
+        </div>
       </div>
     </div>
   );

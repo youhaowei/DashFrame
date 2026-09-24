@@ -1,4 +1,5 @@
 import { AppLayout } from "@/components/layouts/AppLayout";
+import { useAppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import { useTopBarTabs } from "@/components/shell/topbar-tabs";
 import {
   DRAFT_DRIFT_DESCRIPTION,
@@ -67,6 +68,8 @@ interface DraftsPageContentProps {
   /** The open draft tab from the URL; the most recent draft when absent. */
   draftId: string | null;
 }
+
+const DRAFTS_TRAIL = [{ label: "Drafts" }];
 
 function lifecycleMessage(error: unknown): string {
   return isDriftError(error)
@@ -215,6 +218,8 @@ export default function DraftsPageContent({ draftId }: DraftsPageContentProps) {
     selectDraft,
     closeDraftTab,
   );
+  // The open drafts are the tabs, so the trail ends at the section.
+  useAppBreadcrumbs(DRAFTS_TRAIL);
 
   const selectChange = (key: string) => {
     if (!selectedDraft) return;
@@ -390,17 +395,7 @@ export default function DraftsPageContent({ draftId }: DraftsPageContentProps) {
             paneName="Draft"
             onToggle={toggleLeft}
           />
-          {/* A label, not a link: every draft is already a tab, and /drafts
-              would only open another one. */}
-          <span className="shrink-0 px-1 text-xs text-neutral-fg-subtle @max-2xl:hidden">
-            Drafts
-          </span>
-          <span
-            aria-hidden
-            className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
-          >
-            ›
-          </span>
+          {/* Where the draft sits is in the app bar's breadcrumb. */}
           <h1
             title={title}
             className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-neutral-fg"

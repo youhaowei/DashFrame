@@ -1,6 +1,7 @@
 import { api } from "@dashframe/convex-backend/api";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useAppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import { useRenderPerf } from "@/lib/perf";
 
 import { Spinner } from "@wystack/ui-react";
@@ -29,6 +30,14 @@ export default function InsightPageContent({
   // Instrument the artifact render boundary (cleared on unmount). Runs
   // unconditionally — hooks before the loading/not-found early returns.
   useRenderPerf(`insight:${insightId}`);
+  useAppBreadcrumbs(
+    insight
+      ? [
+          { label: "Questions", to: "/insights" },
+          { label: insight.name || "Untitled question" },
+        ]
+      : null,
+  );
 
   if (isLoading) {
     return (

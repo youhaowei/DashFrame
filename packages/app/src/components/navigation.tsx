@@ -1,6 +1,7 @@
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { AccessCredentialsDialog } from "@/components/access-credentials/AccessCredentialsDialog";
+import { DashFrameLogo } from "@/components/DashFrameLogo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useSignOut } from "@/bootstrap/sign-out";
 import { useAccessCapabilities } from "@/data";
@@ -8,6 +9,7 @@ import { clearAllData } from "@/lib/data-access/data-frames";
 import { reloadRootWithFreshWorkspaceState } from "@/lib/clear-all-data-navigation";
 import { PerfHud } from "@/lib/perf";
 import { useToastStore } from "@/lib/stores";
+import { usePlatform } from "@/lib/platform";
 import { useShellStore } from "@/lib/stores/shell-store";
 import { api } from "@dashframe/convex-backend/api";
 import { Link, useLocation } from "@tanstack/react-router";
@@ -27,11 +29,11 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Surface,
   cn,
 } from "@wystack/ui-react";
 import {
   type LucideIcon,
-  ChartIcon,
   CloseIcon,
   DatabaseIcon,
   DeleteIcon,
@@ -107,16 +109,19 @@ function SidebarContent({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="px-3 py-3">
+      {/* Header — the logo on a lifted tile, the app's mark in the chrome. */}
+      <div className="px-3 py-2">
         <div className="flex items-center justify-between gap-3">
           <Link
             to="/dashboards"
-            className="flex items-center gap-2.5 transition-colors hover:text-palette-primary"
+            className="group flex items-center gap-2.5 transition-colors duration-150 hover:text-palette-primary motion-reduce:transition-none"
           >
-            <span className="flex size-8 items-center justify-center rounded-xl bg-palette-primary/10 text-palette-primary">
-              <ChartIcon className="h-4 w-4" />
-            </span>
+            <Surface
+              elevation="raised"
+              className="flex size-8 shrink-0 items-center justify-center rounded-[var(--surface-radius)] text-neutral-fg transition-shadow duration-150 group-hover:shadow-[var(--shadow-lg)] motion-reduce:transition-none"
+            >
+              <DashFrameLogo className="size-5" />
+            </Surface>
             <span className="text-sm font-semibold tracking-tight">
               DashFrame
             </span>
@@ -243,6 +248,7 @@ export function Navigation() {
     accessCapabilities.data?.canManageCredentials === true;
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
+  const { hasInsetTrafficLights } = usePlatform();
 
   const { showError, showSuccess } = useToastStore();
 
@@ -267,7 +273,8 @@ export function Navigation() {
     <>
       {/* Desktop nav — a flat left Dock (surface={false}): window chrome on the
           canvas, not a floating card, so the Stage stays the primary surface.
-          Visibility is driven from the top-bar toggle via the shell store. */}
+          It runs the full window height beside the top bar. Visibility is
+          driven from the top-bar toggle via the shell store. */}
       <Dock
         side="left"
         open={leftNavOpen}
@@ -280,6 +287,15 @@ export function Navigation() {
           className="flex h-full flex-col"
           style={{ width: DESKTOP_NAV_WIDTH }}
         >
+          {/* The macOS traffic lights sit here while the nav is open: a row
+              the height of the top bar, draggable like it, above the logo. */}
+          {hasInsetTrafficLights && (
+            <div
+              data-testid="nav-traffic-light-row"
+              className="titlebar-drag-region h-10 shrink-0"
+              aria-hidden
+            />
+          )}
           <SidebarContent
             pendingDraftCount={draftCount}
             onClearData={() => setShowClearConfirm(true)}

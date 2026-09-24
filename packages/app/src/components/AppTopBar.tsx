@@ -1,3 +1,5 @@
+import { AppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
+import { DESKTOP_NAV_TRAFFIC_LIGHTS_OVER_NAV_CLASS } from "@/components/shell/layout-constants";
 import { useRegisteredTopBarTabs } from "@/components/shell/topbar-tabs";
 import { usePlatform } from "@/lib/platform";
 import { useShellStore } from "@/lib/stores/shell-store";
@@ -9,29 +11,31 @@ import {
   PanelLeftOpenIcon,
 } from "@wystack/ui-react/icons";
 
-/** Width reserved for the macOS traffic lights when the title bar is hidden. */
-const TRAFFIC_LIGHT_SPACER_PX = 64;
-
 /**
- * Full-width window top bar — the macOS title-bar replacement. Spans above both
- * the nav and the content, holds the left-nav and appearance-panel toggles, and
- * (in the Electron renderer) acts as the draggable region.
+ * Window top bar — the macOS title-bar replacement. Sits above the content,
+ * beside the full-height nav; holds the left-nav and appearance-panel toggles,
+ * the page's breadcrumb and tabs, and (in the Electron renderer) acts as the
+ * draggable region.
+ *
+ * On macOS desktop the traffic lights sit over the nav while it is open, so
+ * the bar reserves room for them (`w-16`) only while the nav is closed or
+ * hidden below the desktop breakpoint. The reservation animates with the nav.
  *
  * The drag behaviour is supplied by the `titlebar-drag-region` class, whose
  * `-webkit-app-region` rules live in a raw <style> in the Electron host's
  * index.html (Lightning CSS strips that property). Buttons opt out of drag
  * automatically via the `button { app-region: no-drag }` rule there.
  *
- * The current page's workbench tabs (see `useTopBarTabs`) sit after the nav
- * toggle. They ride in the left region rather than TopBar's `center` slot:
+ * The current page's breadcrumb (see `useAppBreadcrumbs`) and workbench tabs
+ * (see `useTopBarTabs`) sit after the nav toggle; the tabs stand in for the
+ * breadcrumb's current page. They ride in the left region rather than TopBar's `center` slot:
  * that slot's wrapper cannot shrink below its content, so an overflowing
  * strip would push the bar wider instead of scrolling and offering the
  * finder. The strip is content-sized, so the rest of the bar stays a drag
  * handle; each tab is a button and opts out of dragging.
  */
 export function AppTopBar() {
-  const { isElectron, isMacOS } = usePlatform();
-  const macDesktop = isElectron && isMacOS;
+  const { hasInsetTrafficLights } = usePlatform();
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
   const toggleLeftNav = useShellStore((s) => s.toggleLeftNav);
@@ -41,14 +45,17 @@ export function AppTopBar() {
 
   return (
     <TopBar
-      className="titlebar-drag-region shrink-0 px-[var(--surface-inset)]"
+      className="titlebar-drag-region shrink-0"
       height={40}
       left={
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          {macDesktop && (
+          {hasInsetTrafficLights && (
             <div
-              className="shrink-0"
-              style={{ width: TRAFFIC_LIGHT_SPACER_PX }}
+              data-testid="traffic-light-spacer"
+              className={cn(
+                "w-16 shrink-0 transition-[width] duration-200 ease-in-out motion-reduce:transition-none",
+                leftNavOpen && DESKTOP_NAV_TRAFFIC_LIGHTS_OVER_NAV_CLASS,
+              )}
               aria-hidden
             />
           )}
@@ -63,6 +70,10 @@ export function AppTopBar() {
             tooltip={leftNavOpen ? "Hide sidebar" : "Show sidebar"}
             onClick={toggleLeftNav}
             className="hidden h-7 w-7 shrink-0 text-neutral-fg-subtle hover:text-neutral-fg lg:flex"
+          />
+          <AppBreadcrumbs
+            beforeTabs={tabs !== null}
+            className={tabs ? "max-w-[45%] shrink-0" : "shrink"}
           />
           {tabs && (
             <WorkbenchTabs
