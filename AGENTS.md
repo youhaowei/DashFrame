@@ -155,6 +155,10 @@ A submodule change is a two-repository change:
    `@wystack/*` manifest needs a `bun.lock` update, and neither `build:wystack`
    nor `bun run check` re-runs the install), run `bun run build:wystack`, and
    run `bun run check`.
+   A Vite dev server that was already running keeps a pre-bundled copy of
+   `@wystack/*`; after the pin, delete `apps/web/node_modules/.vite` and
+   restart it, or React contexts such as `useTheme` resolve from two module
+   copies and throw "must be used within a StduiProvider".
 3. Pin the commit that landed on the submodule's default branch. If its PR was
    squashed or rebased, do not pin the pre-merge feature commit.
 
