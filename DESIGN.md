@@ -71,7 +71,7 @@ All artifact types share navigation, headers, action placement, and empty/loadin
 
 **Collections:** share search, filters, sort, and a grid/list toggle. Default to grid when previews, recency, or ownership aid recognition; use list for compact names and metadata. Preserve the view choice per artifact type. Search names and relevant identity (provider, source, host, owner). Prioritize actionable failures, stale state, and drafts; keep routine healthy state quiet. Use comparison tables only when meaningful columns drive repeated comparisons.
 
-**Details:** give the artifact the full content area, without a permanent artifact navigation rail. The header contains back/breadcrumb context, identity, relevant status, primary and overflow actions, and a compact switcher. The switcher is searchable, filterable, keyboard-accessible, and includes useful metadata plus **Browse all**.
+**Details:** give the artifact the full content area, without a permanent artifact navigation rail. Where the artifact sits is the app bar's breadcrumb, not the page's: pages register their trail and the bar shows it before any top-bar tabs, which stand in for its last item. The page header contains identity, relevant status, primary and overflow actions, and a compact switcher. The switcher is searchable, filterable, keyboard-accessible, and includes useful metadata plus **Browse all**.
 
 Read order: state and next action → primary work → useful relationships/dependencies → activity and provenance. Use tabs or inspectors where sustained editing needs them. Keep editing spatially consistent with the read view.
 

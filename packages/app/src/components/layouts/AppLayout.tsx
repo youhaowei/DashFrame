@@ -1,6 +1,4 @@
 import { useRenderPerf } from "@/lib/perf";
-import { Breadcrumb, type BreadcrumbItem } from "@dashframe/ui";
-import { Link } from "@tanstack/react-router";
 import { cn } from "@wystack/ui-react";
 import type { ReactNode } from "react";
 
@@ -19,16 +17,13 @@ type AppLayoutBaseProps = {
 
 type AppLayoutHeaderProps =
   | {
-      /** Complete header override; pass `null` to render no header. Cannot be combined with breadcrumbs or headerContent; its perf marker is the generic `layout:page`. */
+      /** Complete header override; pass `null` to render no header. Cannot be combined with headerContent. */
       pageHeader: ReactNode;
-      breadcrumbs?: never;
       headerContent?: never;
     }
   | {
       pageHeader?: undefined;
-      /** Breadcrumb navigation items rendered by AppLayout. */
-      breadcrumbs?: BreadcrumbItem[];
-      /** Optional header content rendered after breadcrumbs. */
+      /** Optional content for a sticky page header. Without it, no header renders. */
       headerContent?: ReactNode;
     };
 
@@ -38,19 +33,18 @@ export type AppLayoutProps = AppLayoutBaseProps & AppLayoutHeaderProps;
  * AppLayout - Reusable layout for application pages
  *
  * Provides a consistent structure with:
- * - Sticky top header with breadcrumb navigation
- * - Optional additional header content
+ * - An optional sticky page header (`headerContent` or `pageHeader`)
  * - Optional left attached sidebar
  * - Main content area with scrolling
  * - Optional footer
  *
+ * Breadcrumbs are not part of the page: pages register them with
+ * `useAppBreadcrumbs` and the app bar renders them.
+ *
  * @example
  * ```tsx
  * <AppLayout
- *   breadcrumbs={[
- *     { label: "Questions", to: "/insights" },
- *     { label: "My Insight" },
- *   ]}
+ *   headerContent={<Toolbar />}
  *   leftPanel={<Controls />}
  * >
  *   <Content />
@@ -59,7 +53,6 @@ export type AppLayoutProps = AppLayoutBaseProps & AppLayoutHeaderProps;
  */
 export function AppLayout({
   pageHeader,
-  breadcrumbs,
   headerContent,
   leftPanel,
   footer,
@@ -68,10 +61,9 @@ export function AppLayout({
   childrenClassName,
 }: AppLayoutProps) {
   // Render boundary for the shared layout: every page built on AppLayout feeds
-  // the perf HUD a time-to-paint sample, keyed by its breadcrumb trail.
-  useRenderPerf(
-    `layout:${breadcrumbs?.map((b) => b.label).join("/") ?? "page"}`,
-  );
+  // the perf HUD a time-to-paint sample; the Shell's `shell:${pathname}`
+  // sample tells pages apart.
+  useRenderPerf("layout:page");
 
   return (
     <div
@@ -81,24 +73,14 @@ export function AppLayout({
       )}
     >
       {/* Sticky Header */}
-      {/* `null` opts out of the header; `undefined` renders the default. */}
-      {pageHeader !== undefined ? (
-        pageHeader
-      ) : (
-        <header className="sticky top-0 z-10 shrink-0 border-b bg-neutral-bg/90 backdrop-blur-sm">
-          <div className="container mx-auto px-8 py-4">
-            <div className="flex items-center justify-between gap-6">
-              {/* Breadcrumb navigation */}
-              {breadcrumbs && breadcrumbs.length > 0 && (
-                <Breadcrumb LinkComponent={Link} items={breadcrumbs} />
-              )}
-
-              {/* Additional header content */}
-              {headerContent && <div className="flex-1">{headerContent}</div>}
-            </div>
-          </div>
-        </header>
-      )}
+      {/* An explicit `pageHeader` wins; otherwise a header only holds `headerContent`. */}
+      {pageHeader !== undefined
+        ? pageHeader
+        : headerContent && (
+            <header className="sticky top-0 z-10 shrink-0 border-b bg-neutral-bg/90 backdrop-blur-sm">
+              <div className="container mx-auto px-8 py-4">{headerContent}</div>
+            </header>
+          )}
 
       {/* Main Layout Body */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -131,7 +113,7 @@ export function AppLayout({
  * @deprecated Use AppLayout instead. This is a backward-compatible alias.
  */
 export type WorkbenchLayoutProps = AppLayoutBaseProps & {
-  /** @deprecated Use breadcrumbs instead */
+  /** @deprecated Use headerContent instead */
   header?: ReactNode;
 };
 

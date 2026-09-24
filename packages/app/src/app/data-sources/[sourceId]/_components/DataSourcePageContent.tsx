@@ -2,6 +2,7 @@ import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import { Ga4PropertyPicker } from "@/components/data-sources/Ga4PropertyPicker";
 import { RefreshTableButton } from "@/components/data-sources/RefreshTableButton";
 import { AppLayout } from "@/components/layouts/AppLayout";
+import { useAppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import { useTopBarTabs } from "@/components/shell/topbar-tabs";
 import {
   Workbench,
@@ -28,7 +29,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 import { buildSensitivityUpdate, cmd } from "@dashframe/types";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Button,
   DropdownMenu,
@@ -240,6 +241,14 @@ export default function DataSourcePageContent({
 
   const selectTable = (id: string) => onSelectTable(id);
   useTableTabs(dataTables, showTable ? selectedTable.id : null, onSelectTable);
+  useAppBreadcrumbs(
+    dataSource
+      ? [
+          { label: "Data Sources", to: "/data-sources" },
+          { label: dataSource.name || "Untitled source" },
+        ]
+      : null,
+  );
 
   // Command-apply boundary: a direct mutation on the artifact. Instrumented
   // so the dev HUD can hold it against the <100ms perceived budget.
@@ -399,18 +408,7 @@ export default function DataSourcePageContent({
             paneName="Source"
             onToggle={toggleLeft}
           />
-          <Link
-            to="/data-sources"
-            className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
-          >
-            Data Sources
-          </Link>
-          <span
-            aria-hidden
-            className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
-          >
-            ›
-          </span>
+          {/* Where the source sits is in the app bar's breadcrumb. */}
           <SourceNameInput
             savedName={dataSource.name}
             onRename={renameSource}

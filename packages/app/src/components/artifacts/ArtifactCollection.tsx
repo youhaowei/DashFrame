@@ -9,7 +9,6 @@ export type ArtifactCollectionProps = {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
-  navigation?: ReactNode;
   /** Undefined while the collection query is pending. */
   itemCount: number | undefined;
   searchQuery: string;
@@ -25,7 +24,6 @@ export function ArtifactCollection({
   title,
   description,
   actions,
-  navigation,
   itemCount,
   searchQuery,
   onSearchQueryChange,
@@ -61,7 +59,6 @@ export function ArtifactCollection({
         titleRef={titleRef}
         description={description}
         actions={actions}
-        navigation={navigation}
       >
         {(showSearch || tools) && (
           <>

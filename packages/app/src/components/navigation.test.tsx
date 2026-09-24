@@ -9,11 +9,13 @@ import {
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { mockClearAllData, mockLocation, mockReloadRoot } = vi.hoisted(() => ({
-  mockClearAllData: vi.fn(),
-  mockLocation: { pathname: "/data-sources" },
-  mockReloadRoot: vi.fn(),
-}));
+const { mockClearAllData, mockLocation, mockPlatform, mockReloadRoot } =
+  vi.hoisted(() => ({
+    mockClearAllData: vi.fn(),
+    mockLocation: { pathname: "/data-sources" },
+    mockPlatform: { hasInsetTrafficLights: false },
+    mockReloadRoot: vi.fn(),
+  }));
 
 vi.mock("@/components/access-credentials/AccessCredentialsDialog", () => ({
   AccessCredentialsDialog: () => null,
@@ -30,6 +32,7 @@ vi.mock("@/lib/clear-all-data-navigation", async (importOriginal) => ({
   reloadRootWithFreshWorkspaceState: mockReloadRoot,
 }));
 vi.mock("@/lib/perf", () => ({ PerfHud: () => null }));
+vi.mock("@/lib/platform", () => ({ usePlatform: () => mockPlatform }));
 vi.mock("@/lib/stores", () => ({
   useToastStore: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),
 }));
@@ -117,13 +120,15 @@ vi.mock("@wystack/ui-react", () => ({
     </button>
   ),
   DropdownMenuSeparator: () => <hr />,
+  Surface: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
   DropdownMenuTrigger: ({ render: trigger }: { render: React.ReactNode }) => (
     <>{trigger}</>
   ),
   cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
 }));
 vi.mock("@wystack/ui-react/icons", () => ({
-  ChartIcon: () => null,
   CloseIcon: () => null,
   DashboardIcon: () => null,
   DatabaseIcon: () => null,
@@ -143,6 +148,7 @@ import { Navigation } from "./navigation";
 describe("Navigation", () => {
   beforeEach(() => {
     mockLocation.pathname = "/data-sources";
+    mockPlatform.hasInsetTrafficLights = false;
     mockClearAllData.mockReset();
     mockClearAllData.mockResolvedValue(undefined);
     mockReloadRoot.mockReset();
@@ -162,6 +168,28 @@ describe("Navigation", () => {
       "/data-sources",
       "/drafts",
     ]);
+  });
+
+  it("shows the DashFrame logo linking to Reports", () => {
+    render(<Navigation />);
+
+    const home = screen
+      .getAllByRole("link")
+      .find((link) => link.textContent?.trim() === "DashFrame");
+    expect(home?.getAttribute("href")).toBe("/dashboards");
+    expect(home?.querySelector("svg")).not.toBeNull();
+  });
+
+  it("keeps a draggable row for the traffic lights only on macOS desktop", () => {
+    const { unmount } = render(<Navigation />);
+    expect(screen.queryByTestId("nav-traffic-light-row")).toBeNull();
+    unmount();
+
+    mockPlatform.hasInsetTrafficLights = true;
+    render(<Navigation />);
+    expect(screen.getByTestId("nav-traffic-light-row").className).toContain(
+      "titlebar-drag-region",
+    );
   });
 
   it("closes the mobile drawer when the active route is tapped", () => {

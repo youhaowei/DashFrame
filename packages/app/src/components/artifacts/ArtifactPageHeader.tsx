@@ -6,7 +6,6 @@ export function ArtifactPageHeader({
   titleIcon,
   titleRef,
   description,
-  navigation,
   actions,
   children,
 }: {
@@ -14,13 +13,11 @@ export function ArtifactPageHeader({
   titleIcon?: ReactNode;
   titleRef?: Ref<HTMLHeadingElement>;
   description?: ReactNode;
-  navigation?: ReactNode;
   actions?: ReactNode;
   children?: ReactNode;
 }) {
   return (
     <header className="shrink-0 border-b border-neutral-border bg-neutral-bg px-4 py-4 sm:px-6">
-      {navigation && <div className="mb-3 min-w-0">{navigation}</div>}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 flex-1 basis-48">
           <div className="flex min-w-0 items-center gap-3">

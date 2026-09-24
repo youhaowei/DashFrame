@@ -57,7 +57,7 @@ import { StduiProvider, useTheme } from "@wystack/ui-react/theme";
 - **stdui primitives** (from `@wystack/ui-react`) — Button, Card, Input, Select, Dialog, Badge, Tabs, etc.
 - **stdui tokens and theme utilities** (from `@wystack/ui-core` and `@wystack/ui-core/theme`)
 - **stdui React theme provider** (from `@wystack/ui-react/theme`) — StduiProvider, useTheme
-- **DashFrame components** — ItemSelector, VirtualTable, SortableList, Breadcrumb, JoinTypeIcon
+- **DashFrame components** — ItemSelector, VirtualTable, SortableList, JoinTypeIcon
 
 Import stdui packages directly; `@dashframe/ui` exports only DashFrame-specific components, hooks, and utilities.
 

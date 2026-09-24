@@ -84,13 +84,6 @@ export {
   getChartIcon,
 } from "./components/chart-icons";
 
-// Breadcrumb — DashFrame's version (enhanced with Link integration)
-export {
-  Breadcrumb,
-  type BreadcrumbItem,
-  type BreadcrumbProps,
-} from "./components/Breadcrumb";
-
 // -- DashFrame-specific hooks --
 
 export {

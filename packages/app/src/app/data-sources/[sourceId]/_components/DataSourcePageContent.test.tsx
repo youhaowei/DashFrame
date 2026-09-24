@@ -212,6 +212,7 @@ vi.mock("@/components/data-sources/DataPickerModal", () => ({
 // ── Component under test ──────────────────────────────────────────────────────
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { AppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import {
   TopBarTabsProvider,
   useRegisteredTopBarTabs,
@@ -363,6 +364,7 @@ function Page({
   return (
     <PlatformProvider>
       <TopBarTabsProvider>
+        <AppBreadcrumbs />
         <TopBarProbe />
         <DataSourcePageContent
           sourceId={sourceId}
@@ -442,6 +444,22 @@ describe("DataSourcePageContent — loading contract", () => {
 });
 
 describe("DataSourcePageContent — table tabs", () => {
+  it("names the source in the app bar breadcrumb once it loads", async () => {
+    mockUseDataSources.mockReturnValue({ isLoading: true });
+    mockUseDataTables.mockReturnValue({ data: [] });
+    const { rerender } = render(<Page />);
+    expect(screen.queryByRole("navigation", { name: "breadcrumb" })).toBeNull();
+
+    givenSource(FILE_SOURCE, [ORDERS, CUSTOMERS]);
+    await act(async () => rerender(<Page />));
+
+    const trail = within(
+      screen.getByRole("navigation", { name: "breadcrumb" }),
+    );
+    trail.getByText("Data Sources");
+    trail.getByText("Local Files");
+  });
+
   it("puts one top-bar tab per table and opens the first by default", () => {
     givenSource(FILE_SOURCE, [ORDERS, CUSTOMERS]);
     render(<Page />);

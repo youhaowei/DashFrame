@@ -78,6 +78,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { AppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import {
   TopBarTabsProvider,
   useRegisteredTopBarTabs,
@@ -255,6 +256,7 @@ function Page({ initialDraftId = null }: { initialDraftId?: string | null }) {
   return (
     <PlatformProvider>
       <TopBarTabsProvider>
+        <AppBreadcrumbs />
         <TopBarProbe />
         <DraftsPageContent draftId={draftId} />
         <ConfirmDialog />
@@ -280,6 +282,15 @@ beforeEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("DraftsPageContent — draft tabs", () => {
+  it("shows Drafts in the app bar breadcrumb", () => {
+    givenDrafts([NEWER, OLDER]);
+    render(<Page />);
+
+    within(screen.getByRole("navigation", { name: "breadcrumb" })).getByText(
+      "Drafts",
+    );
+  });
+
   it("puts one tab per draft, oldest first, and opens the most recent", () => {
     givenDrafts([NEWER, OLDER]);
     render(<Page />);

@@ -158,7 +158,8 @@ async function createWindow(): Promise<void> {
     height: 800,
     icon: APP_ICON_FILE,
     // macOS only: hide the title bar but keep the traffic lights, inset over the
-    // app's own top bar (the renderer reserves a spacer for them in AppTopBar).
+    // app's chrome: the nav's top row while the nav is open, otherwise a
+    // spacer the renderer reserves in AppTopBar.
     // On Windows/Linux `hiddenInset` would hide the title bar *without* giving
     // back window controls, so keep the standard frame there until the app
     // draws its own controls.
