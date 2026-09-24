@@ -68,9 +68,36 @@ function ItemIcon({ item }: { item: PaletteItem }) {
   }
 }
 
+/** `pathname` is `base`, with or without a trailing slash. */
+function isPath(pathname: string, base: string): boolean {
+  return pathname === base || pathname === `${base}/`;
+}
+
 /** `/data-sources`, with or without the trailing slash of its index route. */
 function isDataSourcesPath(pathname: string): boolean {
-  return pathname === "/data-sources" || pathname === "/data-sources/";
+  return isPath(pathname, "/data-sources");
+}
+
+/**
+ * Whether opening `target` from `pathname` stays inside the artifact already
+ * open: the same report, the same data source, or the drafts, whose tabs are
+ * all drafts.
+ */
+export function replacesEntry(
+  target: PaletteTarget,
+  pathname: string,
+): boolean {
+  switch (target.kind) {
+    case "report":
+    case "chart":
+      return isPath(pathname, `/dashboards/${target.reportId}`);
+    case "data-source":
+      return isPath(pathname, `/data-sources/${target.sourceId}`);
+    case "draft":
+      return isPath(pathname, "/drafts") || pathname.startsWith("/drafts/");
+    case "action":
+      return false;
+  }
 }
 
 /** A dialog, alert dialog or popover other than the palette is open. */
@@ -98,11 +125,12 @@ export function CommandPalette() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       if (!isCommandPaletteShortcut(event, isMacOS)) return;
+      // Browsers bind ⌘K / Ctrl+K to their own search, which would take focus
+      // out of the page (and out of any open dialog), so claim it either way.
+      event.preventDefault();
       // Another dialog or popover owns the keyboard; the palette would open
       // on top of it. Its own shortcut closes it, so only an opening waits.
       if (!useCommandPalette.getState().open && anotherDialogIsOpen()) return;
-      // Browsers bind ⌘K / Ctrl+K to their own search.
-      event.preventDefault();
       toggle();
     };
     window.addEventListener("keydown", onKeyDown);
@@ -112,25 +140,37 @@ export function CommandPalette() {
   const run = useCallback(
     async (target: PaletteTarget) => {
       setOpen(false);
+      // Switching tabs inside the artifact already open is not a page visit,
+      // so it replaces the entry as the page's own tabs do; Back then leaves
+      // the artifact instead of stepping through its tabs.
+      const replace = replacesEntry(target, router.state.location.pathname);
       switch (target.kind) {
         case "report":
-          await navigate({ to: `/dashboards/${target.reportId}` } as never);
+          await navigate({
+            to: `/dashboards/${target.reportId}`,
+            replace,
+          } as never);
           return;
         case "chart":
           // The chart is on this report already, so opening its tab only navigates.
           await navigate({
             to: `/dashboards/${target.reportId}`,
             search: { chart: target.chartId },
+            replace,
           } as never);
           return;
         case "data-source":
           await navigate({
             to: `/data-sources/${target.sourceId}`,
             search: { table: target.tableId },
+            replace,
           } as never);
           return;
         case "draft":
-          await navigate({ to: `/drafts/${target.draftId}` } as never);
+          await navigate({
+            to: `/drafts/${target.draftId}`,
+            replace,
+          } as never);
           return;
         case "action":
           switch (target.action) {
@@ -204,21 +244,39 @@ function PaletteBody({
 }) {
   const [search, setSearch] = useState("");
   const { isMacOS } = usePlatform();
-  const reports = queryStatus(
+  const reportsList = queryStatus(
     useQuery({ query: api.app.listDashboards, args: {} }),
-  ).data;
-  const charts = queryStatus(
+  );
+  const chartsList = queryStatus(
     useQuery({ query: api.app.listVisualizations, args: {} }),
-  ).data;
-  const dataSources = queryStatus(
+  );
+  const dataSourcesList = queryStatus(
     useQuery({ query: api.app.listDataSources, args: {} }),
-  ).data;
-  const dataTables = queryStatus(
+  );
+  const dataTablesList = queryStatus(
     useQuery({ query: api.app.listDataTables, args: {} }),
-  ).data;
-  const drafts = queryStatus(
+  );
+  const draftsList = queryStatus(
     useQuery({ query: api.app.listDrafts, args: {} }),
-  ).data;
+  );
+  const reports = reportsList.data;
+  const charts = chartsList.data;
+  const dataSources = dataSourcesList.data;
+  const dataTables = dataTablesList.data;
+  const drafts = draftsList.data;
+  const lists = [
+    reportsList,
+    chartsList,
+    dataSourcesList,
+    dataTablesList,
+    draftsList,
+  ];
+  // An empty result is only "no results" once every list has answered.
+  const loading = lists.some((list) => list.isLoading);
+  const failed = lists.some((list) => list.isError);
+  let emptyMessage = "No results";
+  if (loading) emptyMessage = "Loading…";
+  else if (failed) emptyMessage = "No results. Some lists couldn't load.";
 
   const groups = useMemo(
     () =>
@@ -256,7 +314,7 @@ function PaletteBody({
         placeholder="Search or run an action…"
       />
       <CommandList>
-        <CommandEmpty>No results</CommandEmpty>
+        <CommandEmpty>{emptyMessage}</CommandEmpty>
         {groups.map((group) => (
           <CommandGroup key={group.id} heading={group.heading}>
             {group.items.map((item) => (
@@ -264,6 +322,11 @@ function PaletteBody({
             ))}
           </CommandGroup>
         ))}
+        {groups.length > 0 && (loading || failed) ? (
+          <p className="px-4 py-2 text-xs text-neutral-fg-subtle">
+            {loading ? "Still loading…" : "Some lists couldn't load."}
+          </p>
+        ) : null}
       </CommandList>
     </Command>
   );

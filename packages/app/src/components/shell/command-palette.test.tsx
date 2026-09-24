@@ -44,6 +44,9 @@ const REPORT = {
   ],
 };
 
+/** Lists that are still loading or failed, by query name; reset per test. */
+const LIST_STATES: Record<string, { isLoading?: true; isError?: true }> = {};
+
 const LISTS: Record<string, unknown[]> = {
   listDashboards: [REPORT],
   listVisualizations: [
@@ -54,9 +57,10 @@ const LISTS: Record<string, unknown[]> = {
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
   useMutation: () => mockCommitBatch,
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => ({
-    data: LISTS[ref._path] ?? [],
-  })),
+  useQuery_experimental: nativeQueryMock(
+    (ref: { _path: string }) =>
+      LIST_STATES[ref._path] ?? { data: LISTS[ref._path] ?? [] },
+  ),
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
@@ -86,6 +90,7 @@ beforeEach(() => {
   useCommandPalette.setState({ open: false });
   mockPlatform.isMacOS = true;
   mockRouter.state.location.pathname = "/dashboards";
+  for (const key of Object.keys(LIST_STATES)) delete LIST_STATES[key];
 });
 
 function pressShortcut(target: Window | Element = window) {
@@ -148,6 +153,7 @@ describe("CommandPalette", () => {
       expect(mockNavigate).toHaveBeenCalledWith({
         to: "/dashboards/weekly",
         search: { chart: "by-category" },
+        replace: false,
       }),
     );
     expect(useCommandPalette.getState().open).toBe(false);
@@ -193,9 +199,72 @@ describe("CommandPalette", () => {
         <CommandPalette />
       </>,
     );
-    pressShortcut();
+    // The shortcut is still claimed, so the browser's own ⌘K / Ctrl+K search
+    // does not take focus out of that dialog.
+    const event = new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
     expect(useCommandPalette.getState().open).toBe(false);
     expect(screen.queryByRole("combobox")).toBeNull();
+  });
+
+  it.each([
+    ["/dashboards/weekly", true],
+    ["/dashboards/weekly/", true],
+    ["/dashboards/other", false],
+    ["/data-sources", false],
+  ])(
+    "opens a chart from %s, replacing the entry: %s",
+    async (pathname, replace) => {
+      mockRouter.state.location.pathname = pathname;
+      render(<CommandPalette />);
+      pressShortcut();
+      const input = await screen.findByRole("combobox");
+      fireEvent.change(input, { target: { value: "category" } });
+      await waitFor(() =>
+        expect(
+          screen
+            .getByRole("option", { name: /Sum of Sales by Category/ })
+            .getAttribute("data-selected"),
+        ).toBe("true"),
+      );
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() =>
+        expect(mockNavigate).toHaveBeenCalledWith({
+          to: "/dashboards/weekly",
+          search: { chart: "by-category" },
+          replace,
+        }),
+      );
+    },
+  );
+
+  it("says a search is incomplete while a list loads, and when one failed", async () => {
+    LIST_STATES.listDataTables = { isLoading: true };
+    const { unmount } = render(<CommandPalette />);
+    pressShortcut();
+    let input = await screen.findByRole("combobox");
+    fireEvent.change(input, { target: { value: "zzzz" } });
+    expect(await screen.findByText("Loading…")).toBeTruthy();
+    expect(screen.queryByText("No results")).toBeNull();
+    unmount();
+
+    LIST_STATES.listDataTables = { isError: true };
+    useCommandPalette.setState({ open: false });
+    render(<CommandPalette />);
+    pressShortcut();
+    input = await screen.findByRole("combobox");
+    fireEvent.change(input, { target: { value: "zzzz" } });
+    expect(
+      await screen.findByText("No results. Some lists couldn't load."),
+    ).toBeTruthy();
   });
 
   it("moves with the arrow keys and runs an action after `>`", async () => {

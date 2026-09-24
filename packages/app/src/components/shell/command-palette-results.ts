@@ -193,16 +193,33 @@ function artifactItems(
     }
   }
 
+  // Count charts the way the report list does (lib/reports/report-contents):
+  // only tiles whose chart still exists, each chart once. Without the chart
+  // list the count is unknown, so it is left out rather than shown as 0.
+  const liveChartIds = sources.charts
+    ? new Set(sources.charts.map((chart) => chart.id))
+    : undefined;
   const reportItems = reports.map((report) => {
-    const chartCount = report.items.filter(
-      (item) => item.type === "visualization",
-    ).length;
+    const chartCount = liveChartIds
+      ? new Set(
+          report.items.flatMap((item) =>
+            item.type === "visualization" &&
+            item.visualizationId &&
+            liveChartIds.has(item.visualizationId)
+              ? [item.visualizationId]
+              : [],
+          ),
+        ).size
+      : undefined;
     return {
       item: {
         id: `report:${report.id}`,
         kind: "report" as const,
         label: report.name || "Untitled report",
-        detail: plural(chartCount, "chart", "charts"),
+        detail:
+          chartCount === undefined
+            ? undefined
+            : plural(chartCount, "chart", "charts"),
         keywords: ["report"],
         target: { kind: "report" as const, reportId: report.id },
       },
@@ -245,7 +262,10 @@ function artifactItems(
       id: `data-source:${source.id}`,
       kind: "data-source" as const,
       label: source.name,
-      detail: plural(tableCounts.get(source.id) ?? 0, "table", "tables"),
+      // Unknown while the table list is loading or failed, not 0.
+      detail: sources.dataTables
+        ? plural(tableCounts.get(source.id) ?? 0, "table", "tables")
+        : undefined,
       keywords: ["data source"],
       target: { kind: "data-source" as const, sourceId: source.id },
     },

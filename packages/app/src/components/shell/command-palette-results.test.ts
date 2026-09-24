@@ -177,4 +177,27 @@ describe("buildPaletteResults", () => {
       "drafts",
     ]);
   });
+
+  it("counts only a report's live charts, and leaves the count out when charts are unknown", () => {
+    const withOrphan = report("r", "Mixed", [
+      "by-category",
+      "deleted",
+      "by-category",
+    ]);
+    const detail = (charts: PaletteSources["charts"]) =>
+      buildPaletteResults({ reports: [withOrphan], charts }, "").find(
+        (group) => group.id === "reports",
+      )!.items[0]!.detail;
+    expect(detail(sources.charts)).toBe("1 chart");
+    expect(detail(undefined)).toBeUndefined();
+  });
+
+  it("leaves a source's table count out while tables are unknown", () => {
+    const source = (dataTables: PaletteSources["dataTables"]) =>
+      buildPaletteResults({ dataSources: sources.dataSources, dataTables }, "")
+        .flatMap((group) => group.items)
+        .find((item) => item.kind === "data-source")!.detail;
+    expect(source(sources.dataTables)).toBe("1 table");
+    expect(source(undefined)).toBeUndefined();
+  });
 });
