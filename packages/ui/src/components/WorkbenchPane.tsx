@@ -283,7 +283,9 @@ export function WorkbenchChip({
       <span className="grid h-4 w-4 shrink-0 place-items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         {dragHandle}
       </span>
-      <span className="grid h-4 w-4 shrink-0 place-items-center text-neutral-fg-subtle">
+      {/* The icon is an indicator, not the subject: it sits at the label's
+          12px text size whatever size the caller passes. */}
+      <span className="grid h-4 w-4 shrink-0 place-items-center text-neutral-fg-subtle [&>svg]:h-3 [&>svg]:w-3">
         {icon}
       </span>
       {content ?? (
