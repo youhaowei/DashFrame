@@ -28,6 +28,52 @@ export type MeasureContract =
   | { kind: "non-additive" };
 
 /**
+ * Whether a measure's contract lets rows, or partial aggregates, be combined
+ * into one value when the given dimensions are dropped from the grouping.
+ *
+ * `droppedScopes` holds the grain scope of each dropped dimension, with
+ * `undefined` for a dimension that declares no scope. The answer is static:
+ * - No contract: yes. A measure without a contract keeps its plain aggregate.
+ * - `additive` without `additiveOver`: yes, over any dimension.
+ * - `additive` with `additiveOver`: only when every dropped dimension has a
+ *   scope listed there. An unscoped dimension fails closed, because nothing
+ *   says the measure may be summed across it.
+ * - `ratio`: no. A ratio is recomputed from its component measures, never
+ *   combined; a caller that can recompute asks about the components instead.
+ * - `non-additive`: no, even when nothing is dropped, because two rows that
+ *   share every dimension still cannot be combined.
+ *
+ * `false` still allows the value at exact grain. A caller that has the source
+ * rows may report it where each group holds one row (or one value of each
+ * blocking dimension); a caller without the source rows must refuse.
+ *
+ * Callers decide which columns are dropped dimensions. A field list can mix
+ * dimensions with value columns, and value columns carry no scope, so a caller
+ * that cannot tell an unscoped dimension from a value column passes only the
+ * scoped fields.
+ */
+export function measureCombinesOver(
+  contract: MeasureContract | undefined,
+  droppedScopes: readonly (GrainScope | undefined)[],
+): boolean {
+  if (!contract) return true;
+  switch (contract.kind) {
+    case "ratio":
+    case "non-additive":
+      return false;
+    case "additive": {
+      const allowed = contract.additiveOver;
+      return (
+        allowed === undefined ||
+        droppedScopes.every(
+          (scope) => scope !== undefined && allowed.includes(scope),
+        )
+      );
+    }
+  }
+}
+
+/**
  * Metric - An aggregation definition.
  *
  * Metrics define how to aggregate column values:

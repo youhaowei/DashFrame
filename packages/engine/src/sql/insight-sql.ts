@@ -40,7 +40,7 @@ import type {
   UUID,
 } from "@dashframe/types";
 
-import { isMeasureExpression } from "@dashframe/types";
+import { isMeasureExpression, measureCombinesOver } from "@dashframe/types";
 
 import { quoteIdentifier, quoteLiteral } from "./quoting";
 
@@ -181,56 +181,6 @@ export function extractColumnAliasComponents(
   const uuid =
     parts.length === 5 ? parts.join("-") : uuidRaw.replace(/_/g, "-");
   return { uuid, instanceIndex };
-}
-
-// ============================================================================
-// Metric SQL Expression
-// ============================================================================
-
-/**
- * Convert an InsightMetric to its SQL aggregation expression.
- *
- * This legacy chart DSL helper deliberately ignores measure contracts. Do not
- * use it to aggregate contracted measures; compile them from source rows with
- * `buildInsightSQL`, or consume an already materialized metric column.
- *
- * This is the canonical format expected by vgplot/Mosaic for encoding values.
- * The expression matches the SQL aggregation syntax used in GROUP BY queries.
- *
- * @example
- * ```typescript
- * // Count all rows
- * metricToSqlExpression({ name: "Count", aggregation: "count" })
- * // Returns: "count(*)"
- *
- * // Count distinct values
- * metricToSqlExpression({ name: "Unique Users", aggregation: "count_distinct", columnName: "user_id" })
- * // Returns: "count_distinct(user_id)"
- *
- * // Standard aggregation
- * metricToSqlExpression({ name: "Total Sales", aggregation: "sum", columnName: "amount" })
- * // Returns: "sum(amount)"
- * ```
- */
-export function metricToSqlExpression(metric: InsightMetric): string {
-  const agg = metric.aggregation;
-
-  // COUNT(*) - no column needed
-  if (agg === "count" && !metric.columnName) {
-    return "count(*)";
-  }
-
-  // COUNT(DISTINCT column) — unquoted: this string is consumed by vgplot's
-  // parseEncodingValue DSL parser, which re-extracts the column name via regex
-  // and passes it to Mosaic (which quotes on its own). Quoting here would
-  // double-process the identifier and break the chart render.
-  if (agg === "count_distinct" && metric.columnName) {
-    return `count_distinct(${metric.columnName})`;
-  }
-
-  // Standard aggregation: SUM, AVG, MIN, MAX, COUNT — same reasoning as above.
-  // The Mosaic API (api.sum(col), api.avg(col), etc.) quotes internally.
-  return `${agg}(${metric.columnName ?? "*"})`;
 }
 
 /**
@@ -1321,8 +1271,25 @@ function compileMeasure(
   measures: InsightMetric[],
   fields: Map<string, Field>,
   groupedFieldIds: ReadonlySet<string>,
-  visiting = new Set<string>(),
 ): string {
+  return compileGuardedMeasure(metric, measures, fields, groupedFieldIds).sql;
+}
+
+/**
+ * Compiled measure SQL. `guarded` is true when some aggregate in it, its own
+ * or a referenced measure's, returns NULL unless the group sits at a grain
+ * its contract allows.
+ */
+type CompiledMeasure = { sql: string; guarded: boolean };
+
+/** Compile a measure and report whether any aggregate in it is grain-guarded. Cycles throw. */
+function compileGuardedMeasure(
+  metric: InsightMetric,
+  measures: InsightMetric[],
+  fields: Map<string, Field>,
+  groupedFieldIds: ReadonlySet<string>,
+  visiting = new Set<string>(),
+): CompiledMeasure {
   if (visiting.has(metric.id)) throw new Error("Cyclic measure reference");
   const path = new Set(visiting).add(metric.id);
   if (metric.expression) {
@@ -1338,7 +1305,16 @@ function compileMeasure(
       path,
       0,
     );
-    return guardMeasureAggregation(expression, metric, fields, groupedFieldIds);
+    const guarded = guardMeasureAggregation(
+      expression.sql,
+      metric,
+      fields,
+      groupedFieldIds,
+    );
+    return {
+      sql: guarded.sql,
+      guarded: expression.guarded || guarded.guarded,
+    };
   }
   if (metric.contract?.kind === "ratio")
     throw new Error("Ratio measures require an expression");
@@ -1379,95 +1355,63 @@ function compileMeasure(
   );
 }
 
+/**
+ * Apply the measure's contract to its aggregate. Where `measureCombinesOver`
+ * refuses, the aggregate survives only at exact grain: one source row per
+ * group for a measure that never combines, or one value of each blocking
+ * dimension for a scope-restricted additive measure. A ratio is not guarded
+ * itself; its components are, as they compile.
+ */
 function guardMeasureAggregation(
   aggregate: string,
   metric: InsightMetric,
   fields: Map<string, Field>,
   groupedFieldIds: ReadonlySet<string>,
   filterPredicate?: string,
-): string {
+): CompiledMeasure {
   const contract = metric.contract;
-  if (!contract || contract.kind === "ratio") return aggregate;
+  const unguarded = { sql: aggregate, guarded: false };
+  if (!contract || contract.kind === "ratio") return unguarded;
   const filteredCount = (count: string) =>
     filterPredicate ? `${count} FILTER (WHERE ${filterPredicate})` : count;
-  if (contract.kind === "non-additive")
-    return `CASE WHEN ${filteredCount("COUNT(*)")} = 1 THEN ${aggregate} END`;
-  if (!contract.additiveOver) return aggregate;
+  // With ratio handled above, refusing even with nothing dropped can only mean
+  // a non-additive contract: its rows never combine.
+  if (!measureCombinesOver(contract, []))
+    return {
+      sql: `CASE WHEN ${filteredCount("COUNT(*)")} = 1 THEN ${aggregate} END`,
+      guarded: true,
+    };
 
-  const guardedDimensions = measureGuardedDimensions(
-    metric,
-    fields,
-    groupedFieldIds,
-  );
-  if (!guardedDimensions.length) return aggregate;
-  const row = guardedDimensions
+  const blocking = blockingDimensions(metric, fields, groupedFieldIds);
+  if (!blocking.length) return unguarded;
+  const row = blocking
     .map((field) => quoteIdentifier(fieldIdToColumnAlias(field.id)))
     .join(", ");
   const distinctCount = `COUNT(DISTINCT ROW(${row}))`;
-  return `CASE WHEN ${filteredCount(distinctCount)} <= 1 THEN ${aggregate} END`;
+  return {
+    sql: `CASE WHEN ${filteredCount(distinctCount)} <= 1 THEN ${aggregate} END`,
+    guarded: true,
+  };
 }
 
-function measureGuardedDimensions(
+/**
+ * Dropped dimensions of the measure's table that its contract will not
+ * combine over. Only scoped fields count as dimensions here: this field list
+ * also holds the table's value columns, which carry no scope, and guarding
+ * over a value column would null every group.
+ */
+function blockingDimensions(
   metric: InsightMetric,
   fields: Map<string, Field>,
   groupedFieldIds: ReadonlySet<string>,
 ): Field[] {
-  const contract = metric.contract;
-  if (!contract || contract.kind === "ratio") return [];
-  const additiveScopes =
-    contract.kind === "additive" && contract.additiveOver
-      ? new Set(contract.additiveOver)
-      : undefined;
-  if (contract.kind === "additive" && !additiveScopes) return [];
   return Array.from(fields.values()).filter(
     (field) =>
       field.tableId === metric.sourceTable &&
       field.scope !== undefined &&
       !groupedFieldIds.has(field.id) &&
-      (contract.kind === "non-additive" || !additiveScopes!.has(field.scope)),
+      !measureCombinesOver(metric.contract, [field.scope]),
   );
-}
-
-function rankingMeasureRequiresGuard(
-  metric: InsightMetric,
-  metrics: InsightMetric[],
-  fields: Map<string, Field>,
-  groupedFieldIds: ReadonlySet<string>,
-  visiting = new Set<string>(),
-): boolean {
-  if (visiting.has(metric.id)) return false;
-  // A non-additive measure is guarded by source-row count even when legacy
-  // metadata predates field scopes, so its ranking safety cannot be inferred
-  // from scoped dimensions alone.
-  if (metric.contract?.kind === "non-additive") return true;
-  if (measureGuardedDimensions(metric, fields, groupedFieldIds).length)
-    return true;
-  const path = new Set(visiting).add(metric.id);
-  let guarded = false;
-  const visit = (expression: MeasureExpression): void => {
-    if (guarded) return;
-    if (expression.kind === "measure") {
-      const referenced = metrics.find(
-        (candidate) => candidate.id === expression.measureId,
-      );
-      if (!referenced) return;
-      guarded = rankingMeasureRequiresGuard(
-        referenced,
-        metrics,
-        fields,
-        groupedFieldIds,
-        path,
-      );
-      return;
-    }
-    if (expression.kind === "binary") {
-      visit(expression.left);
-      visit(expression.right);
-    }
-  };
-  if (metric.expression && isMeasureExpression(metric.expression))
-    visit(metric.expression);
-  return guarded;
 }
 
 function compileMeasureExpression(
@@ -1477,20 +1421,20 @@ function compileMeasureExpression(
   groupedFieldIds: ReadonlySet<string>,
   visiting: Set<string>,
   depth: number,
-): string {
+): CompiledMeasure {
   if (depth > 64 || visiting.size > 64)
     throw new Error("Measure expression is too deep");
   switch (expression.kind) {
     case "constant":
       if (!Number.isFinite(expression.value))
         throw new Error("Measure constants must be finite");
-      return String(expression.value);
+      return { sql: String(expression.value), guarded: false };
     case "measure": {
       const metric = measures.find(
         (candidate) => candidate.id === expression.measureId,
       );
       if (!metric) throw new Error("Unknown measure reference");
-      return compileMeasure(
+      return compileGuardedMeasure(
         metric,
         measures,
         fields,
@@ -1515,14 +1459,15 @@ function compileMeasureExpression(
         visiting,
         depth + 1,
       );
+      const guarded = left.guarded || right.guarded;
       // Undefined ratios remain NULL in every presentation, including grand totals.
       if (expression.operator === "divide")
-        return `(${left} / NULLIF(${right}, 0))`;
+        return { sql: `(${left.sql} / NULLIF(${right.sql}, 0))`, guarded };
       const operator = { add: "+", subtract: "-", multiply: "*" }[
         expression.operator
       ];
       if (!operator) throw new Error("Invalid measure operator");
-      return `(${left} ${operator} ${right})`;
+      return { sql: `(${left.sql} ${operator} ${right.sql})`, guarded };
     }
     default:
       throw new Error("Invalid measure expression");
@@ -2765,23 +2710,18 @@ function buildTopNSource(
   const rankingGroups = new Set(
     insight.reporting?.dateGrains?.[field.id] ? [] : [field.id],
   );
-  const guardedRankingMeasure = rankingMeasureRequiresGuard(
+  const measure = compileGuardedMeasure(
     metric,
     insight.metrics,
     fields,
     rankingGroups,
   );
-  if (guardedRankingMeasure)
-    throw new Error("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE");
+  // A guarded measure is NULL in any ranking group coarser than its contract
+  // allows, so ordering by it would not rank by the measure.
+  if (measure.guarded) throw new Error("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE");
   const dimension = groupByParts[0]!;
-  const measure = compileMeasure(
-    metric,
-    insight.metrics,
-    fields,
-    rankingGroups,
-  );
   const { whereClause } = buildFilterClauses(insight, fields, true, "alias");
-  const ranking = `SELECT ${dimension} AS ${alias} FROM ${fromClause} ${whereClause} GROUP BY ${dimension} ORDER BY ${measure} ${top.direction.toUpperCase()}, ${dimension} ASC NULLS LAST LIMIT ${top.count}`;
+  const ranking = `SELECT ${dimension} AS ${alias} FROM ${fromClause} ${whereClause} GROUP BY ${dimension} ORDER BY ${measure.sql} ${top.direction.toUpperCase()}, ${dimension} ASC NULLS LAST LIMIT ${top.count}`;
   const outer = dimension.replaceAll(alias, `"__rank_source".${alias}`);
   return `(SELECT "__rank_source".* FROM (SELECT * FROM ${fromClause}) AS "__rank_source" WHERE EXISTS (SELECT 1 FROM (${ranking}) AS "__ranked" WHERE ${outer} IS NOT DISTINCT FROM "__ranked".${alias})) AS "__rank_result"`;
 }
