@@ -35,7 +35,6 @@ import type {
 import { parseEncoding } from "@dashframe/types";
 import { VirtualTable, type VirtualTableColumnConfig } from "@dashframe/ui";
 import { Chart, useVisualization } from "@dashframe/visualization";
-import { Link } from "@tanstack/react-router";
 
 import { ErrorState, Spinner, Surface, Toggle } from "@wystack/ui-react";
 import { ChartIcon, LayersIcon, TableIcon } from "@wystack/ui-react/icons";
@@ -324,7 +323,7 @@ function DisplayHeader({
   bothTooltip: string;
 }) {
   if (reportId !== undefined)
-    return <TileHeader name={name} insight={insight} reportId={reportId} />;
+    return <TileHeader name={name} insight={insight} />;
   return (
     <div className="flex flex-wrap items-center justify-between gap-4">
       <div>
@@ -928,26 +927,16 @@ function VisualizationDisplayContent({
 function TileHeader({
   name,
   insight,
-  reportId,
 }: {
   name: string;
   insight: Insight | null | undefined;
-  reportId: string;
 }) {
   return (
     <div className="min-w-0">
       <p className="truncate text-sm font-semibold text-neutral-fg">{name}</p>
       {insight && (
         <p className="truncate text-xs text-neutral-fg-subtle">
-          from{" "}
-          <Link
-            to="/insights/$insightId"
-            params={{ insightId: insight.id }}
-            search={{ reportId, visualize: false }}
-            className="text-neutral-fg-subtle underline-offset-2 transition-colors duration-150 hover:text-neutral-fg hover:underline motion-reduce:transition-none"
-          >
-            {insight.name}
-          </Link>
+          from {insight.name}
         </p>
       )}
     </div>

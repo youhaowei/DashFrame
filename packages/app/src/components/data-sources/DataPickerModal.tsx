@@ -33,17 +33,6 @@ interface DataPickerModalProps extends Omit<
  * Provides a dialog container with configurable title for the data picker.
  * Each flow passes its own title; find the consumers by its call sites.
  *
- * @example Create Visualization
- * ```tsx
- * <DataPickerModal
- *   isOpen={showModal}
- *   onClose={() => setShowModal(false)}
- *   title="Create Visualization"
- *   onInsightSelect={handleInsightSelect}
- *   onTableSelect={handleTableSelect}
- * />
- * ```
- *
  * @example Join Flow
  * ```tsx
  * <DataPickerModal

@@ -270,7 +270,7 @@ export function getLegacyCategory(analysis: ColumnAnalysis): ColumnCategory {
 
 /**
  * Cardinality thresholds for column categorization and validation.
- * Used by suggest-charts, axis-warnings, and encoding-criteria.
+ * Used by axis-warnings.
  */
 export const CARDINALITY_THRESHOLDS = {
   /** Max categories for readable color legend */

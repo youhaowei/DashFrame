@@ -12,7 +12,7 @@ describe("desktop renderer trust", () => {
 
   it("accepts routes on the configured development origin", () => {
     expect(
-      isTrustedRendererUrl(`${developmentUrl}/insights/example`, {
+      isTrustedRendererUrl(`${developmentUrl}/data-sources/example`, {
         dev: true,
         devUrl: developmentUrl,
         productionFile,
@@ -43,7 +43,7 @@ describe("desktop renderer trust", () => {
     };
     expect(
       isTrustedRendererUrl(
-        "file:///Applications/DashFrame/renderer/index.html#/insights/example",
+        "file:///Applications/DashFrame/renderer/index.html#/data-sources/example",
         options,
       ),
     ).toBe(true);

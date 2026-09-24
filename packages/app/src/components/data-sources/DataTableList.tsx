@@ -27,19 +27,16 @@ export interface DataTableListProps {
 /**
  * Displays a list of data tables as clickable cards.
  *
- * Used in both the home page and CreateVisualizationContent modal
- * to show existing tables that can be used to create insights.
+ * Used by the data picker to show the tables a chart can start from.
  *
  * @example
  * ```tsx
  * const { data: allDataTables = [] } = useQuery(api.listDataTables, {
  *   args: { dataSourceId },
  * });
- * const { createInsightFromTable } = useCreateInsight();
- *
  * <DataTableList
  *   tables={allDataTables}
- *   onTableClick={createInsightFromTable}
+ *   onTableClick={(tableId, tableName) => console.log(tableId, tableName)}
  * />
  * ```
  */

@@ -102,7 +102,7 @@ function fixture(options?: {
 }) {
   const controller = createWebMCPHighlightController(document);
   const defaults: WebMCPToolData = {
-    route: options?.route ?? "/insights/insight-1",
+    route: options?.route ?? "/dashboards/dashboard-1",
     connectors: [],
     dataSources: [],
     dataTables: [TABLE],
@@ -804,7 +804,7 @@ describe("DashFrame WebMCP registry", () => {
   it("returns the insight edits that have not finished saving", async () => {
     useWebMCPPageStore.getState().setInsight({
       insightId: "insight-1",
-      pendingName: "Pending revenue",
+      activeView: { kind: "visualization", visualizationId: "visualization-1" },
       pendingFilters: [
         { id: "filter-1", field: "status", operator: "eq", value: "open" },
       ],
@@ -812,8 +812,11 @@ describe("DashFrame WebMCP registry", () => {
     });
     await expect(tool("whats_on_screen").execute({})).resolves.toMatchObject({
       openInsight: {
+        activeView: {
+          kind: "visualization",
+          visualizationId: "visualization-1",
+        },
         unsaved: {
-          pendingName: "Pending revenue",
           filters: [{ field: "status", value: "open" }],
           sorts: [{ field: "created_at", direction: "desc" }],
         },
@@ -823,12 +826,14 @@ describe("DashFrame WebMCP registry", () => {
   });
 
   it("reports page metadata loading instead of claiming no artifact is open", async () => {
+    useWebMCPPageStore.getState().setInsight({ insightId: "insight-1" });
     await expect(
       tool("whats_on_screen", {
-        route: "/insights/insight-1",
+        route: "/dashboards/dashboard-1",
         data: { insights: undefined },
       }).execute({}),
     ).rejects.toThrow("Insights are still loading");
+    useWebMCPPageStore.getState().setInsight(null);
     await expect(
       tool("whats_on_screen", {
         route: "/dashboards/dashboard-1",

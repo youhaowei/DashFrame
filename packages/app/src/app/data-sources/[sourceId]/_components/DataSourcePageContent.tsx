@@ -1,5 +1,9 @@
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import { Ga4PropertyPicker } from "@/components/data-sources/Ga4PropertyPicker";
+import {
+  ReportPickerDialog,
+  type ReportTarget,
+} from "@/components/dashboards/ReportPickerDialog";
 import { RefreshTableButton } from "@/components/data-sources/RefreshTableButton";
 import { AppLayout } from "@/components/layouts/AppLayout";
 import { useAppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
@@ -10,7 +14,7 @@ import {
   useWorkbenchPanes,
 } from "@/components/workbench/Workbench";
 import { queryStatus } from "@/data/query-status";
-import { useCreateInsight } from "@/hooks/useCreateInsight";
+import { useOpenChartInReport } from "@/hooks/useOpenChartInReport";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
   getConnectorById,
@@ -158,7 +162,7 @@ export default function DataSourcePageContent({
   onSelectTable,
 }: DataSourcePageContentProps) {
   const navigate = useNavigate();
-  const { createInsightFromTable } = useCreateInsight();
+  const { startChart } = useOpenChartInReport();
 
   // Subscribe so a re-render fires once the connector registry hydrates from
   // the server catalog (getConnectorById reads a module-scope map, which is
@@ -194,6 +198,7 @@ export default function DataSourcePageContent({
   // Holds the first-property picker on screen while its import runs.
   const [isImportingFirstTable, setIsImportingFirstTable] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isReportPickerOpen, setIsReportPickerOpen] = useState(false);
   const [isStartingReport, setIsStartingReport] = useState(false);
   const [view, setView] = useState<TablePreviewView>("grid");
   // Selections belong to the table they were made on; switching tabs starts
@@ -276,14 +281,13 @@ export default function DataSourcePageContent({
     setRightOpen(true);
   };
 
-  // A report has no table tile yet, so a new report starts with this table's
-  // question open in that report's context; "Add to report" places the view.
-  // A question that cannot be opened takes its new, empty report with it.
-  const handleStartReport = async () => {
+  // A chart lives on a report: ask which one, then open a new chart tab
+  // there on this table.
+  const handleStartReport = async (target: ReportTarget) => {
     if (!selectedTable || isStartingReport) return;
     setIsStartingReport(true);
     try {
-      await startReport(commitBatch, createInsightFromTable, selectedTable);
+      if (await startChart(target, selectedTable)) setIsReportPickerOpen(false);
     } finally {
       setIsStartingReport(false);
     }
@@ -419,7 +423,7 @@ export default function DataSourcePageContent({
               importAction={importButton("outline")}
               canRefresh={isRemoteSource}
               isStartingReport={isStartingReport}
-              onStartReport={() => void handleStartReport()}
+              onStartReport={() => setIsReportPickerOpen(true)}
               onDelete={handleDeleteTable}
             />
           )}
@@ -452,47 +456,21 @@ export default function DataSourcePageContent({
         onImported={selectTable}
         onOpenDataSources={openDataSources}
       />
+
+      {selectedTable && (
+        <ReportPickerDialog
+          isOpen={isReportPickerOpen}
+          onClose={() => setIsReportPickerOpen(false)}
+          title={`Chart ${selectedTable.name}`}
+          busy={isStartingReport}
+          onPick={(target) => void handleStartReport(target)}
+        />
+      )}
     </AppLayout>
   );
 }
 
 type TablesStatus = "loading" | "error" | "ready";
-
-/**
- * Creates an "Untitled report" and opens the table's question in its context,
- * where "Add to report" places the view. Reports have no table tile yet, so
- * this is the closest start from a table. Resolves once the question opens.
- */
-async function startReport(
-  commitBatch: ReturnType<typeof useMutation<typeof api.app.commitBatch>>,
-  createInsightFromTable: ReturnType<
-    typeof useCreateInsight
-  >["createInsightFromTable"],
-  table: DataTable,
-) {
-  const reportId = crypto.randomUUID() as UUID;
-  try {
-    await commitBatch({
-      commands: [
-        cmd("CreateDashboard", { id: reportId, name: "Untitled report" }),
-      ],
-    });
-  } catch {
-    toast.error("Couldn't start a report");
-    return;
-  }
-  const insightId = await createInsightFromTable(table.id, table.name, {
-    visualize: true,
-    reportId,
-  });
-  if (insightId !== null) return;
-  // The question failed (already reported); leave no empty report behind.
-  try {
-    await commitBatch({ commands: [cmd("DeleteNode", { id: reportId })] });
-  } catch {
-    // The report stays listed and can be deleted from Reports.
-  }
-}
 
 /** Shows the source's tables as top-bar tabs while one is open. */
 function useTableTabs(
@@ -779,7 +757,6 @@ function SourceImportDialog({
         isOpen={open}
         onClose={onClose}
         title="Import a file"
-        showInsights={false}
         showSources={false}
         // Files always land in Local Files, the one file-backed source, so
         // only file connectors keep the import in this source.

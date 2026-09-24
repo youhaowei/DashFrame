@@ -43,6 +43,7 @@ import { ChangeInspector } from "./ChangeInspector";
 import { useClosedDraftTabs } from "./closed-draft-tabs";
 import { DraftChangeList } from "./DraftChangeList";
 import { DraftConfigPane } from "./DraftConfigPane";
+import { OpenChartButton } from "./OpenChartButton";
 import {
   draftChanges,
   draftLabels,
@@ -382,6 +383,14 @@ export default function DraftsPageContent({ draftId }: DraftsPageContentProps) {
               busy={busy !== null}
               onRemoveStep={(commandIndex) =>
                 runRevision({ type: "removeCommand", commandIndex })
+              }
+              openAction={
+                selectedChange.type === "node" &&
+                selectedChange.node.kind === "visualization" ? (
+                  <OpenChartButton
+                    visualizationId={selectedChange.node.nodeId}
+                  />
+                ) : undefined
               }
             />
           ) : null

@@ -63,7 +63,7 @@ describe("createDevProxy", () => {
   );
 
   it("leaves app routes alone", () => {
-    for (const url of ["/", "/dashboards", "/insights", "/visualizations"]) {
+    for (const url of ["/", "/dashboards", "/drafts", "/data-sources"]) {
       expect(matchProxyKey(url)).toBeUndefined();
     }
   });

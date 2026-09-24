@@ -33,9 +33,6 @@ vi.mock("@/components/dashboards/DashboardControlBar", () => ({
 vi.mock("@/components/dashboards/DashboardControlsManager", () => ({
   DashboardControlsManager: () => null,
 }));
-vi.mock("@/components/visualizations/CreateVisualizationModal", () => ({
-  CreateVisualizationModal: () => null,
-}));
 
 import {
   AppBreadcrumbs,

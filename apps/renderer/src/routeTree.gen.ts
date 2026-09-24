@@ -11,17 +11,13 @@
 import { Route as rootRouteImport } from './../../../packages/app/src/routes/__root'
 import { Route as DataFramesRouteImport } from './../../../packages/app/src/routes/data-frames'
 import { Route as IndexRouteImport } from './../../../packages/app/src/routes/index'
-import { Route as VisualizationsIndexRouteImport } from './../../../packages/app/src/routes/visualizations/index'
-import { Route as InsightsIndexRouteImport } from './../../../packages/app/src/routes/insights/index'
 import { Route as DraftsIndexRouteImport } from './../../../packages/app/src/routes/drafts/index'
 import { Route as DataSourcesIndexRouteImport } from './../../../packages/app/src/routes/data-sources/index'
 import { Route as DashboardsIndexRouteImport } from './../../../packages/app/src/routes/dashboards/index'
-import { Route as VisualizationsVisualizationIdRouteImport } from './../../../packages/app/src/routes/visualizations/$visualizationId'
-import { Route as InsightsInsightIdRouteImport } from './../../../packages/app/src/routes/insights/$insightId'
 import { Route as DataSourcesSourceIdRouteImport } from './../../../packages/app/src/routes/data-sources/$sourceId'
 import { Route as DashboardsDashboardIdRouteImport } from './../../../packages/app/src/routes/dashboards/$dashboardId'
 import { Route as DraftsDraftIdIndexRouteImport } from './../../../packages/app/src/routes/drafts/$draftId.index'
-import { Route as InsightsInsightIdJoinTableIdRouteImport } from './../../../packages/app/src/routes/insights/$insightId_.join.$tableId'
+import { Route as DashboardsDashboardIdJoinInsightIdTableIdRouteImport } from './../../../packages/app/src/routes/dashboards/$dashboardId_.join.$insightId.$tableId'
 
 const DataFramesRoute = DataFramesRouteImport.update({
   id: '/data-frames',
@@ -31,16 +27,6 @@ const DataFramesRoute = DataFramesRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const VisualizationsIndexRoute = VisualizationsIndexRouteImport.update({
-  id: '/visualizations/',
-  path: '/visualizations/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const InsightsIndexRoute = InsightsIndexRouteImport.update({
-  id: '/insights/',
-  path: '/insights/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DraftsIndexRoute = DraftsIndexRouteImport.update({
@@ -58,17 +44,6 @@ const DashboardsIndexRoute = DashboardsIndexRouteImport.update({
   path: '/dashboards/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const VisualizationsVisualizationIdRoute =
-  VisualizationsVisualizationIdRouteImport.update({
-    id: '/visualizations/$visualizationId',
-    path: '/visualizations/$visualizationId',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const InsightsInsightIdRoute = InsightsInsightIdRouteImport.update({
-  id: '/insights/$insightId',
-  path: '/insights/$insightId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const DataSourcesSourceIdRoute = DataSourcesSourceIdRouteImport.update({
   id: '/data-sources/$sourceId',
   path: '/data-sources/$sourceId',
@@ -84,10 +59,10 @@ const DraftsDraftIdIndexRoute = DraftsDraftIdIndexRouteImport.update({
   path: '/drafts/$draftId/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const InsightsInsightIdJoinTableIdRoute =
-  InsightsInsightIdJoinTableIdRouteImport.update({
-    id: '/insights/$insightId_/join/$tableId',
-    path: '/insights/$insightId/join/$tableId',
+const DashboardsDashboardIdJoinInsightIdTableIdRoute =
+  DashboardsDashboardIdJoinInsightIdTableIdRouteImport.update({
+    id: '/dashboards/$dashboardId_/join/$insightId/$tableId',
+    path: '/dashboards/$dashboardId/join/$insightId/$tableId',
     getParentRoute: () => rootRouteImport,
   } as any)
 
@@ -96,30 +71,22 @@ export interface FileRoutesByFullPath {
   '/data-frames': typeof DataFramesRoute
   '/dashboards/$dashboardId': typeof DashboardsDashboardIdRoute
   '/data-sources/$sourceId': typeof DataSourcesSourceIdRoute
-  '/insights/$insightId': typeof InsightsInsightIdRoute
-  '/visualizations/$visualizationId': typeof VisualizationsVisualizationIdRoute
   '/dashboards/': typeof DashboardsIndexRoute
   '/data-sources/': typeof DataSourcesIndexRoute
   '/drafts/': typeof DraftsIndexRoute
-  '/insights/': typeof InsightsIndexRoute
-  '/visualizations/': typeof VisualizationsIndexRoute
   '/drafts/$draftId/': typeof DraftsDraftIdIndexRoute
-  '/insights/$insightId/join/$tableId': typeof InsightsInsightIdJoinTableIdRoute
+  '/dashboards/$dashboardId/join/$insightId/$tableId': typeof DashboardsDashboardIdJoinInsightIdTableIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/data-frames': typeof DataFramesRoute
   '/dashboards/$dashboardId': typeof DashboardsDashboardIdRoute
   '/data-sources/$sourceId': typeof DataSourcesSourceIdRoute
-  '/insights/$insightId': typeof InsightsInsightIdRoute
-  '/visualizations/$visualizationId': typeof VisualizationsVisualizationIdRoute
   '/dashboards': typeof DashboardsIndexRoute
   '/data-sources': typeof DataSourcesIndexRoute
   '/drafts': typeof DraftsIndexRoute
-  '/insights': typeof InsightsIndexRoute
-  '/visualizations': typeof VisualizationsIndexRoute
   '/drafts/$draftId': typeof DraftsDraftIdIndexRoute
-  '/insights/$insightId/join/$tableId': typeof InsightsInsightIdJoinTableIdRoute
+  '/dashboards/$dashboardId/join/$insightId/$tableId': typeof DashboardsDashboardIdJoinInsightIdTableIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -127,15 +94,11 @@ export interface FileRoutesById {
   '/data-frames': typeof DataFramesRoute
   '/dashboards/$dashboardId': typeof DashboardsDashboardIdRoute
   '/data-sources/$sourceId': typeof DataSourcesSourceIdRoute
-  '/insights/$insightId': typeof InsightsInsightIdRoute
-  '/visualizations/$visualizationId': typeof VisualizationsVisualizationIdRoute
   '/dashboards/': typeof DashboardsIndexRoute
   '/data-sources/': typeof DataSourcesIndexRoute
   '/drafts/': typeof DraftsIndexRoute
-  '/insights/': typeof InsightsIndexRoute
-  '/visualizations/': typeof VisualizationsIndexRoute
   '/drafts/$draftId/': typeof DraftsDraftIdIndexRoute
-  '/insights/$insightId_/join/$tableId': typeof InsightsInsightIdJoinTableIdRoute
+  '/dashboards/$dashboardId_/join/$insightId/$tableId': typeof DashboardsDashboardIdJoinInsightIdTableIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -144,45 +107,33 @@ export interface FileRouteTypes {
     | '/data-frames'
     | '/dashboards/$dashboardId'
     | '/data-sources/$sourceId'
-    | '/insights/$insightId'
-    | '/visualizations/$visualizationId'
     | '/dashboards/'
     | '/data-sources/'
     | '/drafts/'
-    | '/insights/'
-    | '/visualizations/'
     | '/drafts/$draftId/'
-    | '/insights/$insightId/join/$tableId'
+    | '/dashboards/$dashboardId/join/$insightId/$tableId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/data-frames'
     | '/dashboards/$dashboardId'
     | '/data-sources/$sourceId'
-    | '/insights/$insightId'
-    | '/visualizations/$visualizationId'
     | '/dashboards'
     | '/data-sources'
     | '/drafts'
-    | '/insights'
-    | '/visualizations'
     | '/drafts/$draftId'
-    | '/insights/$insightId/join/$tableId'
+    | '/dashboards/$dashboardId/join/$insightId/$tableId'
   id:
     | '__root__'
     | '/'
     | '/data-frames'
     | '/dashboards/$dashboardId'
     | '/data-sources/$sourceId'
-    | '/insights/$insightId'
-    | '/visualizations/$visualizationId'
     | '/dashboards/'
     | '/data-sources/'
     | '/drafts/'
-    | '/insights/'
-    | '/visualizations/'
     | '/drafts/$draftId/'
-    | '/insights/$insightId_/join/$tableId'
+    | '/dashboards/$dashboardId_/join/$insightId/$tableId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -190,15 +141,11 @@ export interface RootRouteChildren {
   DataFramesRoute: typeof DataFramesRoute
   DashboardsDashboardIdRoute: typeof DashboardsDashboardIdRoute
   DataSourcesSourceIdRoute: typeof DataSourcesSourceIdRoute
-  InsightsInsightIdRoute: typeof InsightsInsightIdRoute
-  VisualizationsVisualizationIdRoute: typeof VisualizationsVisualizationIdRoute
   DashboardsIndexRoute: typeof DashboardsIndexRoute
   DataSourcesIndexRoute: typeof DataSourcesIndexRoute
   DraftsIndexRoute: typeof DraftsIndexRoute
-  InsightsIndexRoute: typeof InsightsIndexRoute
-  VisualizationsIndexRoute: typeof VisualizationsIndexRoute
   DraftsDraftIdIndexRoute: typeof DraftsDraftIdIndexRoute
-  InsightsInsightIdJoinTableIdRoute: typeof InsightsInsightIdJoinTableIdRoute
+  DashboardsDashboardIdJoinInsightIdTableIdRoute: typeof DashboardsDashboardIdJoinInsightIdTableIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -215,20 +162,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/visualizations/': {
-      id: '/visualizations/'
-      path: '/visualizations'
-      fullPath: '/visualizations/'
-      preLoaderRoute: typeof VisualizationsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/insights/': {
-      id: '/insights/'
-      path: '/insights'
-      fullPath: '/insights/'
-      preLoaderRoute: typeof InsightsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/drafts/': {
@@ -252,20 +185,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/visualizations/$visualizationId': {
-      id: '/visualizations/$visualizationId'
-      path: '/visualizations/$visualizationId'
-      fullPath: '/visualizations/$visualizationId'
-      preLoaderRoute: typeof VisualizationsVisualizationIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/insights/$insightId': {
-      id: '/insights/$insightId'
-      path: '/insights/$insightId'
-      fullPath: '/insights/$insightId'
-      preLoaderRoute: typeof InsightsInsightIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/data-sources/$sourceId': {
       id: '/data-sources/$sourceId'
       path: '/data-sources/$sourceId'
@@ -287,11 +206,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DraftsDraftIdIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/insights/$insightId_/join/$tableId': {
-      id: '/insights/$insightId_/join/$tableId'
-      path: '/insights/$insightId/join/$tableId'
-      fullPath: '/insights/$insightId/join/$tableId'
-      preLoaderRoute: typeof InsightsInsightIdJoinTableIdRouteImport
+    '/dashboards/$dashboardId_/join/$insightId/$tableId': {
+      id: '/dashboards/$dashboardId_/join/$insightId/$tableId'
+      path: '/dashboards/$dashboardId/join/$insightId/$tableId'
+      fullPath: '/dashboards/$dashboardId/join/$insightId/$tableId'
+      preLoaderRoute: typeof DashboardsDashboardIdJoinInsightIdTableIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -302,15 +221,12 @@ const rootRouteChildren: RootRouteChildren = {
   DataFramesRoute: DataFramesRoute,
   DashboardsDashboardIdRoute: DashboardsDashboardIdRoute,
   DataSourcesSourceIdRoute: DataSourcesSourceIdRoute,
-  InsightsInsightIdRoute: InsightsInsightIdRoute,
-  VisualizationsVisualizationIdRoute: VisualizationsVisualizationIdRoute,
   DashboardsIndexRoute: DashboardsIndexRoute,
   DataSourcesIndexRoute: DataSourcesIndexRoute,
   DraftsIndexRoute: DraftsIndexRoute,
-  InsightsIndexRoute: InsightsIndexRoute,
-  VisualizationsIndexRoute: VisualizationsIndexRoute,
   DraftsDraftIdIndexRoute: DraftsDraftIdIndexRoute,
-  InsightsInsightIdJoinTableIdRoute: InsightsInsightIdJoinTableIdRoute,
+  DashboardsDashboardIdJoinInsightIdTableIdRoute:
+    DashboardsDashboardIdJoinInsightIdTableIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

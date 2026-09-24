@@ -212,7 +212,7 @@ describe("Navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
     expect(screen.getByTestId("mobile-drawer")).toBeDefined();
 
-    mockLocation.pathname = "/insights";
+    mockLocation.pathname = "/drafts";
     rerender(<Navigation />);
 
     expect(screen.queryByTestId("mobile-drawer")).toBeNull();

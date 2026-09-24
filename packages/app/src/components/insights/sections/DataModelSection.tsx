@@ -20,12 +20,10 @@ export const DataModelSection = memo(function DataModelSection({
   insight,
   dataTable,
   allDataTables,
-  reportId,
 }: {
   insight: Insight;
   dataTable: DataTable;
   allDataTables: DataTable[];
-  reportId?: string;
 }) {
   const [isJoinFlowOpen, setIsJoinFlowOpen] = useState(false);
   const commitBatch = useMutation(api.app.commitBatch);
@@ -102,7 +100,6 @@ export const DataModelSection = memo(function DataModelSection({
         dataTable={dataTable}
         isOpen={isJoinFlowOpen}
         onOpenChange={setIsJoinFlowOpen}
-        reportId={reportId}
       />
     </>
   );

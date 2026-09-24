@@ -10,35 +10,35 @@
  * cause→effect: the config panel item lists and badge counts change in
  * lock-step with each write — not just "no error thrown".
  *
- * The existing csv→chart specs never exercise these mutations. Those specs
- * create an insight and immediately navigate to a visualization; they never
- * interact with the config panel or call updateInsight with field/metric edits.
- *
- * Setup mirrors the existing csv-to-chart.spec.ts: upload sales_data.csv
- * (Date, Product, Category, Sales, Quantity) → land on the insight page.
- * Creating an insight from a table produces an EMPTY draft (no fields
- * preselected — that keeps the server's draft-reuse dedup working and avoids
- * the all-fields GROUP BY collapsing duplicate source rows), so the Fields
+ * Setup mirrors csv-to-chart.spec.ts: upload sales_data.csv (Date, Product,
+ * Category, Sales, Quantity) → a new report opens on a new chart of that
+ * table. A new chart's insight starts EMPTY (no fields preselected — the
+ * all-fields GROUP BY would collapse duplicate source rows), so the Fields
  * and Metrics sections hold only their dashed "Add" rows and the canvas table
- * renders the raw base table. The tests below add a field first, then exercise the other
- * mutations from that state.
+ * renders the raw base table. The tests below add a field first, then
+ * exercise the other mutations from that state.
  */
-import { expect, test } from "../lib/test-fixtures";
-import { query } from "../lib/native-api";
 import type { Page } from "@playwright/test";
+import {
+  addCountMetric as addCountMetricInPane,
+  addField as addFieldInPane,
+  expectNewChartTab,
+  onlyInsight,
+  openSection,
+} from "../lib/chart-tab";
+import { query } from "../lib/native-api";
+import { expect, test } from "../lib/test-fixtures";
 
-async function savedInsight(page: Page) {
-  const id = new URL(page.url()).pathname.split("/")[2];
-  return query<{
-    source: { sourceId: string };
-    selectedFields: string[];
-    metrics: { name: string }[];
-  }>("getInsight", { id });
+interface SavedInsight {
+  source: { sourceId: string };
+  selectedFields: string[];
+  metrics: { name: string }[];
 }
-async function expectFieldSaved(page: Page, name: string, present: boolean) {
+
+async function expectFieldSaved(name: string, present: boolean) {
   await expect
     .poll(async () => {
-      const insight = await savedInsight(page),
+      const insight = await onlyInsight<SavedInsight>(),
         tables = await query<
           { id: string; fields: { id: string; name: string }[] }[]
         >("listDataTables", {});
@@ -50,27 +50,16 @@ async function expectFieldSaved(page: Page, name: string, present: boolean) {
     })
     .toBe(present);
 }
-async function expectMetricSaved(page: Page, name: string, present: boolean) {
+async function expectMetricSaved(name: string, present: boolean) {
   await expect
     .poll(async () => {
-      const insight = await savedInsight(page);
+      const insight = await onlyInsight<SavedInsight>();
       return insight.metrics.some((metric) => metric.name === name);
     })
     .toBe(present);
 }
 
 test.describe("compound-insight field/metric editing", () => {
-  /** Expand a pane section without collapsing one that is already open. */
-  async function openSection(page: Page, section: "Fields" | "Metrics") {
-    const trigger = page.getByRole("button", {
-      name: new RegExp(`^${section}\\b`),
-    });
-    if ((await trigger.getAttribute("aria-expanded")) !== "true") {
-      await trigger.click();
-    }
-    await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  }
-
   /**
    * Upload CSV and wait for the insight page to finish loading.
    * Creating an insight from a table produces an empty draft, so each test
@@ -80,10 +69,7 @@ test.describe("compound-insight field/metric editing", () => {
     await homePage();
     await uploadFile("sales_data.csv");
 
-    // Upload redirects to the insight page
-    await expect(page).toHaveURL(/\/insights\/[a-zA-Z0-9-]+/, {
-      timeout: 15_000,
-    });
+    await expectNewChartTab(page);
 
     // An empty Fields section shows only its add row, which confirms the
     // panel loaded with the fresh draft's empty selection.
@@ -96,40 +82,34 @@ test.describe("compound-insight field/metric editing", () => {
 
   /** Add a field by name via the Add field popover and confirm persistence. */
   async function addField(page: Page, name: string) {
-    await openSection(page, "Fields");
-    await page.getByRole("button", { name: "Add field", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Add field" });
-    await expect(dialog).toBeVisible({ timeout: 10_000 });
-
-    const fieldOption = dialog.getByRole("option", {
-      name: new RegExp(name, "i"),
-    });
-    await expect(fieldOption).toBeVisible({ timeout: 10_000 });
-    await fieldOption.click();
-    await expect(dialog).not.toBeVisible({ timeout: 5_000 });
-    await expectFieldSaved(page, name, true);
+    await addFieldInPane(page, name);
+    await expectFieldSaved(name, true);
   }
 
   /** Add a Count metric via the Add metric popover and confirm persistence. */
   async function addCountMetric(page: Page) {
-    await openSection(page, "Metrics");
-    await page.getByRole("button", { name: "Add metric", exact: true }).click();
-    const dialog = page.getByRole("dialog", { name: "Add metric" });
-    await expect(dialog).toBeVisible({ timeout: 10_000 });
-
-    // Default aggregation is "Count (rows)", so the name auto-fills to "Count".
-    await expect(
-      dialog.getByRole("textbox", { name: "Name", exact: true }),
-    ).toHaveValue("Count");
-
-    await dialog.getByRole("button", { name: "Add", exact: true }).click();
-    await expect(dialog).not.toBeVisible({ timeout: 5_000 });
-    await expectMetricSaved(page, "Count", true);
+    await addCountMetricInPane(page);
+    await expectMetricSaved("Count", true);
   }
 
-  /** Remove a chip. With no saved chart using it, removal applies at once. */
+  /**
+   * Remove a chip. With no saved chart using it, removal applies at once;
+   * when the report's chart uses it, the dialog first takes it out of the
+   * chart.
+   */
   async function removeItem(page: Page, name: string) {
     await page.getByRole("button", { name: `Remove ${name}` }).click();
+    const dialog = page.getByRole("dialog", { name: /^Delete (field|metric)/ });
+    const asked = await dialog
+      .waitFor({ timeout: 2_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (asked) {
+      await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+      await dialog
+        .getByRole("button", { name: /^Delete (field|metric)$/ })
+        .click();
+    }
     await expect(page.getByRole("dialog")).toHaveCount(0);
   }
 
@@ -154,7 +134,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     // ── removeField ──────────────────────────────────────────────────────
     await removeItem(page, "Product");
-    await expectFieldSaved(page, "Product", false);
+    await expectFieldSaved("Product", false);
 
     // Reload to verify removal was persisted — back to the empty state
     await page.reload();
@@ -233,7 +213,7 @@ test.describe("compound-insight field/metric editing", () => {
 
     await editDialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(editDialog).not.toBeVisible({ timeout: 5_000 });
-    await expectMetricSaved(page, "Row Count", true);
+    await expectMetricSaved("Row Count", true);
 
     await page.reload();
     await openSection(page, "Metrics");
@@ -248,7 +228,7 @@ test.describe("compound-insight field/metric editing", () => {
     // Product was the only field, so Fields returns to its empty state.
     await openSection(page, "Fields");
     await removeItem(page, "Product");
-    await expectFieldSaved(page, "Product", false);
+    await expectFieldSaved("Product", false);
 
     await page.reload();
     await openSection(page, "Fields");
@@ -259,7 +239,7 @@ test.describe("compound-insight field/metric editing", () => {
     // ── 5. removeMetric ─────────────────────────────────────────────────────
     await openSection(page, "Metrics");
     await removeItem(page, "Row Count");
-    await expectMetricSaved(page, "Row Count", false);
+    await expectMetricSaved("Row Count", false);
 
     await page.reload();
     await openSection(page, "Metrics");

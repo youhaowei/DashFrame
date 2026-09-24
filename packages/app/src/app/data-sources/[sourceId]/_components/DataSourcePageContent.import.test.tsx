@@ -56,8 +56,8 @@ vi.mock("@/components/data-sources/renderers", () => ({
   ),
 }));
 
-vi.mock("@/hooks/useCreateInsight", () => ({
-  useCreateInsight: () => ({ createInsightFromTable: vi.fn() }),
+vi.mock("@/hooks/useOpenChartInReport", () => ({
+  useOpenChartInReport: () => ({ startChart: vi.fn() }),
 }));
 
 vi.mock("@/hooks/useDataFrameData", () => ({

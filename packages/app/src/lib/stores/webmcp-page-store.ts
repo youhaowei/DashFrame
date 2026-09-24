@@ -1,3 +1,4 @@
+import type { InsightCanvasView } from "@/lib/insights/canvas-view";
 import type { InsightFilter, InsightSort } from "@dashframe/types";
 import { create } from "zustand";
 
@@ -8,7 +9,8 @@ export interface WebMCPDashboardPageState {
 
 export interface WebMCPInsightPageState {
   insightId: string;
-  pendingName?: string;
+  /** What the insight's canvas shows: its data, or one of its charts. */
+  activeView?: InsightCanvasView;
   pendingFilters?: InsightFilter[];
   pendingSorts?: InsightSort[];
 }

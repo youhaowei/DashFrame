@@ -169,9 +169,8 @@ export const test = base.extend<DashFrameFixtures & DashFrameAutoFixtures>({
    * A chart is "ready" when an SVG has rendered inside the chart container.
    * Chart.tsx keeps data-testid="visualization-chart" on both the loading
    * placeholder and the rendered container, so the SVG child is the signal
-   * that data loaded AND the renderer drew it. The old "N rows • N columns"
-   * metadata gate belonged to the standalone visualization page; the insight
-   * canvas (where charts render now) never shows that text on chart views.
+   * that data loaded AND the renderer drew it. It matches a chart in a
+   * report's chart tab and a chart tile on the report alike.
    */
   waitForChart: async ({ page }, use) => {
     await use(async () => {

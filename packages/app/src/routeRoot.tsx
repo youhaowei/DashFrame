@@ -12,7 +12,6 @@ import { useRenderPerf } from "@/lib/perf";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Navigation } from "@/components/navigation";
 import { ConnectorSetup } from "@/components/providers/ConnectorSetup";
-import { StoreHydration } from "@/components/providers/StoreHydration";
 import { VisualizationSetup } from "@/components/providers/VisualizationSetup";
 import { ContextPanelProvider } from "@/components/shell/context-panel-outlet";
 import { ShellRails } from "@/components/shell/ShellRails";
@@ -117,17 +116,15 @@ export function RouteRoot({
           <TooltipProvider>
             <ConnectorSetup />
             <VisualizationSetup>
-              <StoreHydration>
-                <ContextPanelProvider>
-                  <PlatformProvider>
-                    <TopBarTabsProvider>
-                      <WebMCPProvider>
-                        <Shell />
-                      </WebMCPProvider>
-                    </TopBarTabsProvider>
-                  </PlatformProvider>
-                </ContextPanelProvider>
-              </StoreHydration>
+              <ContextPanelProvider>
+                <PlatformProvider>
+                  <TopBarTabsProvider>
+                    <WebMCPProvider>
+                      <Shell />
+                    </WebMCPProvider>
+                  </TopBarTabsProvider>
+                </PlatformProvider>
+              </ContextPanelProvider>
               <Toaster
                 toastOptions={{
                   style: {

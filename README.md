@@ -170,7 +170,7 @@ DashFrame supports importing data directly from Notion databases:
 - ✅ **Electron desktop app** with native DuckDB and an in-process server
 - ✅ **Web app** backed by the same local Convex and Hono host (shared `packages/app` UI)
 - ✅ **Query engine** over DuckDB — native in the host process both surfaces query through
-- ✅ Route-based shell — `/data-sources`, `/insights`, `/visualizations`, `/dashboards`
+- ✅ Route-based shell — `/data-sources`, `/dashboards`, `/drafts`
 - ✅ Data → Vega-Lite charts
 - ✅ Connectors for CSV/JSON, Notion, Postgres, and REST sources
 

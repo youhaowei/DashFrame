@@ -1,13 +1,13 @@
 import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
 import { fieldIdToColumnAlias } from "@dashframe/engine";
 import { describe, expect, it } from "vite-plus/test";
-import { validateJoinSearch } from "@/routes/insights/$insightId_.join.$tableId";
+import { validateJoinSearch } from "@/routes/dashboards/$dashboardId_.join.$insightId.$tableId";
 import { joinTableConfigurationLink } from "@/components/visualizations/join-navigation";
 
 import {
   buildJoinPreviewInsight,
   isJoinPreviewComputing,
-  joinSourceQuestionLink,
+  joinReturnLink,
   resolveJoinImmediateSourceInsight,
   resolveJoinLeftFields,
 } from "./JoinConfigureContent";
@@ -52,31 +52,33 @@ const joinTable = {
 } as DataTable;
 
 describe("join report context", () => {
-  it("round trips report B through table join configuration", () => {
-    const reportId = "report-b";
+  it("round trips the report's chart tab through table join configuration", () => {
     const joinLink = joinTableConfigurationLink(
+      "report-b",
       insight.id,
       joinTable.id,
-      reportId,
+      "chart-c",
     );
     const search = validateJoinSearch(joinLink.search);
 
     expect(joinLink).toEqual({
-      to: `/insights/${insight.id}/join/${joinTable.id}`,
-      search: { reportId },
+      to: `/dashboards/report-b/join/${insight.id}/${joinTable.id}`,
+      search: { chart: "chart-c" },
     });
-    expect(joinSourceQuestionLink(insight.id, search.reportId)).toEqual({
-      to: `/insights/${insight.id}`,
-      search: { reportId },
+    expect(joinReturnLink("report-b", search.chart)).toEqual({
+      to: "/dashboards/report-b",
+      search: { chart: "chart-c" },
     });
   });
 
-  it("rejects malformed report ids", () => {
-    expect(validateJoinSearch({ reportId: "  " })).toEqual({
-      reportId: undefined,
+  it("returns to the report itself without a chart", () => {
+    expect(validateJoinSearch({ chart: "  " })).toEqual({ chart: undefined });
+    expect(validateJoinSearch({ chart: ["chart-c"] })).toEqual({
+      chart: undefined,
     });
-    expect(validateJoinSearch({ reportId: ["report-b"] })).toEqual({
-      reportId: undefined,
+    expect(joinReturnLink("report-b")).toEqual({
+      to: "/dashboards/report-b",
+      search: {},
     });
   });
 });

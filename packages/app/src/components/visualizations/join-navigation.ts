@@ -1,10 +1,12 @@
+/** The join configuration page for a chart open in a report. */
 export function joinTableConfigurationLink(
+  reportId: string,
   insightId: string,
   tableId: string,
-  reportId?: string,
+  chartId?: string,
 ) {
   return {
-    to: `/insights/${insightId}/join/${tableId}`,
-    search: reportId ? { reportId } : {},
+    to: `/dashboards/${reportId}/join/${insightId}/${tableId}`,
+    search: chartId ? { chart: chartId } : {},
   } as const;
 }

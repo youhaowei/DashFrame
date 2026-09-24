@@ -1,6 +1,5 @@
 import { isColumnValidForChannel } from "@/lib/visualizations/encoding-enforcer";
 import { queryDataFrame } from "@/lib/data-access/data-frames";
-import { useInsightCanvasStore } from "@/lib/stores/insight-canvas-store";
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import { applyFloor } from "@dashframe/assistant/read/floor";
 import {
@@ -410,11 +409,12 @@ function assertChartOutput(
 
 function pageContext(data: WebMCPToolData) {
   const live = useWebMCPPageStore.getState();
-  const insightMatch = data.route.match(/^\/insights\/([^/]+)/);
   const dashboardMatch = data.route.match(/^\/dashboards\/([^/]+)/);
-  const insight = insightMatch
+  // The insight open in a chart tab: its workbench reports itself here.
+  const openInsight = live.insight;
+  const insight = openInsight
     ? requireLoaded(data.insights, "Insights").find(
-        (candidate) => candidate.id === insightMatch[1],
+        (candidate) => candidate.id === openInsight.insightId,
       )
     : undefined;
   const dashboard = dashboardMatch
@@ -432,24 +432,10 @@ function pageContext(data: WebMCPToolData) {
           selectedFieldIds: insight.selectedFields,
           filters: insight.filters ?? [],
           sorts: insight.sorts ?? [],
-          activeView: useInsightCanvasStore.getState().activeViewByInsight[
-            insight.id
-          ] ?? {
-            kind: "table",
-          },
+          activeView: openInsight?.activeView ?? { kind: "table" },
           unsaved: {
-            pendingName:
-              live.insight?.insightId === insight.id
-                ? live.insight.pendingName
-                : undefined,
-            filters:
-              live.insight?.insightId === insight.id
-                ? (live.insight.pendingFilters ?? [])
-                : [],
-            sorts:
-              live.insight?.insightId === insight.id
-                ? (live.insight.pendingSorts ?? [])
-                : [],
+            filters: openInsight?.pendingFilters ?? [],
+            sorts: openInsight?.pendingSorts ?? [],
           },
         }
       : null,

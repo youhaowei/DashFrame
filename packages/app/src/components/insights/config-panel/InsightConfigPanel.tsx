@@ -91,7 +91,6 @@ interface InsightConfigPanelProps {
   insight: Insight;
   dataTable: DataTable;
   allDataTables: DataTable[];
-  reportId?: string;
   /** Labels for result columns, keyed by column alias. */
   columnDisplayNames?: Readonly<Record<string, string>>;
   /** Coordinates dependency-sensitive removals with chart writes. */
@@ -200,7 +199,6 @@ export function InsightConfigPanel({
   insight,
   dataTable,
   allDataTables,
-  reportId,
   columnDisplayNames,
   getVisualizationWriteStatus = () => ({ pending: false, generation: 0 }),
   note,
@@ -1257,7 +1255,6 @@ export function InsightConfigPanel({
               insight={insight}
               dataTable={dataTable}
               allDataTables={allDataTables}
-              reportId={reportId}
             />,
           )}
           {renderSection(

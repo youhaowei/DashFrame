@@ -93,32 +93,6 @@ describe("VisualizationConfigPanel", () => {
     vi.stubGlobal("PointerEvent", MouseEvent);
   });
 
-  it("shows display labels instead of SQL expressions for an unsaved chart", () => {
-    render(
-      <VisualizationConfigPanel
-        activeChartType="barY"
-        availableChartTypes={new Set(["barY"])}
-        activeSuggestionEncoding={{
-          x: fieldAlias,
-          y: `sum(${fieldAlias})`,
-        }}
-        compiledInsight={compiledInsight}
-        dataTable={table}
-        availableFields={[field]}
-        availableColumns={[{ name: fieldAlias, type: "number" }]}
-        columnDisplayNames={{ [fieldAlias]: "Revenue" }}
-        columnAnalysis={analysis}
-        onSelectChartType={vi.fn()}
-        updateVisualization={vi.fn()}
-      />,
-    );
-
-    expect(screen.getAllByText("Revenue").length).toBeGreaterThan(0);
-    expect(screen.getByText("Sum of Revenue")).toBeTruthy();
-    expect(screen.queryByText(fieldAlias)).toBeNull();
-    expect(screen.queryByText(`sum(${fieldAlias})`)).toBeNull();
-  });
-
   it("writes a saved visualization encoding through the shared hook", async () => {
     const updateVisualization = vi.fn().mockResolvedValue(undefined);
     const dotVisualization = {
@@ -136,7 +110,6 @@ describe("VisualizationConfigPanel", () => {
         availableColumns={[{ name: fieldAlias, type: "number" }]}
         columnDisplayNames={{ [fieldAlias]: "Revenue" }}
         columnAnalysis={analysis}
-        onSelectChartType={vi.fn()}
         updateVisualization={updateVisualization}
       />,
     );
@@ -169,7 +142,6 @@ describe("VisualizationConfigPanel", () => {
         availableColumns={[{ name: fieldAlias, type: "number" }]}
         columnDisplayNames={{ [fieldAlias]: "Revenue" }}
         columnAnalysis={analysis}
-        onSelectChartType={vi.fn()}
         updateVisualization={vi.fn()}
       />,
     );
@@ -240,7 +212,6 @@ describe("VisualizationConfigPanel", () => {
             sampleValues: ["APAC", "EMEA"],
           },
         ]}
-        onSelectChartType={vi.fn()}
         updateVisualization={updateVisualization}
       />,
     );
@@ -284,7 +255,6 @@ describe("VisualizationConfigPanel", () => {
         availableColumns={[{ name: fieldAlias, type: "number" }]}
         columnDisplayNames={{ [fieldAlias]: "Revenue" }}
         columnAnalysis={[]}
-        onSelectChartType={vi.fn()}
         updateVisualization={updateVisualization}
       />,
     );
@@ -311,7 +281,6 @@ describe("VisualizationConfigPanel", () => {
         columnAnalysis={[]}
         encodingsError
         onRetryEncodings={retry}
-        onSelectChartType={vi.fn()}
         updateVisualization={vi.fn()}
       />,
     );
@@ -323,7 +292,6 @@ describe("VisualizationConfigPanel", () => {
   });
 
   it("updates a saved visualization type without leaving the saved view", async () => {
-    const onSelectChartType = vi.fn();
     const updateVisualization = vi.fn().mockResolvedValue(undefined);
     render(
       <VisualizationConfigPanel
@@ -336,7 +304,6 @@ describe("VisualizationConfigPanel", () => {
         availableColumns={[{ name: fieldAlias, type: "number" }]}
         columnDisplayNames={{ [fieldAlias]: "Revenue" }}
         columnAnalysis={analysis}
-        onSelectChartType={onSelectChartType}
         updateVisualization={updateVisualization}
       />,
     );
@@ -350,31 +317,5 @@ describe("VisualizationConfigPanel", () => {
         updates: { visualizationType: "line" },
       }),
     );
-    // Editing the saved chart never switches the canvas to an unsaved one.
-    expect(onSelectChartType).not.toHaveBeenCalled();
-  });
-
-  it("switches the preview type for an unsaved chart", () => {
-    const onSelectChartType = vi.fn();
-    const updateVisualization = vi.fn();
-    render(
-      <VisualizationConfigPanel
-        activeChartType="barY"
-        availableChartTypes={new Set(["barY", "line"])}
-        activeSuggestionEncoding={{ x: fieldAlias }}
-        compiledInsight={compiledInsight}
-        dataTable={table}
-        availableFields={[field]}
-        availableColumns={[{ name: fieldAlias, type: "number" }]}
-        columnDisplayNames={{ [fieldAlias]: "Revenue" }}
-        columnAnalysis={analysis}
-        onSelectChartType={onSelectChartType}
-        updateVisualization={updateVisualization}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Line" }));
-    expect(onSelectChartType).toHaveBeenCalledWith("line");
-    expect(updateVisualization).not.toHaveBeenCalled();
   });
 });

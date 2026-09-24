@@ -159,31 +159,10 @@ Host files:
 - DuckDB tables in the host process, registered from those files
 - Chart queries go to the server Mosaic connector; vgplot does not run DuckDB in the browser
 
-## Action-Based Flow Architecture
+## Chart Editing Flow
 
-The visualization creation flow uses an action-based model rather than rigid step sequences.
+A chart is edited in a tab inside its report (`/dashboards/$dashboardId?chart=<tab>`). The active tab lives in the URL; the set of open tabs lives in session storage.
 
-**Action Hub Pattern**: The create-visualization page (`/insights/[id]/create-visualization`) serves as a central hub:
-
-- Create visualization from recommendations (click suggestion cards)
-- Create custom visualization (opens builder)
-- Join with another dataset (opens join flow modal)
-
-**Auto-Navigation**: When a data source is selected:
-
-1. Creates a draft insight
-2. Navigates to the create-visualization page
-3. Shows data preview and available actions
-
-**Modular Actions**: Each action is implemented as a separate component:
-
-- `JoinFlowModal` - Standalone modal for join operations
-- `NotionInsightConfig` - Notion-specific insight configuration
-- `CreateVisualizationContent` - Source selection and routing
-
-**Benefits:**
-
-- **Extensibility**: Add new actions by creating components and adding buttons to the action hub
-- **Separation of Concerns**: Each action is isolated and independently testable
-- **No Step Management**: No need to track step state or handle step transitions
-- **Flexible Navigation**: Actions can navigate to different pages or open modals as needed
+- Every way into a chart that does not start from a report asks which report first (`ReportPickerDialog`): a data source's "Start a report", a draft's "Open chart", and onboarding (always a new report).
+- A new chart opens as a tab with its table picked. It stays a draft until it has a field and a metric, then lands on the report as a tile and its tab takes the chart's name.
+- Joins are configured at `/dashboards/$dashboardId/join/$insightId/$tableId?chart=`, and return to the chart's tab.
