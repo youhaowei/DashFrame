@@ -18,11 +18,14 @@ import {
 import { CommandPalette } from "./command-palette";
 import { useCommandPalette } from "./command-palette-store";
 
-const { mockNavigate, mockCommitBatch, mockPlatform } = vi.hoisted(() => ({
-  mockNavigate: vi.fn(async () => {}),
-  mockCommitBatch: vi.fn(async () => ({})),
-  mockPlatform: { isMacOS: true },
-}));
+const { mockNavigate, mockCommitBatch, mockPlatform, mockRouter } = vi.hoisted(
+  () => ({
+    mockNavigate: vi.fn(async () => {}),
+    mockCommitBatch: vi.fn(async () => ({})),
+    mockPlatform: { isMacOS: true },
+    mockRouter: { state: { location: { pathname: "/dashboards" } } },
+  }),
+);
 
 const REPORT = {
   id: "weekly",
@@ -57,6 +60,7 @@ vi.mock("convex/react", async (importOriginal) => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
+  useRouter: () => mockRouter,
 }));
 vi.mock("@/lib/platform", () => ({
   usePlatform: () => mockPlatform,
@@ -81,6 +85,7 @@ beforeEach(() => {
   mockCommitBatch.mockClear();
   useCommandPalette.setState({ open: false });
   mockPlatform.isMacOS = true;
+  mockRouter.state.location.pathname = "/dashboards";
 });
 
 function pressShortcut(target: Window | Element = window) {
@@ -106,7 +111,7 @@ describe("CommandPalette", () => {
     before.focus();
 
     pressShortcut();
-    const input = await screen.findByRole("combobox");
+    const input = await screen.findByRole("combobox", { name: "Search" });
     await waitFor(() => expect(document.activeElement).toBe(input));
     // Opens on actions, found without typing.
     expect(screen.getByRole("option", { name: "New report" })).toBeTruthy();
@@ -117,8 +122,15 @@ describe("CommandPalette", () => {
     await waitFor(() => expect(document.activeElement).toBe(before));
   });
 
-  it("opens a chart's report on that chart's tab from the keyboard", async () => {
-    render(<CommandPalette />);
+  it("opens a chart's report on that chart's tab from the keyboard, then gives focus back", async () => {
+    render(
+      <>
+        <button type="button">Before</button>
+        <CommandPalette />
+      </>,
+    );
+    const before = screen.getByRole("button", { name: "Before" });
+    before.focus();
     pressShortcut();
     const input = await screen.findByRole("combobox");
 
@@ -140,6 +152,50 @@ describe("CommandPalette", () => {
     );
     expect(useCommandPalette.getState().open).toBe(false);
     expect(mockCommitBatch).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("combobox")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(before));
+  });
+
+  it.each([
+    ["/dashboards", false],
+    ["/data-sources", true],
+    ["/data-sources/", true],
+  ])(
+    "opens Add data source from %s, replacing the entry: %s",
+    async (pathname, replace) => {
+      mockRouter.state.location.pathname = pathname;
+      render(<CommandPalette />);
+      pressShortcut();
+      const input = await screen.findByRole("combobox");
+      fireEvent.change(input, { target: { value: ">add data" } });
+      await waitFor(() =>
+        expect(
+          screen
+            .getByRole("option", { name: "Add data source" })
+            .getAttribute("data-selected"),
+        ).toBe("true"),
+      );
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() =>
+        expect(mockNavigate).toHaveBeenCalledWith({
+          to: "/data-sources",
+          search: { addSource: true },
+          replace,
+        }),
+      );
+    },
+  );
+
+  it("does not open over another open dialog", async () => {
+    render(
+      <>
+        <div role="dialog" aria-label="Add field" />
+        <CommandPalette />
+      </>,
+    );
+    pressShortcut();
+    expect(useCommandPalette.getState().open).toBe(false);
+    expect(screen.queryByRole("combobox")).toBeNull();
   });
 
   it("moves with the arrow keys and runs an action after `>`", async () => {

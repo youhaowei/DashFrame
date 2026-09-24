@@ -14,15 +14,6 @@ export const useCommandPalette = create<CommandPaletteState>((set) => ({
   toggle: () => set((state) => ({ open: !state.open })),
 }));
 
-/**
- * What the palette searches first. Unused today: every open searches the whole
- * app. A workbench will supply one ("In this chart") and the palette shows it
- * as a removable chip in the input row.
- */
-export interface CommandPaletteScope {
-  label: string;
-}
-
 interface ShortcutKeys {
   key: string;
   metaKey: boolean;

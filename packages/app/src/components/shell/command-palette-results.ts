@@ -307,7 +307,8 @@ function artifactItems(
   return {
     reports: reportItems,
     charts: chartItems,
-    // Data sources before their tables, each kind newest first.
+    // Newest first per kind; an empty query shows a few sources, then a few
+    // tables. A query re-ranks the whole group by match.
     data: [...byRecency(sourceItems), ...byRecency(tableItems)],
     metrics: metricItems,
     drafts: draftItems,

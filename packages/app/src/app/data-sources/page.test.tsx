@@ -88,6 +88,18 @@ vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useConfirmDialogStore } from "@/lib/stores";
 import DataSourcesPage from "./page";
+import { useState } from "react";
+
+/** The page with its Add dialog state held locally, as the route holds it in the URL. */
+function Page() {
+  const [addSourceOpen, setAddSourceOpen] = useState(false);
+  return (
+    <DataSourcesPage
+      addSourceOpen={addSourceOpen}
+      onAddSourceOpenChange={setAddSourceOpen}
+    />
+  );
+}
 
 function successfulQuery(refetch: () => Promise<unknown>) {
   return {
@@ -134,7 +146,7 @@ describe("DataSourcesPage query states", () => {
 
       const reload = vi.fn();
       vi.stubGlobal("location", { reload });
-      render(<DataSourcesPage />);
+      render(<Page />);
 
       expect(screen.getByRole("alert")).not.toBeNull();
       expect(screen.getByText("Failed to load data sources")).not.toBeNull();
@@ -146,7 +158,7 @@ describe("DataSourcesPage query states", () => {
   );
 
   it("renders the real empty state after both queries succeed", () => {
-    render(<DataSourcesPage />);
+    render(<Page />);
 
     expect(screen.getByText("No data sources yet")).not.toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -156,7 +168,7 @@ describe("DataSourcesPage query states", () => {
     "opens the add-source dialog from the %s action",
     async (placement) => {
       const user = userEvent.setup();
-      render(<DataSourcesPage />);
+      render(<Page />);
 
       const addButtons = screen.getAllByRole("button", { name: "Add Source" });
       await user.click(addButtons[placement === "header" ? 0 : 1]);
@@ -182,7 +194,7 @@ describe("DataSourcesPage query states", () => {
       });
       const user = userEvent.setup();
 
-      render(<DataSourcesPage />);
+      render(<Page />);
 
       const action = screen.getByRole("button", { name: "More options" });
       if (activation === "pointer") {
@@ -223,7 +235,7 @@ describe("DataSourcesPage query states", () => {
 
     render(
       <>
-        <DataSourcesPage />
+        <Page />
         <ConfirmDialog />
       </>,
     );
@@ -271,7 +283,7 @@ describe("DataSourcesPage query states", () => {
 
     render(
       <>
-        <DataSourcesPage />
+        <Page />
         <ConfirmDialog />
       </>,
     );
@@ -301,7 +313,7 @@ describe("DataSourcesPage query states", () => {
       ],
     });
 
-    render(<DataSourcesPage />);
+    render(<Page />);
 
     const action = screen.getByRole("button", { name: "More options" });
 

@@ -2,7 +2,7 @@ import { queryStatus } from "@/data/query-status";
 import { usePlatform } from "@/lib/platform";
 import { api } from "@dashframe/convex-backend/api";
 import { cmd, type UUID } from "@dashframe/types";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import {
   Command,
   CommandDialog,
@@ -33,7 +33,6 @@ import {
 import { toast } from "sonner";
 
 import {
-  type CommandPaletteScope,
   isCommandPaletteShortcut,
   useCommandPalette,
 } from "./command-palette-store";
@@ -69,23 +68,39 @@ function ItemIcon({ item }: { item: PaletteItem }) {
   }
 }
 
+/** `/data-sources`, with or without the trailing slash of its index route. */
+function isDataSourcesPath(pathname: string): boolean {
+  return pathname === "/data-sources" || pathname === "/data-sources/";
+}
+
+/** A dialog, alert dialog or popover other than the palette is open. */
+function anotherDialogIsOpen(): boolean {
+  return (
+    document.querySelector('[role="dialog"], [role="alertdialog"]') !== null
+  );
+}
+
 /**
  * The app-wide command palette: search reports, charts on a report, data
  * sources and tables, saved metrics and drafts, or run an action. Mounted
  * once in the shell; ⌘K (Ctrl+K off macOS) toggles it from anywhere.
  */
-export function CommandPalette({ scope }: { scope?: CommandPaletteScope }) {
+export function CommandPalette() {
   const open = useCommandPalette((state) => state.open);
   const setOpen = useCommandPalette((state) => state.setOpen);
   const toggle = useCommandPalette((state) => state.toggle);
   const { isMacOS } = usePlatform();
   const navigate = useNavigate();
+  const router = useRouter();
   const commitBatch = useMutation(api.app.commitBatch);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       if (!isCommandPaletteShortcut(event, isMacOS)) return;
+      // Another dialog or popover owns the keyboard; the palette would open
+      // on top of it. Its own shortcut closes it, so only an opening waits.
+      if (!useCommandPalette.getState().open && anotherDialogIsOpen()) return;
       // Browsers bind ⌘K / Ctrl+K to their own search.
       event.preventDefault();
       toggle();
@@ -136,10 +151,13 @@ export function CommandPalette({ scope }: { scope?: CommandPaletteScope }) {
             }
             case "add-data-source":
               // The dialog belongs to the Data sources page, where a new
-              // source appears when it is done.
+              // source appears when it is done. Already on that page, opening
+              // it replaces the entry, as closing it does, so Back leaves the
+              // page instead of landing on the same page again.
               await navigate({
                 to: "/data-sources",
                 search: { addSource: true },
+                replace: isDataSourcesPath(router.state.location.pathname),
               } as never);
               return;
             case "go-reports":
@@ -153,7 +171,7 @@ export function CommandPalette({ scope }: { scope?: CommandPaletteScope }) {
           }
       }
     },
-    [commitBatch, navigate, setOpen],
+    [commitBatch, navigate, router, setOpen],
   );
 
   return (
@@ -162,8 +180,6 @@ export function CommandPalette({ scope }: { scope?: CommandPaletteScope }) {
       onOpenChange={setOpen}
       title="Search"
       description="Search reports, charts, data sources, tables, saved metrics and drafts, or run an action."
-      // The workbench scope (#503) renders here as a removable chip.
-      leading={scope ? <span>{scope.label}</span> : undefined}
       footer={<KeyHints />}
       className="duration-150"
     >
@@ -216,9 +232,11 @@ function PaletteBody({
   return (
     // The results arrive filtered, ranked and in their fixed group order, so
     // cmdk must not filter or re-sort them. `CommandDialog` does not forward
-    // cmdk's root props, so this inner root carries `shouldFilter`; its keys
-    // are handled here and never reach the dialog's own (empty) root.
+    // cmdk's root props, so this inner root carries `shouldFilter` until it
+    // does. Its keys are handled here and marked handled, so the dialog's
+    // empty root skips them.
     <Command
+      label="Search"
       shouldFilter={false}
       loop
       onKeyDown={(event) => {

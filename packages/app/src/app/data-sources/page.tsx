@@ -49,17 +49,17 @@ type DataSourceWithTables = {
  */
 interface DataSourcesPageProps {
   /**
-   * Whether the Add data source dialog is open, when the route owns it (the
-   * command palette opens it through the URL). Local state otherwise.
+   * Whether the Add data source dialog is open. The route keeps it in the URL,
+   * so the command palette can open it by navigating here.
    */
-  addSourceOpen?: boolean;
-  onAddSourceOpenChange?: (open: boolean) => void;
+  addSourceOpen: boolean;
+  onAddSourceOpenChange: (open: boolean) => void;
 }
 
 export default function DataSourcesPage({
-  addSourceOpen,
-  onAddSourceOpenChange,
-}: DataSourcesPageProps = {}) {
+  addSourceOpen: isAddSourceOpen,
+  onAddSourceOpenChange: setIsAddSourceOpen,
+}: DataSourcesPageProps) {
   const navigate = useNavigate();
 
   // Subscribe so a re-render fires once the connector registry hydrates from
@@ -82,9 +82,6 @@ export default function DataSourcesPage({
 
   // Local state
   const [searchQuery, setSearchQuery] = useState("");
-  const [localAddSourceOpen, setLocalAddSourceOpen] = useState(false);
-  const isAddSourceOpen = addSourceOpen ?? localAddSourceOpen;
-  const setIsAddSourceOpen = onAddSourceOpenChange ?? setLocalAddSourceOpen;
 
   const handleRetry = useCallback(() => globalThis.location.reload(), []);
 
