@@ -187,7 +187,9 @@ it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => 
           tableId: "table",
           columnName: "yearWeek",
           type: "date",
-          scope: "time",
+          // Deliberately not the connector default ("time"): the repair must
+          // keep a scope that is already set, whatever it is.
+          scope: "session",
         },
         {
           id: "channel",
@@ -290,7 +292,7 @@ it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => 
   expect(table?.metrics?.[1]).not.toHaveProperty("contract");
   expect(table?.fields?.map((field) => field.scope)).toEqual([
     "time",
-    "time",
+    "session",
     "session",
     undefined,
   ]);
