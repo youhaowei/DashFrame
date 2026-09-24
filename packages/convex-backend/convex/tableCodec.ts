@@ -102,13 +102,19 @@ const metricSchema = z
   })
   .passthrough();
 
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
 const isoDate = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD")
+  .regex(ISO_DATE, "expected YYYY-MM-DD")
   // A stored definition must be reproducible, so an impossible calendar day
   // such as 2026-02-31 is rejected here, not only by the connector at use.
   .refine((value) => {
-    const [year, month, day] = value.split("-").map(Number);
+    const match = ISO_DATE.exec(value);
+    if (!match) return false;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
     const date = new Date(Date.UTC(year, month - 1, day));
     return (
       date.getUTCFullYear() === year &&
@@ -180,7 +186,14 @@ export const tableOriginSchema = z.discriminatedUnion("kind", [
             )
             .optional(),
         })
-        .passthrough(),
+        .passthrough()
+        // The connector rejects a field named twice, across both lists.
+        .refine(
+          (d) =>
+            new Set([...d.dimensions, ...d.metrics]).size ===
+            d.dimensions.length + d.metrics.length,
+          "dimensions and metrics must not repeat a field",
+        ),
     })
     .strict(),
 ]);

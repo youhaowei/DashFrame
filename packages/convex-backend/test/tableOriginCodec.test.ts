@@ -114,6 +114,16 @@ describe("parseTableOrigin", () => {
         ],
       },
     },
+    {
+      kind: "definition",
+      version: 1,
+      definition: { ...definition, dimensions: ["date", "date"] },
+    },
+    {
+      kind: "definition",
+      version: 1,
+      definition: { ...definition, metrics: ["sessions", "date"] },
+    },
   ])("rejects malformed origin %# with a codec message", (value) => {
     expect(() => parseTableOrigin(value, "origin")).toThrow(
       /^origin is invalid: /,

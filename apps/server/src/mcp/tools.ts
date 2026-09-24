@@ -1199,9 +1199,12 @@ function assertDraftSafeBatch(
         );
       }
     }
+    // A table origin's definition passes connector-specific keys through, so
+    // it is scanned on every command that carries one.
     if (
-      type in CREDENTIAL_COMMAND_ARG_FIELDS &&
-      containsCredentialMaterial(args)
+      (type in CREDENTIAL_COMMAND_ARG_FIELDS &&
+        containsCredentialMaterial(args)) ||
+      containsCredentialMaterial(args.origin)
     ) {
       throw new Error(
         `${DRAFT_BATCH_TOOL_NAME}: credential material is not accepted through ` +
