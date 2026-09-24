@@ -1,2 +1,2 @@
-export { InsightView } from "@/components/insights/InsightWorkbench";
+export { InsightView } from "./InsightView";
 export { NotFoundView } from "./NotFoundView";

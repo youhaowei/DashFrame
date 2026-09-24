@@ -12,15 +12,13 @@ import {
 } from "@/components/visualizations/ReportDataTable";
 import { useQuery_experimental as useQuery, useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
-import { AppLayout } from "@/components/layouts/AppLayout";
-import { useTopBarTabs } from "@/components/shell/topbar-tabs";
+import { useTopBarTabs, type TopBarTabs } from "@/components/shell/topbar-tabs";
 import {
   Workbench,
   WorkbenchPaneToggle,
   useWorkbenchPanes,
 } from "@/components/workbench/Workbench";
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
-import { visualizationDetailLink } from "@/components/visualizations/visualization-navigation";
 import { getVisualizationTypeChange } from "@/components/visualizations/visualization-type-change";
 import {
   resolveInsightSourceDataTable,
@@ -29,10 +27,7 @@ import {
 import { formatCellValue } from "@/lib/cell-formatter";
 import { buildInsightColumnDisplayNames } from "@/lib/insight-column-display-names";
 import { resolveInsightAuthoringTable } from "@/lib/insights/compute-combined-fields";
-import {
-  useConfirmDialogStore,
-  type ConfirmDialogConfig,
-} from "@/lib/stores/confirm-dialog-store";
+import type { ConfirmDialogConfig } from "@/lib/stores/confirm-dialog-store";
 import {
   sanitizeInsightCanvasView,
   TABLE_CANVAS_VIEW,
@@ -77,32 +72,15 @@ import {
   metricEncoding,
 } from "@dashframe/types";
 import {
-  ControlTooltip,
   CHART_ICONS,
   VirtualTable,
   type VirtualTableColumnConfig,
   type WorkbenchTabItem,
 } from "@dashframe/ui";
 import { Chart } from "@dashframe/visualization";
-import { Link, useNavigate } from "@tanstack/react-router";
 
-import {
-  Button,
-  ButtonPrimitive,
-  cn,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  ErrorState,
-} from "@wystack/ui-react";
-import {
-  DashboardIcon,
-  MoreIcon,
-  PlusIcon,
-  SparklesIcon,
-  TableIcon,
-} from "@wystack/ui-react/icons";
+import { Button, cn, ErrorState } from "@wystack/ui-react";
+import { PlusIcon, SparklesIcon, TableIcon } from "@wystack/ui-react/icons";
 import {
   useCallback,
   useEffect,
@@ -113,7 +91,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { InsightConfigPanel } from "./config-panel";
-import { NotFoundView } from "@/app/insights/[insightId]/_components/NotFoundView";
 import {
   INSIGHT_CANVAS_CHART_TYPES,
   VisualizationConfigPanel,
@@ -330,12 +307,6 @@ export function resolveAddToReportTarget<
     return { kind: "ready", dashboard };
   }
   return { kind: "ready", dashboard: input.dashboards?.[0] };
-}
-
-interface InsightViewProps {
-  insight: Insight;
-  visualizeIntent?: boolean;
-  reportId?: string;
 }
 
 interface ParsedEncoding {
@@ -875,46 +846,6 @@ export function InsightResultTable({
   );
 }
 
-function InsightMoreActionsMenu({
-  savedChart,
-  onDuplicateChart,
-  onDeleteChart,
-}: {
-  savedChart: { id: UUID; name: string };
-  onDuplicateChart: (id: UUID) => void;
-  onDeleteChart: (id: UUID, name: string) => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <ButtonPrimitive
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="More actions"
-            title="More actions"
-            className="h-8 w-8 shrink-0"
-          >
-            <MoreIcon aria-hidden />
-          </ButtonPrimitive>
-        }
-      />
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => onDuplicateChart(savedChart.id)}>
-          Duplicate chart
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="text-palette-danger"
-          onClick={() => onDeleteChart(savedChart.id, savedChart.name)}
-        >
-          Delete chart
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 /**
  * Sunken well for the work canvas. Chart views lift the chart onto a raised
  * card above the result table; the data view shows the table alone.
@@ -1032,25 +963,58 @@ function EphemeralChartCanvas({
   );
 }
 
+/** What a host puts in the workbench's header, between the pane toggles. */
+export interface InsightWorkbenchHeaderContext {
+  activeView: InsightCanvasView;
+  /** The saved chart on the canvas, if one is. */
+  activeVisualization: Visualization | undefined;
+  insightVisualizations: Visualization[];
+  /** A suggested chart is on the canvas and can be saved. */
+  canPinActiveChart: boolean;
+  pinActiveChart: () => Promise<void>;
+  /** Saves the suggested chart on the canvas if needed; the chart's id. */
+  ensureActiveVisualization: () => Promise<UUID | null>;
+}
+
+export interface InsightWorkbenchProps {
+  insight: Insight;
+  /** What the canvas shows; a chart that no longer exists shows the data. */
+  view: InsightCanvasView;
+  onViewChange: (view: InsightCanvasView) => void;
+  reportId?: string;
+  visualizeIntent?: boolean;
+  /**
+   * Shows the insight's own views (its data, each chart, a new chart) as the
+   * top-bar tabs. Only a page that is the insight itself does this; a host
+   * with its own tabs leaves it off.
+   */
+  canvasTabs?: boolean;
+  /** Header contents between the pane toggles: identity and actions. */
+  header: (context: InsightWorkbenchHeaderContext) => ReactNode;
+  /** One line under the left pane's title. */
+  leftPaneNote?: ReactNode;
+}
+
+function CanvasTopBarTabs({ tabs }: { tabs: TopBarTabs | null }) {
+  useTopBarTabs(tabs);
+  return null;
+}
+
 /**
- * InsightView - Unified view for insight page
- *
- * Single-page workbench with canvas tabs and modular sections:
- * - Data sources
- * - Data preview
- * - Configuration (fields, metrics)
- * - Chart suggestions
- * - Visualizations
- *
- * Performance optimizations:
- * - Local state for insight name with debounced updates
- * - Sections only re-render when their specific data changes
+ * The insight workbench: the query on the left, the chart and its result in
+ * the centre, the chart's encodings on the right. Route-free: the host owns
+ * the page around it, which view is open, and the header's contents.
  */
-export function InsightView({
+export function InsightWorkbench({
   insight,
+  view,
+  onViewChange,
   visualizeIntent = false,
   reportId,
-}: InsightViewProps) {
+  canvasTabs = false,
+  header,
+  leftPaneNote,
+}: InsightWorkbenchProps) {
   const insightId = insight.id;
   const [viewerState, setViewerState] = useState<{
     id: string;
@@ -1068,33 +1032,13 @@ export function InsightView({
     () => reportPresentation(insight, viewerRuntime),
     [insight, viewerRuntime],
   );
-  const navigate = useNavigate();
 
-  // Local state for insight name (prevents re-renders on typing)
-  const [localName, setLocalName] = useState(insight.name);
   const setWebMCPInsight = useWebMCPPageStore((state) => state.setInsight);
-  const updateWebMCPInsight = useWebMCPPageStore(
-    (state) => state.updateInsight,
-  );
   const clearWebMCPInsight = useWebMCPPageStore((state) => state.clearInsight);
   useEffect(() => {
     setWebMCPInsight({ insightId });
     return () => clearWebMCPInsight(insightId);
   }, [clearWebMCPInsight, insightId, setWebMCPInsight]);
-  useEffect(() => {
-    updateWebMCPInsight(insightId, {
-      pendingName: localName !== insight.name ? localName : undefined,
-    });
-  }, [insight.name, insightId, localName, updateWebMCPInsight]);
-  const prevInsightNameRef = useRef(insight.name);
-  // Sync local name when insight prop changes from an external source.
-  useEffect(() => {
-    if (prevInsightNameRef.current !== insight.name) {
-      prevInsightNameRef.current = insight.name;
-      setLocalName(insight.name);
-    }
-  }, [insight.name]);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const [suggestionSeed, setSuggestionSeed] = useState(0);
   const {
@@ -1151,48 +1095,6 @@ export function InsightView({
     },
     [commitBatch],
   );
-  const removeVisualizationMutation = useCallback(
-    ({ id }: { id: string }) =>
-      commitBatch({ commands: [cmd("DeleteNode", { id: id as UUID })] }),
-    [commitBatch],
-  );
-  const { confirm } = useConfirmDialogStore();
-
-  // Debounced save for insight name (500ms after typing stops)
-  const handleNameChange = useCallback(
-    (newName: string) => {
-      setLocalName(newName);
-
-      // Clear previous timeout
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-
-      // Set new timeout to save after 500ms of no typing
-      saveTimeoutRef.current = setTimeout(() => {
-        if (newName !== insight.name) {
-          // Fire-and-forget from a debounce: surface a failure but leave the
-          // field on the user's latest input. We deliberately don't roll the
-          // field back — with overlapping debounced renames a rollback would
-          // race (clobbering newer input, or restoring a pre-edit name over a
-          // partial success); the next keystroke's debounce simply retries.
-          commitBatch({
-            commands: [cmd("RenameNode", { id: insightId, name: newName })],
-          }).catch(() => toast.error("Couldn't rename the insight"));
-        }
-      }, 500);
-    },
-    [insightId, insight.name, commitBatch],
-  );
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-    };
-  }, []);
 
   // Fetch related data
   const { data: allDataTables = [] } = queryStatus(
@@ -1204,18 +1106,9 @@ export function InsightView({
   const { data: allVisualizations = [] } = queryStatus(
     useQuery({ query: api.app.listVisualizations, args: {} }),
   );
-  const {
-    data: dashboards = [],
-    isPending: dashboardsPending,
-    isError: dashboardsError,
-  } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
-  const persistedActiveView = useInsightCanvasStore(
-    (s) => s.activeViewByInsight[insightId],
-  );
   const draftChartType = useInsightCanvasStore(
     (s) => s.draftChartTypeByInsight[insightId],
   );
-  const setPersistedActiveView = useInsightCanvasStore((s) => s.setActiveView);
   const setDraftChartType = useInsightCanvasStore((s) => s.setDraftChartType);
   const clearDraftChartType = useInsightCanvasStore(
     (s) => s.clearDraftChartType,
@@ -1247,9 +1140,8 @@ export function InsightView({
     [insightVisualizations],
   );
   const activeView = useMemo(
-    () =>
-      sanitizeInsightCanvasView(persistedActiveView, pinnedVisualizationIds),
-    [persistedActiveView, pinnedVisualizationIds],
+    () => sanitizeInsightCanvasView(view, pinnedVisualizationIds),
+    [view, pinnedVisualizationIds],
   );
   const chartSuggestionInsight = useMemo(
     () => buildChartSuggestionInsight(insight),
@@ -1349,12 +1241,7 @@ export function InsightView({
   // loaded yet — persisting the table fallback would clobber that intent.
   // Read-time sanitization above is enough; the view self-heals on load.
 
-  const handleSetActiveView = useCallback(
-    (view: InsightCanvasView) => {
-      setPersistedActiveView(insightId, view);
-    },
-    [insightId, setPersistedActiveView],
-  );
+  const handleSetActiveView = onViewChange;
 
   const openDraftChart = useCallback(
     (chartType: VisualizationType) => {
@@ -1851,111 +1738,6 @@ export function InsightView({
       pinChartSuggestion,
     ]);
 
-  const addToReportTarget = resolveAddToReportTarget({
-    reportId,
-    dashboards,
-    isPending: dashboardsPending,
-    isError: dashboardsError,
-  });
-
-  const handleAddActiveViewToDashboard = useCallback(async () => {
-    try {
-      if (addToReportTarget.kind === "pending") return;
-      if (addToReportTarget.kind === "query-error") {
-        toast.error("Couldn't load reports");
-        return;
-      }
-      if (addToReportTarget.kind === "missing-report") {
-        toast.error("This report is no longer available");
-        return;
-      }
-      const dashboard = addToReportTarget.dashboard;
-      const visualizationId = await ensureActiveVisualization();
-      if (!visualizationId) return;
-      const dashboardId = dashboard?.id ?? (crypto.randomUUID() as UUID);
-      const bottomY =
-        dashboard?.items.reduce(
-          (max, item) => Math.max(max, item.y + item.height),
-          0,
-        ) ?? 0;
-
-      await commitBatch({
-        commands: [
-          ...(dashboard
-            ? []
-            : [
-                cmd("CreateDashboard", {
-                  id: dashboardId,
-                  name: `${insight.name} dashboard`,
-                }),
-              ]),
-          cmd("AddDashboardItem", {
-            dashboardId,
-            item: {
-              id: crypto.randomUUID() as UUID,
-              type: "visualization",
-              visualizationId,
-              x: 0,
-              y: bottomY,
-              width: 6,
-              height: 6,
-            },
-          }),
-        ],
-      });
-      toast.success("Added to report");
-      if (reportId) navigate({ to: `/dashboards/${reportId}` } as never);
-    } catch (error) {
-      console.error("[InsightView] Add to dashboard failed:", error);
-      toast.error("Couldn't add to dashboard");
-    }
-  }, [
-    addToReportTarget,
-    commitBatch,
-    ensureActiveVisualization,
-    insight.name,
-    reportId,
-    navigate,
-  ]);
-
-  // Handle duplicating a visualization
-  const handleDuplicateVisualization = useCallback(
-    async (vizId: string) => {
-      const viz = insightVisualizations.find((v) => v.id === vizId);
-      if (!viz) return;
-
-      const { id: newVizId } = await createVisualizationLocal({
-        name: `${viz.name} (copy)`,
-        insightId,
-        visualizationType: viz.visualizationType,
-        spec: viz.spec,
-        encoding: viz.encoding,
-      });
-
-      navigate(visualizationDetailLink(newVizId, reportId) as never);
-    },
-    [
-      insightVisualizations,
-      createVisualizationLocal,
-      insightId,
-      navigate,
-      reportId,
-    ],
-  );
-
-  // Handle deleting a visualization
-  const handleDeleteVisualization = useCallback(
-    (vizId: string, name: string) => {
-      requestSavedVisualizationDeletion(
-        confirm,
-        removeVisualizationMutation,
-        vizId,
-        name,
-      );
-    },
-    [confirm, removeVisualizationMutation],
-  );
-
   const handleSelectNewChart = useCallback(() => {
     // The draft already occupies the slot; selecting it just reopens it.
     if (activeView.kind === "chart") return;
@@ -2006,7 +1788,7 @@ export function InsightView({
     openDraftChart,
   ]);
 
-  const canvasTabs = useMemo<WorkbenchTabItem[]>(() => {
+  const canvasTabItems = useMemo<WorkbenchTabItem[]>(() => {
     const tabs: WorkbenchTabItem[] = [
       {
         id: DATA_TAB_ID,
@@ -2067,10 +1849,6 @@ export function InsightView({
 
   const canPinActiveChart =
     activeView.kind === "chart" && activeChartSuggestion !== undefined;
-  const canAddActiveViewToDashboard =
-    (activeView.kind === "visualization" ||
-      (activeView.kind === "chart" && activeChartSuggestion !== undefined)) &&
-    addToReportTarget.kind !== "pending";
   const visualizationPane = resolveVisualizationPaneState(
     activeView,
     activeVisualization?.visualizationType,
@@ -2080,10 +1858,10 @@ export function InsightView({
   const hasCanvas = Boolean(dataTable && authoringTable);
   const topBarTabs = useMemo(
     () =>
-      hasCanvas
+      canvasTabs && hasCanvas
         ? {
             label: "Canvas views",
-            tabs: canvasTabs,
+            tabs: canvasTabItems,
             activeId: activeTabId,
             onSelect: handleSelectTab,
             panelId: CANVAS_PANEL_ID,
@@ -2091,17 +1869,28 @@ export function InsightView({
             findEmptyLabel: "No matching charts.",
           }
         : null,
-    [hasCanvas, canvasTabs, activeTabId, handleSelectTab],
+    [canvasTabs, hasCanvas, canvasTabItems, activeTabId, handleSelectTab],
   );
-  useTopBarTabs(topBarTabs);
 
   // Data table not found - check after all hooks are called
   if (!dataTable || !authoringTable) {
-    return <NotFoundView type="dataTable" />;
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-center">
+        <div>
+          <h2 className="text-base font-semibold text-neutral-fg">
+            Couldn&apos;t find this chart&apos;s table
+          </h2>
+          <p className="mt-1 text-sm text-neutral-fg-subtle">
+            The table it reads may have been deleted.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <AppLayout pageHeader={null} childrenClassName="overflow-hidden">
+    <>
+      {canvasTabs && <CanvasTopBarTabs tabs={topBarTabs} />}
       <Workbench
         data-dashframe-insight-id={insightId}
         leftOpen={insightPaneOpen}
@@ -2117,6 +1906,7 @@ export function InsightView({
             reportId={reportId}
             columnDisplayNames={modelColumnDisplayNames}
             getVisualizationWriteStatus={getVisualizationWriteStatus}
+            note={leftPaneNote}
           />
         }
         right={
@@ -2162,65 +1952,14 @@ export function InsightView({
             paneName="Insight"
             onToggle={toggleInsightPane}
           />
-          <Link
-            to="/insights"
-            className="shrink-0 rounded-sm px-1 @max-2xl:hidden text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none"
-          >
-            Insights
-          </Link>
-          <span
-            aria-hidden
-            className="shrink-0 text-xs text-neutral-fg-subtle @max-2xl:hidden"
-          >
-            ›
-          </span>
-          <label className="sr-only" htmlFor="insight-name">
-            Insight name
-          </label>
-          <input
-            id="insight-name"
-            value={localName}
-            onChange={(event) => handleNameChange(event.target.value)}
-            placeholder="Untitled insight"
-            className="min-w-16 flex-1 truncate rounded-sm bg-transparent px-1 py-0.5 text-sm font-semibold text-neutral-fg outline-none placeholder:text-neutral-fg-subtle focus-visible:ring-2 focus-visible:ring-palette-primary"
-          />
-          {canPinActiveChart && (
-            <ControlTooltip
-              label="Save chart"
-              description="Keep this chart as a reusable view for dashboards."
-            >
-              <Button
-                size="sm"
-                variant="outline"
-                label="Save chart"
-                onClick={handlePinActiveChart}
-              >
-                <PlusIcon aria-hidden />
-                <span className="@max-xl:sr-only">Save chart</span>
-              </Button>
-            </ControlTooltip>
-          )}
-          <ControlTooltip
-            label="Add to report"
-            description="Place this view on a report."
-          >
-            <Button
-              size="sm"
-              label="Add to report"
-              onClick={handleAddActiveViewToDashboard}
-              disabled={!canAddActiveViewToDashboard}
-            >
-              <DashboardIcon aria-hidden />
-              <span className="@max-xl:sr-only">Add to report</span>
-            </Button>
-          </ControlTooltip>
-          {activeView.kind === "visualization" && activeVisualization && (
-            <InsightMoreActionsMenu
-              savedChart={activeVisualization}
-              onDuplicateChart={handleDuplicateVisualization}
-              onDeleteChart={handleDeleteVisualization}
-            />
-          )}
+          {header({
+            activeView,
+            activeVisualization,
+            insightVisualizations,
+            canPinActiveChart,
+            pinActiveChart: handlePinActiveChart,
+            ensureActiveVisualization,
+          })}
           {visualizationPane.available && (
             <WorkbenchPaneToggle
               side="right"
@@ -2300,6 +2039,6 @@ export function InsightView({
           )}
         </InsightCanvasWell>
       </Workbench>
-    </AppLayout>
+    </>
   );
 }
