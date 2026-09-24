@@ -139,11 +139,14 @@ function CarryableChartButton({
   };
   const { put } = useShelf();
   const { handleProps } = useCarryable(ref, "source");
+  // Named for the chart, like the metric row's button: a report shows one of
+  // these per tile, and "Put on shelf" alone does not say which.
+  const name = `Put ${ref.label} on shelf`;
   return (
     <Button
       {...handleProps}
-      label={PUT_ON_SHELF}
-      aria-label={PUT_ON_SHELF}
+      label={name}
+      aria-label={name}
       tooltip={PUT_ON_SHELF}
       variant="ghost"
       size="sm"
