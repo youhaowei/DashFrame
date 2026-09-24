@@ -56,7 +56,7 @@ A chart of an insight's result, with encodings and appearance. An insight may ha
 
 Model: `Visualization`, `VisualizationEncoding`
 
-Shipped copy still says **saved view** — dashboard detail and the insights collection are entry points, not an inventory.
+Shipped copy still says **saved view** on reports: the report list's counts, a report's subtitle, its Add item menu and add dialog, and the notice on a tile whose chart was deleted.
 
 ### Dashboard
 

@@ -33,12 +33,25 @@ export async function openSection(
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
 }
 
+/**
+ * Open a pane popover. The pane re-renders as each edit saves, and a click
+ * that lands mid-render can miss, so retry until the popover is open.
+ */
+async function openPopover(page: Page, name: "Add field" | "Add metric") {
+  const dialog = page.getByRole("dialog", { name });
+  await expect(async () => {
+    if (!(await dialog.isVisible())) {
+      await page.getByRole("button", { name, exact: true }).click();
+    }
+    await expect(dialog).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
+  return dialog;
+}
+
 /** Add a field by name from the Add field popover. */
 export async function addField(page: Page, name: string): Promise<void> {
   await openSection(page, "Fields");
-  await page.getByRole("button", { name: "Add field", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Add field" });
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  const dialog = await openPopover(page, "Add field");
   const option = dialog.getByRole("option", { name: new RegExp(name, "i") });
   await expect(option).toBeVisible({ timeout: 10_000 });
   await option.click();
@@ -48,9 +61,7 @@ export async function addField(page: Page, name: string): Promise<void> {
 /** Add a Count metric, the Add metric popover's default. */
 export async function addCountMetric(page: Page): Promise<void> {
   await openSection(page, "Metrics");
-  await page.getByRole("button", { name: "Add metric", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Add metric" });
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  const dialog = await openPopover(page, "Add metric");
   // The default aggregation counts rows, so the name fills in as "Count".
   await expect(
     dialog.getByRole("textbox", { name: "Name", exact: true }),

@@ -1,4 +1,7 @@
-import { nativeMutationMock } from "@/test/native-query-fixture";
+import {
+  nativeMutationMock,
+  nativeQueryMock,
+} from "@/test/native-query-fixture";
 /**
  * useOpenChartInReport — every way into a chart lands on a report.
  *
@@ -16,15 +19,18 @@ const {
   mockCreateChartInsight,
   mockNavigate,
   mockToastError,
+  server,
 } = vi.hoisted(() => ({
   mockCommitBatch: vi.fn(),
   mockCreateChartInsight: vi.fn(),
   mockNavigate: vi.fn(),
   mockToastError: vi.fn(),
+  server: { reports: [] as { id: string }[] },
 }));
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
+  useQuery_experimental: nativeQueryMock(() => ({ data: server.reports })),
   useMutation: nativeMutationMock(() => ({ mutateAsync: mockCommitBatch })),
 }));
 vi.mock("@tanstack/react-router", () => ({
@@ -54,6 +60,7 @@ function hook() {
 beforeEach(() => {
   vi.clearAllMocks();
   useReportChartTabs.setState(useReportChartTabs.getInitialState());
+  server.reports = [{ id: "report-1" }];
   mockCommitBatch.mockResolvedValue({});
   mockCreateChartInsight.mockResolvedValue("insight");
   mockNavigate.mockResolvedValue(undefined);
@@ -136,6 +143,27 @@ describe("startChart", () => {
     });
     expect(sentCommands()).toEqual([]);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a missing existing report", async () => {
+    const result = hook();
+    let opened: boolean | undefined;
+    await act(async () => {
+      opened = await result.current.startChart(
+        { kind: "existing", reportId: "gone" },
+        TABLE,
+      );
+    });
+    expect(opened).toBe(false);
+    expect(mockToastError).toHaveBeenCalledWith(
+      "That report no longer exists. Pick another one.",
+    );
+    expect(mockCreateChartInsight).not.toHaveBeenCalled();
+    expect(sentCommands()).toEqual([]);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(
+      Object.values(useReportChartTabs.getState().tabsByReport).flat(),
+    ).toEqual([]);
   });
 
   it("starts one chart when asked twice at once", async () => {
