@@ -142,10 +142,10 @@ function SidebarContent({
               to={item.href as never}
               onClick={onNavigate}
               className={cn(
-                "group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors",
+                "group flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors duration-150 motion-reduce:transition-none",
                 isActive
-                  ? "bg-neutral-bg text-neutral-fg shadow-[var(--surface-shadow)]"
-                  : "text-neutral-fg-subtle hover:bg-neutral-bg/60 hover:text-neutral-fg",
+                  ? "bg-neutral-bg-emphasis text-neutral-fg"
+                  : "text-neutral-fg-subtle hover:bg-neutral-bg-emphasis/50 hover:text-neutral-fg",
               )}
             >
               <item.icon
