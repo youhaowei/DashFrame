@@ -9,9 +9,9 @@
  *     the reviewer sees which commands would apply and which one fails, so they can
  *     fix the batch before publishing. Batches stay all-or-nothing.
  *
- * SPLIT-TIER: this component never initiates data fetches. The `compute` slot on
- * direct nodes is filled lazily by the caller (client-side DuckDB); this component
- * renders whatever is present and leaves the slot empty when absent.
+ * This component never initiates data fetches. It renders a direct node's
+ * `compute` slot when the diff carries one; the Convex preview never fills that
+ * slot today, and no caller computes it.
  */
 
 import { sanitizeDashboardItemUpdates } from "@dashframe/server/dashboard-item-updates";
@@ -177,7 +177,7 @@ function HeadTable({
 /**
  * The compute display for a direct node — shows row counts and head rows.
  * When compute is `undefined` (pending), shows a pending indicator.
- * Only rendered for insight nodes (the only kind with computable DuckDB views).
+ * Only rendered for insight nodes, the only kind whose result has row counts.
  */
 function ComputeDisplay({
   compute,
@@ -188,7 +188,7 @@ function ComputeDisplay({
   change: PreviewDirectNode["change"];
   kind: ArtifactKind;
 }) {
-  // Only insight nodes have compute — other kinds have no DuckDB view.
+  // Only insight nodes produce a row result to count.
   if (kind !== "insight") return null;
   // noop nodes don't change — no compute display.
   if (change === "noop") return null;

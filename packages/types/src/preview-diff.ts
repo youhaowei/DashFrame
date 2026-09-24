@@ -4,8 +4,9 @@
  * graph without writing canonical artifacts. It returns before/after definitions
  * and downstream impact, with credentials redacted.
  *
- * Row data stays outside this contract. The renderer fills `compute` lazily
- * from the proposed definition through DuckDB; Convex leaves that slot absent.
+ * Row data stays outside this contract. Nothing fills the optional `compute`
+ * slot today: the Convex preview (`packages/convex-backend/convex/preview.ts`)
+ * never sets it, and the drafts review surface reads only the metadata.
  */
 
 import type { UUID } from "./uuid";
@@ -53,11 +54,11 @@ export interface PreviewIntent {
 }
 
 /**
- * The deferred compute slot — filled CLIENT-SIDE on preview-open, never by the
- * server. Encodes the verifiability layer the spec calls for: a row count
- * before/after the change plus a `head(n)` sample so a plausibly-wrong edit is
- * caught by eye, not just read as legible. The server always emits `undefined`
- * here; the renderer resolves it from `proposedDefinition` against local DuckDB.
+ * The optional compute slot: a row count before/after the change plus a
+ * `head(n)` sample, so a plausibly-wrong edit is caught by eye, not just read
+ * as legible. No producer fills it today. The Convex preview always leaves it
+ * `undefined`, and no client step computes it; `PreviewDiffRenderer` displays
+ * it only when a caller supplies one.
  */
 export interface PreviewCompute {
   /** Canonical (pre-change) row count, or null if the node produced no rows before. */
@@ -114,8 +115,8 @@ export interface PreviewDirectNode {
    */
   proposedDefinition: Record<string, unknown>;
   /**
-   * Deferred compute — `undefined` from the server, filled client-side on
-   * preview-open. Metadata comes from Convex; row data comes from DuckDB.
+   * Optional row-count and sample slot. The Convex preview always leaves it
+   * `undefined`, and nothing fills it afterwards; see `PreviewCompute`.
    */
   compute?: PreviewCompute | undefined;
 }
@@ -198,7 +199,7 @@ export interface PreviewError {
  * The full preview — the artifact-grouped diff the renderer paints. Discriminated
  * `mode: 'preview'` mirrors the underlying `PreviewResult`. `tablesWritten` is
  * echoed from the mechanism (the set that WOULD have flushed to invalidation had
- * the batch committed) so the renderer can scope its lazy compute / refresh.
+ * the batch committed).
  *
  * When `error` is present, command `error.commandIndex` threw during preview.
  * `directNodes` contains the nodes built from commands 0..commandIndex-1 (the
@@ -208,7 +209,7 @@ export interface PreviewError {
  */
 export interface PreviewDiff {
   mode: "preview";
-  /** Nodes commands directly touched — fully shown, compute deferred to client. */
+  /** Nodes commands directly touched — fully shown; `compute` stays absent. */
   directNodes: PreviewDirectNode[];
   /** Nodes downstream of the touched nodes — flagged only. */
   affectedDownstream: PreviewDownstreamNode[];
