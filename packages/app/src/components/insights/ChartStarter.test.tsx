@@ -28,7 +28,10 @@ vi.mock("convex/react", async (importOriginal) => ({
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 // Thumbnails query the host; each test says what a card's aggregate found.
-vi.mock("@/lib/visualizations/chart-starter-data", () => ({
+vi.mock("@/lib/visualizations/chart-starter-data", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/visualizations/chart-starter-data")
+  >()),
   useChartStarterPoints: (
     _insight: unknown,
     suggestion: { key: string },
@@ -49,6 +52,7 @@ import {
   type UUID,
 } from "@dashframe/types";
 import {
+  buildChartStarterCommands,
   buildColumnActionCommands,
   ChartStarter,
   MAX_CHART_STARTER_CANDIDATES,
@@ -247,6 +251,31 @@ describe("ChartStarter", () => {
     expect(onPickChartType).toHaveBeenCalledWith("barX");
   });
 
+  it("saves a line in date order", () => {
+    const date = {
+      id: "20000000-0000-4000-8000-0000000000d1" as UUID,
+      name: "Date",
+      columnName: "Date",
+      type: "date",
+      tableId: TABLE_ID,
+    } as Field;
+    const commands = buildChartStarterCommands(INSIGHT, TABLE, {
+      key: "line-over-time:date:sales",
+      rule: "line-over-time",
+      chartType: "line",
+      group: date,
+      aggregation: "sum",
+      measure: SALES,
+      sortByValue: false,
+    });
+    expect(commands).toContainEqual(
+      cmd("SetInsightSort", {
+        id: INSIGHT_ID,
+        sorts: [{ field: "Date", direction: "asc" }],
+      }),
+    );
+  });
+
   it("writes a row-count bar without a sort", async () => {
     const { onPickChartType } = renderStarter();
     fireEvent.click(screen.getByRole("button", { name: "Count by Category" }));
@@ -342,6 +371,30 @@ describe("ChartStarter", () => {
     );
     const tried = new Set(pointsState.mock.calls.map(([key]) => key));
     expect(tried.size).toBe(MAX_CHART_STARTER_CANDIDATES);
+  });
+
+  it("asks a card that did not fit again once the filters change", async () => {
+    let tooMany = true;
+    pointsState.mockImplementation((key: string) =>
+      key.startsWith("count-by-category") && tooMany
+        ? { status: "unfit" }
+        : { status: "ready", points: [] },
+    );
+    const view = render(starter(INSIGHT, vi.fn(), "rev-1"));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Count by Category" })).toBe(
+        null,
+      ),
+    );
+
+    // A filter narrows the rows: the verdict belonged to the old query.
+    tooMany = false;
+    const filtered = {
+      ...INSIGHT,
+      filters: [{ id: "f", field: "Category", operator: "eq", value: "A" }],
+    } as unknown as Insight;
+    view.rerender(starter(filtered, vi.fn(), "rev-1"));
+    await screen.findByRole("button", { name: "Count by Category" });
   });
 
   it("brings back a card that no longer fits once the source changes", async () => {

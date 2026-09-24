@@ -6,11 +6,12 @@ import {
   type ChartStarterSuggestion,
 } from "@/lib/visualizations/chart-starter";
 import {
+  chartStarterQueryScope,
+  chartStarterSorts,
   useChartStarterPoints,
   type ChartStarterPoint,
 } from "@/lib/visualizations/chart-starter-data";
 import { api } from "@dashframe/convex-backend/api";
-import { metricIdToColumnAlias } from "@dashframe/engine";
 import {
   buildInsightUpdateCommands,
   type ColumnAnalysis,
@@ -98,16 +99,12 @@ export function buildChartStarterCommands(
   suggestion: ChartStarterSuggestion,
 ): Command[] {
   const metric = chartStarterMetric(dataTable, suggestion);
+  // The same sort the card's thumbnail was read with.
+  const sorts = chartStarterSorts(suggestion, metric);
   return buildInsightUpdateCommands(insight.id, insight, {
     selectedFields: [suggestion.group.id],
     metrics: [metric],
-    ...(suggestion.sortByValue
-      ? {
-          sorts: [
-            { field: metricIdToColumnAlias(metric.id), direction: "desc" },
-          ],
-        }
-      : {}),
+    ...(sorts ? { sorts } : {}),
   });
 }
 
@@ -613,25 +610,28 @@ export function ChartStarter({
   };
 
   // Cards that turned out not to fit drop out and the next candidates move
-  // up. The verdicts belong to one table generation: a refresh asks again.
+  // up. The verdicts belong to what the queries read: one table generation
+  // under one set of filters, joins and reporting. A change asks again.
+  const generation = JSON.stringify([
+    sourceRevision,
+    chartStarterQueryScope(insight),
+  ]);
   const [unfit, setUnfit] = useState<{
-    revision: string;
+    generation: string;
     keys: ReadonlySet<string>;
-  }>({ revision: sourceRevision, keys: new Set() });
+  }>({ generation, keys: new Set() });
   const unfitKeys =
-    unfit.revision === sourceRevision ? unfit.keys : new Set<string>();
+    unfit.generation === generation ? unfit.keys : new Set<string>();
   const markUnfit = useCallback(
     (key: string) =>
       setUnfit((current) => {
         const keys =
-          current.revision === sourceRevision
-            ? current.keys
-            : new Set<string>();
+          current.generation === generation ? current.keys : new Set<string>();
         return keys.has(key)
           ? current
-          : { revision: sourceRevision, keys: new Set(keys).add(key) };
+          : { generation, keys: new Set(keys).add(key) };
       }),
-    [sourceRevision],
+    [generation],
   );
   // At most this many candidates are ever tried, so a table whose columns
   // mostly do not fit costs a bounded number of aggregates.

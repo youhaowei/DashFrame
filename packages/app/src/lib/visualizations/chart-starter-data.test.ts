@@ -29,6 +29,7 @@ import { act } from "react";
 import type { ChartStarterSuggestion } from "./chart-starter";
 import {
   CHART_STARTER_CACHE_LIMIT,
+  chartStarterQueryScope,
   fetchChartStarterAggregate,
   useChartStarterPoints,
 } from "./chart-starter-data";
@@ -379,6 +380,84 @@ describe("useChartStarterPoints", () => {
     expect(await stateFor(line, [3, null, 4], "rev-gapped-line")).toBe("unfit");
     expect(await stateFor(line, [null, 3, 4], "rev-two-line")).toBe("ready");
     expect(await stateFor(sortedBar, [null, 2], "rev-one-bar")).toBe("ready");
+  });
+
+  it("reads a line in date order, the sort its chart saves", async () => {
+    hostReturns();
+    queryDataFrame.mockResolvedValue(page([["2026-01-01", 1]]));
+    await fetchChartStarterAggregate(
+      { ...INSIGHT, reporting: { limit: 30 } },
+      line,
+      metricFor(line),
+    );
+    expect(requestHost.mock.calls[0]![1].insight.sorts).toEqual([
+      { field: DAY.columnName, direction: "asc" },
+    ]);
+  });
+
+  it("asks again when a relative date range moves to a new day", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-03-01T23:59:00Z"));
+      hostReturns();
+      queryDataFrame.mockResolvedValue(page([["North", 1]]));
+      const lastWeek = {
+        ...INSIGHT,
+        reporting: {
+          dateRange: {
+            fieldId: DAY.id,
+            range: { type: "last_complete_days" as const, count: 7 },
+          },
+        },
+      };
+      const { result, rerender } = renderHook(
+        ({ insight }) =>
+          useChartStarterPoints(
+            insight,
+            countBar,
+            "rev-clock",
+            metricFor(countBar),
+          ),
+        { initialProps: { insight: lastWeek } },
+      );
+      await waitFor(() => expect(result.current.status).toBe("ready"));
+      rerender({ insight: { ...lastWeek } });
+      expect(requestHost).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(new Date("2026-03-02T00:01:00Z"));
+      rerender({ insight: { ...lastWeek } });
+      await waitFor(() => expect(requestHost).toHaveBeenCalledTimes(2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("scopes a relative range by the day or month it resolves in", () => {
+    const withRange = (range: object) =>
+      ({
+        ...INSIGHT,
+        reporting: { dateRange: { fieldId: DAY.id, range } },
+      }) as never;
+    const at = (iso: string) => new Date(iso).getTime();
+    const monthly = withRange({ type: "this_month" });
+    expect(chartStarterQueryScope(monthly, at("2026-03-01T00:00:00Z"))).toBe(
+      chartStarterQueryScope(monthly, at("2026-03-31T23:00:00Z")),
+    );
+    expect(
+      chartStarterQueryScope(monthly, at("2026-03-31T23:00:00Z")),
+    ).not.toBe(chartStarterQueryScope(monthly, at("2026-04-01T00:00:00Z")));
+    const toDate = withRange({ type: "month_to_date" });
+    expect(chartStarterQueryScope(toDate, at("2026-03-01T12:00:00Z"))).not.toBe(
+      chartStarterQueryScope(toDate, at("2026-03-02T12:00:00Z")),
+    );
+    const fixed = withRange({
+      type: "absolute",
+      start: "2026-01-01",
+      end: "2026-02-01",
+    });
+    expect(chartStarterQueryScope(fixed, at("2026-03-01T00:00:00Z"))).toBe(
+      chartStarterQueryScope(fixed, at("2027-03-01T00:00:00Z")),
+    );
   });
 
   it("asks once per grouping field, whatever metrics pair with it", async () => {

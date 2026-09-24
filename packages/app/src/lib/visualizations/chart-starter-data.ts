@@ -7,6 +7,7 @@ import type {
   InsightFetchDefinition,
   InsightMetric,
   InsightReporting,
+  InsightSort,
   UUID,
 } from "@dashframe/types";
 import { useCallback, useEffect, useState } from "react";
@@ -80,6 +81,58 @@ function cached(
  * fields (measureIds, topN, dateGrains, pivotFields) or add rows and columns
  * (totals, comparison), none of which fit a one-metric thumbnail.
  */
+/**
+ * The sort a starter card saves: a sorted bar largest first, a line in date
+ * order (so it never connects dates out of order, and a limit keeps the
+ * earliest), anything else none.
+ */
+export function chartStarterSorts(
+  suggestion: ChartStarterSuggestion,
+  metric: Pick<InsightMetric, "id">,
+): InsightSort[] | undefined {
+  if (suggestion.sortByValue)
+    return [{ field: metricIdToColumnAlias(metric.id), direction: "desc" }];
+  if (suggestion.chartType === "line")
+    return [
+      {
+        field: suggestion.group.columnName ?? suggestion.group.name,
+        direction: "asc",
+      },
+    ];
+  return undefined;
+}
+
+/** Relative ranges that move every day; the others move every month. */
+const DAILY_RANGES = new Set([
+  "last_complete_days",
+  "last_complete_weeks",
+  "month_to_date",
+  "year_to_date",
+]);
+
+/**
+ * Everything besides the card itself that decides what a card's query
+ * returns: filters, joins, the reporting settings it forwards, and, for a
+ * relative date range, the UTC day or month it resolves in.
+ */
+export function chartStarterQueryScope(
+  insight: StarterQueryInsight,
+  now: number = Date.now(),
+): string {
+  const reporting = starterReporting(insight.reporting);
+  const range = reporting?.dateRange?.range;
+  const day = new Date(now).toISOString().slice(0, 10);
+  let period: string | null = null;
+  if (range && range.type !== "absolute")
+    period = DAILY_RANGES.has(range.type) ? day : day.slice(0, 7);
+  return JSON.stringify([
+    insight.filters ?? [],
+    insight.joins ?? [],
+    reporting ?? null,
+    period,
+  ]);
+}
+
 function starterReporting(
   reporting: InsightReporting | undefined,
 ): InsightReporting | undefined {
@@ -118,18 +171,9 @@ export async function fetchChartStarterAggregate(
     filters: insight.filters,
     joins: insight.joins,
     reporting: starterReporting(insight.reporting),
-    // A sorted bar saves a largest-first sort; with a row limit it decides
-    // which groups the chart keeps, so the preview keeps the same ones.
-    ...(suggestion.sortByValue
-      ? {
-          sorts: [
-            {
-              field: metricIdToColumnAlias(metric.id),
-              direction: "desc" as const,
-            },
-          ],
-        }
-      : {}),
+    // The sort the card saves; with a row limit it decides which groups the
+    // chart keeps, so the preview keeps the same ones.
+    sorts: chartStarterSorts(suggestion, metric),
   };
   // A presentation makes the host read the table's published data instead of
   // pulling the source again (see createInsightMaterializer), so a card never costs
@@ -315,19 +359,14 @@ export function useChartStarterPoints(
   metric: InsightMetric,
 ): ChartStarterPointsState & { retry: () => void } {
   const { id: _metricId, ...metricDefinition } = metric;
-  const scope = [
-    insight.filters ?? [],
-    insight.joins ?? [],
-    starterReporting(insight.reporting) ?? null,
-  ];
+  const scope = chartStarterQueryScope(insight);
   const key = JSON.stringify([
     revision,
     suggestion.key,
     metricDefinition,
-    suggestion.sortByValue,
-    ...scope,
+    scope,
   ]);
-  const countKey = JSON.stringify([revision, suggestion.group.id, ...scope]);
+  const countKey = JSON.stringify([revision, suggestion.group.id, scope]);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
     key: string;
