@@ -115,6 +115,34 @@ describe("suggestChartStarters", () => {
     expect(textOnly.suggest()).toEqual(["barY count() by Status"]);
   });
 
+  it("draws a line only over at least two dates", () => {
+    const oneDate = table(
+      [
+        { name: "Date", type: "date" },
+        { name: "Sales", type: "number" },
+      ],
+      [
+        ["2023-01-01", 5],
+        ["2023-01-01", 7],
+        [null, 9],
+      ],
+    );
+    expect(oneDate.suggest().some((card) => card.startsWith("line"))).toBe(
+      false,
+    );
+    const twoDates = table(
+      [
+        { name: "Date", type: "date" },
+        { name: "Sales", type: "number" },
+      ],
+      [
+        ["2023-01-01", 5],
+        ["2023-01-02", 7],
+      ],
+    );
+    expect(twoDates.suggest()).toContain("line sum(Sales) by Date");
+  });
+
   it("counts rows only for text with at most 12 values", () => {
     const values = (count: number) =>
       Array.from({ length: count }, (_, index) => [`v${index}`, index + 1]);

@@ -113,8 +113,10 @@ function candidatesFor(
     (column) => column.analysis.dataType === "string",
   );
   if (rule === "line-over-time") {
+    // One date draws no line: a line needs two points to be seen.
     const dates = columns.filter(
-      (column) => column.analysis.dataType === "date",
+      (column) =>
+        column.analysis.dataType === "date" && column.analysis.cardinality >= 2,
     );
     return dates.flatMap((date) =>
       numbers.map((number) => ({
