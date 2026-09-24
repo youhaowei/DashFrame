@@ -57,7 +57,7 @@ test.describe("CSV to Chart", () => {
     await uploadFile("sales_data.csv");
     await expectNewChartTab(page);
 
-    // Verify column headers (rendered as sortable buttons)
+    // Verify column headers (each opens a column action menu)
     const expectedColumns = [
       "Date",
       "Product",
@@ -67,7 +67,7 @@ test.describe("CSV to Chart", () => {
     ];
     for (const column of expectedColumns) {
       await expect(
-        page.getByRole("button", { name: `Sort by ${column}` }),
+        page.getByRole("button", { name: `${column} column actions` }),
       ).toBeVisible({ timeout: 10_000 });
     }
   });

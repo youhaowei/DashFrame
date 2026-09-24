@@ -2,10 +2,10 @@ import { InsightWorkbench } from "@/components/insights/InsightWorkbench";
 import {
   buildLandChartCommands,
   chartLanding,
-  chartStartTypes,
   countReportsUsingChart,
   isReadyToLand,
   reportsUsingChartLabel,
+  useReportChartTabs,
   type ChartTab,
 } from "@/lib/reports/chart-tabs";
 import {
@@ -98,14 +98,11 @@ export function ReportChartTab({
       report,
       insight,
       name: newChartName(insight, dataTables),
-      chartType: chartStartTypes.get(tab.id),
+      chartType: tab.chartType,
     });
     chartLanding.start(tab.id);
     commitBatch({ commands })
-      .then(() => {
-        chartStartTypes.delete(tab.id);
-        onLanded(tab.id);
-      })
+      .then(() => onLanded(tab.id))
       .catch((error: unknown) => {
         console.error("[ReportChartTab] placing the chart failed:", error);
         landAttemptRef.current = null;
@@ -146,10 +143,10 @@ export function ReportChartTab({
         visualization
           ? undefined
           : {
-              onPickChartType: (chartType) => {
-                if (chartType) chartStartTypes.set(tab.id, chartType);
-                else chartStartTypes.delete(tab.id);
-              },
+              onPickChartType: (chartType) =>
+                useReportChartTabs
+                  .getState()
+                  .setChartType(report.id, tab.id, chartType),
             }
       }
       missingTable={

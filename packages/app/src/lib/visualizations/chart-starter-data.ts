@@ -1,13 +1,13 @@
 import { requestHost } from "@/data/host";
 import { formatCellValue } from "@/lib/cell-formatter";
-import { queryDataFrame } from "@/lib/data-access/data-frames";
+import { queryDataFrame, removeDataFrame } from "@/lib/data-access/data-frames";
 import type {
   Insight,
   InsightFetchDefinition,
   InsightMetric,
   UUID,
 } from "@dashframe/types";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   chartStarterGroupLimit,
   type ChartStarterSuggestion,
@@ -29,12 +29,40 @@ const PAGE_SIZE = 500;
 /** A bar card draws its first (or largest) groups. */
 const BAR_POINTS = 12;
 
+/** How many card aggregates stay cached: a few tables' worth of cards. */
+export const CHART_STARTER_CACHE_LIMIT = 32;
+
 /**
- * Aggregates behind the starter cards, one query per card and cached per
- * table generation: reopening a new chart on the same table asks nothing.
- * A failed query is dropped from the cache so the next mount retries it.
+ * Aggregates behind the starter cards, one query per card, cached by table
+ * generation so reopening a new chart on the same table asks nothing. Least
+ * recently used entries go first once the cache is full; a failed query is
+ * dropped so it can be asked again.
  */
 const cache = new Map<string, Promise<ChartStarterAggregate>>();
+
+function cached(
+  key: string,
+  load: () => Promise<ChartStarterAggregate>,
+): Promise<ChartStarterAggregate> {
+  let pending = cache.get(key);
+  if (pending) {
+    // Most recently used moves to the end of the insertion order.
+    cache.delete(key);
+  } else {
+    pending = load();
+    const settled = pending;
+    settled.catch(() => {
+      if (cache.get(key) === settled) cache.delete(key);
+    });
+  }
+  cache.set(key, pending);
+  while (cache.size > CHART_STARTER_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+  return pending;
+}
 
 function toNumber(value: unknown): number {
   if (typeof value === "number") return value;
@@ -52,14 +80,9 @@ function toNumber(value: unknown): number {
 export async function fetchChartStarterAggregate(
   insight: Pick<Insight, "source" | "filters" | "joins">,
   suggestion: ChartStarterSuggestion,
+  /** The metric a pick would save, so the preview computes the same value. */
+  metric: InsightMetric,
 ): Promise<ChartStarterAggregate> {
-  const metric: InsightMetric = {
-    id: crypto.randomUUID() as UUID,
-    name: "value",
-    sourceTable: suggestion.group.tableId,
-    columnName: suggestion.measure?.columnName,
-    aggregation: suggestion.aggregation,
-  };
   const definition: InsightFetchDefinition = {
     baseTableId: insight.source.sourceId,
     selectedFields: [suggestion.group.id],
@@ -75,6 +98,24 @@ export async function fetchChartStarterAggregate(
     presentation: { dimensions: [suggestion.group.id] },
   });
   if (result.status === "failed") throw new Error(result.message);
+  try {
+    return await readAggregate(result, suggestion);
+  } finally {
+    // The result frame is this card's alone; release it once read so
+    // thumbnails never pile up in the workspace's frame list.
+    removeDataFrame(result.dataFrameId as UUID).catch((error: unknown) =>
+      console.warn("[chart-starter] releasing a thumbnail frame failed", error),
+    );
+  }
+}
+
+async function readAggregate(
+  result: {
+    dataFrameId: string;
+    schema: readonly { id: string }[];
+  },
+  suggestion: ChartStarterSuggestion,
+): Promise<ChartStarterAggregate> {
   // The row count or sum is the metric column; the other one is the group.
   const columns = result.schema.filter(
     (column) => column.id !== "__report_grouping",
@@ -95,7 +136,7 @@ export async function fetchChartStarterAggregate(
   const rows: Record<string, unknown>[] = [];
   let groups = 0;
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const page = await queryDataFrame(result.dataFrameId, {
+    const page = await queryDataFrame(result.dataFrameId as UUID, {
       offset,
       limit: isLine ? PAGE_SIZE : BAR_POINTS,
       sort,
@@ -130,33 +171,34 @@ export function useChartStarterPoints(
   insight: Pick<Insight, "source" | "filters" | "joins">,
   suggestion: ChartStarterSuggestion,
   revision: string,
-): ChartStarterPointsState {
+  metric: InsightMetric,
+): ChartStarterPointsState & { retry: () => void } {
+  const { id: _metricId, ...metricDefinition } = metric;
   const key = JSON.stringify([
     revision,
     suggestion.key,
+    metricDefinition,
     insight.filters ?? [],
     insight.joins ?? [],
   ]);
+  const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
     key: string;
+    attempt: number;
     value: ChartStarterPointsState;
-  }>({ key, value: { status: "loading" } });
+  }>({ key, attempt, value: { status: "loading" } });
 
   useEffect(() => {
     let live = true;
-    let pending = cache.get(key);
-    if (!pending) {
-      pending = fetchChartStarterAggregate(insight, suggestion);
-      cache.set(key, pending);
-      pending.catch(() => {
-        if (cache.get(key) === pending) cache.delete(key);
-      });
-    }
+    const pending = cached(key, () =>
+      fetchChartStarterAggregate(insight, suggestion, metric),
+    );
     pending.then(
       ({ points, groups }) => {
         if (!live) return;
         setState({
           key,
+          attempt,
           value:
             groups > chartStarterGroupLimit(suggestion.rule)
               ? { status: "unfit" }
@@ -164,15 +206,21 @@ export function useChartStarterPoints(
         });
       },
       () => {
-        if (live) setState({ key, value: { status: "failed" } });
+        if (live) setState({ key, attempt, value: { status: "failed" } });
       },
     );
     return () => {
       live = false;
     };
-    // The key covers everything the query reads.
+    // The key covers everything the query reads; a retry asks again.
     // oxlint-disable-next-line react-hooks-js/exhaustive-deps -- key is the structural dependency.
-  }, [key]);
+  }, [key, attempt]);
 
-  return state.key === key ? state.value : { status: "loading" };
+  // A failed query has left the cache, so the next attempt asks the host.
+  const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  const current =
+    state.key === key && state.attempt === attempt
+      ? state.value
+      : { status: "loading" as const };
+  return { ...current, retry };
 }

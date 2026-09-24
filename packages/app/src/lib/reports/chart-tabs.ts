@@ -31,6 +31,12 @@ export interface ChartTab {
    * report finishes the close (see `reconcileNewChartTab`).
    */
   closing?: true;
+  /**
+   * The chart type a picked suggestion plots, which the new chart lands as
+   * (a bar when absent). Kept with the tab so a reload between the pick and
+   * the landing keeps it.
+   */
+  chartType?: VisualizationType;
 }
 
 interface ReportChartTabsState {
@@ -40,6 +46,12 @@ interface ReportChartTabsState {
   close: (reportId: string, tabId: string) => void;
   /** Its insight exists now. */
   created: (reportId: string, tabId: string) => void;
+  /** The chart type a new chart lands as; `undefined` clears it. */
+  setChartType: (
+    reportId: string,
+    tabId: string,
+    chartType: VisualizationType | undefined,
+  ) => void;
   /** Starts (or, after a failed discard, cancels) closing a new chart. */
   setClosing: (reportId: string, tabId: string, closing: boolean) => void;
   /**
@@ -120,6 +132,15 @@ export const useReportChartTabs = create<ReportChartTabsState>()(
             tabs.map((tab) =>
               tab.id === tabId ? withoutFlag(tab, "creating") : tab,
             ),
+          ),
+        setChartType: (reportId, tabId, chartType) =>
+          update(reportId, (tabs) =>
+            tabs.map((tab) => {
+              if (tab.id !== tabId || tab.insightId === undefined) return tab;
+              if (chartType) return { ...tab, chartType };
+              const { chartType: _cleared, ...rest } = tab;
+              return rest;
+            }),
           ),
         setClosing: (reportId, tabId, closing) =>
           update(reportId, (tabs) =>
@@ -211,13 +232,6 @@ function trackWrite(kind: keyof ChartWritesState) {
 
 export const chartCreating = trackWrite("creating");
 export const chartLanding = trackWrite("landing");
-
-/**
- * The chart type a new chart lands as, by tab: set when a suggested chart is
- * picked, read when its tile lands. Absent means a bar. Module-level so a
- * remount between the pick and the landing keeps it.
- */
-export const chartStartTypes = new Map<string, VisualizationType>();
 
 /**
  * New charts whose insight is being discarded. Module-level so leaving and

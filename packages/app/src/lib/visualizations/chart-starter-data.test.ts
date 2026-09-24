@@ -12,16 +12,22 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { requestHost, queryDataFrame } = vi.hoisted(() => ({
+const { requestHost, queryDataFrame, removeDataFrame } = vi.hoisted(() => ({
   requestHost: vi.fn(),
   queryDataFrame: vi.fn(),
+  removeDataFrame: vi.fn(),
 }));
 vi.mock("@/data/host", () => ({ requestHost }));
-vi.mock("@/lib/data-access/data-frames", () => ({ queryDataFrame }));
+vi.mock("@/lib/data-access/data-frames", () => ({
+  queryDataFrame,
+  removeDataFrame,
+}));
 
-import type { Field, Insight, UUID } from "@dashframe/types";
+import type { Field, Insight, InsightMetric, UUID } from "@dashframe/types";
+import { act } from "react";
 import type { ChartStarterSuggestion } from "./chart-starter";
 import {
+  CHART_STARTER_CACHE_LIMIT,
   fetchChartStarterAggregate,
   useChartStarterPoints,
 } from "./chart-starter-data";
@@ -102,9 +108,19 @@ const line: ChartStarterSuggestion = {
   sortByValue: false,
 };
 
+const metricFor = (suggestion: ChartStarterSuggestion): InsightMetric => ({
+  id: "30000000-0000-4000-8000-0000000000ff" as UUID,
+  name: "Total Sales",
+  sourceTable: TABLE_ID,
+  columnName: suggestion.measure?.columnName,
+  aggregation: suggestion.aggregation,
+});
+
 beforeEach(() => {
   requestHost.mockReset();
   queryDataFrame.mockReset();
+  removeDataFrame.mockReset();
+  removeDataFrame.mockResolvedValue(undefined);
 });
 
 describe("fetchChartStarterAggregate", () => {
@@ -117,7 +133,11 @@ describe("fetchChartStarterAggregate", () => {
       ]),
     );
 
-    const aggregate = await fetchChartStarterAggregate(INSIGHT, sortedBar);
+    const aggregate = await fetchChartStarterAggregate(
+      INSIGHT,
+      sortedBar,
+      metricFor(sortedBar),
+    );
 
     expect(requestHost).toHaveBeenCalledWith("fetchData", {
       insight: expect.objectContaining({
@@ -129,6 +149,8 @@ describe("fetchChartStarterAggregate", () => {
       }),
       presentation: { dimensions: [REGION.id] },
     });
+    // The result frame is the card's alone and is released once read.
+    expect(removeDataFrame).toHaveBeenCalledWith("frame-1");
     expect(queryDataFrame).toHaveBeenCalledWith("frame-1", {
       offset: 0,
       limit: 12,
@@ -161,7 +183,11 @@ describe("fetchChartStarterAggregate", () => {
         ),
       );
 
-    const aggregate = await fetchChartStarterAggregate(INSIGHT, line);
+    const aggregate = await fetchChartStarterAggregate(
+      INSIGHT,
+      line,
+      metricFor(line),
+    );
 
     expect(queryDataFrame.mock.calls.map(([, options]) => options)).toEqual([
       {
@@ -176,6 +202,30 @@ describe("fetchChartStarterAggregate", () => {
       },
     ]);
     expect(aggregate.points).toHaveLength(520);
+  });
+
+  it("releases the result frame when reading it fails", async () => {
+    hostReturns();
+    queryDataFrame.mockResolvedValue({
+      status: "failed",
+      code: "X",
+      message: "gone",
+    });
+    await expect(
+      fetchChartStarterAggregate(INSIGHT, countBar, metricFor(countBar)),
+    ).rejects.toThrow("gone");
+    expect(removeDataFrame).toHaveBeenCalledWith("frame-1");
+  });
+
+  it("sends the metric the pick would save, contract included", async () => {
+    hostReturns();
+    queryDataFrame.mockResolvedValue(page([["North", 1]]));
+    const metric = {
+      ...metricFor(sortedBar),
+      contract: { kind: "additive" as const },
+    };
+    await fetchChartStarterAggregate(INSIGHT, sortedBar, metric);
+    expect(requestHost.mock.calls[0]![1].insight.metrics).toEqual([metric]);
   });
 });
 
@@ -193,29 +243,57 @@ describe("useChartStarterPoints", () => {
     );
 
     const { result } = renderHook(() =>
-      useChartStarterPoints(INSIGHT, countBar, "rev-unfit"),
+      useChartStarterPoints(
+        INSIGHT,
+        countBar,
+        "rev-unfit",
+        metricFor(countBar),
+      ),
     );
     await waitFor(() => expect(result.current.status).toBe("unfit"));
   });
 
-  it("retries a failed query on the next mount", async () => {
+  it("retries a failed query without remounting", async () => {
     requestHost.mockRejectedValueOnce(new Error("offline"));
-    const first = renderHook(() =>
-      useChartStarterPoints(INSIGHT, countBar, "rev-retry"),
+    const { result } = renderHook(() =>
+      useChartStarterPoints(
+        INSIGHT,
+        countBar,
+        "rev-retry",
+        metricFor(countBar),
+      ),
     );
-    await waitFor(() => expect(first.result.current.status).toBe("failed"));
-    first.unmount();
+    await waitFor(() => expect(result.current.status).toBe("failed"));
 
     hostReturns();
     queryDataFrame.mockResolvedValue(page([["North", 2]]));
-    const second = renderHook(() =>
-      useChartStarterPoints(INSIGHT, countBar, "rev-retry"),
-    );
+    act(() => result.current.retry());
     await waitFor(() =>
-      expect(second.result.current).toEqual({
+      expect(result.current).toMatchObject({
         status: "ready",
         points: [{ label: "North", value: 2 }],
       }),
     );
+  });
+
+  it("keeps a bounded number of aggregates, dropping the least recent", async () => {
+    hostReturns();
+    queryDataFrame.mockResolvedValue(page([["North", 1]]));
+    const load = async (revision: string) => {
+      const { result, unmount } = renderHook(() =>
+        useChartStarterPoints(INSIGHT, countBar, revision, metricFor(countBar)),
+      );
+      await waitFor(() => expect(result.current.status).toBe("ready"));
+      unmount();
+    };
+    for (let index = 0; index <= CHART_STARTER_CACHE_LIMIT; index++)
+      await load(`rev-bound-${index}`);
+    const asked = requestHost.mock.calls.length;
+
+    // The newest is still cached; the oldest was dropped and is asked again.
+    await load(`rev-bound-${CHART_STARTER_CACHE_LIMIT}`);
+    expect(requestHost.mock.calls.length).toBe(asked);
+    await load("rev-bound-0");
+    expect(requestHost.mock.calls.length).toBe(asked + 1);
   });
 });

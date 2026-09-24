@@ -258,6 +258,34 @@ describe("useReportChartTabs", () => {
     });
   });
 
+  it("keeps a new chart's picked type through a reload, and drops it on landing", async () => {
+    const { open, setChartType } = useReportChartTabs.getState();
+    open("report-1", { id: "new", insightId: "insight-1" });
+    setChartType("report-1", "new", "line");
+
+    // A reload starts from empty module state and restores the tabs from
+    // session storage.
+    const KEY = "dashframe:report-chart-tabs";
+    const saved = sessionStorage.getItem(KEY);
+    expect(saved).toContain('"chartType":"line"');
+    useReportChartTabs.setState({ tabsByReport: {} });
+    sessionStorage.setItem(KEY, saved!);
+    await useReportChartTabs.persist.rehydrate();
+    expect(useReportChartTabs.getState().tabsByReport["report-1"]).toEqual([
+      { id: "new", insightId: "insight-1", chartType: "line" },
+    ]);
+
+    useReportChartTabs.getState().setChartType("report-1", "new", undefined);
+    expect(useReportChartTabs.getState().tabsByReport["report-1"]).toEqual([
+      { id: "new", insightId: "insight-1" },
+    ]);
+    useReportChartTabs.getState().setChartType("report-1", "new", "barX");
+    useReportChartTabs.getState().land("report-1", "new");
+    expect(useReportChartTabs.getState().tabsByReport["report-1"]).toEqual([
+      { id: "new" },
+    ]);
+  });
+
   it("turns a landed new chart into a saved one in place", () => {
     const { open, land, close } = useReportChartTabs.getState();
     open("report-1", { id: "a" });

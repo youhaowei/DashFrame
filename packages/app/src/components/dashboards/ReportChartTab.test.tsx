@@ -44,7 +44,6 @@ import type {
   UUID,
   Visualization,
 } from "@dashframe/types";
-import { chartStartTypes } from "@/lib/reports/chart-tabs";
 import { newChartName, ReportChartTab } from "./ReportChartTab";
 
 const FIELD_ID = "10000000-0000-4000-8000-000000000001" as UUID;
@@ -136,19 +135,26 @@ describe("ReportChartTab — a new chart", () => {
 });
 
 describe("ReportChartTab — a new chart started from a suggestion", () => {
-  it("lands as the chart type the suggestion plots", async () => {
+  it("lands as the chart type its tab carries", async () => {
     const onLanded = vi.fn();
-    chartStartTypes.set("new-chart", "line");
-    renderNewChart(
-      insight({ selectedFields: [FIELD_ID], metrics: [METRIC] }),
-      onLanded,
+    const ready = insight({ selectedFields: [FIELD_ID], metrics: [METRIC] });
+    render(
+      <ReportChartTab
+        report={REPORT}
+        tab={{ id: "new-chart", insightId: ready.id, chartType: "line" }}
+        reports={[REPORT]}
+        visualizations={[]}
+        insights={[ready]}
+        insightsLoaded
+        dataTables={[TABLE]}
+        onLanded={onLanded}
+      />,
     );
     await waitFor(() => expect(onLanded).toHaveBeenCalledWith("new-chart"));
     const { commands } = mockCommitBatch.mock.calls[0]![0] as {
       commands: { path: string; args: Record<string, unknown> }[];
     };
     expect(commands[0]!.args).toMatchObject({ visualizationType: "line" });
-    expect(chartStartTypes.has("new-chart")).toBe(false);
   });
 });
 

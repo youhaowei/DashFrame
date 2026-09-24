@@ -104,9 +104,10 @@ function usableColumns(
 function candidatesFor(
   rule: ChartStarterRule,
   columns: readonly Column[],
+  canSum: (field: Field) => boolean,
 ): ChartStarterSuggestion[] {
   const numbers = columns.filter(
-    (column) => column.analysis.dataType === "number",
+    (column) => column.analysis.dataType === "number" && canSum(column.field),
   );
   const texts = columns.filter(
     (column) => column.analysis.dataType === "string",
@@ -166,12 +167,21 @@ export function suggestChartStarters(
   fields: readonly Field[],
   analysis: readonly ColumnAnalysis[],
   rowCount: number,
-  /** How many to return; the starter asks for every candidate as backups. */
-  limit = MAX_CHART_STARTER_SUGGESTIONS,
+  options: {
+    /** How many to return; the starter asks for every candidate as backups. */
+    limit?: number;
+    /**
+     * Whether a plain sum of this number field is a valid metric. A field
+     * that fails (a ratio or non-additive measure) is never summed.
+     */
+    canSum?: (field: Field) => boolean;
+  } = {},
 ): ChartStarterSuggestion[] {
+  const { limit = MAX_CHART_STARTER_SUGGESTIONS, canSum = () => true } =
+    options;
   if (rowCount === 0 || analysis.length > MAX_CHART_STARTER_COLUMNS) return [];
   const columns = usableColumns(fields, analysis);
-  const queues = RULE_ORDER.map((rule) => candidatesFor(rule, columns));
+  const queues = RULE_ORDER.map((rule) => candidatesFor(rule, columns, canSum));
   const picked: ChartStarterSuggestion[] = [];
   const take = (queue: ChartStarterSuggestion[], index: number) => {
     const [suggestion] = queue.splice(index, 1);

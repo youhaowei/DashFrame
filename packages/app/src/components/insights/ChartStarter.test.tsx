@@ -16,9 +16,10 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { mockCommitBatch, pointsState } = vi.hoisted(() => ({
+const { mockCommitBatch, pointsState, retry } = vi.hoisted(() => ({
   mockCommitBatch: vi.fn(),
   pointsState: vi.fn(),
+  retry: vi.fn(),
 }));
 
 vi.mock("convex/react", async (importOriginal) => ({
@@ -28,8 +29,11 @@ vi.mock("convex/react", async (importOriginal) => ({
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 // Thumbnails query the host; each test says what a card's aggregate found.
 vi.mock("@/lib/visualizations/chart-starter-data", () => ({
-  useChartStarterPoints: (_insight: unknown, suggestion: { key: string }) =>
-    pointsState(suggestion.key),
+  useChartStarterPoints: (
+    _insight: unknown,
+    suggestion: { key: string },
+    revision: string,
+  ) => ({ ...pointsState(suggestion.key, revision), retry }),
 }));
 
 import { analyzeFrameSample } from "@/lib/visualizations/analyze-frame-sample";
@@ -44,7 +48,12 @@ import {
   type InsightMetric,
   type UUID,
 } from "@dashframe/types";
-import { ChartStarter } from "./ChartStarter";
+import {
+  ChartStarter,
+  chartStarterMetric,
+  thumbnailGeometry,
+} from "./ChartStarter";
+import { isPlainSumColumn } from "./config-panel/MetricsSection";
 
 const TABLE_ID = "20000000-0000-4000-8000-000000000000" as UUID;
 const INSIGHT_ID = "20000000-0000-4000-8000-0000000000aa" as UUID;
@@ -90,8 +99,12 @@ const ROWS = [
 ];
 const ANALYSIS = analyzeFrameSample(SCHEMA, ROWS, ROWS.length);
 
-function renderStarter(insight: Insight = INSIGHT, onPickChartType = vi.fn()) {
-  render(
+function starter(
+  insight: Insight,
+  onPickChartType: (type: unknown) => void,
+  sourceRevision: string,
+) {
+  return (
     <ChartStarter
       insight={insight}
       dataTable={TABLE}
@@ -102,15 +115,21 @@ function renderStarter(insight: Insight = INSIGHT, onPickChartType = vi.fn()) {
         analysis: ANALYSIS,
       }}
       suggestions={suggestChartStarters(FIELDS, ANALYSIS, ROWS.length)}
-      sourceRevision="rev-1"
+      sourceRevision={sourceRevision}
       columnDisplayNames={{
         [alias(CATEGORY)]: "Category",
         [alias(SALES)]: "Sales",
       }}
       onPickChartType={onPickChartType}
-    />,
+    />
   );
-  return { onPickChartType };
+}
+
+function renderStarter(insight: Insight = INSIGHT, onPickChartType = vi.fn()) {
+  const view = render(starter(insight, onPickChartType, "rev-1"));
+  const rerenderAt = (revision: string) =>
+    view.rerender(starter(insight, onPickChartType, revision));
+  return { onPickChartType, rerenderAt };
 }
 
 async function committed(): Promise<Command[]> {
@@ -133,6 +152,7 @@ describe("ChartStarter", () => {
     mockCommitBatch.mockResolvedValue(undefined);
     pointsState.mockReset();
     pointsState.mockReturnValue({ status: "ready", points: [] });
+    retry.mockReset();
   });
 
   it("cannot pick a card before its aggregate confirms the fit", () => {
@@ -265,5 +285,149 @@ describe("ChartStarter", () => {
       aggregation: "sum",
       columnName: "Sales",
     });
+  });
+
+  it("brings back a card that no longer fits once the source changes", async () => {
+    pointsState.mockImplementation((key: string, revision: string) =>
+      key.startsWith("count-by-category") && revision === "rev-1"
+        ? { status: "unfit" }
+        : { status: "ready", points: [] },
+    );
+    const { rerenderAt } = renderStarter();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Count by Category" })).toBe(
+        null,
+      ),
+    );
+
+    rerenderAt("rev-2");
+    await screen.findByRole("button", { name: "Count by Category" });
+  });
+
+  it("offers a retry on a card whose preview failed", () => {
+    pointsState.mockImplementation((key: string) =>
+      key.startsWith("count-by-category")
+        ? { status: "failed" }
+        : { status: "ready", points: [] },
+    );
+    renderStarter();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Retry the preview of Count by Category",
+      }),
+    );
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds the header actions while a write is pending", async () => {
+    let finish!: () => void;
+    mockCommitBatch.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    renderStarter();
+    fireEvent.click(screen.getByRole("button", { name: "Count by Category" }));
+    await waitFor(() => expect(mockCommitBatch).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Category column actions" }),
+    );
+    const item = await screen.findByRole("menuitem", {
+      name: /Group by Category/,
+    });
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(item);
+    expect(mockCommitBatch).toHaveBeenCalledTimes(1);
+    finish();
+  });
+});
+
+describe("chart starter metrics", () => {
+  const withSalesContract = (contract: Record<string, unknown>) =>
+    ({
+      ...TABLE,
+      metrics: [
+        {
+          id: "20000000-0000-4000-8000-0000000000cc",
+          name: "Sales",
+          columnName: "Sales",
+          aggregation: "sum",
+          contract,
+        },
+      ],
+    }) as unknown as DataTable;
+
+  it("never suggests summing a ratio measure", () => {
+    const table = withSalesContract({ kind: "ratio" });
+    expect(isPlainSumColumn(table, "Sales")).toBe(false);
+    const suggestions = suggestChartStarters(FIELDS, ANALYSIS, ROWS.length, {
+      canSum: (field) =>
+        !!field.columnName && isPlainSumColumn(table, field.columnName),
+    });
+    expect(suggestions.length).toBeGreaterThan(0);
+    expect(suggestions.every((s) => s.aggregation !== "sum")).toBe(true);
+  });
+
+  it("previews and saves the same metric, contract included", () => {
+    const table = withSalesContract({ kind: "additive" });
+    const sum = suggestChartStarters(FIELDS, ANALYSIS, ROWS.length).find(
+      (s) => s.aggregation === "sum",
+    )!;
+    expect(chartStarterMetric(table, sum)).toMatchObject({
+      aggregation: "sum",
+      columnName: "Sales",
+      contract: { kind: "additive" },
+    });
+  });
+});
+
+describe("thumbnailGeometry", () => {
+  const points = (...values: number[]) =>
+    values.map((value, index) => ({ label: `${index}`, value }));
+
+  it("draws all-negative bars down from a zero baseline", () => {
+    const geometry = thumbnailGeometry("barY", points(-5, -10))!;
+    expect(geometry.zero).toBeDefined();
+    const zeroY = geometry.zero!.y1;
+    for (const rect of geometry.rects) {
+      expect(rect.y).toBeCloseTo(zeroY);
+      expect(rect.height).toBeGreaterThan(1);
+    }
+    expect(geometry.rects[1]!.height).toBeGreaterThan(
+      geometry.rects[0]!.height,
+    );
+  });
+
+  it("draws mixed signs on both sides of zero", () => {
+    const geometry = thumbnailGeometry("barY", points(10, -10))!;
+    const zeroY = geometry.zero!.y1;
+    const [up, down] = geometry.rects as [
+      (typeof geometry.rects)[number],
+      (typeof geometry.rects)[number],
+    ];
+    expect(up.y + up.height).toBeCloseTo(zeroY);
+    expect(down.y).toBeCloseTo(zeroY);
+    expect(up.height).toBeCloseTo(down.height);
+  });
+
+  it("draws sideways bars left of zero for negatives", () => {
+    const geometry = thumbnailGeometry("barX", points(4, -4))!;
+    const zeroX = geometry.zero!.x1;
+    expect(geometry.rects[0]!.x).toBeCloseTo(zeroX);
+    expect(geometry.rects[1]!.x + geometry.rects[1]!.width).toBeCloseTo(zeroX);
+  });
+
+  it("keeps an all-negative line inside the frame", () => {
+    const geometry = thumbnailGeometry("line", points(-1, -3, -2))!;
+    const ys = geometry
+      .line!.split(" ")
+      .map((pair) => Number(pair.split(",")[1]));
+    expect(new Set(ys).size).toBe(3);
+    expect(Math.max(...ys)).toBeGreaterThan(geometry.zero!.y1);
+  });
+
+  it("adds no baseline for all-positive data", () => {
+    expect(thumbnailGeometry("barY", points(1, 2))!.zero).toBeUndefined();
   });
 });

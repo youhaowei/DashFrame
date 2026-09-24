@@ -62,6 +62,7 @@ import {
 } from "react";
 import { ChartStarter, type ChartStarterSample } from "./ChartStarter";
 import { InsightConfigPanel } from "./config-panel";
+import { isPlainSumColumn } from "./config-panel/MetricsSection";
 import {
   INSIGHT_CANVAS_CHART_TYPES,
   VisualizationConfigPanel,
@@ -664,12 +665,18 @@ export function InsightWorkbench({
             authoringTable?.fields ?? [],
             sample.analysis,
             sample.totalCount,
-            // Every candidate: a card that turns out not to fit gives way to
-            // the next one.
-            Infinity,
+            {
+              // Every candidate: a card that turns out not to fit gives way
+              // to the next one.
+              limit: Infinity,
+              canSum: (field) =>
+                !!authoringTable &&
+                !!field.columnName &&
+                isPlainSumColumn(authoringTable, field.columnName),
+            },
           )
         : [],
-    [authoringTable?.fields, sample],
+    [authoringTable, sample],
   );
   const sourceRevision = useMemo(
     () => buildInsightSourceRevision(insight, allDataTables, allInsights),
@@ -779,7 +786,12 @@ export function InsightWorkbench({
         result={savedInsightResult}
         showChart={activeView.kind === "visualization"}
         starter={
-          starter && sample && starterSuggestions.length > 0 ? (
+          // A failed run shows the result's error and retry, not rows from
+          // an earlier run.
+          starter &&
+          sample &&
+          !encodingResultError &&
+          starterSuggestions.length > 0 ? (
             <ChartStarter
               insight={insight}
               dataTable={authoringTable}

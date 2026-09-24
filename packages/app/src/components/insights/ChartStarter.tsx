@@ -19,6 +19,7 @@ import {
   type DataTable,
   type Field,
   type Insight,
+  type InsightMetric,
   type VisualizationType,
 } from "@dashframe/types";
 import {
@@ -34,7 +35,7 @@ import {
 import { ChevronDownIcon } from "@wystack/ui-react/icons";
 import { useMutation } from "convex/react";
 import { Hash, Rows3, Sigma } from "lucide-react";
-import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { FieldTypeIcon } from "./config-panel/FieldsSection";
 import { buildDefaultMetric } from "./config-panel/MetricsSection";
@@ -60,17 +61,27 @@ type StarterInsight = Pick<
   | "reporting"
 >;
 
+/**
+ * The metric a suggestion measures, as a pick saves it and as its thumbnail
+ * computes it: one builder, so the preview is the chart.
+ */
+export function chartStarterMetric(
+  dataTable: DataTable,
+  suggestion: ChartStarterSuggestion,
+): InsightMetric {
+  return buildDefaultMetric(
+    dataTable,
+    suggestion.aggregation,
+    suggestion.measure?.columnName,
+  );
+}
+
 /** "Total Sales by Date": the name the chart lands with. */
 export function chartStarterTitle(
   dataTable: DataTable,
   suggestion: ChartStarterSuggestion,
 ): string {
-  const metric = buildDefaultMetric(
-    dataTable,
-    suggestion.aggregation,
-    suggestion.measure?.columnName,
-  );
-  return `${metric.name} by ${suggestion.group.name}`;
+  return `${chartStarterMetric(dataTable, suggestion).name} by ${suggestion.group.name}`;
 }
 
 /**
@@ -83,11 +94,7 @@ export function buildChartStarterCommands(
   dataTable: DataTable,
   suggestion: ChartStarterSuggestion,
 ): Command[] {
-  const metric = buildDefaultMetric(
-    dataTable,
-    suggestion.aggregation,
-    suggestion.measure?.columnName,
-  );
+  const metric = chartStarterMetric(dataTable, suggestion);
   return buildInsightUpdateCommands(insight.id, insight, {
     selectedFields: [suggestion.group.id],
     metrics: [metric],
@@ -145,6 +152,83 @@ function summary(points: readonly ChartStarterPoint[]): string {
   return points.length > 4 ? `${shown.join(", ")}, …` : shown.join(", ");
 }
 
+export interface ThumbnailGeometry {
+  /** A line's points, "x,y x,y …"; bars' rectangles otherwise. */
+  line?: string;
+  rects: { x: number; y: number; width: number; height: number }[];
+  /** The zero baseline, drawn when negative values put it inside the box. */
+  zero?: { x1: number; y1: number; x2: number; y2: number };
+}
+
+const THUMB_PAD = 4;
+
+/**
+ * Marks for a card thumbnail, scaled over the values' range together with
+ * zero, so bars grow from a zero baseline in either direction and a series
+ * that is all negative still draws.
+ */
+export function thumbnailGeometry(
+  chartType: ChartStarterSuggestion["chartType"],
+  points: readonly ChartStarterPoint[],
+): ThumbnailGeometry | null {
+  if (points.length === 0) return null;
+  const values = points.map((point) => point.value);
+  const lo = Math.min(0, ...values);
+  let hi = Math.max(0, ...values);
+  // All zero: an empty range would divide by zero; draw along the baseline.
+  if (hi === lo) hi = lo + 1;
+  const share = (value: number) => (value - lo) / (hi - lo);
+  const minimum = (size: number, value: number) =>
+    value === 0 ? size : Math.max(1.5, size);
+
+  if (chartType === "barX") {
+    const shown = points.slice(0, 6);
+    const band = THUMB_HEIGHT / shown.length;
+    const x = (value: number) => share(value) * THUMB_WIDTH;
+    const zero = x(0);
+    return {
+      rects: shown.map((point, index) => ({
+        x: Math.min(zero, x(point.value)),
+        y: index * band + band * 0.12,
+        width: minimum(Math.abs(x(point.value) - zero), point.value),
+        height: band * 0.76,
+      })),
+      ...(lo < 0
+        ? { zero: { x1: zero, y1: 0, x2: zero, y2: THUMB_HEIGHT } }
+        : {}),
+    };
+  }
+  const inner = THUMB_HEIGHT - THUMB_PAD * 2;
+  const y = (value: number) => THUMB_PAD + (1 - share(value)) * inner;
+  const zeroY = y(0);
+  const zero =
+    lo < 0 ? { x1: 0, y1: zeroY, x2: THUMB_WIDTH, y2: zeroY } : undefined;
+  if (chartType === "line") {
+    const step =
+      points.length > 1
+        ? (THUMB_WIDTH - THUMB_PAD * 2) / (points.length - 1)
+        : 0;
+    const line = points
+      .map((point, index) => {
+        const x =
+          points.length > 1 ? THUMB_PAD + index * step : THUMB_WIDTH / 2;
+        return `${x.toFixed(1)},${y(point.value).toFixed(1)}`;
+      })
+      .join(" ");
+    return { line, rects: [], ...(zero ? { zero } : {}) };
+  }
+  const band = THUMB_WIDTH / points.length;
+  return {
+    rects: points.map((point, index) => ({
+      x: index * band + band * 0.18,
+      y: Math.min(zeroY, y(point.value)),
+      width: band * 0.64,
+      height: minimum(Math.abs(y(point.value) - zeroY), point.value),
+    })),
+    ...(zero ? { zero } : {}),
+  };
+}
+
 function Thumbnail({
   chartType,
   points,
@@ -152,59 +236,8 @@ function Thumbnail({
   chartType: ChartStarterSuggestion["chartType"];
   points: readonly ChartStarterPoint[];
 }) {
-  const max = Math.max(0, ...points.map((point) => point.value));
-  if (points.length === 0 || max <= 0) return null;
-  const scale = (value: number) => Math.max(0, value) / max;
-  let marks: ReactNode;
-  if (chartType === "line") {
-    const step =
-      points.length > 1 ? (THUMB_WIDTH - 8) / (points.length - 1) : 0;
-    const coordinates = points.map((point, index) => {
-      const x = points.length > 1 ? 4 + index * step : THUMB_WIDTH / 2;
-      const y = THUMB_HEIGHT - 4 - scale(point.value) * (THUMB_HEIGHT - 8);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    });
-    marks = (
-      <polyline
-        points={coordinates.join(" ")}
-        fill="none"
-        className="stroke-chart-1"
-        strokeWidth={1.75}
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-    );
-  } else if (chartType === "barX") {
-    const shown = points.slice(0, 6);
-    const band = THUMB_HEIGHT / shown.length;
-    marks = shown.map((point, index) => (
-      <rect
-        key={index}
-        x={0}
-        y={index * band + band * 0.12}
-        width={Math.max(2, scale(point.value) * THUMB_WIDTH)}
-        height={band * 0.76}
-        rx={1.5}
-        className="fill-chart-1"
-      />
-    ));
-  } else {
-    const band = THUMB_WIDTH / points.length;
-    marks = points.map((point, index) => {
-      const height = Math.max(2, scale(point.value) * (THUMB_HEIGHT - 3));
-      return (
-        <rect
-          key={index}
-          x={index * band + band * 0.18}
-          y={THUMB_HEIGHT - height}
-          width={band * 0.64}
-          height={height}
-          rx={1.5}
-          className="fill-chart-1"
-        />
-      );
-    });
-  }
+  const geometry = thumbnailGeometry(chartType, points);
+  if (!geometry) return null;
   return (
     <svg
       viewBox={`0 0 ${THUMB_WIDTH} ${THUMB_HEIGHT}`}
@@ -213,13 +246,34 @@ function Thumbnail({
       aria-label={summary(points)}
       className="block h-full w-full"
     >
-      {marks}
+      {geometry.zero && (
+        <line
+          {...geometry.zero}
+          className="stroke-neutral-border"
+          strokeWidth={1}
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
+      {geometry.line !== undefined && (
+        <polyline
+          points={geometry.line}
+          fill="none"
+          className="stroke-chart-1"
+          strokeWidth={1.75}
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
+      {geometry.rects.map((rect, index) => (
+        <rect key={index} {...rect} rx={1.5} className="fill-chart-1" />
+      ))}
     </svg>
   );
 }
 
 function SuggestionCard({
   insight,
+  dataTable,
   suggestion,
   title,
   revision,
@@ -229,6 +283,7 @@ function SuggestionCard({
   onUnfit,
 }: {
   insight: StarterInsight;
+  dataTable: DataTable;
   suggestion: ChartStarterSuggestion;
   title: string;
   revision: string;
@@ -239,7 +294,12 @@ function SuggestionCard({
   /** The table has more groups than the sampled rule saw. */
   onUnfit: (key: string) => void;
 }) {
-  const points = useChartStarterPoints(insight, suggestion, revision);
+  // The preview computes the metric a pick would save, contract and all.
+  const metric = useMemo(
+    () => chartStarterMetric(dataTable, suggestion),
+    [dataTable, suggestion],
+  );
+  const points = useChartStarterPoints(insight, suggestion, revision, metric);
   const ruleId = useId();
   const unfit = points.status === "unfit";
   useEffect(() => {
@@ -251,34 +311,48 @@ function SuggestionCard({
   const confirmed =
     points.status === "ready" || (points.status === "failed" && exact);
   return (
-    <button
-      type="button"
-      disabled={disabled || !confirmed}
-      onClick={onPick}
-      aria-label={title}
-      aria-describedby={ruleId}
-      className="flex min-w-0 flex-col gap-1.5 rounded-lg bg-neutral-bg-muted p-1.5 pb-2 text-left transition-[background-color,box-shadow] duration-200 hover:bg-neutral-bg-emphasis hover:shadow-[var(--surface-shadow)] focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none disabled:pointer-events-none disabled:opacity-60 motion-reduce:transition-none"
-    >
-      <span className="block h-[74px] rounded-md bg-neutral-bg px-2 py-1.5">
-        {points.status === "ready" && (
-          <Thumbnail chartType={suggestion.chartType} points={points.points} />
-        )}
-        {points.status === "failed" && (
-          <span className="flex h-full items-center justify-center text-xs text-neutral-fg-subtle">
-            Preview unavailable
-          </span>
-        )}
-      </span>
-      <span className="block px-1 text-xs leading-snug font-medium text-neutral-fg">
-        {title}
-      </span>
-      <span
-        id={ruleId}
-        className="block px-1 text-xs leading-snug text-neutral-fg-subtle"
+    <div className="relative flex min-w-0">
+      <button
+        type="button"
+        disabled={disabled || !confirmed}
+        onClick={onPick}
+        aria-label={title}
+        aria-describedby={ruleId}
+        className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg bg-neutral-bg-muted p-1.5 pb-2 text-left transition-[background-color,box-shadow] duration-200 hover:bg-neutral-bg-emphasis hover:shadow-[var(--surface-shadow)] focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none disabled:pointer-events-none disabled:opacity-60 motion-reduce:transition-none"
       >
-        {CHART_STARTER_RULE_LABELS[suggestion.rule]}
-      </span>
-    </button>
+        <span className="block h-[74px] rounded-md bg-neutral-bg px-2 py-1.5">
+          {points.status === "ready" && (
+            <Thumbnail
+              chartType={suggestion.chartType}
+              points={points.points}
+            />
+          )}
+        </span>
+        <span className="block px-1 text-xs leading-snug font-medium text-neutral-fg">
+          {title}
+        </span>
+        <span
+          id={ruleId}
+          className="block px-1 text-xs leading-snug text-neutral-fg-subtle"
+        >
+          {CHART_STARTER_RULE_LABELS[suggestion.rule]}
+        </span>
+      </button>
+      {points.status === "failed" && (
+        // A sibling of the card, not inside it: a button cannot hold another.
+        <div className="absolute inset-x-1.5 top-1.5 flex h-[74px] flex-col items-center justify-center gap-1 text-xs text-neutral-fg-subtle">
+          <span>Preview unavailable</span>
+          <button
+            type="button"
+            onClick={points.retry}
+            aria-label={`Retry the preview of ${title}`}
+            className="rounded-sm px-1.5 py-0.5 text-neutral-fg underline-offset-2 transition-colors duration-150 hover:underline focus-visible:ring-2 focus-visible:ring-palette-primary focus-visible:outline-none motion-reduce:transition-none"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -293,6 +367,7 @@ function ColumnHeader({
   analysis,
   exact,
   insight,
+  writing,
   onAction,
 }: {
   label: string;
@@ -302,6 +377,8 @@ function ColumnHeader({
   /** The sample holds every row, so its distinct count is the table's. */
   exact: boolean;
   insight: StarterInsight;
+  /** A write is in flight: actions wait for it to land. */
+  writing: boolean;
   onAction: (field: Field, action: ChartStarterColumnAction) => void;
 }) {
   const numeric = isNumberType(type);
@@ -329,7 +406,7 @@ function ColumnHeader({
   }
   const groupItem = (
     <DropdownMenuItem
-      disabled={grouped}
+      disabled={writing || grouped}
       onClick={() => onAction(field, "group")}
     >
       <Rows3 />
@@ -360,7 +437,10 @@ function ColumnHeader({
           </DropdownMenuLabel>
           {numeric ? (
             <>
-              <DropdownMenuItem onClick={() => onAction(field, "metric")}>
+              <DropdownMenuItem
+                disabled={writing}
+                onClick={() => onAction(field, "metric")}
+              >
                 <Sigma />
                 <span className="flex flex-col">
                   <span className="font-medium">Use as metric</span>
@@ -377,7 +457,7 @@ function ColumnHeader({
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          disabled={counted}
+          disabled={writing || counted}
           onClick={() => onAction(field, "count")}
         >
           <Hash />
@@ -468,18 +548,36 @@ export function ChartStarter({
     );
   };
 
-  const act = (field: Field, action: ChartStarterColumnAction) =>
+  const act = (field: Field, action: ChartStarterColumnAction) => {
+    // Each action composes on the insight it sees; a second one before the
+    // first lands would overwrite it.
+    if (writing) return;
     write(
       buildColumnActionCommands(insight, dataTable, field, action),
       action === "group" ? "Couldn't add the field" : "Couldn't add the metric",
     );
+  };
 
-  // Cards that turned out not to fit drop out; the next candidates move up.
-  const [unfitKeys, setUnfitKeys] = useState<ReadonlySet<string>>(new Set());
+  // Cards that turned out not to fit drop out and the next candidates move
+  // up. The verdicts belong to one table generation: a refresh asks again.
+  const [unfit, setUnfit] = useState<{
+    revision: string;
+    keys: ReadonlySet<string>;
+  }>({ revision: sourceRevision, keys: new Set() });
+  const unfitKeys =
+    unfit.revision === sourceRevision ? unfit.keys : new Set<string>();
   const markUnfit = useCallback(
     (key: string) =>
-      setUnfitKeys((keys) => (keys.has(key) ? keys : new Set(keys).add(key))),
-    [],
+      setUnfit((current) => {
+        const keys =
+          current.revision === sourceRevision
+            ? current.keys
+            : new Set<string>();
+        return keys.has(key)
+          ? current
+          : { revision: sourceRevision, keys: new Set(keys).add(key) };
+      }),
+    [sourceRevision],
   );
   const shown = suggestions
     .filter((suggestion) => !unfitKeys.has(suggestion.key))
@@ -507,6 +605,7 @@ export function ChartStarter({
                 <SuggestionCard
                   key={suggestion.key}
                   insight={insight}
+                  dataTable={dataTable}
                   suggestion={suggestion}
                   title={chartStarterTitle(dataTable, suggestion)}
                   revision={sourceRevision}
@@ -557,6 +656,7 @@ export function ChartStarter({
                       analysis={analysisById.get(column.id)}
                       exact={exact}
                       insight={insight}
+                      writing={writing}
                       onAction={act}
                     />
                   </th>
