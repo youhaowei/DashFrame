@@ -27,14 +27,7 @@ export {
   type ResolvedForAnalysis,
 } from "./encoding-resolution";
 
-export {
-  applyDateTransformToSql,
-  categoricalTransform,
-  getAxisTypeForTransform,
-  getDateTransformLabel,
-  selectTemporalAggregation,
-  temporalTransform,
-} from "./date-transforms";
+export { applyDateTransformToSql } from "./date-transforms";
 
 export {
   resolveEffectiveParams,

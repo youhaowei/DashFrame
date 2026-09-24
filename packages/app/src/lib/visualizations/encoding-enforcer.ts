@@ -36,20 +36,12 @@ import { looksLikeIdentifier } from "@dashframe/types";
 /**
  * Encoding channel for axis selection
  */
-export type EncodingChannel = "x" | "y" | "color" | "size";
-
-/**
- * Result of encoding validation
- */
-export interface EncodingValidationResult {
-  isValid: boolean;
-  blockReason?: string;
-}
+type EncodingChannel = "x" | "y" | "color" | "size";
 
 /**
  * Column suitability for a channel
  */
-export interface ColumnSuitability {
+interface ColumnSuitability {
   suitable: boolean;
   reason?: string;
 }
@@ -784,46 +776,6 @@ export function validateEncoding(
   }
 
   return errors;
-}
-
-/**
- * Check if swapping axes is allowed for a chart type.
- *
- * - Bar charts: swap toggles between vertical and horizontal
- * - Scatter: swap is allowed (both axes accept same types)
- * - Line/Area: swap is NOT allowed (asymmetric constraints)
- */
-export function isSwapAllowed(chartType: VisualizationType): boolean {
-  switch (chartType) {
-    case "barY":
-    case "barX":
-    case "dot":
-      return true;
-    case "line":
-    case "areaY":
-      return false;
-    default:
-      return false;
-  }
-}
-
-/**
- * Get the chart type that results from swapping axes.
- *
- * For bar charts, swapping toggles between vertical and horizontal.
- * For other chart types, the type remains the same.
- */
-export function getSwappedChartType(
-  chartType: VisualizationType,
-): VisualizationType {
-  switch (chartType) {
-    case "barY":
-      return "barX";
-    case "barX":
-      return "barY";
-    default:
-      return chartType;
-  }
 }
 
 /**
