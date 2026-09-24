@@ -163,6 +163,62 @@ describe("ShelfPanel", () => {
     expect(screen.queryByText("no longer exists")).toBeNull();
   });
 
+  it("offers a chip for dragging only while a page target can take it", async () => {
+    seed();
+    function renderCarrying(extra?: React.ReactNode) {
+      return render(
+        <AppDragProvider
+          overlay={(drag) => <p data-testid="carried">{drag.item.label}</p>}
+        >
+          <ShelfScope storageKey={P1}>
+            {extra}
+            <ShelfPanel targetId="shelf-nav" />
+          </ShelfScope>
+        </AppDragProvider>,
+      );
+    }
+    // jsdom has no PointerEvent: a MouseEvent carries the coordinates the
+    // pointer sensor reads, and `isPrimary` is added by hand.
+    function pointer(target: EventTarget, type: string, at: number) {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: at,
+        clientY: at,
+      });
+      Object.defineProperty(event, "isPrimary", { value: true });
+      act(() => {
+        target.dispatchEvent(event);
+      });
+    }
+    function carry(label: string) {
+      const chip = document.querySelector(`[data-shelf-item="${label}"]`)!;
+      pointer(chip, "pointerdown", 0);
+      pointer(document, "pointermove", 40);
+      return chip;
+    }
+
+    // Only the shelf is a target, and it refuses its own items.
+    const { unmount } = renderCarrying();
+    const idle = carry("Sum of Sales");
+    expect(idle.className).not.toContain("cursor-grab");
+    expect(screen.queryByTestId("carried")).toBeNull();
+    pointer(document, "pointerup", 40);
+    unmount();
+
+    renderCarrying(<MetricsOnlyTarget />);
+    const live = carry("Sum of Sales");
+    expect(live.className).toContain("cursor-grab");
+    expect(screen.getByTestId("carried").textContent).toBe("Sum of Sales");
+    pointer(document, "pointerup", 40);
+    // The sensor swallows the next click for 50ms after a drag; let that
+    // lapse so it cannot eat a click in the next test.
+    await new Promise((resolve) => {
+      setTimeout(resolve, 60);
+    });
+  });
+
   it("folds items this page cannot use into a Not for this page row", () => {
     seed();
     renderShelf(<MetricsOnlyTarget />);

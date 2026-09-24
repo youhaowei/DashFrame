@@ -102,6 +102,15 @@ export function useRegisteredDropTargets(): readonly RegisteredDropTarget[] {
   return useContext(RegisteredTargetsContext);
 }
 
+/**
+ * Whether anything on screen can use a shelf item. Until a page target is
+ * mounted, a carry from the shelf has nowhere to land (the shelf refuses its
+ * own items), so shelf chips offer no drag.
+ */
+export function useHasPageTargets(): boolean {
+  return useRegisteredDropTargets().some((target) => target.role === "page");
+}
+
 function readDrag(data: unknown): ActiveDrag | null {
   return (data as Partial<DragPayload> | undefined)?.dashframeDrag ?? null;
 }

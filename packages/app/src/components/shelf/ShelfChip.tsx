@@ -9,7 +9,7 @@ import {
   TextTypeIcon,
 } from "@wystack/ui-react/icons";
 import { Pin } from "lucide-react";
-import { useCarryable } from "./drag-context";
+import { useCarryable, useHasPageTargets } from "./drag-context";
 import { useShelf } from "./shelf-scope";
 import type { ShelfItemState } from "./shelf-model";
 import {
@@ -34,9 +34,10 @@ const KIND_NAMES: Record<ShelfKind, string> = {
 };
 
 /**
- * A chip on the shelf. Drag it out onto a target, pin it to keep it past the
- * recent limit, or × to take it off. A chip whose artifact is gone stays
- * until removed, muted and not draggable, so nothing vanishes unexplained.
+ * A chip on the shelf. Drag it out onto a target on the page (it offers no
+ * drag while the page has none), pin it to keep it past the recent limit, or
+ * × to take it off. A chip whose artifact is gone stays until removed, muted
+ * and not draggable, so nothing vanishes unexplained.
  */
 export function ShelfChip({
   item,
@@ -46,6 +47,10 @@ export function ShelfChip({
   state: ShelfItemState;
 }) {
   const missing = state.status === "missing";
+  // Carrying needs somewhere to land: a gone artifact has nothing to carry,
+  // and with no page target mounted the only target is the shelf itself.
+  const hasPageTargets = useHasPageTargets();
+  const carryable = !missing && hasPageTargets;
   const ref: ShelfItemRef = {
     kind: item.kind,
     id: item.id,
@@ -53,7 +58,7 @@ export function ShelfChip({
     label: state.label,
   };
   const { handleProps, isDragging } = useCarryable(ref, "shelf", {
-    disabled: missing,
+    disabled: !carryable,
   });
   const { pin, remove } = useShelf();
   const key = shelfItemKey(item);
@@ -74,7 +79,7 @@ export function ShelfChip({
       data-shelf-kind={item.kind}
       className={cn(
         "group flex min-h-7 list-none items-center gap-2 rounded-md px-2 py-1 text-neutral-fg-subtle transition-colors motion-reduce:transition-none hover:bg-neutral-fg/[0.035] hover:text-neutral-fg focus-within:bg-neutral-fg/[0.035]",
-        missing ? "cursor-default" : "cursor-grab touch-none",
+        carryable ? "cursor-grab touch-none" : "cursor-default",
         isDragging && "opacity-40",
       )}
     >
