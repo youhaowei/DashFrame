@@ -213,6 +213,13 @@ export const chartCreating = trackWrite("creating");
 export const chartLanding = trackWrite("landing");
 
 /**
+ * The chart type a new chart lands as, by tab: set when a suggested chart is
+ * picked, read when its tile lands. Absent means a bar. Module-level so a
+ * remount between the pick and the landing keeps it.
+ */
+export const chartStartTypes = new Map<string, VisualizationType>();
+
+/**
  * New charts whose insight is being discarded. Module-level so leaving and
  * reopening the report mid-discard does not send the delete twice.
  */
@@ -370,14 +377,21 @@ export function buildLandChartCommands(input: {
   const field = insight.selectedFields[0];
   const metric = (insight.metrics ?? [])[0];
   if (!field || !metric) return [];
+  const visualizationType = input.chartType ?? "barY";
+  const group = fieldEncoding(field);
+  const value = metricEncoding(metric.id);
   return [
     cmd("CreateVisualization", {
       id: chartId as UUID,
       name,
       insightId: insight.id,
-      visualizationType: input.chartType ?? "barY",
+      visualizationType,
       spec: {},
-      encoding: { x: fieldEncoding(field), y: metricEncoding(metric.id) },
+      // A horizontal bar puts the groups on the vertical axis.
+      encoding:
+        visualizationType === "barX"
+          ? { x: value, y: group }
+          : { x: group, y: value },
     }),
     cmd("AddDashboardItem", {
       dashboardId: report.id,

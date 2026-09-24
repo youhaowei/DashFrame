@@ -2,6 +2,7 @@ import { InsightWorkbench } from "@/components/insights/InsightWorkbench";
 import {
   buildLandChartCommands,
   chartLanding,
+  chartStartTypes,
   countReportsUsingChart,
   isReadyToLand,
   reportsUsingChartLabel,
@@ -97,10 +98,14 @@ export function ReportChartTab({
       report,
       insight,
       name: newChartName(insight, dataTables),
+      chartType: chartStartTypes.get(tab.id),
     });
     chartLanding.start(tab.id);
     commitBatch({ commands })
-      .then(() => onLanded(tab.id))
+      .then(() => {
+        chartStartTypes.delete(tab.id);
+        onLanded(tab.id);
+      })
       .catch((error: unknown) => {
         console.error("[ReportChartTab] placing the chart failed:", error);
         landAttemptRef.current = null;
@@ -137,6 +142,16 @@ export function ReportChartTab({
       insight={insight}
       view={view}
       leftPaneNote={usedIn}
+      starter={
+        visualization
+          ? undefined
+          : {
+              onPickChartType: (chartType) => {
+                if (chartType) chartStartTypes.set(tab.id, chartType);
+                else chartStartTypes.delete(tab.id);
+              },
+            }
+      }
       missingTable={
         <CentreMessage>
           This chart's table is gone. It may have been deleted.

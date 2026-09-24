@@ -194,6 +194,24 @@ describe("buildLandChartCommands", () => {
     });
   });
 
+  it("puts a horizontal bar's groups on the vertical axis", () => {
+    const [create] = buildLandChartCommands({
+      chartId: "chart-1",
+      report,
+      insight: {
+        id: "insight-1" as UUID,
+        selectedFields: [FIELD],
+        metrics: [METRIC],
+      },
+      name: "Total revenue by region",
+      chartType: "barX",
+    });
+    expect(create!.args).toMatchObject({
+      visualizationType: "barX",
+      encoding: { x: `metric:${METRIC.id}`, y: `field:${FIELD}` },
+    });
+  });
+
   it("builds nothing for a chart with nothing to plot", () => {
     expect(
       buildLandChartCommands({

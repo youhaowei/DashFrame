@@ -275,6 +275,9 @@ export function createInsightMaterializer(
             [],
             [],
             transfer,
+            // A presentation reads published source generations rather than
+            // pulling the source again. The empty chart's suggestion
+            // thumbnails rely on this to never cost a live connector fetch.
             operationArgs.insight.presentation !== undefined,
           );
         })()
