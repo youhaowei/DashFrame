@@ -4,6 +4,7 @@ import type { FunctionArgs } from "convex/server";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
 import { cmd } from "@dashframe/types";
+import { WORKSPACE_REFERENCE_TABLES } from "../convex/cleanup";
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
 let t: ReturnType<typeof makeTest>;
@@ -619,6 +620,13 @@ it("retains older results referenced by frame id or blob key", async () => {
 });
 
 it("keeps the cleanup outbox claimable after more than 1000 refreshes", async () => {
+  // Every insight refresh used to add a `dataFrames` row, so after 1000
+  // refreshes the workspace reference scan hit its 1000-row cap and
+  // `claimCleanup` halted. Running 1000 full publishes proves that too slowly
+  // for CI, so this proves the two halves directly. Once retention reaches
+  // steady state, a publish adds no row to any table the scan reads, so no
+  // number of refreshes reaches the cap. The pruned frames move to the outbox
+  // instead, and an outbox past 1000 jobs still claims.
   const original = await fixture();
   const insightId = crypto.randomUUID();
   await user().mutation(api.app.commitBatch, {
@@ -633,24 +641,59 @@ it("keeps the cleanup outbox claimable after more than 1000 refreshes", async ()
       }),
     ],
   });
-  for (let index = 0; index < 1001; index++) {
-    await t.mutation(internal.host.publishMaterialization, {
+  const publish = (fetchedAt: number) =>
+    t.mutation(internal.host.publishMaterialization, {
       workspaceId: "w",
       value: {
         ...original,
         sources: [],
         result: { ...original.result, id: crypto.randomUUID() },
         target: { kind: "saved" as const, insightId },
-        fetchedAt: index,
+        fetchedAt,
       },
     });
-  }
+  const scannedRowCounts = () =>
+    t.run(async (ctx) => {
+      const counts: Record<string, number> = {};
+      for (const table of WORKSPACE_REFERENCE_TABLES)
+        counts[table] = (await ctx.db.query(table).collect()).length;
+      return counts;
+    });
+  const frameJobs = () =>
+    t.run(
+      async (ctx) =>
+        (await ctx.db.query("cleanupJobs").collect()).filter(
+          (job) => job.kind === "frame",
+        ).length,
+    );
+
+  // Retention keeps the latest and previous result, so two publishes reach
+  // steady state.
+  await publish(0);
+  await publish(1);
+  const steadyState = await scannedRowCounts();
+  const jobsAtSteadyState = await frameJobs();
+  for (let index = 2; index < 7; index++) await publish(index);
+  expect(await scannedRowCounts()).toEqual(steadyState);
+  expect(await frameJobs()).toBe(jobsAtSteadyState + 5);
   expect(
     await user().query(api.app.listDataFrames, { insightId }),
   ).toHaveLength(2);
+
+  // Grow the outbox itself past the scan cap, as 1000+ refreshes would.
   const cleanupId = crypto.randomUUID();
   const resourceId = `secret:${crypto.randomUUID()}`;
   await t.run(async (ctx) => {
+    for (let index = 0; index < 1001; index++)
+      await ctx.db.insert("cleanupJobs", {
+        workspaceId: "w",
+        cleanupId: crypto.randomUUID(),
+        kind: "frame",
+        resourceId: crypto.randomUUID(),
+        state: "pending",
+        claimToken: null,
+        createdAt: Date.now(),
+      });
     await ctx.db.insert("cleanupJobs", {
       workspaceId: "w",
       cleanupId,
@@ -668,7 +711,7 @@ it("keeps the cleanup outbox claimable after more than 1000 refreshes", async ()
       cleanupId,
     }),
   ).toMatchObject({ kind: "secret", resourceId });
-}, 120_000);
+});
 it("preserves external revision through automatic publications, but changes it on explicit rollback and source edits", async () => {
   const first = await fixture();
   const binding = first.sources[0]!.source.table;

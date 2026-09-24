@@ -4,8 +4,8 @@
  * graph without writing canonical artifacts. It returns before/after definitions
  * and downstream impact, with credentials redacted.
  *
- * Row data stays outside this contract. The renderer fills `compute` lazily
- * from the proposed definition through DuckDB; Convex leaves that slot absent.
+ * Row data stays outside this contract: the diff carries no row counts or
+ * samples.
  */
 
 import type { UUID } from "./uuid";
@@ -53,27 +53,8 @@ export interface PreviewIntent {
 }
 
 /**
- * The deferred compute slot — filled CLIENT-SIDE on preview-open, never by the
- * server. Encodes the verifiability layer the spec calls for: a row count
- * before/after the change plus a `head(n)` sample so a plausibly-wrong edit is
- * caught by eye, not just read as legible. The server always emits `undefined`
- * here; the renderer resolves it from `proposedDefinition` against local DuckDB.
- */
-export interface PreviewCompute {
-  /** Canonical (pre-change) row count, or null if the node produced no rows before. */
-  rowCountBefore: number | null;
-  /** Proposed (post-change) row count computed from the proposed definition. */
-  rowCountAfter: number | null;
-  /** A `head(n)` sample of the proposed result — column-major rows for the renderer. */
-  head: Array<Record<string, unknown>>;
-  /** Human-readable labels keyed by the SQL aliases used in `head`. */
-  columnLabels?: Record<string, string>;
-}
-
-/**
  * A node a command DIRECTLY touches — fully shown. Carries the intent lines, the
- * before/after definition slices for drill-down, and the (deferred) compute
- * slot. `proposedDefinition` is captured from the evaluated preview graph: it
+ * before/after definition slices for drill-down. `proposedDefinition` is captured from the evaluated preview graph: it
  * contains the full public definition for a `create`, only the changed public
  * fields for an `update`, and no fields for a `noop`. Canonical artifacts remain
  * untouched.
@@ -113,11 +94,6 @@ export interface PreviewDirectNode {
    * `update` (or `{ deleted: true }` for deletion), and empty `{}` for `noop`.
    */
   proposedDefinition: Record<string, unknown>;
-  /**
-   * Deferred compute — `undefined` from the server, filled client-side on
-   * preview-open. Metadata comes from Convex; row data comes from DuckDB.
-   */
-  compute?: PreviewCompute | undefined;
 }
 
 /**
@@ -198,7 +174,7 @@ export interface PreviewError {
  * The full preview — the artifact-grouped diff the renderer paints. Discriminated
  * `mode: 'preview'` mirrors the underlying `PreviewResult`. `tablesWritten` is
  * echoed from the mechanism (the set that WOULD have flushed to invalidation had
- * the batch committed) so the renderer can scope its lazy compute / refresh.
+ * the batch committed).
  *
  * When `error` is present, command `error.commandIndex` threw during preview.
  * `directNodes` contains the nodes built from commands 0..commandIndex-1 (the
@@ -208,7 +184,7 @@ export interface PreviewError {
  */
 export interface PreviewDiff {
   mode: "preview";
-  /** Nodes commands directly touched — fully shown, compute deferred to client. */
+  /** Nodes commands directly touched — fully shown. */
   directNodes: PreviewDirectNode[];
   /** Nodes downstream of the touched nodes — flagged only. */
   affectedDownstream: PreviewDownstreamNode[];

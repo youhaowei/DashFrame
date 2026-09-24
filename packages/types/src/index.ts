@@ -216,7 +216,6 @@ export type {
   ArtifactKind,
   DownstreamEdge,
   DownstreamFlag,
-  PreviewCompute,
   PreviewDiff,
   PreviewDirectNode,
   PreviewDownstreamNode,

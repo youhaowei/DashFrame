@@ -4,10 +4,6 @@ export function previewFailureSummary(commandIndex: number): string {
   return `Command ${commandIndex + 1} in this draft could not be previewed. Review or edit the draft, then try again.`;
 }
 
-export function previewFailureDetail(): string {
-  return "One command in this draft could not be previewed. Discard this draft or go back and fix the failing command before publishing.";
-}
-
 /**
  * Copy for the one failure a reviewer can act on: the draft moved underneath
  * them. Every OTHER failure — a permission rejection, a dropped connection, a
