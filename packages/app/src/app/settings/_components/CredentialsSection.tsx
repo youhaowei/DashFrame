@@ -227,13 +227,27 @@ function CredentialRows({
 /** Data sources that keep a sign-in in the host's encrypted store. */
 function DataSourceSignIns() {
   useRegistryVersion();
-  const { data: sources } = queryStatus(
+  const { data: sources, isError } = queryStatus(
     useQuery({ query: api.app.listDataSources, args: {} }),
   );
-  const withSignIn = (sources ?? []).filter(
+  if (isError)
+    return (
+      <SettingsField label="Data source sign-ins">
+        <SettingsLoadError message="Couldn't load data source sign-ins." />
+      </SettingsField>
+    );
+  if (sources === undefined) return null;
+  const withSignIn = sources.filter(
     (source) => source.config.hasApiKey || source.config.hasConnectionString,
   );
-  if (withSignIn.length === 0) return null;
+  if (withSignIn.length === 0)
+    return (
+      <SettingsField label="Data source sign-ins">
+        <p className="text-sm text-neutral-fg-subtle">
+          No data source has a stored sign-in.
+        </p>
+      </SettingsField>
+    );
   return (
     <SettingsField label="Data source sign-ins">
       <ul className="flex flex-col">

@@ -80,7 +80,8 @@ vi.mock("convex/react", async (importOriginal) => ({
       return { isError: true, error: new Error("query failed") };
     if (ref._path === "projectInfo")
       return { data: { projectId: "p1", name: "Acme analytics" } };
-    if (ref._path === "listDataSources") return { data: SOURCES };
+    if (ref._path === "listDataSources")
+      return { data: mockHost.sources ?? SOURCES };
     if (ref._path === "listDataTables") return { data: TABLES };
     throw new Error(`Unexpected query: ${ref._path}`);
   }),
@@ -160,6 +161,7 @@ beforeEach(() => {
   mockHost.credentials = [];
   mockHost.listFails = false;
   mockHost.failingQueries = [];
+  mockHost.sources = null;
   mockHost.runtime = { url: "http://127.0.0.1:4000", mode: "local" };
   delete (window as { dashframe?: unknown }).dashframe;
   mockClearAllData.mockReset().mockResolvedValue(undefined);
@@ -282,6 +284,30 @@ describe("SettingsPage", () => {
       );
     },
   );
+
+  it("says the sign-in list failed to load instead of dropping it", () => {
+    mockHost.failingQueries = ["listDataSources"];
+    render(<SettingsPage />);
+    const credentials = section("Credentials");
+    expect(
+      within(credentials)
+        .getAllByRole("alert")
+        .map((alert) => alert.textContent),
+    ).toContain("Couldn't load data source sign-ins.");
+    expect(
+      within(credentials).queryByText("No data source has a stored sign-in."),
+    ).toBeNull();
+  });
+
+  it("says no data source has a sign-in when none does", () => {
+    mockHost.sources = [SOURCES[0]];
+    render(<SettingsPage />);
+    expect(
+      within(section("Credentials")).getByText(
+        "No data source has a stored sign-in.",
+      ),
+    ).toBeTruthy();
+  });
 
   it("says so when no credentials are stored", () => {
     render(<SettingsPage />);
