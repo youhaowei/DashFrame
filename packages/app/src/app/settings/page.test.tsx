@@ -90,7 +90,14 @@ vi.mock("convex/react", async (importOriginal) => ({
 vi.mock("@/data/host", () => ({
   useHostQuery: hostQueryMock((ref: { _path: string }) => {
     if (ref._path === "getAccessCapabilities")
-      return { data: mockHost.capabilities, isLoading: false };
+      return mockHost.capabilitiesFail
+        ? {
+            data: undefined,
+            isLoading: false,
+            isError: true,
+            refetch: mockRefetch,
+          }
+        : { data: mockHost.capabilities, isLoading: false };
     if (ref._path === "listAccessCredentials") {
       if (!mockHost.capabilities.canManageCredentials)
         throw new Error("listAccessCredentials needs a secret key");
@@ -161,6 +168,8 @@ beforeEach(() => {
   mockHost.credentials = [];
   mockHost.listFails = false;
   mockHost.failingQueries = [];
+  mockHost.capabilitiesFail = false;
+  mockRefetch.mockReset();
   mockHost.sources = null;
   mockHost.runtime = { url: "http://127.0.0.1:4000", mode: "local" };
   delete (window as { dashframe?: unknown }).dashframe;
@@ -307,6 +316,22 @@ describe("SettingsPage", () => {
         "No data source has a stored sign-in.",
       ),
     ).toBeTruthy();
+  });
+
+  it("says the host could not be asked instead of hiding credentials", () => {
+    mockHost.capabilitiesFail = true;
+    render(<SettingsPage />);
+    const credentials = section("Credentials");
+    expect(
+      within(credentials)
+        .getAllByRole("alert")
+        .map((alert) => alert.textContent),
+    ).toContain("Couldn't check whether this host can store credentials.");
+    expect(credentials.textContent).not.toContain("workspace owner");
+    fireEvent.click(
+      within(credentials).getByRole("button", { name: "Try again" }),
+    );
+    expect(mockRefetch).toHaveBeenCalledOnce();
   });
 
   it("says so when no credentials are stored", () => {

@@ -46,4 +46,8 @@ export interface UseAccessCredentialsResult extends UseQueryResult<
 }
 export type UseAccessConnectionInfoResult =
   UseQueryResult<AccessConnectionInfo>;
-export type UseAccessCapabilitiesResult = UseQueryResult<AccessCapabilities>;
+export interface UseAccessCapabilitiesResult extends UseQueryResult<AccessCapabilities> {
+  /** The host could not be asked; `data` is then not "cannot manage". */
+  isError?: boolean;
+  refetch?: () => Promise<unknown>;
+}

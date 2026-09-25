@@ -27,6 +27,8 @@ export function useAccessCapabilities(): UseAccessCapabilitiesResult {
     data: result.data as AccessCapabilities | undefined,
     isLoading: result.isLoading,
     isFetching: result.isFetching,
+    isError: result.isError,
+    refetch: result.refetch,
   };
 }
 

@@ -51,8 +51,12 @@ export function isSecretKeyMissing(
  * source's sign-in is managed on that data source.
  */
 export function CredentialsSection() {
-  const capabilities = useAccessCapabilities().data;
+  const capabilitiesQuery = useAccessCapabilities();
+  const capabilities = capabilitiesQuery.data;
   const canManage = capabilities?.canManageCredentials === true;
+  // Without an answer from the host, nothing below can be said truthfully.
+  const capabilitiesFailed =
+    capabilitiesQuery.isError === true && capabilities === undefined;
 
   return (
     <SettingsSection
@@ -61,6 +65,12 @@ export function CredentialsSection() {
       description="Access credentials for applications that connect to DashFrame, and the sign-ins your data sources use."
     >
       <div className="flex flex-col gap-5">
+        {capabilitiesFailed && (
+          <SettingsLoadError
+            message="Couldn't check whether this host can store credentials."
+            onRetry={capabilitiesQuery.refetch}
+          />
+        )}
         {isSecretKeyMissing(capabilities) && <SecretKeyMissing />}
         {capabilities?.unavailableReason === "no-host-token" && (
           <p className="text-sm text-neutral-fg-subtle">
