@@ -85,9 +85,10 @@ function ClearAllDataRow() {
       showSuccess("All data cleared");
       reloadRootWithFreshWorkspaceState();
     } catch (error) {
+      // The host's own message is for diagnosis, not for the page.
+      console.error("Clear all data failed", error);
       showError("Failed to clear data", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
+        description: "Try again. If it keeps failing, check the host logs.",
       });
     } finally {
       setClearing(false);

@@ -13,25 +13,32 @@ import {
 import type React from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { mockHost, mockClearAllData, mockReloadRoot, mockRevoke, mockRefetch } =
-  vi.hoisted(() => ({
-    mockHost: {
-      capabilities: { canManageCredentials: true } as {
-        canManageCredentials: boolean;
-        unavailableReason?: "not-owner" | "no-secret-key" | "no-host-token";
-      },
-      credentials: [] as unknown[],
-      listFails: false,
-      runtime: { url: "http://127.0.0.1:4000", mode: "local" } as {
-        url: string;
-        mode?: "local" | "hosted";
-      },
+const {
+  mockHost,
+  mockClearAllData,
+  mockReloadRoot,
+  mockRevoke,
+  mockRefetch,
+  mockShowError,
+} = vi.hoisted(() => ({
+  mockHost: {
+    capabilities: { canManageCredentials: true } as {
+      canManageCredentials: boolean;
+      unavailableReason?: "not-owner" | "no-secret-key" | "no-host-token";
     },
-    mockClearAllData: vi.fn(),
-    mockReloadRoot: vi.fn(),
-    mockRevoke: vi.fn(),
-    mockRefetch: vi.fn(),
-  }));
+    credentials: [] as unknown[],
+    listFails: false,
+    runtime: { url: "http://127.0.0.1:4000", mode: "local" } as {
+      url: string;
+      mode?: "local" | "hosted";
+    },
+  },
+  mockClearAllData: vi.fn(),
+  mockReloadRoot: vi.fn(),
+  mockRevoke: vi.fn(),
+  mockRefetch: vi.fn(),
+  mockShowError: vi.fn(),
+}));
 
 const SOURCES = [
   {
@@ -111,6 +118,9 @@ vi.mock("@/data/runtime", () => ({
 vi.mock("@/lib/platform", () => ({
   usePlatform: () => ({ isMacOS: true, isElectron: false }),
 }));
+vi.mock("@/lib/stores", () => ({
+  useToastStore: () => ({ showError: mockShowError, showSuccess: vi.fn() }),
+}));
 vi.mock("@/lib/data-access/data-frames", () => ({
   clearAllData: mockClearAllData,
 }));
@@ -150,6 +160,7 @@ beforeEach(() => {
   mockHost.runtime = { url: "http://127.0.0.1:4000", mode: "local" };
   delete (window as { dashframe?: unknown }).dashframe;
   mockClearAllData.mockReset().mockResolvedValue(undefined);
+  mockShowError.mockReset();
   mockReloadRoot.mockReset();
   mockRevoke.mockReset().mockResolvedValue(undefined);
 });
@@ -396,6 +407,36 @@ describe("SettingsPage", () => {
     );
     await waitFor(() => expect(mockClearAllData).toHaveBeenCalledOnce());
     expect(mockReloadRoot).toHaveBeenCalledOnce();
+  });
+
+  it("reports a failed clear in plain words, keeping the host's error out of the page", async () => {
+    mockClearAllData.mockRejectedValue(
+      new Error("SQLITE_BUSY: database is locked"),
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    render(<SettingsPage />);
+    fireEvent.click(
+      within(section("Project")).getByRole("button", {
+        name: "Clear all data…",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Clear all data" }),
+    );
+    await waitFor(() =>
+      expect(mockShowError).toHaveBeenCalledWith("Failed to clear data", {
+        description: "Try again. If it keeps failing, check the host logs.",
+      }),
+    );
+    expect(JSON.stringify(mockShowError.mock.calls)).not.toContain(
+      "SQLITE_BUSY",
+    );
+    expect(consoleError).toHaveBeenCalled();
+    expect(mockReloadRoot).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("adds an Account section with sign out only when the host has accounts", () => {
