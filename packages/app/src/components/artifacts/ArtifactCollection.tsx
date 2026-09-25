@@ -120,8 +120,7 @@ export function ArtifactCollection({
               placeholder={searchPlaceholder}
               value={searchQuery}
               onChange={(event) => onSearchQueryChange(event.target.value)}
-              // A sunken well: sub tone, inset shadow, hairline ring.
-              className="border-0 bg-neutral-bg-subtle pl-8 shadow-inner ring-[0.5px] ring-neutral-border"
+              className="pl-8"
             />
           </div>
         )}
