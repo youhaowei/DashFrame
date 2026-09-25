@@ -11,7 +11,6 @@ import {
 import { WorkbenchTabs } from "@dashframe/ui";
 import { Button, TopBar, cn } from "@wystack/ui-react";
 import {
-  PaletteIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   SearchIcon,
@@ -19,8 +18,8 @@ import {
 
 /**
  * Window top bar — the macOS title-bar replacement. Sits above the content,
- * beside the full-height nav; holds the left-nav and appearance-panel toggles,
- * the page's breadcrumb and tabs, and (in the Electron renderer) acts as the
+ * beside the full-height nav; holds the left-nav toggle, the page's
+ * breadcrumb and tabs, and (in the Electron renderer) acts as the
  * draggable region.
  *
  * On macOS desktop the traffic lights sit over the nav while it is open, so
@@ -45,8 +44,6 @@ export function AppTopBar() {
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
   const toggleLeftNav = useShellStore((s) => s.toggleLeftNav);
-  const appearanceOpen = useShellStore((s) => s.contextAppearanceOpen);
-  const toggleAppearance = useShellStore((s) => s.toggleContextAppearance);
   const tabs = useRegisteredTopBarTabs();
   const openPalette = useCommandPalette((s) => s.setOpen);
   const paletteShortcut = useCommandPaletteShortcutLabel();
@@ -113,25 +110,6 @@ export function AppTopBar() {
               className="min-w-0 shrink"
             />
           )}
-        </div>
-      }
-      right={
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            icon={PaletteIcon}
-            iconOnly
-            label={
-              appearanceOpen ? "Hide appearance panel" : "Show appearance panel"
-            }
-            tooltip="Appearance"
-            onClick={toggleAppearance}
-            active={appearanceOpen}
-            className={cn(
-              "h-7 w-7",
-              !appearanceOpen && "text-neutral-fg-subtle hover:text-neutral-fg",
-            )}
-          />
         </div>
       }
     />

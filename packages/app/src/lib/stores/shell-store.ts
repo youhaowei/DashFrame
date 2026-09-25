@@ -2,9 +2,9 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 /**
- * Shell chrome state: which flanking regions are open. The left nav and the
- * appearance section are toggled from the top bar. Persisted so the layout the
- * user left it in survives a reload.
+ * Shell chrome state: which flanking regions are open. The left nav is toggled
+ * from the top bar. Persisted so the layout the user left it in survives a
+ * reload.
  */
 export const CONTEXT_PANEL_MIN_WIDTH = 280;
 export const CONTEXT_PANEL_MAX_WIDTH = 440;
@@ -13,8 +13,6 @@ export const CONTEXT_PANEL_DEFAULT_WIDTH = 336;
 interface ShellState {
   /** Left navigation visible. */
   leftNavOpen: boolean;
-  /** Appearance section visible in the context panel family. */
-  contextAppearanceOpen: boolean;
   /** Width of the page-scoped context panel family, in px. */
   contextPanelWidth: number;
   /**
@@ -40,8 +38,6 @@ export type WorkbenchPaneState = Partial<Record<WorkbenchPaneSide, boolean>>;
 interface ShellActions {
   toggleLeftNav: () => void;
   setLeftNavOpen: (open: boolean) => void;
-  toggleContextAppearance: () => void;
-  setContextAppearanceOpen: (open: boolean) => void;
   setContextPanelWidth: (width: number) => void;
   setWorkbenchPaneOpen: (
     artifactType: string,
@@ -88,16 +84,12 @@ export const useShellStore = create<ShellState & ShellActions>()(
   persist(
     (set) => ({
       leftNavOpen: true,
-      contextAppearanceOpen: false,
       contextPanelWidth: CONTEXT_PANEL_DEFAULT_WIDTH,
       workbenchPanes: {},
       collectionViews: {},
       shelfOpen: true,
       toggleLeftNav: () => set((s) => ({ leftNavOpen: !s.leftNavOpen })),
       setLeftNavOpen: (open) => set({ leftNavOpen: open }),
-      toggleContextAppearance: () =>
-        set((s) => ({ contextAppearanceOpen: !s.contextAppearanceOpen })),
-      setContextAppearanceOpen: (open) => set({ contextAppearanceOpen: open }),
       setContextPanelWidth: (width) =>
         set({
           contextPanelWidth: clamp(

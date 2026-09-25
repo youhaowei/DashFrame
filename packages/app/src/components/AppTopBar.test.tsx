@@ -134,3 +134,18 @@ describe("AppTopBar breadcrumb", () => {
     expect(screen.queryByRole("navigation", { name: "breadcrumb" })).toBeNull();
   });
 });
+
+describe("AppTopBar controls", () => {
+  // Appearance lives on the Settings page; the bar keeps no toggle for it.
+  it("offers only the sidebar and search controls", () => {
+    renderBar();
+    expect(
+      screen
+        .getAllByRole("button")
+        .map(
+          (button) => button.getAttribute("aria-label") ?? button.textContent,
+        ),
+    ).toEqual(["Hide sidebar", "Search"]);
+    expect(screen.queryByRole("button", { name: /appearance/i })).toBeNull();
+  });
+});
