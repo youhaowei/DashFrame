@@ -71,7 +71,9 @@ export function ProjectSection({ hostUrl }: { hostUrl: string | undefined }) {
         )}
         {hostUrl && (
           <SettingsField label="Host">
-            <span className="font-mono text-xs text-neutral-fg">{hostUrl}</span>
+            <span className="font-mono text-xs break-all text-neutral-fg">
+              {hostUrl}
+            </span>
           </SettingsField>
         )}
         <ClearAllDataRow />
