@@ -510,12 +510,9 @@ function MetricEditor({
                     );
                 }}
               >
-                {/* Always unset: picking imports a new metric, so the slot
-                    reads as a choice, as the shared emptyDashed Select does. */}
-                <SelectTrigger
-                  id="metric-reuse-saved"
-                  className="border-dashed"
-                >
+                {/* Always unset: picking imports a new metric, so the well
+                    shows its dashed empty outline and the slot reads as a choice. */}
+                <SelectTrigger id="metric-reuse-saved">
                   <SelectValue placeholder="Choose a measure" />
                 </SelectTrigger>
                 <SelectContent>

@@ -641,6 +641,7 @@ function TableToolbar({
           className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-fg-subtle"
         />
         <Input
+          variant="outline"
           size="sm"
           aria-label="Find column"
           placeholder="Find column"
