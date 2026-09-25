@@ -550,6 +550,7 @@ export default function DashboardsPage() {
                   <ReportMiniature
                     items={dashboard.items}
                     visualizationById={reportContentIndexes.visualizationById}
+                    controls={dashboard.controls}
                   />
                 }
                 name={dashboard.name}

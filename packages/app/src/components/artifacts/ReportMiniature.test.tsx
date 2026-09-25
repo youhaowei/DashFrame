@@ -1,4 +1,8 @@
-import type { Visualization } from "@dashframe/types";
+import type {
+  DashboardControl,
+  DashboardItem,
+  Visualization,
+} from "@dashframe/types";
 import { act, render, screen } from "@testing-library/react";
 import {
   afterEach,
@@ -9,14 +13,19 @@ import {
   vi,
 } from "vite-plus/test";
 
+import { computeItemOverrides } from "@/lib/dashboards/controls";
+
 import { ReportMiniature } from "./ReportMiniature";
 
+const previewProps = vi.hoisted(() => [] as Record<string, unknown>[]);
+
+// The preview's own behaviour is covered in its tests; here it records the
+// props the miniature hands it.
 vi.mock("@/components/visualizations/VisualizationPreview", () => ({
-  VisualizationPreview: ({
-    visualization,
-  }: {
-    visualization: Visualization;
-  }) => <span data-testid="live-chart">{visualization.id}</span>,
+  VisualizationPreview: (props: { visualization: Visualization }) => {
+    previewProps.push(props);
+    return <span data-testid="live-chart">{props.visualization.id}</span>;
+  },
 }));
 
 let observers: { callback: IntersectionObserverCallback }[] = [];
@@ -31,6 +40,7 @@ class FakeIntersectionObserver {
 
 beforeEach(() => {
   observers = [];
+  previewProps.length = 0;
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
 });
 
@@ -85,6 +95,40 @@ describe("ReportMiniature", () => {
     scrollIntoView();
 
     expect(screen.getByTestId("live-chart").textContent).toBe("a");
+  });
+
+  it("draws a chart with its cell's overrides and the report's control defaults", () => {
+    const item = {
+      ...chart("a", 0, 0),
+      overrides: {
+        sorts: [{ field: "Sales", direction: "desc" as const }],
+        limit: 5,
+      },
+    };
+    const control = {
+      id: "region",
+      field: "Region",
+      operator: "eq",
+      defaultValue: "West",
+      boundInstances: ["a"],
+    } as unknown as DashboardControl;
+    render(
+      <ReportMiniature
+        items={[item]}
+        visualizationById={vizMap("a")}
+        controls={[control]}
+      />,
+    );
+    scrollIntoView();
+
+    expect(previewProps.at(-1)?.overrides).toEqual(
+      computeItemOverrides(item as DashboardItem, [control]),
+    );
+    expect(previewProps.at(-1)?.overrides).toMatchObject({
+      sorts: [{ field: "Sales", direction: "desc" }],
+      limit: 5,
+      filters: [expect.objectContaining({ field: "Region", value: "West" })],
+    });
   });
 
   it("draws a text block as muted bars, never a chart", () => {

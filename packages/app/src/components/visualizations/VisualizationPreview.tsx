@@ -6,6 +6,7 @@ import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
+import { resolveDashboardRuntime } from "@/lib/insights/dashboard-runtime";
 import { api } from "@dashframe/convex-backend/api";
 import {
   fieldIdToColumnAlias,
@@ -14,6 +15,7 @@ import {
 } from "@dashframe/engine";
 import type {
   ChartEncoding,
+  DashboardItemOverrides,
   DataTable,
   Field,
   Insight,
@@ -86,6 +88,12 @@ interface VisualizationPreviewProps {
    * repeat-join fields read distinctly. Falls back to the field name.
    */
   columnDisplayNames?: Readonly<Record<string, string>>;
+  /**
+   * A report cell's saved filters, sorts and limit, so the preview draws the
+   * same values the report does. Undeclared overrides show the fallback, as
+   * the report shows an error.
+   */
+  overrides?: DashboardItemOverrides;
   /** Reuse a parent materialization when the preview sits beside its table. */
   materialization?: {
     insight: Insight;
@@ -192,6 +200,7 @@ function VisualizationPreviewContent({
   fallback = null,
   thumbnail = true,
   columnDisplayNames,
+  overrides,
 }: VisualizationPreviewProps) {
   // Fetch the insight for this visualization
   const { data: insight, isLoading: isLoadingInsight } = queryStatus(
@@ -234,9 +243,25 @@ function VisualizationPreviewContent({
       ),
     [insight, visualization.encoding, visualization.visualizationType],
   );
-  const { viewName, isReady, error } = useInsightView(insight, {
-    presentation,
-  });
+  // Filters on an insight-sourced Insight resolve against its upstream
+  // fields, so the Insight list is needed only when there are overrides.
+  const { data: insights = [] } = queryStatus(
+    useQuery({
+      query: api.app.listInsights,
+      args: overrides ? {} : "skip",
+    }),
+  );
+  const dashboardRuntime = useMemo(
+    () =>
+      insight && overrides
+        ? resolveDashboardRuntime(insight, dataTables, overrides, insights)
+        : {},
+    [insight, dataTables, overrides, insights],
+  );
+  const { viewName, isReady, error } = useInsightView(
+    dashboardRuntime.error ? null : insight,
+    { presentation, runtime: dashboardRuntime.runtime },
+  );
 
   // Resolve instance-qualified fields for repeat-join insights so that
   // field:<uuid>_j1 encodings resolve to their SQL alias correctly.
@@ -261,7 +286,7 @@ function VisualizationPreviewContent({
       instanceAwareFields={instanceAwareFields}
       viewName={viewName}
       isReady={isReady}
-      error={error}
+      error={dashboardRuntime.error ?? error}
       isLoadingInsight={isLoadingInsight}
       presentationApplied={Boolean(presentation)}
     />

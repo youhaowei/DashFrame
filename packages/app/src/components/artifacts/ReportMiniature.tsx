@@ -1,7 +1,12 @@
-import type { DashboardItem, Visualization } from "@dashframe/types";
+import type {
+  DashboardControl,
+  DashboardItem,
+  Visualization,
+} from "@dashframe/types";
 import { type CSSProperties, useEffect, useState } from "react";
 
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
+import { computeItemOverrides } from "@/lib/dashboards/controls";
 
 const GRID_COLUMNS = 12;
 
@@ -15,11 +20,6 @@ export const MINIATURE_ROWS = 12;
 
 /** Live charts per tile; each one is a query, so the rest stay placeholders. */
 export const MINIATURE_LIVE_CHARTS = 6;
-
-type MiniatureItem = Pick<
-  DashboardItem,
-  "id" | "type" | "visualizationId" | "x" | "y" | "width" | "height"
->;
 
 /**
  * Mounts children once the element comes within `rootMargin` of the
@@ -73,11 +73,14 @@ function MutedBlock() {
 export function ReportMiniature({
   items,
   visualizationById,
+  controls = [],
   maxRows = MINIATURE_ROWS,
   maxLiveCharts = MINIATURE_LIVE_CHARTS,
 }: {
-  items: readonly MiniatureItem[];
+  items: readonly DashboardItem[];
   visualizationById: ReadonlyMap<string, Visualization>;
+  /** The report's controls; their saved defaults apply as on the report. */
+  controls?: readonly DashboardControl[];
   maxRows?: number;
   maxLiveCharts?: number;
 }) {
@@ -177,6 +180,8 @@ export function ReportMiniature({
                   visualization={visualization}
                   height="container"
                   fallback={<MutedBlock />}
+                  // What the report shows before anyone turns a control.
+                  overrides={computeItemOverrides(block.item, [...controls])}
                 />
               </div>
             ) : (

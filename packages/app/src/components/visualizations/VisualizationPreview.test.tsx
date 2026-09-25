@@ -44,7 +44,7 @@ const {
 }));
 
 vi.mock("@/hooks/useInsightView", () => ({
-  useInsightView: () => mockUseInsightView(),
+  useInsightView: (...args: unknown[]) => mockUseInsightView(...args),
 }));
 
 vi.mock("@/hooks/useInsightPagination", () => ({
@@ -62,6 +62,7 @@ vi.mock("convex/react", async (importOriginal) => ({
   useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
     if (ref._path === "getInsight") return mockUseInsight();
     if (ref._path === "listDataTables") return mockUseDataTables();
+    if (ref._path === "listInsights") return { data: [], isLoading: false };
     throw new Error(`Unexpected query: ${ref._path}`);
   }),
 }));
@@ -442,6 +443,50 @@ it("titles a measure from its source column's display name", () => {
       encoding: expect.objectContaining({ yLabel: "Sum of Revenue" }),
     }),
   );
+});
+
+describe("VisualizationPreview — report cell overrides", () => {
+  function renderWithOverrides(
+    overrides: import("@dashframe/types").DashboardItemOverrides,
+  ) {
+    mockUseInsightView.mockClear();
+    mockUseInsight.mockReturnValue({
+      data: { ...insight, runtimeControls: { limit: { max: 100 } } },
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [dataTable] });
+    mockUseInsightView.mockReturnValue({
+      viewName: null,
+      isReady: false,
+      error: null,
+    });
+    render(
+      <VisualizationPreview
+        visualization={visualization}
+        overrides={overrides}
+        fallback={<span data-testid="custom-fallback">custom</span>}
+      />,
+    );
+  }
+
+  it("runs the chart with the cell's declared overrides", () => {
+    renderWithOverrides({ limit: 5 });
+
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: "ins-1" }),
+      expect.objectContaining({ runtime: { limit: 5 } }),
+    );
+  });
+
+  it("shows the fallback, and runs nothing, for an undeclared override", () => {
+    renderWithOverrides({ sorts: [{ field: "Sales", direction: "desc" }] });
+
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(
+      null,
+      expect.anything(),
+    );
+    expect(screen.getByTestId("custom-fallback")).toBeTruthy();
+  });
 });
 
 describe("VisualizationPreview — render failure", () => {

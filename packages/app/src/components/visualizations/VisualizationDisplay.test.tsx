@@ -10,10 +10,8 @@ import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import {
-  resolveDashboardRuntime,
-  VisualizationDisplay,
-} from "./VisualizationDisplay";
+import { resolveDashboardRuntime } from "@/lib/insights/dashboard-runtime";
+import { VisualizationDisplay } from "./VisualizationDisplay";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
