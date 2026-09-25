@@ -70,7 +70,10 @@ interface VisualizationPreviewProps {
   visualization: Visualization;
   /** Height of the preview in pixels, or fill its container (default: 200) */
   height?: number | "container";
-  /** Fallback element to show when data can't be loaded */
+  /**
+   * Shown instead of the chart when its data can't be loaded or it fails to
+   * render. Without one, each state shows its own message.
+   */
   fallback?: React.ReactNode;
   /**
    * Draw the chart as a card thumbnail, without axes, legends or padding
@@ -114,6 +117,7 @@ export function VisualizationPreview(props: VisualizationPreviewProps) {
   return (
     <VisualizationErrorBoundary
       resetKey={`${props.visualization.id}:${props.visualization.updatedAt ?? ""}`}
+      fallback={props.fallback}
     >
       {props.materialization ? (
         <SharedVisualizationPreview

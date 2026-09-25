@@ -444,6 +444,47 @@ it("titles a measure from its source column's display name", () => {
   );
 });
 
+describe("VisualizationPreview — render failure", () => {
+  function renderThrowingChart(fallback?: React.ReactNode) {
+    setDataReady();
+    mockResolveEncoding.mockReturnValue({ x: "field_f1" });
+    mockUseInsightView.mockReturnValue({
+      viewName: "frame-ready",
+      isReady: true,
+      error: null,
+    });
+    // Every render throws: React retries a failed render once.
+    mockChart.mockImplementation(() => {
+      throw new Error("invalid saved encoding");
+    });
+    // The boundary logs what it catches; keep the test output quiet.
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    render(
+      <VisualizationPreview
+        visualization={visualization}
+        fallback={fallback}
+      />,
+    );
+    consoleError.mockRestore();
+    mockChart.mockReset();
+  }
+
+  it("shows the caller's fallback when the chart throws", () => {
+    renderThrowingChart(<span data-testid="custom-fallback">custom</span>);
+
+    expect(screen.getByTestId("custom-fallback")).toBeTruthy();
+    expect(screen.queryByText("Can't display this chart")).toBeNull();
+  });
+
+  it("shows the broken-chart card when no fallback is given", () => {
+    renderThrowingChart();
+
+    expect(screen.getByText("Can't display this chart")).toBeTruthy();
+  });
+});
+
 describe("VisualizationPreview — chart chrome", () => {
   function renderReady(thumbnail?: boolean) {
     mockChart.mockClear();
