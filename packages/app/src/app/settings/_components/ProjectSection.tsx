@@ -18,7 +18,11 @@ import { DeleteIcon } from "@wystack/ui-react/icons";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { useState } from "react";
 
-import { SettingsField, SettingsSection } from "./SettingsSection";
+import {
+  SettingsField,
+  SettingsLoadError,
+  SettingsSection,
+} from "./SettingsSection";
 
 /**
  * The open project: its name, where the host serving it is, and, on desktop,
@@ -26,7 +30,7 @@ import { SettingsField, SettingsSection } from "./SettingsSection";
  * as an action rather than shown. Clearing the project's data sits last.
  */
 export function ProjectSection({ hostUrl }: { hostUrl: string | undefined }) {
-  const { data: project } = queryStatus(
+  const { data: project, isError: projectFailed } = queryStatus(
     useQuery({ query: api.app.projectInfo, args: {} }),
   );
   const { isMacOS } = usePlatform();
@@ -40,6 +44,10 @@ export function ProjectSection({ hostUrl }: { hostUrl: string | undefined }) {
       description="The project open here and the host that serves it."
     >
       <div className="flex flex-col gap-4">
+        {/* A Convex subscription retries by itself; there is no retry to offer. */}
+        {projectFailed && (
+          <SettingsLoadError message="Couldn't load project details." />
+        )}
         {project && (
           <SettingsField label="Name">
             <span className="text-sm text-neutral-fg">{project.name}</span>

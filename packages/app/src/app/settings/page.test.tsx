@@ -206,6 +206,19 @@ describe("SettingsPage", () => {
     ).toBe("https://github.com/youhaowei/dashframe");
   });
 
+  it("says project details failed to load instead of dropping the name", () => {
+    mockHost.failingQueries = ["projectInfo"];
+    render(<SettingsPage />);
+    const project = section("Project");
+    expect(within(project).getByRole("alert").textContent).toBe(
+      "Couldn't load project details.",
+    );
+    expect(within(project).queryByText("Acme analytics")).toBeNull();
+    expect(
+      within(project).queryByRole("button", { name: "Try again" }),
+    ).toBeNull();
+  });
+
   it("offers no folder action where the host shell cannot reveal it", () => {
     render(<SettingsPage />);
     expect(
