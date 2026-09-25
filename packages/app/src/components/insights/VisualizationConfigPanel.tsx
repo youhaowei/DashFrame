@@ -189,7 +189,6 @@ function SavedEncodings({
               onClear={() => onEncodingChange("color", "")}
               options={options}
               placeholder={pivotLabel ?? "None"}
-              emptyDashed
               disabled={!encodingsReady}
             />
             {visualization.visualizationType === "dot" && (
@@ -200,7 +199,6 @@ function SavedEncodings({
                 onClear={() => onEncodingChange("size", "")}
                 options={options}
                 placeholder="None"
-                emptyDashed
                 disabled={!encodingsReady}
               />
             )}
@@ -217,7 +215,6 @@ function SavedEncodings({
             value={visualization.encoding?.y || ""}
             onChange={(value) => onEncodingChange("y", value)}
             placeholder="None"
-            emptyDashed
             disabled={!encodingsReady}
             axis="y"
             chartType={visualization.visualizationType}
@@ -236,7 +233,6 @@ function SavedEncodings({
             value={visualization.encoding?.x || ""}
             onChange={(value) => onEncodingChange("x", value)}
             placeholder="None"
-            emptyDashed
             disabled={!encodingsReady}
             axis="x"
             chartType={visualization.visualizationType}
