@@ -28,10 +28,16 @@ vi.mock("@/components/visualizations/VisualizationPreview", () => ({
   },
 }));
 
-let observers: { callback: IntersectionObserverCallback }[] = [];
+let observers: {
+  callback: IntersectionObserverCallback;
+  options?: IntersectionObserverInit;
+}[] = [];
 
 class FakeIntersectionObserver {
-  constructor(public callback: IntersectionObserverCallback) {
+  constructor(
+    public callback: IntersectionObserverCallback,
+    public options?: IntersectionObserverInit,
+  ) {
     observers.push(this);
   }
   observe() {}
@@ -128,6 +134,40 @@ describe("ReportMiniature", () => {
       sorts: [{ field: "Sales", direction: "desc" }],
       limit: 5,
       filters: [expect.objectContaining({ field: "Region", value: "West" })],
+    });
+  });
+
+  it("watches against the scrolling panel that clips the tile", () => {
+    const panel = document.createElement("div");
+    panel.style.overflowY = "auto";
+    document.body.append(panel);
+    const tile = panel.appendChild(document.createElement("div"));
+    render(
+      <ReportMiniature
+        items={[chart("a", 0, 0)]}
+        visualizationById={vizMap("a")}
+      />,
+      { container: tile },
+    );
+
+    expect(observers.at(-1)?.options).toEqual({
+      root: panel,
+      rootMargin: "200px",
+    });
+    panel.remove();
+  });
+
+  it("watches against the viewport when nothing scrolls", () => {
+    render(
+      <ReportMiniature
+        items={[chart("a", 0, 0)]}
+        visualizationById={vizMap("a")}
+      />,
+    );
+
+    expect(observers.at(-1)?.options).toEqual({
+      root: null,
+      rootMargin: "200px",
     });
   });
 

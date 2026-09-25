@@ -26,6 +26,19 @@ export const MINIATURE_LIVE_CHARTS = 6;
  * viewport, and keeps them mounted after that, so scrolling back does not
  * re-run the queries. Without IntersectionObserver it mounts at once.
  */
+/** The nearest ancestor that scrolls vertically, or null for the viewport. */
+function scrollParent(element: Element): Element | null {
+  for (
+    let parent = element.parentElement;
+    parent;
+    parent = parent.parentElement
+  ) {
+    const { overflowY } = getComputedStyle(parent);
+    if (overflowY === "auto" || overflowY === "scroll") return parent;
+  }
+  return null;
+}
+
 function useSeenOnce(rootMargin: string) {
   // A callback ref in state, so the observer follows the element when an
   // empty report's frame is replaced by its layout.
@@ -43,7 +56,9 @@ function useSeenOnce(rootMargin: string) {
           observer.disconnect();
         }
       },
-      { rootMargin },
+      // The margin must extend the box that actually clips the tile: with the
+      // viewport as root, tiles hidden by a scrolling panel never pre-load.
+      { root: scrollParent(element), rootMargin },
     );
     observer.observe(element);
     return () => observer.disconnect();
