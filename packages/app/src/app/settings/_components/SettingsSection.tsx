@@ -22,7 +22,7 @@ export function SettingsSection({
       <h2
         id={`settings-${id}-title`}
         tabIndex={-1}
-        className="text-[15px] font-semibold text-neutral-fg focus:outline-none"
+        className="rounded-sm text-[15px] font-semibold text-neutral-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-ring"
       >
         {title}
       </h2>

@@ -334,6 +334,24 @@ describe("SettingsPage", () => {
     expect(mockRefetch).toHaveBeenCalledOnce();
   });
 
+  it("moves focus to a section's heading, with a visible ring, from its jump chip", () => {
+    render(<SettingsPage />);
+    fireEvent.click(
+      within(
+        screen.getByRole("navigation", { name: "Jump to section" }),
+      ).getByRole("button", { name: "Privacy" }),
+    );
+    const heading = screen.getByRole("heading", { name: "Privacy", level: 2 });
+    expect(document.activeElement).toBe(heading);
+    expect(heading.getAttribute("tabindex")).toBe("-1");
+    expect(heading.className.split(/\s+/)).toEqual(
+      expect.arrayContaining([
+        "focus-visible:ring-2",
+        "focus-visible:ring-neutral-ring",
+      ]),
+    );
+  });
+
   it("says so when no credentials are stored", () => {
     render(<SettingsPage />);
     const credentials = section("Credentials");
