@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './../../../packages/app/src/routes/__root'
+import { Route as SettingsRouteImport } from './../../../packages/app/src/routes/settings'
 import { Route as DataFramesRouteImport } from './../../../packages/app/src/routes/data-frames'
 import { Route as IndexRouteImport } from './../../../packages/app/src/routes/index'
 import { Route as DraftsIndexRouteImport } from './../../../packages/app/src/routes/drafts/index'
@@ -19,6 +20,11 @@ import { Route as DashboardsDashboardIdRouteImport } from './../../../packages/a
 import { Route as DraftsDraftIdIndexRouteImport } from './../../../packages/app/src/routes/drafts/$draftId.index'
 import { Route as DashboardsDashboardIdJoinInsightIdTableIdRouteImport } from './../../../packages/app/src/routes/dashboards/$dashboardId_.join.$insightId.$tableId'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DataFramesRoute = DataFramesRouteImport.update({
   id: '/data-frames',
   path: '/data-frames',
@@ -69,6 +75,7 @@ const DashboardsDashboardIdJoinInsightIdTableIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/data-frames': typeof DataFramesRoute
+  '/settings': typeof SettingsRoute
   '/dashboards/$dashboardId': typeof DashboardsDashboardIdRoute
   '/data-sources/$sourceId': typeof DataSourcesSourceIdRoute
   '/dashboards/': typeof DashboardsIndexRoute
@@ -80,6 +87,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/data-frames': typeof DataFramesRoute
+  '/settings': typeof SettingsRoute
   '/dashboards/$dashboardId': typeof DashboardsDashboardIdRoute
   '/data-sources/$sourceId': typeof DataSourcesSourceIdRoute
   '/dashboards': typeof DashboardsIndexRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/data-frames': typeof DataFramesRoute
+  '/settings': typeof SettingsRoute
   '/dashboards/$dashboardId': typeof DashboardsDashboardIdRoute
   '/data-sources/$sourceId': typeof DataSourcesSourceIdRoute
   '/dashboards/': typeof DashboardsIndexRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/data-frames'
+    | '/settings'
     | '/dashboards/$dashboardId'
     | '/data-sources/$sourceId'
     | '/dashboards/'
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/data-frames'
+    | '/settings'
     | '/dashboards/$dashboardId'
     | '/data-sources/$sourceId'
     | '/dashboards'
@@ -127,6 +138,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/data-frames'
+    | '/settings'
     | '/dashboards/$dashboardId'
     | '/data-sources/$sourceId'
     | '/dashboards/'
@@ -139,6 +151,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DataFramesRoute: typeof DataFramesRoute
+  SettingsRoute: typeof SettingsRoute
   DashboardsDashboardIdRoute: typeof DashboardsDashboardIdRoute
   DataSourcesSourceIdRoute: typeof DataSourcesSourceIdRoute
   DashboardsIndexRoute: typeof DashboardsIndexRoute
@@ -150,6 +163,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/data-frames': {
       id: '/data-frames'
       path: '/data-frames'
@@ -219,6 +239,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DataFramesRoute: DataFramesRoute,
+  SettingsRoute: SettingsRoute,
   DashboardsDashboardIdRoute: DashboardsDashboardIdRoute,
   DataSourcesSourceIdRoute: DataSourcesSourceIdRoute,
   DashboardsIndexRoute: DashboardsIndexRoute,

@@ -15,7 +15,6 @@ describe("useShellStore — shell rails", () => {
     useShellStore.persist?.clearStorage?.();
     useShellStore.setState({
       leftNavOpen: true,
-      contextAppearanceOpen: false,
       contextPanelWidth: CONTEXT_PANEL_DEFAULT_WIDTH,
       workbenchPanes: {},
       collectionViews: {},
@@ -48,20 +47,6 @@ describe("useShellStore — shell rails", () => {
     );
     useShellStore.getState().setContextPanelWidth(360);
     expect(useShellStore.getState().contextPanelWidth).toBe(360);
-  });
-
-  it("toggles the appearance section without touching other rails", () => {
-    useShellStore.getState().toggleContextAppearance();
-    expect(useShellStore.getState().contextAppearanceOpen).toBe(true);
-    useShellStore.getState().toggleContextAppearance();
-    expect(useShellStore.getState().contextAppearanceOpen).toBe(false);
-  });
-
-  it("sets the appearance section explicitly", () => {
-    useShellStore.getState().setContextAppearanceOpen(true);
-    expect(useShellStore.getState().contextAppearanceOpen).toBe(true);
-    useShellStore.getState().setContextAppearanceOpen(false);
-    expect(useShellStore.getState().contextAppearanceOpen).toBe(false);
   });
 
   it("keeps the collection view per artifact type and restores it after a reload", async () => {

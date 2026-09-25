@@ -23,6 +23,13 @@ export interface AccessConnectionInfo {
 
 export interface AccessCapabilities {
   canManageCredentials: boolean;
+  /**
+   * Why credentials cannot be managed, when they cannot: the host started
+   * without a secret key (so it has no encrypted store for credentials or
+   * data-source sign-ins), it started without an access token (so every
+   * caller is anonymous), or the caller does not own the workspace.
+   */
+  unavailableReason?: "no-secret-key" | "no-host-token" | "not-owner";
 }
 
 export interface AccessCredentialMutations {
@@ -33,8 +40,14 @@ export interface AccessCredentialMutations {
 export interface UseAccessCredentialsResult extends UseQueryResult<
   AccessCredential[]
 > {
+  /** The list could not be read; `data` is then not an empty store. */
+  isError?: boolean;
   refetch: () => Promise<unknown>;
 }
 export type UseAccessConnectionInfoResult =
   UseQueryResult<AccessConnectionInfo>;
-export type UseAccessCapabilitiesResult = UseQueryResult<AccessCapabilities>;
+export interface UseAccessCapabilitiesResult extends UseQueryResult<AccessCapabilities> {
+  /** The host could not be asked; `data` is then not "cannot manage". */
+  isError?: boolean;
+  refetch?: () => Promise<unknown>;
+}

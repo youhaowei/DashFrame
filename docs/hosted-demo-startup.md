@@ -42,7 +42,7 @@ do not need these hosted settings.
 
 ## Agent connection
 
-In the hosted app, open Access credentials and copy the MCP connection URL. Issue a named credential and configure your MCP client to send it as a Bearer token. The URL includes the admitted workspace: `https://dashframe.dev/workspaces/<workspace-id>/mcp`.
+In the hosted app, open Settings, choose **Issue credential…** under Credentials, and copy the MCP connection URL. Issue a named credential and configure your MCP client to send it as a Bearer token. The URL includes the admitted workspace: `https://dashframe.dev/workspaces/<workspace-id>/mcp`.
 
 Hosted MCP is stateless HTTP. It does not use the local WebSocket endpoint. Each request verifies the credential and current workspace admission before opening query resources; revoking the credential denies subsequent requests. Local app connection details remain unchanged.
 

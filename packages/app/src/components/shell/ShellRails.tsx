@@ -1,5 +1,4 @@
 import { Dock, cn } from "@wystack/ui-react";
-import { ThemePanel } from "@wystack/ui-react/views";
 import { useEffect, useState } from "react";
 
 import {
@@ -61,12 +60,10 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
   const sections = useContextPanelSections();
   const [contextAutoCollapsedState, setContextAutoCollapsed] = useState(false);
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
-  const appearanceOpen = useShellStore((s) => s.contextAppearanceOpen);
-  const setAppearanceOpen = useShellStore((s) => s.setContextAppearanceOpen);
   const contextWidth = useShellStore((s) => s.contextPanelWidth);
   const setContextWidth = useShellStore((s) => s.setContextPanelWidth);
 
-  const contextIntentOpen = appearanceOpen || sections.length > 0;
+  const contextIntentOpen = sections.length > 0;
   const desktopNavInFlow = leftNavOpen && shellWidth >= DESKTOP_NAV_BREAKPOINT;
   const navWidth = desktopNavInFlow ? DESKTOP_NAV_WIDTH : 0;
   const openWithContext = countOpenSiblings(
@@ -105,12 +102,7 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
         maxExtent={CONTEXT_PANEL_MAX_WIDTH}
         aria-label="Context panel"
       >
-        <ContextPanelContent
-          sections={sections}
-          appearanceOpen={appearanceOpen}
-          onCloseAppearance={() => setAppearanceOpen(false)}
-          compact={contextMerged}
-        />
+        <ContextPanelContent sections={sections} compact={contextMerged} />
       </Dock>
     </>
   );
@@ -118,13 +110,9 @@ export function ShellRails({ shellWidth }: ShellRailsProps) {
 
 function ContextPanelContent({
   sections,
-  appearanceOpen,
-  onCloseAppearance,
   compact,
 }: {
   sections: ContextPanelSection[];
-  appearanceOpen: boolean;
-  onCloseAppearance: () => void;
   compact: boolean;
 }) {
   return (
@@ -134,15 +122,6 @@ function ContextPanelContent({
         compact && "text-sm",
       )}
     >
-      {appearanceOpen && (
-        <section className="min-h-0 flex-1 border-b border-neutral-border/60">
-          <ThemePanel
-            isOpen={appearanceOpen}
-            onClose={onCloseAppearance}
-            bare
-          />
-        </section>
-      )}
       {sections.map((section) => (
         <section
           key={section.id}

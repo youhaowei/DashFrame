@@ -1,6 +1,7 @@
 import type { AccessCredentialRecord } from "@dashframe/server-core";
-import type { AccessCredential } from "@dashframe/types";
+import type { AccessCapabilities, AccessCredential } from "@dashframe/types";
 import { z } from "zod";
+import { LOOPBACK_ANON_USER_ID } from "../permissions";
 import {
   isWorkspaceOwner,
   requireWorkspaceOwner,
@@ -26,12 +27,25 @@ function credentials(ctx: HostContext) {
   return ctx.accessCredentials;
 }
 
-export async function getAccessCapabilities(ctx: HostContext) {
-  return {
-    canManageCredentials: Boolean(
-      ctx.accessCredentials && isWorkspaceOwner(ctx),
-    ),
-  };
+export async function getAccessCapabilities(
+  ctx: HostContext,
+): Promise<AccessCapabilities> {
+  // The missing key comes first: it is a fact about the host, not the caller,
+  // and it also stops data-source sign-ins, so every caller needs to see it.
+  // (A host without the store cannot authenticate service credentials, so
+  // only users ever learn it.)
+  if (!ctx.accessCredentials)
+    return { canManageCredentials: false, unavailableReason: "no-secret-key" };
+  // A loopback host started without --token serves every caller anonymously,
+  // so no one can prove ownership: the fix is the token, not another account.
+  if (
+    ctx.principal.kind === "user" &&
+    ctx.principal.userId === LOOPBACK_ANON_USER_ID
+  )
+    return { canManageCredentials: false, unavailableReason: "no-host-token" };
+  if (!isWorkspaceOwner(ctx))
+    return { canManageCredentials: false, unavailableReason: "not-owner" };
+  return { canManageCredentials: true };
 }
 
 export async function getAccessConnectionInfo(ctx: HostContext) {

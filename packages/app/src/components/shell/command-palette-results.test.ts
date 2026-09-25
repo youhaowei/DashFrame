@@ -86,6 +86,7 @@ describe("buildPaletteResults", () => {
           "Go to Reports",
           "Go to Data sources",
           "Go to Drafts",
+          "Go to Settings",
         ],
       ],
       ["Reports", ["Weekly sales"]],
@@ -156,11 +157,15 @@ describe("buildPaletteResults", () => {
           "Go to Reports",
           "Go to Data sources",
           "Go to Drafts",
+          "Go to Settings",
         ],
       ],
     ]);
     // "sales" matches artifacts, but after `>` only actions are searched.
     expect(buildPaletteResults(sources, "> sales")).toEqual([]);
+    expect(labels(buildPaletteResults(sources, ">theme"))).toEqual([
+      ["Actions", ["Go to Settings"]],
+    ]);
     expect(labels(buildPaletteResults(sources, ">new"))).toEqual([
       ["Actions", ["New report"]],
     ]);
