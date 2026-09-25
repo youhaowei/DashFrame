@@ -14,6 +14,7 @@ import { useMemo } from "react";
 import {
   SettingsField,
   SettingsListRow,
+  SettingsLoadError,
   SettingsSection,
 } from "./SettingsSection";
 
@@ -60,12 +61,15 @@ function countLine({ sensitive, unclassified, cleared }: SensitivityCounts) {
  */
 export function PrivacySection({ mode }: { mode?: "local" | "hosted" }) {
   const analytics = useUsageAnalyticsService();
-  const { data: sources } = queryStatus(
+  const sourcesQuery = queryStatus(
     useQuery({ query: api.app.listDataSources, args: {} }),
   );
-  const { data: tables } = queryStatus(
+  const tablesQuery = queryStatus(
     useQuery({ query: api.app.listDataTables, args: {} }),
   );
+  const sources = sourcesQuery.data;
+  const tables = tablesQuery.data;
+  const failed = sourcesQuery.isError || tablesQuery.isError;
   const rows = useMemo(
     () => (sources && tables ? rollUpSensitivity(sources, tables) : undefined),
     [sources, tables],
@@ -105,7 +109,11 @@ export function PrivacySection({ mode }: { mode?: "local" | "hosted" }) {
           label="Field classification"
           hint="Unclassified fields count as restricted, the same as sensitive ones, until you mark them not sensitive. Classification does not change how data is stored."
         >
-          <ClassificationRollup rows={rows} restricted={restricted} />
+          <ClassificationRollup
+            failed={failed}
+            rows={rows}
+            restricted={restricted}
+          />
         </SettingsField>
       </div>
     </SettingsSection>
@@ -113,12 +121,18 @@ export function PrivacySection({ mode }: { mode?: "local" | "hosted" }) {
 }
 
 function ClassificationRollup({
+  failed,
   rows,
   restricted = 0,
 }: {
+  failed: boolean;
   rows: SourceSensitivity[] | undefined;
   restricted?: number;
 }) {
+  // Convex keeps retrying a failed subscription on its own; there is nothing
+  // for a retry button to ask for, so the line only says what happened.
+  if (failed)
+    return <SettingsLoadError message="Couldn't load field classification." />;
   if (rows === undefined)
     return <p className="text-sm text-neutral-fg-subtle">Loading…</p>;
   if (rows.length === 0)

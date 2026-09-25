@@ -25,6 +25,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   SettingsField,
   SettingsListRow,
+  SettingsLoadError,
   SettingsSection,
 } from "./SettingsSection";
 
@@ -187,16 +188,10 @@ function CredentialRows({
     return <p className="text-sm text-neutral-fg-subtle">Loading…</p>;
   if (failed)
     return (
-      <div className="flex flex-wrap items-center gap-2 text-sm text-neutral-fg-subtle">
-        <span role="alert">Couldn't load access credentials.</span>
-        <Button
-          variant="ghost"
-          color="secondary"
-          size="sm"
-          label="Try again"
-          onClick={onRetry}
-        />
-      </div>
+      <SettingsLoadError
+        message="Couldn't load access credentials."
+        onRetry={onRetry}
+      />
     );
   if (credentials.length === 0)
     return (

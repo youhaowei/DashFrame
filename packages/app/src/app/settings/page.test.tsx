@@ -76,6 +76,8 @@ const TABLES = [
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
   useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+    if (mockHost.failingQueries.includes(ref._path))
+      return { isError: true, error: new Error("query failed") };
     if (ref._path === "projectInfo")
       return { data: { projectId: "p1", name: "Acme analytics" } };
     if (ref._path === "listDataSources") return { data: SOURCES };
@@ -157,6 +159,7 @@ beforeEach(() => {
   mockHost.capabilities = { canManageCredentials: true };
   mockHost.credentials = [];
   mockHost.listFails = false;
+  mockHost.failingQueries = [];
   mockHost.runtime = { url: "http://127.0.0.1:4000", mode: "local" };
   delete (window as { dashframe?: unknown }).dashframe;
   mockClearAllData.mockReset().mockResolvedValue(undefined);
@@ -266,6 +269,19 @@ describe("SettingsPage", () => {
       within(privacy).getByText(/Your data stays on the host/),
     ).toBeTruthy();
   });
+
+  it.each(["listDataTables", "listDataSources"])(
+    "says field classification failed to load when %s fails, not that it is loading",
+    (query) => {
+      mockHost.failingQueries = [query];
+      render(<SettingsPage />);
+      const privacy = section("Privacy");
+      expect(within(privacy).queryByText("Loading…")).toBeNull();
+      expect(within(privacy).getByRole("alert").textContent).toBe(
+        "Couldn't load field classification.",
+      );
+    },
+  );
 
   it("says so when no credentials are stored", () => {
     render(<SettingsPage />);

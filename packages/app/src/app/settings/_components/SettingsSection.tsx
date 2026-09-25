@@ -1,3 +1,4 @@
+import { Button } from "@wystack/ui-react";
 import type { ReactNode } from "react";
 
 /** One stacked section: a heading and a one-line description over its body. */
@@ -76,5 +77,32 @@ export function SettingsListRow({
       </div>
       {actions && <div className="flex shrink-0 gap-1">{actions}</div>}
     </li>
+  );
+}
+
+/**
+ * A list that could not be read: a plain sentence, never an empty state or an
+ * endless "Loading…", and a retry when the caller can ask again.
+ */
+export function SettingsLoadError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => unknown;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm text-neutral-fg-subtle">
+      <span role="alert">{message}</span>
+      {onRetry && (
+        <Button
+          variant="ghost"
+          color="secondary"
+          size="sm"
+          label="Try again"
+          onClick={onRetry}
+        />
+      )}
+    </div>
   );
 }
