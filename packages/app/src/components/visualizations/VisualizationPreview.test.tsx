@@ -501,6 +501,53 @@ describe("VisualizationPreview — report cell overrides", () => {
   });
 });
 
+describe("VisualizationPreview — report cell pivot", () => {
+  function renderPivoted(reportCell: boolean) {
+    mockUseInsightView.mockClear();
+    mockUseInsight.mockReturnValue({
+      data: {
+        ...insight,
+        selectedFields: ["f1", "p1"],
+        metrics: [{ id: "m1", name: "Count" }],
+        reporting: { pivotFields: ["p1"] },
+      },
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [dataTable] });
+    mockUseInsightView.mockReturnValue({
+      viewName: null,
+      isReady: false,
+      error: null,
+    });
+    render(
+      <VisualizationPreview
+        visualization={visualization}
+        reportCell={reportCell}
+      />,
+    );
+  }
+
+  it("splits a report cell's chart by the pivot the chart leaves uncoloured", () => {
+    renderPivoted(true);
+
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        presentation: { dimensions: ["f1", "p1"] },
+      }),
+    );
+  });
+
+  it("draws a chart outside a report as saved", () => {
+    renderPivoted(false);
+
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ presentation: { dimensions: ["f1"] } }),
+    );
+  });
+});
+
 describe("VisualizationPreview — missing Insight", () => {
   function renderMissing(
     result: { data: null; isLoading: false } | { isError: true; error: Error },

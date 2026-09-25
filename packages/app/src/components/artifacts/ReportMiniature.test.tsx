@@ -130,6 +130,7 @@ describe("ReportMiniature", () => {
     expect(previewProps.at(-1)?.overrides).toEqual(
       computeItemOverrides(item as DashboardItem, [control]),
     );
+    expect(previewProps.at(-1)?.reportCell).toBe(true);
     expect(previewProps.at(-1)?.overrides).toMatchObject({
       sorts: [{ field: "Sales", direction: "desc" }],
       limit: 5,

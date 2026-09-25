@@ -7,6 +7,7 @@ import { queryStatus } from "@/data/query-status";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { resolveDashboardRuntime } from "@/lib/insights/dashboard-runtime";
+import { reportEncoding } from "@/lib/insights/report-runtime";
 import { api } from "@dashframe/convex-backend/api";
 import {
   fieldIdToColumnAlias,
@@ -94,6 +95,11 @@ interface VisualizationPreviewProps {
    * the report shows an error.
    */
   overrides?: DashboardItemOverrides;
+  /**
+   * Draw the chart as a report cell draws it: a pivot the chart leaves
+   * uncoloured becomes its color.
+   */
+  reportCell?: boolean;
   /** Reuse a parent materialization when the preview sits beside its table. */
   materialization?: {
     insight: Insight;
@@ -201,6 +207,7 @@ function VisualizationPreviewContent({
   thumbnail = true,
   columnDisplayNames,
   overrides,
+  reportCell = false,
 }: VisualizationPreviewProps) {
   // Fetch the insight for this visualization
   const { data: insight, isLoading: isLoadingInsight } = queryStatus(
@@ -233,16 +240,6 @@ function VisualizationPreviewContent({
     } as Insight;
   }, [insight]);
 
-  // Resolve the saved Insight's current immutable server frame for Mosaic.
-  const presentation = useMemo(
-    () =>
-      buildChartPresentation(
-        insight,
-        visualization.encoding,
-        visualization.visualizationType,
-      ),
-    [insight, visualization.encoding, visualization.visualizationType],
-  );
   // Filters on an insight-sourced Insight resolve against its upstream
   // fields, so the Insight list is needed only when there are overrides.
   const { data: insights = [] } = queryStatus(
@@ -257,6 +254,44 @@ function VisualizationPreviewContent({
         ? resolveDashboardRuntime(insight, dataTables, overrides, insights)
         : {},
     [insight, dataTables, overrides, insights],
+  );
+  // A report cell draws its chart the way the report does: a pivot the chart
+  // leaves uncoloured becomes its color, so groups are not merged.
+  const encoding = useMemo(
+    () =>
+      reportCell && insight
+        ? reportEncoding(
+            visualization.encoding ?? {},
+            insight,
+            dashboardRuntime.runtime,
+            dataTable?.fields ?? [],
+          )
+        : visualization.encoding,
+    [
+      reportCell,
+      insight,
+      visualization.encoding,
+      dashboardRuntime.runtime,
+      dataTable?.fields,
+    ],
+  );
+  const displayVisualization = useMemo(
+    () =>
+      encoding === visualization.encoding
+        ? visualization
+        : { ...visualization, encoding },
+    [encoding, visualization],
+  );
+
+  // Resolve the saved Insight's current immutable server frame for Mosaic.
+  const presentation = useMemo(
+    () =>
+      buildChartPresentation(
+        insight,
+        encoding,
+        visualization.visualizationType,
+      ),
+    [insight, encoding, visualization.visualizationType],
   );
   const { viewName, isReady, error } = useInsightView(
     dashboardRuntime.error ? null : insight,
@@ -278,7 +313,7 @@ function VisualizationPreviewContent({
 
   return (
     <ResolvedVisualizationPreview
-      visualization={visualization}
+      visualization={displayVisualization}
       height={height}
       fallback={fallback}
       thumbnail={thumbnail}

@@ -197,6 +197,7 @@ export function ReportMiniature({
                   fallback={<MutedBlock />}
                   // What the report shows before anyone turns a control.
                   overrides={computeItemOverrides(block.item, [...controls])}
+                  reportCell
                 />
               </div>
             ) : (
