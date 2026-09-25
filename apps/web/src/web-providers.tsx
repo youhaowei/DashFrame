@@ -1,3 +1,4 @@
+import { UsageAnalyticsProvider } from "@dashframe/app";
 import type { ReactNode } from "react";
 
 import { PostHogPageView } from "../components/providers/PostHogPageView";
@@ -18,7 +19,12 @@ export function WebProviders({ children }: { children: ReactNode }) {
   return (
     <PostHogProvider>
       <PostHogPageView />
-      {children}
+      {/* PostHog loads only when a key is configured; Settings says so then. */}
+      <UsageAnalyticsProvider
+        service={process.env.NEXT_PUBLIC_POSTHOG_KEY ? "PostHog" : null}
+      >
+        {children}
+      </UsageAnalyticsProvider>
     </PostHogProvider>
   );
 }

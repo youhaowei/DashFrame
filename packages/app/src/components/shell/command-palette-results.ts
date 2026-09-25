@@ -22,7 +22,8 @@ export type PaletteActionId =
   | "add-data-source"
   | "go-reports"
   | "go-data-sources"
-  | "go-drafts";
+  | "go-drafts"
+  | "go-settings";
 
 /** Where picking a result goes, or what it runs. */
 export type PaletteTarget =
@@ -123,6 +124,12 @@ const ACTIONS: PaletteItem[] = [
   action("go-reports", "Go to Reports", []),
   action("go-data-sources", "Go to Data sources", []),
   action("go-drafts", "Go to Drafts", []),
+  action("go-settings", "Go to Settings", [
+    "preferences",
+    "appearance",
+    "theme",
+    "credentials",
+  ]),
 ];
 
 function action(

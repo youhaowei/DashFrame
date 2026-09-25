@@ -30,6 +30,7 @@ export {
 
 export { startHostSession } from "./bootstrap/host-session";
 export { SignOutProvider } from "./bootstrap/sign-out";
+export { UsageAnalyticsProvider } from "./lib/usage-analytics";
 
 export {
   lookupHostRuntime,

@@ -36,6 +36,7 @@ export function useAccessCredentials(): UseAccessCredentialsResult {
     data: result.data as AccessCredential[] | undefined,
     isLoading: result.isLoading,
     isFetching: result.isFetching,
+    isError: result.isError,
     refetch: result.refetch,
   };
 }

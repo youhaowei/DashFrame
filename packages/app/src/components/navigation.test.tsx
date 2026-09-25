@@ -1,43 +1,18 @@
 import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { useCommandPalette } from "@/components/shell/command-palette-store";
 
-const { mockClearAllData, mockLocation, mockPlatform, mockReloadRoot } =
-  vi.hoisted(() => ({
-    mockClearAllData: vi.fn(),
-    mockLocation: { pathname: "/data-sources" },
-    mockPlatform: { hasInsetTrafficLights: false },
-    mockReloadRoot: vi.fn(),
-  }));
+const { mockLocation, mockPlatform } = vi.hoisted(() => ({
+  mockLocation: { pathname: "/data-sources" },
+  mockPlatform: { hasInsetTrafficLights: false },
+}));
 
-vi.mock("@/components/access-credentials/AccessCredentialsDialog", () => ({
-  AccessCredentialsDialog: () => null,
-}));
 vi.mock("@/components/theme-toggle", () => ({ ThemeToggle: () => null }));
-vi.mock("@/data", () => ({
-  useAccessCapabilities: () => ({ data: { canManageCredentials: false } }),
-}));
-vi.mock("@/lib/data-access/data-frames", () => ({
-  clearAllData: mockClearAllData,
-}));
-vi.mock("@/lib/clear-all-data-navigation", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/clear-all-data-navigation")>()),
-  reloadRootWithFreshWorkspaceState: mockReloadRoot,
-}));
 vi.mock("@/lib/perf", () => ({ PerfHud: () => null }));
 vi.mock("@/components/shelf/NavShelf", () => ({ ShelfPanel: () => null }));
 vi.mock("@/lib/platform", () => ({ usePlatform: () => mockPlatform }));
-vi.mock("@/lib/stores", () => ({
-  useToastStore: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),
-}));
 vi.mock("@/lib/stores/shell-store", () => ({
   useShellStore: (select: (state: { leftNavOpen: boolean }) => unknown) =>
     select({ leftNavOpen: true }),
@@ -91,42 +66,9 @@ vi.mock("@wystack/ui-react", () => ({
   DialogContent: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
-  DialogDescription: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DialogFooter: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DialogHeader: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DialogTitle: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
   Dock: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenu: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  DropdownMenuItem: ({
-    children,
-    onClick,
-  }: {
-    children: React.ReactNode;
-    onClick?: () => void;
-  }) => (
-    <button type="button" onClick={onClick}>
-      {children}
-    </button>
-  ),
-  DropdownMenuSeparator: () => <hr />,
   Surface: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
-  ),
-  DropdownMenuTrigger: ({ render: trigger }: { render: React.ReactNode }) => (
-    <>{trigger}</>
   ),
   cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
 }));
@@ -134,7 +76,6 @@ vi.mock("@wystack/ui-react/icons", () => ({
   CloseIcon: () => null,
   DashboardIcon: () => null,
   DatabaseIcon: () => null,
-  DeleteIcon: () => null,
   FileIcon: () => null,
   GithubIcon: () => null,
   GridIcon: () => null,
@@ -142,19 +83,14 @@ vi.mock("@wystack/ui-react/icons", () => ({
   SearchIcon: () => null,
   SettingsIcon: () => null,
   SparklesIcon: () => null,
-  UserIcon: () => null,
 }));
 
-import { SignOutProvider } from "@/bootstrap/sign-out";
 import { Navigation } from "./navigation";
 
 describe("Navigation", () => {
   beforeEach(() => {
     mockLocation.pathname = "/data-sources";
     mockPlatform.hasInsetTrafficLights = false;
-    mockClearAllData.mockReset();
-    mockClearAllData.mockResolvedValue(undefined);
-    mockReloadRoot.mockReset();
   });
 
   it("renders exactly the three ratified roots in order", () => {
@@ -238,40 +174,22 @@ describe("Navigation", () => {
     expect(screen.queryByTestId("mobile-drawer")).toBeNull();
   });
 
-  it("reloads the root with a fresh client after clear-all succeeds", async () => {
+  it("links Settings to the settings page, closing the drawer", () => {
     render(<Navigation />);
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    const drawer = screen.getByTestId("mobile-drawer");
+    const settings = within(drawer).getByRole("link", { name: "Settings" });
+    expect(settings.getAttribute("href")).toBe("/settings");
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear all data" }));
-    expect(screen.getByText("Clear all data?")).not.toBeNull();
-    const clearButtons = screen.getAllByRole("button", {
-      name: "Clear all data",
-    });
-    fireEvent.click(clearButtons.at(-1)!);
-
-    await waitFor(() => expect(mockClearAllData).toHaveBeenCalledOnce());
-    expect(mockReloadRoot).toHaveBeenCalledOnce();
+    fireEvent.click(settings);
+    expect(screen.queryByTestId("mobile-drawer")).toBeNull();
   });
 
-  it("offers sign out in the settings menu only when the host has accounts", () => {
-    const onSignOut = vi.fn();
-    const { unmount } = render(<Navigation />);
-    expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
-    unmount();
-
-    render(
-      <SignOutProvider onSignOut={onSignOut}>
-        <Navigation />
-      </SignOutProvider>,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
-    expect(onSignOut).toHaveBeenCalledOnce();
-
-    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
-    fireEvent.click(
-      within(screen.getByTestId("mobile-drawer")).getByRole("button", {
-        name: "Sign out",
-      }),
-    );
-    expect(onSignOut).toHaveBeenCalledTimes(2);
+  // Clearing data, credentials, and sign-out live on the Settings page now.
+  it("keeps no settings menu in the nav", () => {
+    render(<Navigation />);
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+    expect(screen.queryByText("Clear all data")).toBeNull();
+    expect(screen.queryByText("Sign out")).toBeNull();
   });
 });

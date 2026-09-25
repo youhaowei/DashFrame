@@ -10,6 +10,8 @@ import type { FC, ReactNode } from "react";
 
 export interface AppRuntimeConfig {
   url: string;
+  /** Set by host bootstrap: a local host, or a hosted deployment. */
+  mode?: "local" | "hosted";
   token?: string;
   convexUrl?: string;
   /** Browser host access changed; the entrypoint owns revalidation and teardown. */

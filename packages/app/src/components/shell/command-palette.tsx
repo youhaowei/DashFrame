@@ -208,6 +208,9 @@ export function CommandPalette() {
               return;
             case "go-drafts":
               await navigate({ to: "/drafts" } as never);
+              return;
+            case "go-settings":
+              await navigate({ to: "/settings" } as never);
           }
       }
     },

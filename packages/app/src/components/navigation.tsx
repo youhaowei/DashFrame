@@ -1,15 +1,9 @@
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
-import { AccessCredentialsDialog } from "@/components/access-credentials/AccessCredentialsDialog";
 import { DashFrameLogo } from "@/components/DashFrameLogo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ShelfPanel } from "@/components/shelf/NavShelf";
-import { useSignOut } from "@/bootstrap/sign-out";
-import { useAccessCapabilities } from "@/data";
-import { clearAllData } from "@/lib/data-access/data-frames";
-import { reloadRootWithFreshWorkspaceState } from "@/lib/clear-all-data-navigation";
 import { PerfHud } from "@/lib/perf";
-import { useToastStore } from "@/lib/stores";
 import { usePlatform } from "@/lib/platform";
 import { useShellStore } from "@/lib/stores/shell-store";
 import {
@@ -24,16 +18,7 @@ import {
   Button,
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   Dock,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
   Surface,
   cn,
 } from "@wystack/ui-react";
@@ -41,14 +26,12 @@ import {
   type LucideIcon,
   CloseIcon,
   DatabaseIcon,
-  DeleteIcon,
   FileIcon,
   GithubIcon,
   GridIcon,
   MenuIcon,
   SearchIcon,
   SettingsIcon,
-  UserIcon,
 } from "@wystack/ui-react/icons";
 import { type ReactNode, useEffect, useState } from "react";
 
@@ -90,9 +73,6 @@ const navItems: NavItem[] = [
 ];
 
 interface SidebarContentProps {
-  onClearData?: () => void;
-  onAccessCredentials?: () => void;
-  onSignOut?: () => void;
   onNavigate?: () => void;
   /**
    * Extra rows for the footer, below Settings/Open source — dev tooling like
@@ -106,15 +86,14 @@ interface SidebarContentProps {
 }
 
 function SidebarContent({
-  onClearData,
-  onAccessCredentials,
-  onSignOut,
   onNavigate,
   footerSlot,
   shelfSlot,
   pendingDraftCount,
 }: SidebarContentProps) {
   const pathname = useLocation({ select: (l) => l.pathname });
+  const settingsActive =
+    pathname === "/settings" || pathname.startsWith("/settings/");
 
   return (
     <div className="flex h-full flex-col">
@@ -194,45 +173,23 @@ function SidebarContent({
         </div>
       ) : null}
 
-      {/* Footer with Settings and GitHub */}
+      {/* Footer: Settings, the source link, and dev tooling. */}
       <div className="space-y-2 px-4 py-3">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 text-xs text-neutral-fg-subtle transition-colors hover:text-neutral-fg"
-              >
-                <SettingsIcon className="h-4 w-4" />
-                <span>Settings</span>
-              </button>
-            }
+        <Link
+          to="/settings"
+          onClick={onNavigate}
+          className={cn(
+            "group flex w-full items-center gap-2 text-xs transition-colors duration-150 motion-reduce:transition-none",
+            settingsActive
+              ? "font-medium text-neutral-fg"
+              : "text-neutral-fg-subtle hover:text-neutral-fg",
+          )}
+        >
+          <SettingsIcon
+            className={cn("h-4 w-4", settingsActive && "text-palette-primary")}
           />
-          <DropdownMenuContent align="start" side="top">
-            {onAccessCredentials ? (
-              <DropdownMenuItem onClick={onAccessCredentials}>
-                <DatabaseIcon className="mr-2 h-4 w-4" />
-                Access credentials
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem
-              onClick={onClearData}
-              className="text-palette-danger focus:text-palette-danger"
-            >
-              <DeleteIcon className="mr-2 h-4 w-4" />
-              Clear all data
-            </DropdownMenuItem>
-            {onSignOut ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={onSignOut}>
-                  <UserIcon className="mr-2 h-4 w-4" />
-                  Sign out
-                </DropdownMenuItem>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          <span>Settings</span>
+        </Link>
         <a
           href="https://github.com/youhaowei/dashframe"
           target="_blank"
@@ -284,37 +241,15 @@ function SearchRow({ onOpen }: { onOpen?: () => void }) {
 export function Navigation() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const [isOpen, setIsOpen] = useState(false);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [showAccessCredentials, setShowAccessCredentials] = useState(false);
-  const accessCapabilities = useAccessCapabilities();
-  const signOut = useSignOut();
   const { data: draftCount = 0 } = queryStatus(
     useQuery({ query: api.app.listDraftCount, args: {} }),
   );
-  const canManageAccessCredentials =
-    accessCapabilities.data?.canManageCredentials === true;
 
   const leftNavOpen = useShellStore((s) => s.leftNavOpen);
   const { hasInsetTrafficLights } = usePlatform();
 
-  const { showError, showSuccess } = useToastStore();
-
   // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- route changes must dismiss the modal drawer.
   useEffect(() => setIsOpen(false), [pathname]);
-
-  const handleClearAllData = async () => {
-    try {
-      await clearAllData();
-      setShowClearConfirm(false);
-      showSuccess("All data cleared");
-      reloadRootWithFreshWorkspaceState();
-    } catch (error) {
-      showError("Failed to clear data", {
-        description:
-          error instanceof Error ? error.message : "Please try again.",
-      });
-    }
-  };
 
   return (
     <>
@@ -345,13 +280,6 @@ export function Navigation() {
           )}
           <SidebarContent
             pendingDraftCount={draftCount}
-            onClearData={() => setShowClearConfirm(true)}
-            onAccessCredentials={
-              canManageAccessCredentials
-                ? () => setShowAccessCredentials(true)
-                : undefined
-            }
-            onSignOut={signOut}
             footerSlot={<PerfHud />}
             shelfSlot={leftNavOpen ? <ShelfPanel targetId="shelf-nav" /> : null}
           />
@@ -389,48 +317,9 @@ export function Navigation() {
               <SidebarContent
                 pendingDraftCount={draftCount}
                 onNavigate={() => setIsOpen(false)}
-                onClearData={() => setShowClearConfirm(true)}
-                onAccessCredentials={
-                  canManageAccessCredentials
-                    ? () => setShowAccessCredentials(true)
-                    : undefined
-                }
-                onSignOut={signOut}
               />
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {canManageAccessCredentials ? (
-        <AccessCredentialsDialog
-          open={showAccessCredentials}
-          onOpenChange={setShowAccessCredentials}
-        />
-      ) : null}
-
-      {/* Clear Data Confirmation Dialog */}
-      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Clear all data?</DialogTitle>
-            <DialogDescription>
-              This will permanently delete all data sources, insights, and
-              visualizations. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              label="Cancel"
-              onClick={() => setShowClearConfirm(false)}
-            />
-            <Button
-              color="danger"
-              label="Clear all data"
-              onClick={handleClearAllData}
-            />
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
