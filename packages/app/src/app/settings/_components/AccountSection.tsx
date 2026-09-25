@@ -12,7 +12,7 @@ export function AccountSection({ onSignOut }: { onSignOut: () => void }) {
       description="The account signed in to this workspace."
     >
       <Button
-        variant="solid"
+        variant="outline"
         color="secondary"
         size="sm"
         icon={UserIcon}

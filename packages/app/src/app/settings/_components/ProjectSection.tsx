@@ -48,7 +48,7 @@ export function ProjectSection({ hostUrl }: { hostUrl: string | undefined }) {
         {revealFolder && (
           <SettingsField label="Project folder">
             <Button
-              variant="solid"
+              variant="outline"
               color="secondary"
               size="sm"
               label={isMacOS ? "Show in Finder" : "Show in folder"}

@@ -112,7 +112,7 @@ function SecretKeyMissing() {
             onFocus={(event) => event.currentTarget.select()}
           />
           <Button
-            variant="solid"
+            variant="outline"
             color="secondary"
             size="sm"
             icon={copied === "copied" ? CheckIcon : CopyIcon}
@@ -155,7 +155,7 @@ function AccessCredentialList() {
         onRevoke={handleRevoke}
       />
       <Button
-        variant="solid"
+        variant="outline"
         color="secondary"
         size="sm"
         label="Issue credential…"
