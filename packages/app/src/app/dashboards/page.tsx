@@ -492,6 +492,7 @@ export default function DashboardsPage() {
       count={hasLoadError ? undefined : dashboards.length}
       actions={
         <Button
+          size="sm"
           icon={PlusIcon}
           label="New report"
           onClick={() => setIsCreateOpen(true)}

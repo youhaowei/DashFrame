@@ -433,7 +433,9 @@ export function OverrideFieldRow({
                     }}
                   >
                     <SelectTrigger
-                      className="h-6 w-auto gap-1 border-0 bg-transparent px-1.5 text-xs text-neutral-fg-subtle shadow-none hover:bg-neutral-bg"
+                      // A text-like action, not a field: drop the well's ring and its
+                      // dashed empty outline (the trigger never shows a value).
+                      className="h-6 w-auto gap-1 bg-transparent px-1.5 text-xs text-neutral-fg-subtle shadow-none ring-0 enabled:hover:bg-neutral-bg data-[placeholder]:not-focus-visible:outline-none"
                       aria-label="Bind to dashboard control"
                     >
                       Bind ▾

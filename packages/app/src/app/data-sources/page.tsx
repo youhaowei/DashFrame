@@ -333,6 +333,7 @@ export default function DataSourcesPage({
       count={allDataSources.length}
       actions={
         <Button
+          size="sm"
           icon={PlusIcon}
           label="Add Source"
           onClick={() => setIsAddSourceOpen(true)}

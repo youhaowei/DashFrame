@@ -31,8 +31,6 @@ interface SelectProps {
   placeholder?: string;
   className?: string;
   onClear?: () => void;
-  /** Render an unselected trigger as an empty dashed slot. */
-  emptyDashed?: boolean;
   disabled?: boolean;
   /** Error message to display below the field */
   error?: string;
@@ -49,7 +47,6 @@ export function Select({
   className,
   onClear,
   error,
-  emptyDashed = false,
   disabled = false,
 }: SelectProps) {
   const selectedOption = options.find((option) => option.value === value);
@@ -88,8 +85,10 @@ export function Select({
           aria-label={ariaLabel ?? label}
           className={cn(
             "min-w-0 w-full",
-            emptyDashed && !value && "border-dashed",
-            error && "border-palette-danger focus:ring-palette-danger",
+            // The well has no border: an error colors its ring, or the
+            // dashed outline an empty trigger shows instead.
+            error &&
+              "ring-1 ring-palette-danger focus-visible:ring-palette-danger data-[placeholder]:not-focus-visible:outline-palette-danger",
           )}
         >
           <SelectValue placeholder={placeholder} className="min-w-0 truncate">
