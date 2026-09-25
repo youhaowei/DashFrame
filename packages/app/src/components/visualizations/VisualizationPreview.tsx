@@ -264,13 +264,15 @@ function VisualizationPreviewContent({
   );
 
   // Resolve instance-qualified fields for repeat-join insights so that
-  // field:<uuid>_j1 encodings resolve to their SQL alias correctly.
+  // field:<uuid>_j1 encodings resolve to their SQL alias correctly. It runs
+  // with the chart's runtime so both requests match and materialize once.
   const { resolvedFields: instanceAwareFields } = useInsightPagination({
     insight:
       insightForView ??
       ({ source: { sourceType: "dataTable", sourceId: "" } } as Insight),
     showModelPreview: false,
-    enabled: !!insightForView,
+    enabled: !!insightForView && !dashboardRuntime.error,
+    runtime: dashboardRuntime.runtime,
     presentation,
   });
 

@@ -478,12 +478,24 @@ describe("VisualizationPreview — report cell overrides", () => {
     );
   });
 
+  it("resolves fields with the same runtime, so the cell materializes once", () => {
+    mockUseInsightPagination.mockClear();
+    renderWithOverrides({ limit: 5 });
+
+    expect(mockUseInsightPagination).toHaveBeenLastCalledWith(
+      expect.objectContaining({ runtime: { limit: 5 } }),
+    );
+  });
+
   it("shows the fallback, and runs nothing, for an undeclared override", () => {
     renderWithOverrides({ sorts: [{ field: "Sales", direction: "desc" }] });
 
     expect(mockUseInsightView).toHaveBeenLastCalledWith(
       null,
       expect.anything(),
+    );
+    expect(mockUseInsightPagination).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: false }),
     );
     expect(screen.getByTestId("custom-fallback")).toBeTruthy();
   });
