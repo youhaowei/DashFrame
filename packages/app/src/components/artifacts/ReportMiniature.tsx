@@ -1,5 +1,5 @@
 import type { DashboardItem, Visualization } from "@dashframe/types";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 
 import { VisualizationPreview } from "@/components/visualizations/VisualizationPreview";
 
@@ -27,13 +27,14 @@ type MiniatureItem = Pick<
  * re-run the queries. Without IntersectionObserver it mounts at once.
  */
 function useSeenOnce(rootMargin: string) {
-  const ref = useRef<HTMLDivElement>(null);
+  // A callback ref in state, so the observer follows the element when an
+  // empty report's frame is replaced by its layout.
+  const [element, ref] = useState<HTMLDivElement | null>(null);
   const [seen, setSeen] = useState(
     () => typeof IntersectionObserver === "undefined",
   );
 
   useEffect(() => {
-    const element = ref.current;
     if (seen || !element) return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -46,16 +47,16 @@ function useSeenOnce(rootMargin: string) {
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [rootMargin, seen]);
+  }, [element, rootMargin, seen]);
 
   return { ref, seen };
 }
 
 function MutedBlock() {
   return (
-    <span
+    <div
       data-testid="miniature-muted"
-      className="block h-full w-full bg-neutral-bg-emphasis"
+      className="h-full w-full bg-neutral-bg-emphasis"
     />
   );
 }
@@ -146,7 +147,7 @@ export function ReportMiniature({
 
         if (block.item.type === "markdown") {
           return (
-            <span
+            <div
               key={block.item.id}
               data-testid="miniature-text"
               className={`${cell} flex flex-col gap-1 p-1`}
@@ -154,7 +155,7 @@ export function ReportMiniature({
             >
               <span className="block h-1 w-1/2 shrink-0 rounded-full bg-neutral-bg-bold" />
               <span className="block h-1 w-5/6 shrink-0 rounded-full bg-neutral-bg-bold" />
-            </span>
+            </div>
           );
         }
 
@@ -164,24 +165,24 @@ export function ReportMiniature({
         const live = visualization !== undefined && liveIds.has(block.item.id);
 
         return (
-          <span
+          <div
             key={block.item.id}
             data-testid="miniature-chart"
             className={`${cell} bg-neutral-bg dark:bg-neutral-bg-muted`}
             style={style}
           >
             {live && seen ? (
-              <span className="block h-full w-full transition-opacity duration-200 starting:opacity-0 motion-reduce:transition-none">
+              <div className="h-full w-full transition-opacity duration-200 starting:opacity-0 motion-reduce:transition-none">
                 <VisualizationPreview
                   visualization={visualization}
                   height="container"
                   fallback={<MutedBlock />}
                 />
-              </span>
+              </div>
             ) : (
               <MutedBlock />
             )}
-          </span>
+          </div>
         );
       })}
     </div>

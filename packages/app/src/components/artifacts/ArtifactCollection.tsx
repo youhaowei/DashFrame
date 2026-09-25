@@ -280,18 +280,22 @@ const mediaActionBackdrop =
 export type ArtifactTileProps = {
   to: string;
   name: ReactNode;
-  /** Small recognition mark in the tile's corner, such as a provider mark. */
-  glyph?: ReactNode;
-  /**
-   * A 16:10 strip across the top of the tile, such as a report's miniature.
-   * Takes the glyph's place.
-   */
-  media?: ReactNode;
   /** One muted line; every fact on it should answer a question. */
   meta?: ReactNode;
   headingLevel?: 2 | 3;
   actions?: ReactNode;
-};
+} & (
+  | {
+      /** Small recognition mark in the tile's corner, such as a provider mark. */
+      glyph: ReactNode;
+      media?: never;
+    }
+  | {
+      /** A 16:10 strip across the top of the tile, such as a report's miniature. */
+      media: ReactNode;
+      glyph?: never;
+    }
+);
 
 /** Compact grid tile: glyph or media, name, one meta line; lifts on hover. */
 export function ArtifactTile({

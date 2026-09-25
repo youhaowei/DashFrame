@@ -72,6 +72,21 @@ describe("ReportMiniature", () => {
     );
   });
 
+  it("goes live when an empty report gains its first chart", () => {
+    const { rerender } = render(
+      <ReportMiniature items={[]} visualizationById={vizMap("a")} />,
+    );
+    rerender(
+      <ReportMiniature
+        items={[chart("a", 0, 0)]}
+        visualizationById={vizMap("a")}
+      />,
+    );
+    scrollIntoView();
+
+    expect(screen.getByTestId("live-chart").textContent).toBe("a");
+  });
+
   it("draws a text block as muted bars, never a chart", () => {
     render(
       <ReportMiniature
