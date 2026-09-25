@@ -268,22 +268,40 @@ const revealedActions =
 const focusRing =
   "outline-none focus-visible:ring-2 focus-visible:ring-neutral-ring focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-bg";
 
+/**
+ * Over a media strip the menu button needs the tile's own fill behind it, or
+ * it sits on a chart. A pseudo-element carries the fill so it fades with the
+ * button and stays out of the touch rule's descendant opacity.
+ */
+const mediaActionBackdrop =
+  "isolate before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-neutral-bg before:opacity-0 before:shadow-[var(--shadow-sm)] before:transition-opacity before:duration-150 group-hover:before:opacity-100 group-focus-within:before:opacity-100 motion-reduce:before:transition-none dark:before:bg-neutral-bg-subtle [@media(hover:none)]:before:opacity-70";
+
 export type ArtifactTileProps = {
   to: string;
   name: ReactNode;
-  /** Recognition mark: a report's layout miniature or a provider mark. */
-  glyph: ReactNode;
   /** One muted line; every fact on it should answer a question. */
   meta?: ReactNode;
   headingLevel?: 2 | 3;
   actions?: ReactNode;
-};
+} & (
+  | {
+      /** Small recognition mark in the tile's corner, such as a provider mark. */
+      glyph: ReactNode;
+      media?: never;
+    }
+  | {
+      /** A 16:10 strip across the top of the tile, such as a report's miniature. */
+      media: ReactNode;
+      glyph?: never;
+    }
+);
 
-/** Compact grid tile: glyph, name, one meta line; lifts on hover. */
+/** Compact grid tile: glyph or media, name, one meta line; lifts on hover. */
 export function ArtifactTile({
   to,
   name,
   glyph,
+  media,
   meta,
   headingLevel = 2,
   actions,
@@ -293,22 +311,33 @@ export function ArtifactTile({
     <article className="group relative flex min-w-0 rounded-[var(--surface-radius)] bg-neutral-bg shadow-[var(--shadow-sm)] transition-shadow duration-150 hover:shadow-[var(--shadow-lg)] focus-within:shadow-[var(--shadow-lg)] motion-reduce:transition-none dark:bg-neutral-bg-subtle">
       <Link
         to={to as never}
-        className={`flex min-w-0 flex-1 flex-col rounded-[var(--surface-radius)] p-4 ${focusRing}`}
+        className={`flex min-w-0 flex-1 flex-col rounded-[var(--surface-radius)] ${media ? "" : "p-4"} ${focusRing}`}
       >
-        <span
-          aria-hidden="true"
-          className="flex h-9 w-12 items-start text-neutral-fg-subtle"
-        >
-          {glyph}
-        </span>
-        <Heading className="mt-7 truncate pr-6 font-medium text-neutral-fg">
-          {name}
-        </Heading>
-        {meta && (
-          <span className="mt-0.5 block text-xs text-neutral-fg-subtle">
-            {meta}
+        {media ? (
+          <div
+            aria-hidden="true"
+            className="overflow-hidden rounded-t-[var(--surface-radius)] bg-neutral-bg-muted dark:bg-neutral-bg"
+          >
+            {media}
+          </div>
+        ) : (
+          <span
+            aria-hidden="true"
+            className="flex h-9 w-12 items-start text-neutral-fg-subtle"
+          >
+            {glyph}
           </span>
         )}
+        <div className={media ? "px-4 pt-3 pb-3.5" : "mt-7"}>
+          <Heading className="truncate pr-6 font-medium text-neutral-fg">
+            {name}
+          </Heading>
+          {meta && (
+            <span className="mt-0.5 block text-xs text-neutral-fg-subtle">
+              {meta}
+            </span>
+          )}
+        </div>
       </Link>
       {actions && (
         // Same touch rule as rows: hidden and untappable until a hovering
@@ -316,7 +345,7 @@ export function ArtifactTile({
         // and tappable, since the menu holds Delete.
         <div
           data-slot="tile-actions"
-          className={`absolute top-2 right-2 ${revealedActions}`}
+          className={`absolute top-2 right-2 ${revealedActions} ${media ? mediaActionBackdrop : ""}`}
         >
           {actions}
         </div>

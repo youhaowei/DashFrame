@@ -6,6 +6,8 @@ import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
+import { resolveDashboardRuntime } from "@/lib/insights/dashboard-runtime";
+import { reportEncoding } from "@/lib/insights/report-runtime";
 import { api } from "@dashframe/convex-backend/api";
 import {
   fieldIdToColumnAlias,
@@ -14,6 +16,7 @@ import {
 } from "@dashframe/engine";
 import type {
   ChartEncoding,
+  DashboardItemOverrides,
   DataTable,
   Field,
   Insight,
@@ -70,7 +73,10 @@ interface VisualizationPreviewProps {
   visualization: Visualization;
   /** Height of the preview in pixels, or fill its container (default: 200) */
   height?: number | "container";
-  /** Fallback element to show when data can't be loaded */
+  /**
+   * Shown instead of the chart when its data can't be loaded or it fails to
+   * render. Without one, each state shows its own message.
+   */
   fallback?: React.ReactNode;
   /**
    * Draw the chart as a card thumbnail, without axes, legends or padding
@@ -83,6 +89,17 @@ interface VisualizationPreviewProps {
    * repeat-join fields read distinctly. Falls back to the field name.
    */
   columnDisplayNames?: Readonly<Record<string, string>>;
+  /**
+   * A report cell's saved filters, sorts and limit, so the preview draws the
+   * same values the report does. Undeclared overrides show the fallback, as
+   * the report shows an error.
+   */
+  overrides?: DashboardItemOverrides;
+  /**
+   * Draw the chart as a report cell draws it: a pivot the chart leaves
+   * uncoloured becomes its color.
+   */
+  reportCell?: boolean;
   /** Reuse a parent materialization when the preview sits beside its table. */
   materialization?: {
     insight: Insight;
@@ -114,6 +131,7 @@ export function VisualizationPreview(props: VisualizationPreviewProps) {
   return (
     <VisualizationErrorBoundary
       resetKey={`${props.visualization.id}:${props.visualization.updatedAt ?? ""}`}
+      fallback={props.fallback}
     >
       {props.materialization ? (
         <SharedVisualizationPreview
@@ -188,6 +206,8 @@ function VisualizationPreviewContent({
   fallback = null,
   thumbnail = true,
   columnDisplayNames,
+  overrides,
+  reportCell = false,
 }: VisualizationPreviewProps) {
   // Fetch the insight for this visualization
   const { data: insight, isLoading: isLoadingInsight } = queryStatus(
@@ -220,34 +240,80 @@ function VisualizationPreviewContent({
     } as Insight;
   }, [insight]);
 
+  // Filters on an insight-sourced Insight resolve against its upstream
+  // fields, so the Insight list is needed only when there are overrides.
+  const { data: insights = [] } = queryStatus(
+    useQuery({
+      query: api.app.listInsights,
+      args: overrides ? {} : "skip",
+    }),
+  );
+  const dashboardRuntime = useMemo(
+    () =>
+      insight && overrides
+        ? resolveDashboardRuntime(insight, dataTables, overrides, insights)
+        : {},
+    [insight, dataTables, overrides, insights],
+  );
+  // A report cell draws its chart the way the report does: a pivot the chart
+  // leaves uncoloured becomes its color, so groups are not merged.
+  const encoding = useMemo(
+    () =>
+      reportCell && insight
+        ? reportEncoding(
+            visualization.encoding ?? {},
+            insight,
+            dashboardRuntime.runtime,
+            dataTable?.fields ?? [],
+          )
+        : visualization.encoding,
+    [
+      reportCell,
+      insight,
+      visualization.encoding,
+      dashboardRuntime.runtime,
+      dataTable?.fields,
+    ],
+  );
+  const displayVisualization = useMemo(
+    () =>
+      encoding === visualization.encoding
+        ? visualization
+        : { ...visualization, encoding },
+    [encoding, visualization],
+  );
+
   // Resolve the saved Insight's current immutable server frame for Mosaic.
   const presentation = useMemo(
     () =>
       buildChartPresentation(
         insight,
-        visualization.encoding,
+        encoding,
         visualization.visualizationType,
       ),
-    [insight, visualization.encoding, visualization.visualizationType],
+    [insight, encoding, visualization.visualizationType],
   );
-  const { viewName, isReady, error } = useInsightView(insight, {
-    presentation,
-  });
+  const { viewName, isReady, error } = useInsightView(
+    dashboardRuntime.error ? null : insight,
+    { presentation, runtime: dashboardRuntime.runtime },
+  );
 
   // Resolve instance-qualified fields for repeat-join insights so that
-  // field:<uuid>_j1 encodings resolve to their SQL alias correctly.
+  // field:<uuid>_j1 encodings resolve to their SQL alias correctly. It runs
+  // with the chart's runtime so both requests match and materialize once.
   const { resolvedFields: instanceAwareFields } = useInsightPagination({
     insight:
       insightForView ??
       ({ source: { sourceType: "dataTable", sourceId: "" } } as Insight),
     showModelPreview: false,
-    enabled: !!insightForView,
+    enabled: !!insightForView && !dashboardRuntime.error,
+    runtime: dashboardRuntime.runtime,
     presentation,
   });
 
   return (
     <ResolvedVisualizationPreview
-      visualization={visualization}
+      visualization={displayVisualization}
       height={height}
       fallback={fallback}
       thumbnail={thumbnail}
@@ -257,7 +323,13 @@ function VisualizationPreviewContent({
       instanceAwareFields={instanceAwareFields}
       viewName={viewName}
       isReady={isReady}
-      error={error}
+      error={
+        // A settled query with no Insight (deleted, or the query failed)
+        // never becomes ready: show the terminal state, not a spinner.
+        !isLoadingInsight && !insight
+          ? "This chart's data is no longer available."
+          : (dashboardRuntime.error ?? error)
+      }
       isLoadingInsight={isLoadingInsight}
       presentationApplied={Boolean(presentation)}
     />

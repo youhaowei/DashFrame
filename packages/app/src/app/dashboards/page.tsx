@@ -22,7 +22,7 @@ import {
   ArtifactTile,
 } from "@/components/artifacts/ArtifactCollection";
 import { groupByRecency } from "@/components/artifacts/collection-groups";
-import { ReportLayoutGlyph } from "@/components/artifacts/ReportLayoutGlyph";
+import { ReportMiniature } from "@/components/artifacts/ReportMiniature";
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
 import { api } from "@dashframe/convex-backend/api";
@@ -47,6 +47,7 @@ import {
   Input,
 } from "@wystack/ui-react";
 import {
+  DashboardIcon,
   DeleteIcon,
   ExternalLinkIcon,
   FileIcon,
@@ -526,13 +527,7 @@ export default function DashboardsPage() {
                 key={dashboard.id}
                 to={`/dashboards/${dashboard.id}`}
                 headingLevel={headingLevel}
-                glyph={
-                  <ReportLayoutGlyph
-                    items={dashboard.items}
-                    className="h-4 w-5.5"
-                    maxRows={12}
-                  />
-                }
+                glyph={<DashboardIcon className="h-4 w-4" />}
                 name={dashboard.name}
                 meta={reportContentLabel(dashboard)}
                 time={formatRelativeTime(now, touchedAt(dashboard))}
@@ -551,7 +546,13 @@ export default function DashboardsPage() {
               <ArtifactTile
                 key={dashboard.id}
                 to={`/dashboards/${dashboard.id}`}
-                glyph={<ReportLayoutGlyph items={dashboard.items} />}
+                media={
+                  <ReportMiniature
+                    items={dashboard.items}
+                    visualizationById={reportContentIndexes.visualizationById}
+                    controls={dashboard.controls}
+                  />
+                }
                 name={dashboard.name}
                 meta={
                   <>

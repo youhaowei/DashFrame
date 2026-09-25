@@ -44,7 +44,7 @@ const {
 }));
 
 vi.mock("@/hooks/useInsightView", () => ({
-  useInsightView: () => mockUseInsightView(),
+  useInsightView: (...args: unknown[]) => mockUseInsightView(...args),
 }));
 
 vi.mock("@/hooks/useInsightPagination", () => ({
@@ -62,6 +62,7 @@ vi.mock("convex/react", async (importOriginal) => ({
   useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
     if (ref._path === "getInsight") return mockUseInsight();
     if (ref._path === "listDataTables") return mockUseDataTables();
+    if (ref._path === "listInsights") return { data: [], isLoading: false };
     throw new Error(`Unexpected query: ${ref._path}`);
   }),
 }));
@@ -442,6 +443,191 @@ it("titles a measure from its source column's display name", () => {
       encoding: expect.objectContaining({ yLabel: "Sum of Revenue" }),
     }),
   );
+});
+
+describe("VisualizationPreview — report cell overrides", () => {
+  function renderWithOverrides(
+    overrides: import("@dashframe/types").DashboardItemOverrides,
+  ) {
+    mockUseInsightView.mockClear();
+    mockUseInsight.mockReturnValue({
+      data: { ...insight, runtimeControls: { limit: { max: 100 } } },
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [dataTable] });
+    mockUseInsightView.mockReturnValue({
+      viewName: null,
+      isReady: false,
+      error: null,
+    });
+    render(
+      <VisualizationPreview
+        visualization={visualization}
+        overrides={overrides}
+        fallback={<span data-testid="custom-fallback">custom</span>}
+      />,
+    );
+  }
+
+  it("runs the chart with the cell's declared overrides", () => {
+    renderWithOverrides({ limit: 5 });
+
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: "ins-1" }),
+      expect.objectContaining({ runtime: { limit: 5 } }),
+    );
+  });
+
+  it("resolves fields with the same runtime, so the cell materializes once", () => {
+    mockUseInsightPagination.mockClear();
+    renderWithOverrides({ limit: 5 });
+
+    expect(mockUseInsightPagination).toHaveBeenLastCalledWith(
+      expect.objectContaining({ runtime: { limit: 5 } }),
+    );
+  });
+
+  it("shows the fallback, and runs nothing, for an undeclared override", () => {
+    renderWithOverrides({ sorts: [{ field: "Sales", direction: "desc" }] });
+
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(
+      null,
+      expect.anything(),
+    );
+    expect(mockUseInsightPagination).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(screen.getByTestId("custom-fallback")).toBeTruthy();
+  });
+});
+
+describe("VisualizationPreview — report cell pivot", () => {
+  function renderPivoted(reportCell: boolean) {
+    mockUseInsightView.mockClear();
+    mockUseInsight.mockReturnValue({
+      data: {
+        ...insight,
+        selectedFields: ["f1", "p1"],
+        metrics: [{ id: "m1", name: "Count" }],
+        reporting: { pivotFields: ["p1"] },
+      },
+      isLoading: false,
+    });
+    mockUseDataTables.mockReturnValue({ data: [dataTable] });
+    mockUseInsightView.mockReturnValue({
+      viewName: null,
+      isReady: false,
+      error: null,
+    });
+    render(
+      <VisualizationPreview
+        visualization={visualization}
+        reportCell={reportCell}
+      />,
+    );
+  }
+
+  it("splits a report cell's chart by the pivot the chart leaves uncoloured", () => {
+    renderPivoted(true);
+
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        presentation: { dimensions: ["f1", "p1"] },
+      }),
+    );
+  });
+
+  it("draws a chart outside a report as saved", () => {
+    renderPivoted(false);
+
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ presentation: { dimensions: ["f1"] } }),
+    );
+  });
+});
+
+describe("VisualizationPreview — missing Insight", () => {
+  function renderMissing(
+    result: { data: null; isLoading: false } | { isError: true; error: Error },
+    fallback?: React.ReactNode,
+  ) {
+    mockUseInsight.mockReturnValue(result);
+    mockUseDataTables.mockReturnValue({ data: [dataTable] });
+    mockUseInsightView.mockReturnValue({
+      viewName: null,
+      isReady: false,
+      error: null,
+    });
+    return render(
+      <VisualizationPreview
+        visualization={visualization}
+        fallback={fallback}
+      />,
+    );
+  }
+
+  it("shows the fallback, not a spinner, when the Insight is gone", () => {
+    const { container } = renderMissing(
+      { data: null, isLoading: false },
+      <span data-testid="custom-fallback">custom</span>,
+    );
+
+    expect(screen.getByTestId("custom-fallback")).toBeTruthy();
+    expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("shows the default terminal state when the Insight query fails", () => {
+    const { container } = renderMissing({
+      isError: true,
+      error: new Error("boom"),
+    });
+
+    expect(screen.getByText("Failed to load")).toBeTruthy();
+    expect(container.querySelector("svg")).toBeNull();
+  });
+});
+
+describe("VisualizationPreview — render failure", () => {
+  function renderThrowingChart(fallback?: React.ReactNode) {
+    setDataReady();
+    mockResolveEncoding.mockReturnValue({ x: "field_f1" });
+    mockUseInsightView.mockReturnValue({
+      viewName: "frame-ready",
+      isReady: true,
+      error: null,
+    });
+    // Every render throws: React retries a failed render once.
+    mockChart.mockImplementation(() => {
+      throw new Error("invalid saved encoding");
+    });
+    // The boundary logs what it catches; keep the test output quiet.
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    render(
+      <VisualizationPreview
+        visualization={visualization}
+        fallback={fallback}
+      />,
+    );
+    consoleError.mockRestore();
+    mockChart.mockReset();
+  }
+
+  it("shows the caller's fallback when the chart throws", () => {
+    renderThrowingChart(<span data-testid="custom-fallback">custom</span>);
+
+    expect(screen.getByTestId("custom-fallback")).toBeTruthy();
+    expect(screen.queryByText("Can't display this chart")).toBeNull();
+  });
+
+  it("shows the broken-chart card when no fallback is given", () => {
+    renderThrowingChart();
+
+    expect(screen.getByText("Can't display this chart")).toBeTruthy();
+  });
 });
 
 describe("VisualizationPreview — chart chrome", () => {
