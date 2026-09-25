@@ -288,7 +288,13 @@ function VisualizationPreviewContent({
       instanceAwareFields={instanceAwareFields}
       viewName={viewName}
       isReady={isReady}
-      error={dashboardRuntime.error ?? error}
+      error={
+        // A settled query with no Insight (deleted, or the query failed)
+        // never becomes ready: show the terminal state, not a spinner.
+        !isLoadingInsight && !insight
+          ? "This chart's data is no longer available."
+          : (dashboardRuntime.error ?? error)
+      }
       isLoadingInsight={isLoadingInsight}
       presentationApplied={Boolean(presentation)}
     />

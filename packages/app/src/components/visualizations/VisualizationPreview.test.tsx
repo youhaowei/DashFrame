@@ -501,6 +501,47 @@ describe("VisualizationPreview — report cell overrides", () => {
   });
 });
 
+describe("VisualizationPreview — missing Insight", () => {
+  function renderMissing(
+    result: { data: null; isLoading: false } | { isError: true; error: Error },
+    fallback?: React.ReactNode,
+  ) {
+    mockUseInsight.mockReturnValue(result);
+    mockUseDataTables.mockReturnValue({ data: [dataTable] });
+    mockUseInsightView.mockReturnValue({
+      viewName: null,
+      isReady: false,
+      error: null,
+    });
+    return render(
+      <VisualizationPreview
+        visualization={visualization}
+        fallback={fallback}
+      />,
+    );
+  }
+
+  it("shows the fallback, not a spinner, when the Insight is gone", () => {
+    const { container } = renderMissing(
+      { data: null, isLoading: false },
+      <span data-testid="custom-fallback">custom</span>,
+    );
+
+    expect(screen.getByTestId("custom-fallback")).toBeTruthy();
+    expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("shows the default terminal state when the Insight query fails", () => {
+    const { container } = renderMissing({
+      isError: true,
+      error: new Error("boom"),
+    });
+
+    expect(screen.getByText("Failed to load")).toBeTruthy();
+    expect(container.querySelector("svg")).toBeNull();
+  });
+});
+
 describe("VisualizationPreview — render failure", () => {
   function renderThrowingChart(fallback?: React.ReactNode) {
     setDataReady();
