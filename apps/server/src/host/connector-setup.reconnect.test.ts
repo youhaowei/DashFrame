@@ -21,6 +21,7 @@ import type { ConnectorSetupStore } from "../connector-setup/session-store";
 import type { HostContext } from "./context";
 import type { HostMetadata } from "./metadata";
 import { completeConnectorOAuth } from "./connector-setup";
+import { persistGa4TokenBundle } from "./connectors";
 import { hostOperations } from "./registry";
 
 /** Start through the host registry, the path an HTTP request takes. */
@@ -236,6 +237,42 @@ describe("signing in again for an existing Google Analytics source", () => {
     });
     expect(f.source()).toBe(before);
     expect(await f.vault.has(f.oldRef)).toBe(true);
+  });
+
+  it("keeps a new sign-in when a refresh of the old grant lands behind it", async () => {
+    const f = await fixture();
+    const original = f.source();
+    const store = f.vault.store.bind(f.vault);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    vi.spyOn(f.vault, "store").mockImplementationOnce(async (...args) => {
+      await held;
+      return store(...args);
+    });
+    const parse = (raw: string) => JSON.parse(raw) as never;
+    const renewal = persistGa4TokenBundle(
+      f.ctx,
+      SOURCE_ID as never,
+      f.vault,
+      parse(bundle("refresh-new")),
+      original,
+      { replacesGrant: true },
+    );
+    // A request that read the source before the sign-in refreshes the old grant.
+    const staleRefresh = persistGa4TokenBundle(
+      f.ctx,
+      SOURCE_ID as never,
+      f.vault,
+      parse(bundle("refresh-old")),
+      original,
+    );
+    release();
+
+    await renewal;
+    await expect(staleRefresh).rejects.toThrow("DataSource config changed");
+    expect(
+      JSON.parse(await f.storedSecret(f.source().config.apiKey)),
+    ).toMatchObject({ refreshToken: "refresh-new" });
   });
 
   it("won't start a sign-in for a source that isn't Google Analytics", async () => {

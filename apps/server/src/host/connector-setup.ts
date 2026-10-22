@@ -219,6 +219,7 @@ async function renewSourceGrant(
       ctx.vault,
       JSON.parse(tokenBundle) as GoogleOAuthTokenBundle,
       { revision: source.revision, config: source.config },
+      { replacesGrant: true },
     );
   } catch {
     return {
