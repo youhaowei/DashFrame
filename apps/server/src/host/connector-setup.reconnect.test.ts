@@ -20,7 +20,12 @@ import { internal } from "../../../../packages/convex-backend/convex/_generated/
 import type { ConnectorSetupStore } from "../connector-setup/session-store";
 import type { HostContext } from "./context";
 import type { HostMetadata } from "./metadata";
-import { completeConnectorOAuth, startConnectorSetup } from "./connector-setup";
+import { completeConnectorOAuth } from "./connector-setup";
+import { hostOperations } from "./registry";
+
+/** Start through the host registry, the path an HTTP request takes. */
+const startConnectorSetup = (ctx: HostContext, input: unknown) =>
+  hostOperations.startConnectorSetup.execute(ctx, input);
 
 const modules = import.meta.glob(
   "../../../../packages/convex-backend/convex/**/*.ts",
@@ -241,6 +246,6 @@ describe("signing in again for an existing Google Analytics source", () => {
         requestedName: "Google Analytics",
         reconnectDataSourceId: crypto.randomUUID(),
       }),
-    ).rejects.toThrow("not found");
+    ).rejects.toThrow("no longer exists");
   });
 });

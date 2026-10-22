@@ -140,7 +140,13 @@ export const hostOperations = {
   ),
   revokeAccessCredential: operation(id, access.revokeAccessCredential),
   startConnectorSetup: operation(
-    z.object({ connectorId: z.string(), requestedName: z.string() }).strict(),
+    z
+      .object({
+        connectorId: z.string(),
+        requestedName: z.string(),
+        reconnectDataSourceId: z.string().uuid().optional(),
+      })
+      .strict(),
     setup.startConnectorSetup,
   ),
   getConnectorSetupSession: operation(

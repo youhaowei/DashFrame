@@ -323,7 +323,7 @@ export const startConnectorSetup = hostOperation({
         input.reconnectDataSourceId,
       );
       if (target?.kind !== descriptor.id) {
-        throw new Error("The data source to sign in again for was not found");
+        throw new Error("This data source no longer exists.");
       }
     }
     const issuance = await startSession(ctx.metadata.connectorSetup, {
