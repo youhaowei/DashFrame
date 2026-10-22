@@ -47,7 +47,7 @@ function bundle(refreshToken: string) {
 }
 
 /** Google as the sign-in sees it: the new grant reaches `visible` properties. */
-function stubGoogle(visible: string[]) {
+function stubGoogle(visible: string[], reports = true) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: Parameters<typeof fetch>[0]) => {
@@ -73,6 +73,7 @@ function stubGoogle(visible: string[]) {
         });
       }
       if (url.endsWith(":runReport")) {
+        if (!reports) return new Response(null, { status: 403 });
         return Response.json({
           dimensionHeaders: [{ name: "date" }],
           metricHeaders: [{ name: "activeUsers" }],
@@ -244,6 +245,43 @@ describe("signing in again for an existing Google Analytics source", () => {
       failureMessage: expect.stringContaining(OTHER_BOUND_PROPERTY),
     });
     expect(result.failureMessage).not.toContain(BOUND_PROPERTY);
+    expect(f.source()).toBe(before);
+    expect(JSON.parse(await f.storedSecret(f.oldRef))).toMatchObject({
+      refreshToken: "refresh-old",
+    });
+  });
+
+  it("leaves the source untouched when the account can't run reports", async () => {
+    const f = await fixture();
+    stubGoogle([BOUND_PROPERTY, OTHER_BOUND_PROPERTY], false);
+    const state = await f.signInAgain();
+    const before = f.source();
+
+    const result = await completeConnectorOAuth(f.ctx, { state, code: "code" });
+
+    expect(result).toMatchObject({
+      state: "failed",
+      failureCode: "report-probe-failed",
+    });
+    expect(f.source()).toBe(before);
+    expect(await f.vault.has(f.oldRef)).toBe(true);
+  });
+
+  it("keeps the old sign-in when the new one can't be saved", async () => {
+    const f = await fixture();
+    stubGoogle([BOUND_PROPERTY, OTHER_BOUND_PROPERTY]);
+    vi.spyOn(f.ctx.metadata, "replaceDataSourceConfig").mockRejectedValue(
+      new Error("storage unavailable"),
+    );
+    const state = await f.signInAgain();
+    const before = f.source();
+
+    const result = await completeConnectorOAuth(f.ctx, { state, code: "code" });
+
+    expect(result).toMatchObject({
+      state: "failed",
+      failureCode: "reconnect-failed",
+    });
     expect(f.source()).toBe(before);
     expect(JSON.parse(await f.storedSecret(f.oldRef))).toMatchObject({
       refreshToken: "refresh-old",
