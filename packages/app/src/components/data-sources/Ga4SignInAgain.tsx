@@ -5,7 +5,8 @@ import {
   runOAuthSetup,
 } from "@/lib/connector-oauth-setup";
 import type { UUID } from "@dashframe/types";
-import { Button, FieldError } from "@wystack/ui-react";
+import { FieldError } from "@wystack/ui-react";
+import { GoogleSignInButton } from "./GoogleSignInButton";
 import { useEffect, useRef, useState } from "react";
 
 type SignInState =
@@ -58,7 +59,6 @@ export function Ga4SignInAgain({ sourceId, onSignedIn }: Ga4SignInAgainProps) {
     }
   };
 
-  const waiting = state.status === "waiting";
   return (
     <div role="alert" className="space-y-3">
       <div>
@@ -70,25 +70,11 @@ export function Ga4SignInAgain({ sourceId, onSignedIn }: Ga4SignInAgainProps) {
           tables and reports stay as they are.
         </p>
       </div>
-      <Button
-        variant="outline"
-        label={waiting ? "Waiting for Google..." : "Sign in with Google"}
-        disabled={waiting}
+      <GoogleSignInButton
         onClick={() => void signIn()}
+        waiting={state.status === "waiting"}
+        signInUrl={state.status === "waiting" ? state.signInUrl : undefined}
       />
-      {state.status === "waiting" && state.signInUrl && (
-        <p className="text-xs text-neutral-fg-subtle">
-          Don't see the Google sign-in page?{" "}
-          <a
-            href={state.signInUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-neutral-fg underline underline-offset-2"
-          >
-            Open Google sign-in
-          </a>
-        </p>
-      )}
       {state.status === "failed" && (
         <FieldError errors={[{ message: state.message }]} />
       )}
