@@ -428,11 +428,8 @@ export default function DataSourcePageContent({
               table={selectedTable}
               importAction={importButton("outline")}
               canRefresh={isRemoteSource}
-              onSignInExpired={
-                dataSource.type === "googleAnalytics"
-                  ? () => setIsSignInOpen(true)
-                  : undefined
-              }
+              // Only a Google Analytics refresh reports an expired sign-in.
+              onSignInExpired={() => setIsSignInOpen(true)}
               isStartingReport={isStartingReport}
               onStartReport={() => setIsReportPickerOpen(true)}
               onDelete={handleDeleteTable}
@@ -467,25 +464,11 @@ export default function DataSourcePageContent({
         onImported={selectTable}
       />
 
-      <Dialog
+      <SignInAgainDialog
         open={isSignInOpen}
-        onOpenChange={(next) => !next && setIsSignInOpen(false)}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Sign in to Google again</DialogTitle>
-          </DialogHeader>
-          {isSignInOpen && (
-            <Ga4SignInAgain
-              sourceId={sourceId as UUID}
-              onSignedIn={() => {
-                setIsSignInOpen(false);
-                toast.success("Signed in to Google again. Refresh to update.");
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+        onClose={() => setIsSignInOpen(false)}
+        sourceId={sourceId as UUID}
+      />
 
       {selectedTable && (
         <ReportPickerDialog
@@ -760,6 +743,36 @@ function TableActions({
         </DropdownMenuContent>
       </DropdownMenu>
     </>
+  );
+}
+
+/** Renews an expired Google sign-in found by Refresh, for this same source. */
+function SignInAgainDialog({
+  open,
+  onClose,
+  sourceId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  sourceId: UUID;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Sign in to Google again</DialogTitle>
+        </DialogHeader>
+        {open && (
+          <Ga4SignInAgain
+            sourceId={sourceId}
+            onSignedIn={() => {
+              onClose();
+              toast.success("Signed in to Google again. Refresh to update.");
+            }}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

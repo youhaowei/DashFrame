@@ -229,6 +229,82 @@ async function renewSourceGrant(
   return null;
 }
 
+/** The source this sign-in completes: the one it renews, or a new one. */
+function targetSourceId(session: ConnectorSetupSessionRow): string {
+  return session.reconnectDataSourceId ?? crypto.randomUUID();
+}
+
+/** Finish a sign-in that renews an existing source's grant. */
+async function completeReconnect(
+  ctx: HostContext,
+  session: ConnectorSetupSessionRow,
+  tokenBundle: string,
+  properties: { id: string }[],
+): Promise<ConnectorSetupSessionDto> {
+  const dataSourceId = targetSourceId(session);
+  const failure = await renewSourceGrant(
+    ctx,
+    dataSourceId,
+    tokenBundle,
+    properties,
+  );
+  if (failure) {
+    const failed = await failConsumedSession(
+      ctx,
+      session,
+      failure.code,
+      failure.message,
+    );
+    return fullDto(ctx, failed);
+  }
+  const connected = await markConnected(
+    ctx.metadata.connectorSetup,
+    session.id,
+    dataSourceId,
+    new Date(),
+    session.stateNonceHash,
+  );
+  return fullDto(ctx, connected);
+}
+
+/** Finish a sign-in that creates a source for the verified grant. */
+async function completeNewSource(
+  ctx: HostContext,
+  session: ConnectorSetupSessionRow,
+  verifying: ConnectorSetupSessionRow,
+  dataSourceId: string,
+  tokenBundle: string,
+): Promise<ConnectorSetupSessionDto> {
+  try {
+    // The host vault consumes plaintext directly; it never enters a draft
+    // command log or a public Convex mutation argument.
+    const confirmed = await persistVerifiedSource(ctx, {
+      id: dataSourceId,
+      type: session.connectorId,
+      name: session.requestedName,
+      apiKey: tokenBundle,
+    });
+    if (!confirmed) return fullDto(ctx, verifying);
+  } catch {
+    const failed = await failConsumedSession(
+      ctx,
+      session,
+      "create-failed",
+      "The verified connection could not be saved.",
+    );
+    return fullDto(ctx, failed);
+  }
+
+  const connected = await markConnected(
+    ctx.metadata.connectorSetup,
+    session.id,
+    dataSourceId,
+    new Date(),
+    session.stateNonceHash,
+  );
+  return fullDto(ctx, connected);
+}
+
 export const startConnectorSetup = hostOperation({
   input: z
     .object({
@@ -398,7 +474,7 @@ export const completeConnectorOAuth = hostOperation({
       return fullDto(ctx, failed);
     }
 
-    const dataSourceId = session.reconnectDataSourceId ?? crypto.randomUUID();
+    const dataSourceId = targetSourceId(session);
     const verifying = await markVerifying(
       ctx.metadata.connectorSetup,
       session.id,
@@ -440,60 +516,9 @@ export const completeConnectorOAuth = hostOperation({
       return fullDto(ctx, failed);
     }
 
-    if (session.reconnectDataSourceId) {
-      const failure = await renewSourceGrant(
-        ctx,
-        session.reconnectDataSourceId,
-        tokenBundle,
-        properties,
-      );
-      if (failure) {
-        const failed = await failConsumedSession(
-          ctx,
-          session,
-          failure.code,
-          failure.message,
-        );
-        return fullDto(ctx, failed);
-      }
-      const connected = await markConnected(
-        ctx.metadata.connectorSetup,
-        session.id,
-        dataSourceId,
-        new Date(),
-        session.stateNonceHash,
-      );
-      return fullDto(ctx, connected);
-    }
-
-    try {
-      // The host vault consumes plaintext directly; it never enters a draft
-      // command log or a public Convex mutation argument.
-      const confirmed = await persistVerifiedSource(ctx, {
-        id: dataSourceId,
-        type: session.connectorId,
-        name: session.requestedName,
-        apiKey: tokenBundle,
-      });
-      if (!confirmed) return fullDto(ctx, verifying);
-    } catch {
-      const failed = await failConsumedSession(
-        ctx,
-        session,
-        "create-failed",
-        "The verified connection could not be saved.",
-      );
-      return fullDto(ctx, failed);
-    }
-
-    const connected = await markConnected(
-      ctx.metadata.connectorSetup,
-      session.id,
-      dataSourceId,
-      new Date(),
-      session.stateNonceHash,
-    );
-    return fullDto(ctx, connected);
+    return session.reconnectDataSourceId
+      ? completeReconnect(ctx, session, tokenBundle, properties)
+      : completeNewSource(ctx, session, verifying, dataSourceId, tokenBundle);
   },
 });
 
