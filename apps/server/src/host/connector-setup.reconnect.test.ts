@@ -148,10 +148,12 @@ async function fixture() {
   const metadata = {
     connectorSetup,
     getDataSource: async (id: string) => (id === SOURCE_ID ? source : null),
-    listDataTableResources: (dataSourceId: string) =>
+    // Small pages, so a source with a few tables already spans several.
+    listDataTableResources: (dataSourceId: string, cursor: string | null) =>
       t.query(internal.host.listDataTableResources, {
         workspaceId,
         dataSourceId,
+        paginationOpts: { cursor, numItems: 1 },
       }),
     replaceDataSourceConfig: async (input: {
       expectedRevision: number;

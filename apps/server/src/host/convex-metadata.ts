@@ -130,10 +130,11 @@ export function createHostMetadata(
       client.query(internal.host.getDataFrame, { workspaceId, id }),
     getInsight: (id) =>
       client.query(internal.host.getInsight, { workspaceId, id }),
-    listDataTableResources: (dataSourceId) =>
+    listDataTableResources: (dataSourceId, cursor) =>
       client.query(internal.host.listDataTableResources, {
         workspaceId,
         dataSourceId,
+        paginationOpts: { cursor, numItems: 500 },
       }),
     listDataFramesByInsight: (insightId) =>
       client.query(internal.host.listDataFramesByInsight, {

@@ -135,6 +135,24 @@ function listProperties(resources: string[]): string {
   return rest > 0 ? `${shown}, and ${rest} more` : shown;
 }
 
+/** Every remote resource a source's tables read, however many tables it has. */
+async function allDataTableResources(
+  ctx: HostContext,
+  dataSourceId: string,
+): Promise<string[]> {
+  const resources = new Set<string>();
+  let cursor: string | null = null;
+  for (;;) {
+    const result = await ctx.metadata.listDataTableResources(
+      dataSourceId,
+      cursor,
+    );
+    for (const resource of result.page) resources.add(resource);
+    if (result.isDone) return [...resources];
+    cursor = result.continueCursor;
+  }
+}
+
 /**
  * Which property proves reporting access. A new source has only the grant's
  * own properties. Signing in again must reach every property the source's
@@ -148,9 +166,7 @@ async function reportProbeTarget(
   if (!session.reconnectDataSourceId) return { propertyId: properties[0]?.id };
   let resources: string[];
   try {
-    resources = await ctx.metadata.listDataTableResources(
-      session.reconnectDataSourceId,
-    );
+    resources = await allDataTableResources(ctx, session.reconnectDataSourceId);
   } catch {
     return {
       code: "reconnect-failed",

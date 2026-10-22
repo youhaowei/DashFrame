@@ -46,3 +46,10 @@ export function stable(value: unknown): string {
       .join(",")}}`;
   return JSON.stringify(value) ?? "undefined";
 }
+
+/** One page of the remote resources a source's tables read. */
+export const dataTableResourcePage = v.object({
+  page: v.array(v.string()),
+  isDone: v.boolean(),
+  continueCursor: v.string(),
+});

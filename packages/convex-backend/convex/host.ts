@@ -15,6 +15,7 @@ import {
   typed,
   record,
   clean,
+  dataTableResourcePage,
   type Json,
   type ObjectValue,
 } from "./values";
@@ -25,6 +26,7 @@ import { LIMIT } from "./graph";
 import { validateMetric } from "./engine";
 import type { Doc } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import {
   internalMutation,
   internalQuery,
@@ -314,23 +316,37 @@ export const getDataTable = internalQuery({
     return row ? (rowValue(row) as unknown as DataTableRow) : null;
   },
 });
-/** The remote resource each table of a source reads, e.g. a GA4 property. */
+/**
+ * One page of the remote resources a source's tables read, e.g. GA4
+ * properties, each named once per page.
+ */
 export const listDataTableResources = internalQuery({
-  args: { ...workspace, dataSourceId: v.string() },
-  returns: v.array(v.string()),
+  args: {
+    ...workspace,
+    dataSourceId: v.string(),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: dataTableResourcePage,
   handler: async (ctx, args) => {
-    const rows = await ctx.db
+    const result = await ctx.db
       .query("dataTables")
       .withIndex("by_workspaceId_and_dataSourceId", (q) =>
         q
           .eq("workspaceId", args.workspaceId)
           .eq("dataSourceId", args.dataSourceId),
       )
-      .take(1001);
-    if (rows.length > 1000) throw new Error("Data table limit exceeded");
-    return rows.flatMap((row) =>
+      .paginate({
+        ...args.paginationOpts,
+        numItems: Math.min(500, args.paginationOpts.numItems),
+      });
+    const resources = result.page.flatMap((row) =>
       typeof row.table === "string" ? [row.table] : [],
     );
+    return {
+      page: [...new Set(resources)],
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
   },
 });
 export const getDataFrame = internalQuery({

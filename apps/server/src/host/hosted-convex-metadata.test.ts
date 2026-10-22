@@ -31,7 +31,7 @@ it("uses only named public functions with Bearer auth and no body-selected tenan
   });
   await metadata.getDataSource("source");
   await metadata.getDataTable("table");
-  await metadata.listDataTableResources("source");
+  await metadata.listDataTableResources("source", null);
   await metadata.getDataFrame("frame");
   await metadata.getInsight("insight");
   await metadata.listDataFramesByInsight("insight");

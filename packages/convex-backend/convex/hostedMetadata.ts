@@ -1,10 +1,11 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireHostedMetadataPrincipal } from "./hostedMetadataGuard";
 import { runHostCommit, runHostDraft } from "./hostCommands";
 import { publicationMetadata } from "./publication";
-import { command, json, object, typed } from "./values";
+import { command, dataTableResourcePage, json, object, typed } from "./values";
 import type {
   DataSourceRow,
   DataTableRow,
@@ -32,9 +33,9 @@ export const getDataTable = query({
   },
 });
 export const listDataTableResources = query({
-  args: { dataSourceId: v.string() },
-  returns: v.array(v.string()),
-  handler: async (ctx, args): Promise<string[]> => {
+  args: { dataSourceId: v.string(), paginationOpts: paginationOptsValidator },
+  returns: dataTableResourcePage,
+  handler: async (ctx, args): Promise<typeof dataTableResourcePage.type> => {
     const { workspaceId } = await requireHostedMetadataPrincipal(ctx);
     return ctx.runQuery(internal.host.listDataTableResources, {
       ...args,
