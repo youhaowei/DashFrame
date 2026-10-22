@@ -274,7 +274,9 @@ describe("signing in again for an existing Google Analytics source", () => {
     const original = f.source();
     const store = f.vault.store.bind(f.vault);
     let release!: () => void;
-    const held = new Promise<void>((resolve) => (release = resolve));
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     vi.spyOn(f.vault, "store").mockImplementationOnce(async (...args) => {
       await held;
       return store(...args);
