@@ -12,6 +12,7 @@ import type {
 import { reportingSchema } from "@dashframe/convex-backend/codecs";
 import {
   AGGREGATIONS,
+  CONNECTOR_SIGN_IN_EXPIRED,
   fixedRuntimeIds,
   isMeasureContract,
   isMeasureExpression,
@@ -616,6 +617,10 @@ const NAMED_FETCH_FAILURES: Record<
   },
   SOURCE_NOT_REFRESHABLE: {
     message: "This persisted source cannot be refreshed.",
+  },
+  // Shown as is on Refresh; the source page offers the sign-in itself.
+  [CONNECTOR_SIGN_IN_EXPIRED]: {
+    message: "Google sign-in expired. Sign in again to refresh this table.",
   },
   TARGET_NOT_READY: {
     message:

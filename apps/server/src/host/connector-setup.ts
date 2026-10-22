@@ -1,9 +1,14 @@
 import { persistVerifiedSource } from "./verified-source";
-import { makeGa4Connector } from "@dashframe/connector-ga4";
+import {
+  makeGa4Connector,
+  type GoogleOAuthTokenBundle,
+} from "@dashframe/connector-ga4";
+import type { UUID } from "@dashframe/types";
 import { z } from "zod";
 
 import type { HostContext } from "./context";
 import { hostOperation } from "./operation";
+import { persistGa4TokenBundle } from "./connectors";
 import {
   OAuthExchangeError,
   connectorResumeLink,
@@ -165,18 +170,93 @@ async function consumeForCompletion(
   }
 }
 
+/** GA4 resource ids appear both as `properties/123` and as the bare number. */
+function propertyNumber(resource: string): string {
+  return resource.replace(/^properties\//u, "");
+}
+
+/**
+ * Swap a verified grant into an existing source, keeping its id, tables, and
+ * everything built on them. The source's current credential is only replaced
+ * once the new grant is known to reach every property its tables read, so a
+ * sign-in with the wrong Google account leaves the source as it was.
+ */
+async function renewSourceGrant(
+  ctx: HostContext,
+  dataSourceId: string,
+  tokenBundle: string,
+  properties: { id: string }[],
+): Promise<{ code: string; message: string } | null> {
+  let source: Awaited<ReturnType<typeof ctx.metadata.getDataSource>>;
+  let resources: string[];
+  try {
+    source = await ctx.metadata.getDataSource(dataSourceId);
+    resources = await ctx.metadata.listDataTableResources(dataSourceId);
+  } catch {
+    return {
+      code: "reconnect-failed",
+      message: "The data source could not be read. Try again.",
+    };
+  }
+  if (source?.kind !== "googleAnalytics") {
+    return {
+      code: "reconnect-target-missing",
+      message: "This data source no longer exists.",
+    };
+  }
+  const reachable = new Set(properties.map((p) => propertyNumber(p.id)));
+  if (!resources.every((resource) => reachable.has(propertyNumber(resource)))) {
+    return {
+      code: "account-mismatch",
+      message:
+        "This Google account can't access the properties this source uses. Sign in with the account that connected it.",
+    };
+  }
+  try {
+    await persistGa4TokenBundle(
+      ctx,
+      dataSourceId as UUID,
+      ctx.vault,
+      JSON.parse(tokenBundle) as GoogleOAuthTokenBundle,
+      { revision: source.revision, config: source.config },
+    );
+  } catch {
+    return {
+      code: "reconnect-failed",
+      message: "The new Google sign-in could not be saved. Try again.",
+    };
+  }
+  return null;
+}
+
 export const startConnectorSetup = hostOperation({
   input: z
-    .object({ connectorId: z.string().min(1), requestedName: z.string() })
+    .object({
+      connectorId: z.string().min(1),
+      requestedName: z.string(),
+      /** Renew this source's grant in place instead of creating a source. */
+      reconnectDataSourceId: z.string().uuid().optional(),
+    })
     .strict(),
   userOnly: true,
   run: async (ctx, input): Promise<ConnectorSetupSessionDto> => {
     const descriptor = descriptorFor(ctx, input.connectorId);
     const redirectUri = redirectUriFor(ctx);
+    if (input.reconnectDataSourceId) {
+      const target = await ctx.metadata.getDataSource(
+        input.reconnectDataSourceId,
+      );
+      if (target?.kind !== descriptor.id) {
+        throw new Error("The data source to sign in again for was not found");
+      }
+    }
     const issuance = await startSession(ctx.metadata.connectorSetup, {
       connectorId: descriptor.id,
       requestedName: input.requestedName.trim() || descriptor.id,
       scopes: descriptor.scopes,
+      ...(input.reconnectDataSourceId
+        ? { reconnectDataSourceId: input.reconnectDataSourceId }
+        : {}),
     });
     const authorizeUrl = descriptor.buildAuthorizeUrl({
       redirectUri,
@@ -318,7 +398,7 @@ export const completeConnectorOAuth = hostOperation({
       return fullDto(ctx, failed);
     }
 
-    const dataSourceId = crypto.randomUUID();
+    const dataSourceId = session.reconnectDataSourceId ?? crypto.randomUUID();
     const verifying = await markVerifying(
       ctx.metadata.connectorSetup,
       session.id,
@@ -358,6 +438,32 @@ export const completeConnectorOAuth = hostOperation({
         "Google Analytics could not be verified: reporting access is missing or restricted for this account.",
       );
       return fullDto(ctx, failed);
+    }
+
+    if (session.reconnectDataSourceId) {
+      const failure = await renewSourceGrant(
+        ctx,
+        session.reconnectDataSourceId,
+        tokenBundle,
+        properties,
+      );
+      if (failure) {
+        const failed = await failConsumedSession(
+          ctx,
+          session,
+          failure.code,
+          failure.message,
+        );
+        return fullDto(ctx, failed);
+      }
+      const connected = await markConnected(
+        ctx.metadata.connectorSetup,
+        session.id,
+        dataSourceId,
+        new Date(),
+        session.stateNonceHash,
+      );
+      return fullDto(ctx, connected);
     }
 
     try {

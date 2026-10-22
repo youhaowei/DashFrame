@@ -1,5 +1,6 @@
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import { Ga4PropertyPicker } from "@/components/data-sources/Ga4PropertyPicker";
+import { Ga4SignInAgain } from "@/components/data-sources/Ga4SignInAgain";
 import {
   ReportPickerDialog,
   type ReportTarget,
@@ -36,6 +37,10 @@ import { buildSensitivityUpdate, cmd } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Button,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -198,6 +203,7 @@ export default function DataSourcePageContent({
   // Holds the first-property picker on screen while its import runs.
   const [isImportingFirstTable, setIsImportingFirstTable] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isSignInOpen, setIsSignInOpen] = useState(false);
   const [isReportPickerOpen, setIsReportPickerOpen] = useState(false);
   const [isStartingReport, setIsStartingReport] = useState(false);
   const [view, setView] = useState<TablePreviewView>("grid");
@@ -422,6 +428,11 @@ export default function DataSourcePageContent({
               table={selectedTable}
               importAction={importButton("outline")}
               canRefresh={isRemoteSource}
+              onSignInExpired={
+                dataSource.type === "googleAnalytics"
+                  ? () => setIsSignInOpen(true)
+                  : undefined
+              }
               isStartingReport={isStartingReport}
               onStartReport={() => setIsReportPickerOpen(true)}
               onDelete={handleDeleteTable}
@@ -454,8 +465,27 @@ export default function DataSourcePageContent({
         isFileSource={isFileSource}
         tables={dataTables}
         onImported={selectTable}
-        onOpenDataSources={openDataSources}
       />
+
+      <Dialog
+        open={isSignInOpen}
+        onOpenChange={(next) => !next && setIsSignInOpen(false)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Sign in to Google again</DialogTitle>
+          </DialogHeader>
+          {isSignInOpen && (
+            <Ga4SignInAgain
+              sourceId={sourceId as UUID}
+              onSignedIn={() => {
+                setIsSignInOpen(false);
+                toast.success("Signed in to Google again. Refresh to update.");
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {selectedTable && (
         <ReportPickerDialog
@@ -585,7 +615,6 @@ function NoTableCentre({
         sourceId={sourceId}
         onImported={onImported}
         onImportingChange={onImportingChange}
-        onOpenDataSources={onOpenDataSources}
       />
     );
   }
@@ -676,6 +705,7 @@ function TableActions({
   table,
   importAction,
   canRefresh,
+  onSignInExpired,
   isStartingReport,
   onStartReport,
   onDelete,
@@ -683,6 +713,7 @@ function TableActions({
   table: DataTable;
   importAction: React.ReactNode;
   canRefresh: boolean;
+  onSignInExpired?: () => void;
   isStartingReport: boolean;
   onStartReport: () => void;
   onDelete: () => void;
@@ -696,6 +727,7 @@ function TableActions({
           size="sm"
           tableId={table.id}
           tableName={table.name}
+          onSignInExpired={onSignInExpired}
         />
       )}
       <Button
@@ -742,7 +774,6 @@ function SourceImportDialog({
   isFileSource,
   tables,
   onImported,
-  onOpenDataSources,
 }: {
   open: boolean;
   onClose: () => void;
@@ -750,7 +781,6 @@ function SourceImportDialog({
   isFileSource: boolean;
   tables: DataTable[];
   onImported: (tableId: UUID) => void;
-  onOpenDataSources: () => void;
 }) {
   if (isFileSource) {
     return (
@@ -778,7 +808,6 @@ function SourceImportDialog({
       sourceType={source.type}
       importedResourceIds={new Set(tables.map((table) => table.table))}
       onImported={onImported}
-      onOpenDataSources={onOpenDataSources}
     />
   );
 }

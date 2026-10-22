@@ -31,6 +31,17 @@ export const getDataTable = query({
     return ctx.runQuery(internal.host.getDataTable, { ...args, workspaceId });
   },
 });
+export const listDataTableResources = query({
+  args: { dataSourceId: v.string() },
+  returns: v.array(v.string()),
+  handler: async (ctx, args): Promise<string[]> => {
+    const { workspaceId } = await requireHostedMetadataPrincipal(ctx);
+    return ctx.runQuery(internal.host.listDataTableResources, {
+      ...args,
+      workspaceId,
+    });
+  },
+});
 export const getDataFrame = query({
   args: { id: v.string() },
   returns: typed<DataFrameRow | null>(v.union(object, v.null())),

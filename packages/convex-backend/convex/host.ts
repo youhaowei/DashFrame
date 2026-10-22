@@ -314,6 +314,25 @@ export const getDataTable = internalQuery({
     return row ? (rowValue(row) as unknown as DataTableRow) : null;
   },
 });
+/** The remote resource each table of a source reads, e.g. a GA4 property. */
+export const listDataTableResources = internalQuery({
+  args: { ...workspace, dataSourceId: v.string() },
+  returns: v.array(v.string()),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("dataTables")
+      .withIndex("by_workspaceId_and_dataSourceId", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("dataSourceId", args.dataSourceId),
+      )
+      .take(1001);
+    if (rows.length > 1000) throw new Error("Data table limit exceeded");
+    return rows.flatMap((row) =>
+      typeof row.table === "string" ? [row.table] : [],
+    );
+  },
+});
 export const getDataFrame = internalQuery({
   args: { ...workspace, id: v.string() },
   returns: typed<DataFrameRow | null>(v.union(object, v.null())),

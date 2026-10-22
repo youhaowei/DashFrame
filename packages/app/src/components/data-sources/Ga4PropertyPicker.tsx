@@ -4,6 +4,7 @@ import type { UUID } from "@dashframe/types";
 import { CONNECTOR_SIGN_IN_EXPIRED } from "@dashframe/types";
 import { Button } from "@wystack/ui-react";
 import { useEffect, useState } from "react";
+import { Ga4SignInAgain } from "./Ga4SignInAgain";
 import {
   RemoteResourceList,
   useRemoteResourceImport,
@@ -25,8 +26,6 @@ export interface Ga4PropertyPickerProps {
    * mounted until then or the row progress and any error are lost.
    */
   onImportingChange: (importing: boolean) => void;
-  /** Where the user can sign in with Google again. */
-  onOpenDataSources: () => void;
 }
 
 /**
@@ -38,7 +37,6 @@ export function Ga4PropertyPicker({
   sourceId,
   onImported,
   onImportingChange,
-  onOpenDataSources,
 }: Ga4PropertyPickerProps) {
   const { mutateAsync: listGa4Properties } =
     useHostMutation("listGa4Properties");
@@ -83,25 +81,14 @@ export function Ga4PropertyPicker({
       </p>
     );
   } else if (state.status === "sign-in-expired") {
-    // Google sign-in always creates a new source today; there is no way to
-    // renew the grant of this one in place, so recovery goes through Add
-    // Source.
     body = (
-      <div role="alert" className="space-y-3">
-        <div>
-          <p className="text-sm font-medium text-neutral-fg">
-            Google sign-in expired.
-          </p>
-          <p className="mt-1 text-sm text-neutral-fg-subtle">
-            Sign in with Google again from Add Source on the Data Sources page.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          label="Go to Data Sources"
-          onClick={onOpenDataSources}
-        />
-      </div>
+      <Ga4SignInAgain
+        sourceId={sourceId}
+        onSignedIn={() => {
+          setState({ status: "loading" });
+          setAttempt((value) => value + 1);
+        }}
+      />
     );
   } else if (state.status === "failed") {
     body = (

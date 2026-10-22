@@ -209,6 +209,25 @@ describe("native Convex connector setup sessions", () => {
       "connected",
     );
   });
+  it("boot recovery never reports an interrupted sign-in-again as connected", async () => {
+    const { db, sources } = fixture();
+    // The source existed before the sign-in, so its presence proves nothing.
+    sources.set("source-a", "googleAnalytics");
+    const issuance = await startSession(db, {
+      connectorId: "googleAnalytics",
+      requestedName: "GA4",
+      scopes: ["analytics.readonly"],
+      reconnectDataSourceId: "source-a",
+      now: NOW,
+    });
+    await consumeCallback(db, issuance.stateNonce, NOW);
+    await markVerifying(db, issuance.session.id, "source-a", NOW);
+    await sweep(db, new Date(NOW.getTime() + 1000), 0);
+    expect(await readSession(db, issuance.session.id)).toMatchObject({
+      state: "awaiting-user-auth",
+      reconnectDataSourceId: "source-a",
+    });
+  });
   it("an abandoned callback cannot advance a subsequently reissued attempt", async () => {
     const { db, pending } = fixture();
     const first = await pending();

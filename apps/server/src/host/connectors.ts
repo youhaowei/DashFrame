@@ -579,7 +579,7 @@ async function persistGa4TokenBundleLocked(
 type Ga4TokenWriteState = { revision: number; config: unknown };
 const ga4TokenWrites = new Map<UUID, Promise<Ga4TokenWriteState | null>>();
 
-async function persistGa4TokenBundle(
+export async function persistGa4TokenBundle(
   ctx: HostContext,
   dataSourceId: UUID,
   vault: SecretVault | undefined,

@@ -6,7 +6,11 @@ import {
   vectorFromArray,
 } from "apache-arrow";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { MAX_LOCAL_ARROW_BYTES } from "@dashframe/types";
+import { GoogleAuthorizationError } from "@dashframe/connector-ga4";
+import {
+  CONNECTOR_SIGN_IN_EXPIRED,
+  MAX_LOCAL_ARROW_BYTES,
+} from "@dashframe/types";
 import {
   PostgresConnector,
   type PgClientLike,
@@ -30,8 +34,10 @@ import {
   fetchNotionBinding,
   fetchSourceBinding,
   resolveSourceBinding,
+  streamGa4Binding,
   streamPostgresBinding,
 } from "./bindings";
+import { toFetchFailure } from "../data-fetch";
 
 const table = {
   id: "table-1",
@@ -287,6 +293,34 @@ describe("Source Binding registry", () => {
     await expect(
       fetchGa4Binding(context({ table, source }), binding),
     ).rejects.toThrow("FETCH_EXECUTION_FAILED");
+  });
+
+  it("names an expired Google sign-in so Refresh can offer a new one", async () => {
+    ga4ConnectorFor.mockResolvedValue({
+      query: vi
+        .fn()
+        .mockRejectedValue(new GoogleAuthorizationError("invalid_grant")),
+    });
+    const binding = await resolveSourceBinding(
+      context({ table, source }),
+      table.id,
+    );
+    const fetched = fetchGa4Binding(context({ table, source }), binding);
+    await expect(fetched).rejects.toThrow(CONNECTOR_SIGN_IN_EXPIRED);
+    const streamed = (async () => {
+      for await (const _ of streamGa4Binding(
+        context({ table, source }),
+        binding,
+      ));
+    })();
+    await expect(streamed).rejects.toThrow(CONNECTOR_SIGN_IN_EXPIRED);
+    expect(
+      toFetchFailure(await fetched.catch((e) => e), "FETCH_EXECUTION_FAILED"),
+    ).toMatchObject({
+      status: "failed",
+      code: CONNECTOR_SIGN_IN_EXPIRED,
+      message: "Google sign-in expired. Sign in again to refresh this table.",
+    });
   });
 
   it("exhausts GA4 pages and publishes one lossless Arrow frame", async () => {
