@@ -10,6 +10,7 @@ export type HostedMetadata = Pick<
   HostMetadata,
   | "getDataSource"
   | "getDataTable"
+  | "listDataTableResources"
   | "getDataFrame"
   | "getInsight"
   | "listDataFramesByInsight"
@@ -66,6 +67,11 @@ export function createHostedMetadata(
       (await client()).query(api.hostedMetadata.getDataFrame, { id }),
     getInsight: async (id) =>
       (await client()).query(api.hostedMetadata.getInsight, { id }),
+    listDataTableResources: async (dataSourceId, cursor) =>
+      (await client()).query(api.hostedMetadata.listDataTableResources, {
+        dataSourceId,
+        paginationOpts: { cursor, numItems: 500 },
+      }),
     listDataFramesByInsight: async (insightId) =>
       (await client()).query(api.hostedMetadata.listDataFramesByInsight, {
         insightId,

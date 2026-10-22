@@ -1,9 +1,14 @@
 import { persistVerifiedSource } from "./verified-source";
-import { makeGa4Connector } from "@dashframe/connector-ga4";
+import {
+  makeGa4Connector,
+  type GoogleOAuthTokenBundle,
+} from "@dashframe/connector-ga4";
+import type { UUID } from "@dashframe/types";
 import { z } from "zod";
 
 import type { HostContext } from "./context";
 import { hostOperation } from "./operation";
+import { persistGa4TokenBundle } from "./connectors";
 import {
   OAuthExchangeError,
   connectorResumeLink,
@@ -111,17 +116,97 @@ function isRedirectUriMismatch(error: unknown): boolean {
 
 async function probeSampleReport(
   probe: ReturnType<typeof makeGa4Connector>,
-  properties: Awaited<
-    ReturnType<ReturnType<typeof makeGa4Connector>["connect"]>
-  >,
+  propertyId: string | undefined,
 ): Promise<void> {
-  const property = properties[0];
-  if (!property) return;
+  if (!propertyId) return;
   // Throwaway id: only used to tag the discarded result's Arrow field ids.
   const probeTableId = crypto.randomUUID();
-  await probe.query(property.id, probeTableId, {
+  await probe.query(propertyId, probeTableId, {
     pagination: { offset: 0, limit: 1 },
   });
+}
+
+type SetupFailure = { code: string; message: string };
+
+/** "properties/1, properties/2, and 3 more" */
+function listProperties(resources: string[]): string {
+  const shown = resources.slice(0, 3).join(", ");
+  const rest = resources.length - 3;
+  return rest > 0 ? `${shown}, and ${rest} more` : shown;
+}
+
+/** Every remote resource a source's tables read, however many tables it has. */
+async function allDataTableResources(
+  ctx: HostContext,
+  dataSourceId: string,
+): Promise<string[]> {
+  const resources = new Set<string>();
+  let cursor: string | null = null;
+  for (;;) {
+    const result = await ctx.metadata.listDataTableResources(
+      dataSourceId,
+      cursor,
+    );
+    for (const resource of result.page) resources.add(resource);
+    if (result.isDone) return [...resources];
+    cursor = result.continueCursor;
+  }
+}
+
+/**
+ * Which property proves reporting access. A new source has only the grant's
+ * own properties. Signing in again must reach every property the source's
+ * tables read, and the report probe runs against one of those.
+ */
+async function reportProbeTarget(
+  ctx: HostContext,
+  session: ConnectorSetupSessionRow,
+  properties: { id: string }[],
+): Promise<{ propertyId: string | undefined } | SetupFailure> {
+  if (!session.reconnectDataSourceId) return { propertyId: properties[0]?.id };
+  let resources: string[];
+  try {
+    resources = await allDataTableResources(ctx, session.reconnectDataSourceId);
+  } catch {
+    return {
+      code: "reconnect-failed",
+      message: "The data source could not be read. Try again.",
+    };
+  }
+  const reachable = new Set(properties.map((p) => propertyNumber(p.id)));
+  const unreachable = [
+    ...new Set(
+      resources.filter((resource) => !reachable.has(propertyNumber(resource))),
+    ),
+  ];
+  if (unreachable.length > 0) {
+    return {
+      code: "account-mismatch",
+      message: `This Google account can't reach ${listProperties(unreachable)}, which this source's tables use. Sign in with an account that can, or delete the tables that use them.`,
+    };
+  }
+  return { propertyId: resources[0] ?? properties[0]?.id };
+}
+
+/** Prove the new grant can read the reports this source will run. */
+async function verifyReportAccess(
+  ctx: HostContext,
+  session: ConnectorSetupSessionRow,
+  probe: ReturnType<typeof makeGa4Connector>,
+  properties: { id: string }[],
+): Promise<SetupFailure | null> {
+  const target = await reportProbeTarget(ctx, session, properties);
+  if ("code" in target) return target;
+  try {
+    await probeSampleReport(probe, target.propertyId);
+    return null;
+  } catch {
+    return {
+      code: "report-probe-failed",
+      message:
+        "Google Analytics could not be verified: reporting access is missing or restricted for this account.",
+    };
+  }
 }
 
 function publicDto(
@@ -165,18 +250,153 @@ async function consumeForCompletion(
   }
 }
 
+/** GA4 resource ids appear both as `properties/123` and as the bare number. */
+function propertyNumber(resource: string): string {
+  return resource.replace(/^properties\//u, "");
+}
+
+/**
+ * Swap a verified grant into an existing source, keeping its id, tables, and
+ * everything built on them. Runs only after `verifyReportAccess` showed the
+ * new grant reaches every property the source's tables read, so a sign-in
+ * with the wrong Google account never gets here and the source stays as it was.
+ */
+async function renewSourceGrant(
+  ctx: HostContext,
+  dataSourceId: string,
+  tokenBundle: string,
+): Promise<SetupFailure | null> {
+  let source: Awaited<ReturnType<typeof ctx.metadata.getDataSource>>;
+  try {
+    source = await ctx.metadata.getDataSource(dataSourceId);
+  } catch {
+    return {
+      code: "reconnect-failed",
+      message: "The data source could not be read. Try again.",
+    };
+  }
+  if (source?.kind !== "googleAnalytics") {
+    return {
+      code: "reconnect-target-missing",
+      message: "This data source no longer exists.",
+    };
+  }
+  try {
+    await persistGa4TokenBundle(
+      ctx,
+      dataSourceId as UUID,
+      ctx.vault,
+      JSON.parse(tokenBundle) as GoogleOAuthTokenBundle,
+      { revision: source.revision, config: source.config },
+      { replacesGrant: true },
+    );
+  } catch {
+    return {
+      code: "reconnect-failed",
+      message: "The new Google sign-in could not be saved. Try again.",
+    };
+  }
+  return null;
+}
+
+/** The source this sign-in completes: the one it renews, or a new one. */
+function targetSourceId(session: ConnectorSetupSessionRow): string {
+  return session.reconnectDataSourceId ?? crypto.randomUUID();
+}
+
+/** Finish a sign-in that renews an existing source's grant. */
+async function completeReconnect(
+  ctx: HostContext,
+  session: ConnectorSetupSessionRow,
+  tokenBundle: string,
+): Promise<ConnectorSetupSessionDto> {
+  const dataSourceId = targetSourceId(session);
+  const failure = await renewSourceGrant(ctx, dataSourceId, tokenBundle);
+  if (failure) {
+    const failed = await failConsumedSession(
+      ctx,
+      session,
+      failure.code,
+      failure.message,
+    );
+    return fullDto(ctx, failed);
+  }
+  const connected = await markConnected(
+    ctx.metadata.connectorSetup,
+    session.id,
+    dataSourceId,
+    new Date(),
+    session.stateNonceHash,
+  );
+  return fullDto(ctx, connected);
+}
+
+/** Finish a sign-in that creates a source for the verified grant. */
+async function completeNewSource(
+  ctx: HostContext,
+  session: ConnectorSetupSessionRow,
+  verifying: ConnectorSetupSessionRow,
+  dataSourceId: string,
+  tokenBundle: string,
+): Promise<ConnectorSetupSessionDto> {
+  try {
+    // The host vault consumes plaintext directly; it never enters a draft
+    // command log or a public Convex mutation argument.
+    const confirmed = await persistVerifiedSource(ctx, {
+      id: dataSourceId,
+      type: session.connectorId,
+      name: session.requestedName,
+      apiKey: tokenBundle,
+    });
+    if (!confirmed) return fullDto(ctx, verifying);
+  } catch {
+    const failed = await failConsumedSession(
+      ctx,
+      session,
+      "create-failed",
+      "The verified connection could not be saved.",
+    );
+    return fullDto(ctx, failed);
+  }
+
+  const connected = await markConnected(
+    ctx.metadata.connectorSetup,
+    session.id,
+    dataSourceId,
+    new Date(),
+    session.stateNonceHash,
+  );
+  return fullDto(ctx, connected);
+}
+
 export const startConnectorSetup = hostOperation({
   input: z
-    .object({ connectorId: z.string().min(1), requestedName: z.string() })
+    .object({
+      connectorId: z.string().min(1),
+      requestedName: z.string(),
+      /** Renew this source's grant in place instead of creating a source. */
+      reconnectDataSourceId: z.string().uuid().optional(),
+    })
     .strict(),
   userOnly: true,
   run: async (ctx, input): Promise<ConnectorSetupSessionDto> => {
     const descriptor = descriptorFor(ctx, input.connectorId);
     const redirectUri = redirectUriFor(ctx);
+    if (input.reconnectDataSourceId) {
+      const target = await ctx.metadata.getDataSource(
+        input.reconnectDataSourceId,
+      );
+      if (target?.kind !== descriptor.id) {
+        throw new Error("This data source no longer exists.");
+      }
+    }
     const issuance = await startSession(ctx.metadata.connectorSetup, {
       connectorId: descriptor.id,
       requestedName: input.requestedName.trim() || descriptor.id,
       scopes: descriptor.scopes,
+      ...(input.reconnectDataSourceId
+        ? { reconnectDataSourceId: input.reconnectDataSourceId }
+        : {}),
     });
     const authorizeUrl = descriptor.buildAuthorizeUrl({
       redirectUri,
@@ -318,7 +538,7 @@ export const completeConnectorOAuth = hostOperation({
       return fullDto(ctx, failed);
     }
 
-    const dataSourceId = crypto.randomUUID();
+    const dataSourceId = targetSourceId(session);
     const verifying = await markVerifying(
       ctx.metadata.connectorSetup,
       session.id,
@@ -348,46 +568,25 @@ export const completeConnectorOAuth = hostOperation({
       return fullDto(ctx, failed);
     }
 
-    try {
-      await probeSampleReport(probe, properties);
-    } catch {
-      const failed = await failConsumedSession(
-        ctx,
-        session,
-        "report-probe-failed",
-        "Google Analytics could not be verified: reporting access is missing or restricted for this account.",
-      );
-      return fullDto(ctx, failed);
-    }
-
-    try {
-      // The host vault consumes plaintext directly; it never enters a draft
-      // command log or a public Convex mutation argument.
-      const confirmed = await persistVerifiedSource(ctx, {
-        id: dataSourceId,
-        type: session.connectorId,
-        name: session.requestedName,
-        apiKey: tokenBundle,
-      });
-      if (!confirmed) return fullDto(ctx, verifying);
-    } catch {
-      const failed = await failConsumedSession(
-        ctx,
-        session,
-        "create-failed",
-        "The verified connection could not be saved.",
-      );
-      return fullDto(ctx, failed);
-    }
-
-    const connected = await markConnected(
-      ctx.metadata.connectorSetup,
-      session.id,
-      dataSourceId,
-      new Date(),
-      session.stateNonceHash,
+    const unverified = await verifyReportAccess(
+      ctx,
+      session,
+      probe,
+      properties,
     );
-    return fullDto(ctx, connected);
+    if (unverified) {
+      const failed = await failConsumedSession(
+        ctx,
+        session,
+        unverified.code,
+        unverified.message,
+      );
+      return fullDto(ctx, failed);
+    }
+
+    return session.reconnectDataSourceId
+      ? completeReconnect(ctx, session, tokenBundle)
+      : completeNewSource(ctx, session, verifying, dataSourceId, tokenBundle);
   },
 });
 

@@ -1,3 +1,4 @@
+import { Ga4SignInAgain } from "@/components/data-sources/Ga4SignInAgain";
 import {
   RemoteResourceList,
   useRemoteResourceImport,
@@ -44,8 +45,6 @@ export interface ImportTablesDialogProps {
   /** Resource ids this source already has a table for. */
   importedResourceIds: ReadonlySet<string>;
   onImported: (tableId: UUID) => void;
-  /** Where the user can sign in again when the stored grant is unusable. */
-  onOpenDataSources: () => void;
 }
 
 /**
@@ -78,7 +77,6 @@ function ImportTablesBody({
   sourceType,
   importedResourceIds,
   onImported,
-  onOpenDataSources,
   onClose,
 }: Omit<ImportTablesDialogProps, "open">) {
   const { mutateAsync: listGa4Properties } =
@@ -139,24 +137,14 @@ function ImportTablesBody({
     return <p className="text-sm text-neutral-fg-subtle">Loading…</p>;
   }
   if (state.status === "sign-in-expired") {
-    // A sign-in always creates a new source today; the grant of this one
-    // cannot be renewed in place, so recovery goes through Add Source.
     return (
-      <div role="alert" className="space-y-3">
-        <div>
-          <p className="text-sm font-medium text-neutral-fg">
-            Google sign-in expired.
-          </p>
-          <p className="mt-1 text-sm text-neutral-fg-subtle">
-            Sign in with Google again from Add Source on the Data Sources page.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          label="Go to Data Sources"
-          onClick={onOpenDataSources}
-        />
-      </div>
+      <Ga4SignInAgain
+        sourceId={sourceId}
+        onSignedIn={() => {
+          setState({ status: "loading" });
+          setAttempt((value) => value + 1);
+        }}
+      />
     );
   }
   if (state.status === "failed") {

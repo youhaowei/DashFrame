@@ -24,6 +24,7 @@ const sessionRow = v.object({
   codeVerifier: v.string(),
   scopes: v.array(v.string()),
   dataSourceId: nullableString,
+  reconnectDataSourceId: v.optional(v.string()),
   failureCode: nullableString,
   failureMessage: nullableString,
   expiresAt: v.number(),

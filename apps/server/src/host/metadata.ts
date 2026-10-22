@@ -118,6 +118,11 @@ export interface HostMetadata {
   }>;
   getDataSource(id: string): Promise<DataSourceRow | null>;
   getDataTable(id: string): Promise<DataTableRow | null>;
+  /** One page of the remote resources a source's tables read, e.g. GA4 properties. */
+  listDataTableResources(
+    dataSourceId: string,
+    cursor: string | null,
+  ): Promise<{ page: string[]; isDone: boolean; continueCursor: string }>;
   getDataFrame(id: string): Promise<DataFrameRow | null>;
   getInsight(id: string): Promise<InsightRow | null>;
   listDataFramesByInsight(insightId: string): Promise<DataFrameRow[]>;

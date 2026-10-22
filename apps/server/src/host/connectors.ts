@@ -579,12 +579,13 @@ async function persistGa4TokenBundleLocked(
 type Ga4TokenWriteState = { revision: number; config: unknown };
 const ga4TokenWrites = new Map<UUID, Promise<Ga4TokenWriteState | null>>();
 
-async function persistGa4TokenBundle(
+export async function persistGa4TokenBundle(
   ctx: HostContext,
   dataSourceId: UUID,
   vault: SecretVault | undefined,
   bundle: GoogleOAuthTokenBundle,
   expected: { revision: number; config: unknown },
+  options: { replacesGrant?: boolean } = {},
 ): Promise<{ revision: number; config: unknown }> {
   const previous = ga4TokenWrites.get(dataSourceId) ?? Promise.resolve(null);
   // Chained on a tail that settles either way. A persist failure is non-fatal
@@ -616,7 +617,9 @@ async function persistGa4TokenBundle(
   const tail = result.then(
     (written) => {
       forget();
-      return written;
+      // A refresh queued behind a new sign-in still carries the old grant.
+      // Passing on this write's state would let it overwrite the new one.
+      return options.replacesGrant ? null : written;
     },
     () => {
       forget();
