@@ -97,6 +97,15 @@ vi.mock("@/data/host", () => ({
   }),
 }));
 
+// Google's side of a sign-in: it finishes as soon as it starts.
+vi.mock("@/lib/connector-oauth-setup", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/connector-oauth-setup")>()),
+  runOAuthSetup: async (
+    _request: unknown,
+    onConnected: (id: string) => Promise<void>,
+  ) => onConnected(SOURCE_ID),
+}));
+
 vi.mock("@/hooks/useOpenChartInReport", () => ({
   useOpenChartInReport: () => ({ startChart: mockStartChart }),
 }));
@@ -607,7 +616,7 @@ describe("DataSourcePageContent — table actions", () => {
     mockRefreshTable.mockResolvedValue({
       status: "failed",
       code: CONNECTOR_SIGN_IN_EXPIRED,
-      message: "Google sign-in expired. Sign in again to refresh this table.",
+      message: "Google sign-in expired. Sign in again from the data source.",
     });
     render(<Page />);
 
@@ -1070,6 +1079,23 @@ describe("DataSourcePageContent — connected GA4 source with no tables", () => 
     ).toBeNull();
     expect(screen.queryByText(CONNECTOR_SIGN_IN_EXPIRED)).toBeNull();
     screen.getByText("Account sign-in");
+  });
+
+  it("lists the properties again once the sign-in is renewed", async () => {
+    mockListGa4Properties
+      .mockRejectedValueOnce(new Error(CONNECTOR_SIGN_IN_EXPIRED))
+      .mockResolvedValueOnce([{ id: "properties/123", title: "Store" }]);
+    render(<Page />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sign in with Google" }),
+    );
+
+    await screen.findByText("Store");
+    expect(mockListGa4Properties).toHaveBeenCalledTimes(2);
+    expect(mockListGa4Properties).toHaveBeenLastCalledWith({
+      dataSourceId: SOURCE_ID,
+    });
   });
 
   it("offers a retry, not raw error text, when properties fail to load", async () => {

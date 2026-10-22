@@ -116,17 +116,79 @@ function isRedirectUriMismatch(error: unknown): boolean {
 
 async function probeSampleReport(
   probe: ReturnType<typeof makeGa4Connector>,
-  properties: Awaited<
-    ReturnType<ReturnType<typeof makeGa4Connector>["connect"]>
-  >,
+  propertyId: string | undefined,
 ): Promise<void> {
-  const property = properties[0];
-  if (!property) return;
+  if (!propertyId) return;
   // Throwaway id: only used to tag the discarded result's Arrow field ids.
   const probeTableId = crypto.randomUUID();
-  await probe.query(property.id, probeTableId, {
+  await probe.query(propertyId, probeTableId, {
     pagination: { offset: 0, limit: 1 },
   });
+}
+
+type SetupFailure = { code: string; message: string };
+
+/** "properties/1, properties/2, and 3 more" */
+function listProperties(resources: string[]): string {
+  const shown = resources.slice(0, 3).join(", ");
+  const rest = resources.length - 3;
+  return rest > 0 ? `${shown}, and ${rest} more` : shown;
+}
+
+/**
+ * Which property proves reporting access. A new source has only the grant's
+ * own properties. Signing in again must reach every property the source's
+ * tables read, and the report probe runs against one of those.
+ */
+async function reportProbeTarget(
+  ctx: HostContext,
+  session: ConnectorSetupSessionRow,
+  properties: { id: string }[],
+): Promise<{ propertyId: string | undefined } | SetupFailure> {
+  if (!session.reconnectDataSourceId) return { propertyId: properties[0]?.id };
+  let resources: string[];
+  try {
+    resources = await ctx.metadata.listDataTableResources(
+      session.reconnectDataSourceId,
+    );
+  } catch {
+    return {
+      code: "reconnect-failed",
+      message: "The data source could not be read. Try again.",
+    };
+  }
+  const reachable = new Set(properties.map((p) => propertyNumber(p.id)));
+  const unreachable = resources.filter(
+    (resource) => !reachable.has(propertyNumber(resource)),
+  );
+  if (unreachable.length > 0) {
+    return {
+      code: "account-mismatch",
+      message: `This Google account can't reach ${listProperties(unreachable)}, which this source's tables use. Sign in with an account that can, or delete the tables that use them.`,
+    };
+  }
+  return { propertyId: resources[0] ?? properties[0]?.id };
+}
+
+/** Prove the new grant can read the reports this source will run. */
+async function verifyReportAccess(
+  ctx: HostContext,
+  session: ConnectorSetupSessionRow,
+  probe: ReturnType<typeof makeGa4Connector>,
+  properties: { id: string }[],
+): Promise<SetupFailure | null> {
+  const target = await reportProbeTarget(ctx, session, properties);
+  if ("code" in target) return target;
+  try {
+    await probeSampleReport(probe, target.propertyId);
+    return null;
+  } catch {
+    return {
+      code: "report-probe-failed",
+      message:
+        "Google Analytics could not be verified: reporting access is missing or restricted for this account.",
+    };
+  }
 }
 
 function publicDto(
@@ -177,21 +239,18 @@ function propertyNumber(resource: string): string {
 
 /**
  * Swap a verified grant into an existing source, keeping its id, tables, and
- * everything built on them. The source's current credential is only replaced
- * once the new grant is known to reach every property its tables read, so a
- * sign-in with the wrong Google account leaves the source as it was.
+ * everything built on them. Runs only after `verifyReportAccess` showed the
+ * new grant reaches every property the source's tables read, so a sign-in
+ * with the wrong Google account never gets here and the source stays as it was.
  */
 async function renewSourceGrant(
   ctx: HostContext,
   dataSourceId: string,
   tokenBundle: string,
-  properties: { id: string }[],
-): Promise<{ code: string; message: string } | null> {
+): Promise<SetupFailure | null> {
   let source: Awaited<ReturnType<typeof ctx.metadata.getDataSource>>;
-  let resources: string[];
   try {
     source = await ctx.metadata.getDataSource(dataSourceId);
-    resources = await ctx.metadata.listDataTableResources(dataSourceId);
   } catch {
     return {
       code: "reconnect-failed",
@@ -202,14 +261,6 @@ async function renewSourceGrant(
     return {
       code: "reconnect-target-missing",
       message: "This data source no longer exists.",
-    };
-  }
-  const reachable = new Set(properties.map((p) => propertyNumber(p.id)));
-  if (!resources.every((resource) => reachable.has(propertyNumber(resource)))) {
-    return {
-      code: "account-mismatch",
-      message:
-        "This Google account can't access the properties this source uses. Sign in with the account that connected it.",
     };
   }
   try {
@@ -240,15 +291,9 @@ async function completeReconnect(
   ctx: HostContext,
   session: ConnectorSetupSessionRow,
   tokenBundle: string,
-  properties: { id: string }[],
 ): Promise<ConnectorSetupSessionDto> {
   const dataSourceId = targetSourceId(session);
-  const failure = await renewSourceGrant(
-    ctx,
-    dataSourceId,
-    tokenBundle,
-    properties,
-  );
+  const failure = await renewSourceGrant(ctx, dataSourceId, tokenBundle);
   if (failure) {
     const failed = await failConsumedSession(
       ctx,
@@ -505,20 +550,24 @@ export const completeConnectorOAuth = hostOperation({
       return fullDto(ctx, failed);
     }
 
-    try {
-      await probeSampleReport(probe, properties);
-    } catch {
+    const unverified = await verifyReportAccess(
+      ctx,
+      session,
+      probe,
+      properties,
+    );
+    if (unverified) {
       const failed = await failConsumedSession(
         ctx,
         session,
-        "report-probe-failed",
-        "Google Analytics could not be verified: reporting access is missing or restricted for this account.",
+        unverified.code,
+        unverified.message,
       );
       return fullDto(ctx, failed);
     }
 
     return session.reconnectDataSourceId
-      ? completeReconnect(ctx, session, tokenBundle, properties)
+      ? completeReconnect(ctx, session, tokenBundle)
       : completeNewSource(ctx, session, verifying, dataSourceId, tokenBundle);
   },
 });

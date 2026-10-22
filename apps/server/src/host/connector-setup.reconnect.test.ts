@@ -33,6 +33,7 @@ const modules = import.meta.glob(
 );
 const SOURCE_ID = "7c8d7e90-3803-4885-8349-faae10bb829d";
 const BOUND_PROPERTY = "properties/123";
+const OTHER_BOUND_PROPERTY = "properties/456";
 
 function bundle(refreshToken: string) {
   return JSON.stringify({
@@ -90,6 +91,22 @@ function stubGoogle(visible: string[]) {
 async function fixture() {
   const t = convexTest(schema, modules);
   const workspaceId = "w";
+  // The source's two tables, plus another source's table it must not see.
+  await t.run(async (db) => {
+    const row = (id: string, dataSourceId: string, table: string) =>
+      db.db.insert("dataTables", {
+        workspaceId,
+        id,
+        revision: 1,
+        name: table,
+        createdAt: 1,
+        dataSourceId,
+        table,
+      });
+    await row("t-1", SOURCE_ID, BOUND_PROPERTY);
+    await row("t-2", SOURCE_ID, OTHER_BOUND_PROPERTY);
+    await row("t-3", crypto.randomUUID(), "properties/999");
+  });
   const connectorSetup: ConnectorSetupStore = {
     get: (id) => t.query(internal.connectorSetup.get, { workspaceId, id }),
     findByNonce: (stateNonceHash) =>
@@ -130,7 +147,11 @@ async function fixture() {
   const metadata = {
     connectorSetup,
     getDataSource: async (id: string) => (id === SOURCE_ID ? source : null),
-    listDataTableResources: async () => [BOUND_PROPERTY],
+    listDataTableResources: (dataSourceId: string) =>
+      t.query(internal.host.listDataTableResources, {
+        workspaceId,
+        dataSourceId,
+      }),
     replaceDataSourceConfig: async (input: {
       expectedRevision: number;
       config: typeof source.config;
@@ -184,7 +205,8 @@ describe("signing in again for an existing Google Analytics source", () => {
 
   it("renews the grant of the same source and retires the old one", async () => {
     const f = await fixture();
-    stubGoogle([BOUND_PROPERTY, "properties/456"]);
+    // The account's first property is not one the source uses.
+    stubGoogle(["properties/999", BOUND_PROPERTY, OTHER_BOUND_PROPERTY]);
     const state = await f.signInAgain();
 
     const result = await completeConnectorOAuth(f.ctx, { state, code: "code" });
@@ -200,11 +222,17 @@ describe("signing in again for an existing Google Analytics source", () => {
     });
     expect(await f.vault.has(f.oldRef)).toBe(false);
     expect(f.source().config.sourceBindingVersion).toBe("v2");
+    // Reporting access is proven on a property the source reads.
+    const reports = vi
+      .mocked(fetch)
+      .mock.calls.map(([url]) => String(url))
+      .filter((url) => url.endsWith(":runReport"));
+    expect(reports).toEqual([expect.stringContaining(BOUND_PROPERTY)]);
   });
 
   it("refuses a Google account that can't reach the source's properties", async () => {
     const f = await fixture();
-    stubGoogle(["properties/999"]);
+    stubGoogle(["properties/999", BOUND_PROPERTY]);
     const state = await f.signInAgain();
     const before = f.source();
 
@@ -213,7 +241,9 @@ describe("signing in again for an existing Google Analytics source", () => {
     expect(result).toMatchObject({
       state: "failed",
       failureCode: "account-mismatch",
+      failureMessage: expect.stringContaining(OTHER_BOUND_PROPERTY),
     });
+    expect(result.failureMessage).not.toContain(BOUND_PROPERTY);
     expect(f.source()).toBe(before);
     expect(JSON.parse(await f.storedSecret(f.oldRef))).toMatchObject({
       refreshToken: "refresh-old",
@@ -222,7 +252,7 @@ describe("signing in again for an existing Google Analytics source", () => {
 
   it("leaves the source untouched when the user cancels at Google", async () => {
     const f = await fixture();
-    stubGoogle([BOUND_PROPERTY]);
+    stubGoogle([BOUND_PROPERTY, OTHER_BOUND_PROPERTY]);
     const state = await f.signInAgain();
     const before = f.source();
 

@@ -319,7 +319,7 @@ describe("Source Binding registry", () => {
     ).toMatchObject({
       status: "failed",
       code: CONNECTOR_SIGN_IN_EXPIRED,
-      message: "Google sign-in expired. Sign in again to refresh this table.",
+      message: "Google sign-in expired. Sign in again from the data source.",
     });
   });
 
