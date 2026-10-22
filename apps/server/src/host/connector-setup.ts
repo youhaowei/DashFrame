@@ -158,9 +158,11 @@ async function reportProbeTarget(
     };
   }
   const reachable = new Set(properties.map((p) => propertyNumber(p.id)));
-  const unreachable = resources.filter(
-    (resource) => !reachable.has(propertyNumber(resource)),
-  );
+  const unreachable = [
+    ...new Set(
+      resources.filter((resource) => !reachable.has(propertyNumber(resource))),
+    ),
+  ];
   if (unreachable.length > 0) {
     return {
       code: "account-mismatch",
