@@ -35,6 +35,7 @@ const row = z
     codeVerifier: z.string().min(43),
     scopes: z.array(z.string()),
     dataSourceId: z.string().nullable(),
+    reconnectDataSourceId: z.string().optional(),
     failureCode: z.string().nullable(),
     failureMessage: z.string().nullable(),
     expiresAt: z.number().finite(),

@@ -1,5 +1,6 @@
 import type { BaseConnector, FileSourceConnector } from "@dashframe/engine";
 import { Button, FieldError } from "@wystack/ui-react";
+import { GoogleSignInButton } from "../GoogleSignInButton";
 import { ChevronDownIcon, ChevronRightIcon } from "@wystack/ui-react/icons";
 import { lazy, Suspense } from "react";
 
@@ -72,16 +73,10 @@ export function ConnectorCard({
   const fileConnector = isFileConnector
     ? (connector as FileSourceConnector)
     : null;
-  let connectButtonLabel = "Connect";
-  if (connector.authKind === "oauth") {
-    connectButtonLabel = "Sign in with Google";
-  }
-  if (isLoading) {
-    connectButtonLabel =
-      connector.authKind === "oauth"
-        ? "Waiting for Google..."
-        : "Connecting...";
-  }
+  const isOAuth = connector.authKind === "oauth";
+  const unavailableId = unavailableReason
+    ? `${connector.id}-unavailable`
+    : undefined;
 
   const identity = (
     <>
@@ -152,14 +147,22 @@ export function ConnectorCard({
           )}
 
           {/* Connect button for remote-api connectors */}
-          {connector.sourceType === "remote-api" && (
+          {connector.sourceType === "remote-api" && isOAuth && (
+            <GoogleSignInButton
+              onClick={() => onConnect?.()}
+              waiting={Boolean(isLoading)}
+              disabled={Boolean(unavailableReason)}
+              signInUrl={signInUrl}
+              aria-describedby={unavailableId}
+              className="w-full"
+            />
+          )}
+          {connector.sourceType === "remote-api" && !isOAuth && (
             <Button
-              label={connectButtonLabel}
+              label={isLoading ? "Connecting..." : "Connect"}
               onClick={onConnect}
               disabled={isLoading || Boolean(unavailableReason)}
-              aria-describedby={
-                unavailableReason ? `${connector.id}-unavailable` : undefined
-              }
+              aria-describedby={unavailableId}
               className="w-full"
             />
           )}
@@ -170,20 +173,6 @@ export function ConnectorCard({
               className="text-xs text-neutral-fg-subtle"
             >
               {unavailableReason}
-            </p>
-          )}
-
-          {signInUrl && (
-            <p className="text-xs text-neutral-fg-subtle">
-              Don't see the Google sign-in page?{" "}
-              <a
-                href={signInUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium text-neutral-fg underline underline-offset-2"
-              >
-                Open Google sign-in
-              </a>
             </p>
           )}
 

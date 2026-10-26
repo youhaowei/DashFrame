@@ -1,4 +1,7 @@
-import type { FileSourceConnector } from "@dashframe/engine";
+import type {
+  FileSourceConnector,
+  RemoteApiConnector,
+} from "@dashframe/engine";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -20,6 +23,16 @@ const connector = {
   validate: () => ({ valid: true }),
   parse: vi.fn(),
 } as FileSourceConnector;
+
+const googleConnector = {
+  id: "googleAnalytics",
+  name: "Google Analytics 4",
+  sourceType: "remote-api",
+  icon: "",
+  authKind: "oauth",
+  getFormFields: () => [],
+  validate: () => ({ valid: true }),
+} as unknown as RemoteApiConnector;
 
 describe("ConnectorCard file input", () => {
   it("clears the selected file so the same file can be picked again", async () => {
@@ -53,19 +66,20 @@ describe("ConnectorCard file input", () => {
 describe("ConnectorCard sign-in link", () => {
   it("offers the sign-in page as a link when no window opened for it", () => {
     const { rerender } = render(
-      <ConnectorCard connector={connector} expanded />,
+      <ConnectorCard connector={googleConnector} expanded />,
     );
     expect(screen.queryByRole("link")).toBeNull();
 
     rerender(
       <ConnectorCard
-        connector={connector}
+        connector={googleConnector}
         expanded
         isLoading
         signInUrl="https://accounts.google.com/auth"
       />,
     );
 
+    screen.getByRole("button", { name: "Waiting for Google..." });
     const link = screen.getByRole("link", { name: "Open Google sign-in" });
     expect(link.getAttribute("href")).toBe("https://accounts.google.com/auth");
     expect(link.getAttribute("target")).toBe("_blank");

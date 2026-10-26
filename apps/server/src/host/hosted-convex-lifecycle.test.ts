@@ -86,5 +86,5 @@ it("sends lifecycle operations through fixed Bearer endpoints without caller-sel
   expect(requests[1]!.args[0]).not.toHaveProperty("draftId");
   expect(requests[4]!.args[0]).not.toHaveProperty("retryable");
   expect(requests[13]!.args).toEqual([{ operationId: "batch" }]);
-  expect(Object.keys(metadata)).toHaveLength(24);
+  expect(Object.keys(metadata)).toHaveLength(25);
 });

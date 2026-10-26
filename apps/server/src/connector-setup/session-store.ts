@@ -20,6 +20,8 @@ export interface ConnectorSetupSessionRow {
   codeVerifier: string;
   scopes: string[];
   dataSourceId: string | null;
+  /** Set when this sign-in renews an existing source's grant instead of creating one. */
+  reconnectDataSourceId?: string;
   failureCode: string | null;
   failureMessage: string | null;
   expiresAt: number;
@@ -66,6 +68,7 @@ export interface StartSessionInput {
   connectorId: string;
   requestedName: string;
   scopes: string[];
+  reconnectDataSourceId?: string;
   now?: Date;
 }
 export interface SessionIssuance {
@@ -108,6 +111,9 @@ export async function startSession(
     codeVerifier: newCodeVerifier(),
     scopes: input.scopes,
     dataSourceId: null,
+    ...(input.reconnectDataSourceId
+      ? { reconnectDataSourceId: input.reconnectDataSourceId }
+      : {}),
     failureCode: null,
     failureMessage: null,
     expiresAt: now + CONNECTOR_SETUP_TTL_MS,
@@ -308,9 +314,12 @@ async function recover(
     stateNonceHash: row.stateNonceHash,
     updatedAt: row.updatedAt,
   };
+  // A reconnect target already exists with the right kind, so its presence
+  // proves nothing about whether the new grant was stored.
   if (
     row.state === "verifying" &&
     row.dataSourceId &&
+    !row.reconnectDataSourceId &&
     (await db.getDataSourceKind(row.dataSourceId)) === row.connectorId
   ) {
     return (await db.compareAndSwap(

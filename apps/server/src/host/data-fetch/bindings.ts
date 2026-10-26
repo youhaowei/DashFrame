@@ -1,5 +1,11 @@
 /** Server-only Source Binding resolution for live data fetches. */
-import { MAX_LOCAL_ARROW_BYTES, type Field, type UUID } from "@dashframe/types";
+import { GoogleAuthorizationError } from "@dashframe/connector-ga4";
+import {
+  CONNECTOR_SIGN_IN_EXPIRED,
+  MAX_LOCAL_ARROW_BYTES,
+  type Field,
+  type UUID,
+} from "@dashframe/types";
 import { Table, tableFromIPC, tableToIPC } from "apache-arrow";
 
 import type { HostContext } from "../context";
@@ -11,6 +17,13 @@ import {
 
 import { DEFAULT_TRANSFER_LIMITS } from "./transfer";
 import { STREAM_BATCH_BYTES, STREAM_BATCH_ROWS } from "./streaming";
+
+/** A revoked or expired Google grant is the user's to fix, so it gets a name. */
+function remoteFailureCode(error: unknown): string {
+  return error instanceof GoogleAuthorizationError
+    ? CONNECTOR_SIGN_IN_EXPIRED
+    : "FETCH_EXECUTION_FAILED";
+}
 
 const SOURCE_BINDING_VERSION = "v1";
 const GA4_ACQUISITION_BINDING_VERSION = "v2";
@@ -194,7 +207,7 @@ async function fetchPagedRemoteBinding(
         (error.message === "TARGET_NOT_READY" ||
           error.message === "SOURCE_SCHEMA_CHANGED")
         ? error.message
-        : "FETCH_EXECUTION_FAILED",
+        : remoteFailureCode(error),
       { cause: error },
     );
   }
@@ -667,7 +680,7 @@ export async function* streamGa4Binding(
           "SOURCE_RESULT_TOO_LARGE",
         ].includes(error.message)
         ? error.message
-        : "FETCH_EXECUTION_FAILED",
+        : remoteFailureCode(error),
       { cause: error },
     );
   }
