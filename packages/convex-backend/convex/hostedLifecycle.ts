@@ -19,15 +19,21 @@ const importIdentity = { operationId: v.string(), requestHash: v.string() };
 const pagination = { paginationOpts: paginationOptsValidator };
 const pageInfo = { isDone: v.boolean(), continueCursor: v.string() };
 
+/** Repairs one batch; see `internal.host.repairGa4MeasureContracts` for the `complete` contract. */
 export const repairGa4MeasureContracts = mutation({
   args: {},
   returns: v.object({
     tablesRepaired: v.number(),
     insightsRepaired: v.number(),
+    complete: v.boolean(),
   }),
   handler: async (
     ctx,
-  ): Promise<{ tablesRepaired: number; insightsRepaired: number }> => {
+  ): Promise<{
+    tablesRepaired: number;
+    insightsRepaired: number;
+    complete: boolean;
+  }> => {
     const { workspaceId } = await requireHostedMetadataPrincipal(ctx);
     return ctx.runMutation(internal.host.repairGa4MeasureContracts, {
       workspaceId,

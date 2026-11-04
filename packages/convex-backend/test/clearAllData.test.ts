@@ -1,4 +1,4 @@
-import { beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
@@ -9,6 +9,9 @@ const makeTest = () => convexTest(schema, modules);
 let t: ReturnType<typeof makeTest>;
 beforeEach(() => {
   t = makeTest();
+});
+afterEach(() => {
+  vi.useRealTimers();
 });
 const user = (workspaceId = "w", userId = "u") =>
   t.withIdentity({
@@ -96,22 +99,227 @@ it("clears all workspace drafts with canonical data without touching another wor
     draftId: foreign.draftId,
   });
 });
-it("rolls back a clear that exceeds its bounded draft scan", async () => {
+const count = (table: "dataFrames" | "draftLog") =>
+  t.run(async (ctx) =>
+    (await ctx.db.query(table).collect()).filter(
+      (row) => row.workspaceId === "w",
+    ),
+  );
+const cleanupJobs = () =>
+  t.run(async (ctx) =>
+    (await ctx.db.query("cleanupJobs").collect()).filter(
+      (row) => row.workspaceId === "w",
+    ),
+  );
+it("clears frame history and a draft log past one batch through scheduled continuation", async () => {
+  vi.useFakeTimers();
   await seed();
+  await seed("other");
   await t.run(async (ctx) => {
-    for (let i = 0; i < 1001; i++)
+    for (let index = 0; index < 1001; index++) {
+      const id = crypto.randomUUID();
+      await ctx.db.insert("dataFrames", {
+        workspaceId: "w",
+        id,
+        revision: 1,
+        name: "Historical frame",
+        createdAt: index,
+        storage: { type: "file", key: id },
+        fieldIds: [],
+      });
       await ctx.db.insert("draftLog", {
         workspaceId: "w",
         draftId: "oversized",
-        sequence: i,
+        sequence: index,
         command: { path: "createDataSource", args: {} },
       });
+    }
   });
-  await expect(
-    t.mutation(internal.host.clearAllData, { workspaceId: "w" }),
-  ).rejects.toThrow("Workspace limit exceeded");
+  expect(
+    await t.mutation(internal.host.clearAllData, { workspaceId: "w" }),
+  ).toEqual({ complete: false });
+  // The first batch has already gone, and the rest is scheduled, not awaited.
+  expect((await count("dataFrames")).length).toBeLessThan(1001);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(await count("dataFrames")).toEqual([]);
+  expect(await count("draftLog")).toEqual([]);
+  expect(await listAll(user(), api.app.listDataSources, {})).toEqual([]);
+  expect(
+    (await cleanupJobs()).filter((job) => job.kind === "frame"),
+  ).toHaveLength(1001);
+  expect(
+    await listAll(user("other"), api.app.listDataSources, {}),
+  ).toHaveLength(1);
+  expect(
+    await t.mutation(internal.host.clearAllData, { workspaceId: "w" }),
+  ).toEqual({ complete: true });
+}, 60_000);
+it("cancels pending host batches and tombstones import claims before the rows go", async () => {
+  vi.useFakeTimers();
+  const { sourceId, tableId } = await seed();
+  const refs = Array.from({ length: 5 }, () => `secret:${crypto.randomUUID()}`);
+  for (const [index, ref] of refs.entries())
+    await t.mutation(internal.host.prepareHostBatch, {
+      workspaceId: "w",
+      operationId: `batch-${index}`,
+      principal: { kind: "user", userId: "u" },
+      requestHash: "b".repeat(64),
+      commands: [],
+      mode: "commit",
+      stagedRefs: [ref],
+    });
+  const claims = Array.from({ length: 5 }, (_, index) => ({
+    workspaceId: "w",
+    operationId: `import-${index}`,
+    requestHash: "a".repeat(64),
+  }));
+  for (const claim of claims)
+    await t.mutation(internal.host.beginLocalImport, claim);
+  // Two rows per transaction: five calls tombstone the five claims and cancel
+  // the five batches, and not one artifact row has gone by then.
+  for (let call = 0; call < 5; call++)
+    expect(
+      await t.mutation(internal.host.clearAllData, {
+        workspaceId: "w",
+        batchSize: 2,
+      }),
+    ).toEqual({ complete: false });
+  expect(await listAll(user(), api.app.listDataSources, {})).toHaveLength(1);
+  const pendingWrites = await t.run(async (ctx) => ({
+    claims: (await ctx.db.query("localImports").collect()).filter(
+      (row) => !row.cancelled,
+    ).length,
+    batches: (await ctx.db.query("hostBatches").collect()).filter(
+      (row) => row.status === "pending",
+    ).length,
+  }));
+  expect(pendingWrites).toEqual({ claims: 0, batches: 0 });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(await listAll(user(), api.app.listDataSources, {})).toEqual([]);
+  for (const claim of claims)
+    await expect(
+      t.mutation(internal.host.beginLocalImport, claim),
+    ).rejects.toThrow("invalidated");
+  for (const [index, ref] of refs.entries()) {
+    expect(
+      (
+        await t.mutation(internal.host.executeHostBatch, {
+          workspaceId: "w",
+          operationId: `batch-${index}`,
+          principal: { kind: "user", userId: "u" },
+          requestHash: "b".repeat(64),
+        })
+      ).status,
+    ).toBe("cancelled");
+    expect((await cleanupJobs()).some((job) => job.resourceId === ref)).toBe(
+      true,
+    );
+  }
+  await seed("w", sourceId, tableId);
   expect(await listAll(user(), api.app.listDataSources, {})).toHaveLength(1);
 });
+it("lets a caller drive the clear to completion by calling until complete", async () => {
+  // Fake timers never advance, so the scheduled continuation never runs and
+  // only the caller's own calls make progress.
+  vi.useFakeTimers();
+  await seed();
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 7; index++)
+      await ctx.db.insert("dataFrames", {
+        workspaceId: "w",
+        id: crypto.randomUUID(),
+        revision: 1,
+        name: "Frame",
+        createdAt: index,
+        storage: { type: "file", key: crypto.randomUUID() },
+        fieldIds: [],
+      });
+  });
+  let calls = 0;
+  for (;;) {
+    calls += 1;
+    const { complete } = await t.mutation(internal.host.clearAllData, {
+      workspaceId: "w",
+      batchSize: 3,
+    });
+    if (complete) break;
+  }
+  expect(calls).toBeGreaterThan(1);
+  expect(await count("dataFrames")).toEqual([]);
+  expect(await listAll(user(), api.app.listDataSources, {})).toEqual([]);
+  // The continuations those calls queued are retired: what the user creates
+  // after the clear completed survives them running.
+  const { sourceId } = await seed();
+  const claim = {
+    workspaceId: "w",
+    operationId: "import-after-clear",
+    requestHash: "c".repeat(64),
+  };
+  await t.mutation(internal.host.beginLocalImport, claim);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(
+    (await listAll(user(), api.app.listDataSources, {})).map((row) => row.id),
+  ).toEqual([sourceId]);
+  expect((await t.query(internal.host.getLocalImport, claim))?.status).toBe(
+    "pending",
+  );
+  expect(await t.run((ctx) => ctx.db.query("hostSettings").collect())).toEqual(
+    [],
+  );
+});
+it("empties the workspace when the caller's loop and the scheduled continuation run together", async () => {
+  // Real timers: every batch the caller runs queues a continuation that fires
+  // while the caller is still looping, and the two must not double apply.
+  await seed();
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 1001; index++) {
+      const id = crypto.randomUUID();
+      await ctx.db.insert("dataFrames", {
+        workspaceId: "w",
+        id,
+        revision: 1,
+        name: "Frame",
+        createdAt: index,
+        storage: { type: "file", key: id },
+        fieldIds: [],
+      });
+    }
+  });
+  const settled = async () => {
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const jobs = await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      );
+      if (
+        jobs.every(
+          (job) =>
+            job.state.kind !== "pending" && job.state.kind !== "inProgress",
+        )
+      )
+        return;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 10);
+      });
+    }
+    throw new Error("scheduled continuations did not settle");
+  };
+  for (;;) {
+    const { complete } = await t.mutation(internal.host.clearAllData, {
+      workspaceId: "w",
+      batchSize: 100,
+    });
+    if (complete) break;
+  }
+  const { sourceId } = await seed();
+  await settled();
+  expect(await count("dataFrames")).toEqual([]);
+  expect(
+    (await listAll(user(), api.app.listDataSources, {})).map((row) => row.id),
+  ).toEqual([sourceId]);
+  expect(await t.run((ctx) => ctx.db.query("hostSettings").collect())).toEqual(
+    [],
+  );
+}, 60_000);
 it("clears after more than 1000 completed connector receipts", async () => {
   await seed();
   await t.run(async (ctx) => {
@@ -126,7 +334,7 @@ it("clears after more than 1000 completed connector receipts", async () => {
 
   await expect(
     t.mutation(internal.host.clearAllData, { workspaceId: "w" }),
-  ).resolves.toBeNull();
+  ).resolves.toEqual({ complete: true });
   expect(await listAll(user(), api.app.listDataSources, {})).toEqual([]);
   expect(
     await t.run((ctx) => ctx.db.query("operations").collect()),

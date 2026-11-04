@@ -48,6 +48,7 @@ import {
   log,
   draftChanges,
   eraseDraft,
+  DRAFT_COMMAND_LIMIT,
 } from "./store";
 import { execute } from "./engine";
 import { type Graph, type Where, capMessage } from "./graph";
@@ -403,8 +404,10 @@ export async function replaceDraft(
   graph: Graph,
   oldBase = true,
 ) {
-  if (commands.length > 200)
-    throw new ConvexError("Draft is limited to 200 commands");
+  if (commands.length > DRAFT_COMMAND_LIMIT)
+    throw new ConvexError(
+      `Draft is limited to ${DRAFT_COMMAND_LIMIT} commands`,
+    );
   const diff = await graph.changes();
   await assertResourcesWritable(ctx, row.workspaceId, [
     commands,

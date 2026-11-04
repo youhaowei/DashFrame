@@ -65,10 +65,11 @@ export const removeDataFrame = mutation({
   },
 });
 
+/** Clears one batch; see `internal.host.clearAllData` for the `complete` contract. */
 export const clearAllData = mutation({
   args: {},
-  returns: v.null(),
-  handler: async (ctx): Promise<null> => {
+  returns: v.object({ complete: v.boolean() }),
+  handler: async (ctx): Promise<{ complete: boolean }> => {
     const workspaceId = await requireOwner(ctx);
     return ctx.runMutation(internal.host.clearAllData, { workspaceId });
   },

@@ -7,6 +7,7 @@ import type { UUID } from "@dashframe/types";
 import { z } from "zod";
 
 import type { HostContext } from "./context";
+import { collectPages } from "./metadata";
 import { hostOperation } from "./operation";
 import { persistGa4TokenBundle } from "./connectors";
 import {
@@ -140,17 +141,13 @@ async function allDataTableResources(
   ctx: HostContext,
   dataSourceId: string,
 ): Promise<string[]> {
-  const resources = new Set<string>();
-  let cursor: string | null = null;
-  for (;;) {
-    const result = await ctx.metadata.listDataTableResources(
-      dataSourceId,
-      cursor,
-    );
-    for (const resource of result.page) resources.add(resource);
-    if (result.isDone) return [...resources];
-    cursor = result.continueCursor;
-  }
+  return [
+    ...new Set(
+      await collectPages((cursor) =>
+        ctx.metadata.listDataTableResources(dataSourceId, cursor),
+      ),
+    ),
+  ];
 }
 
 /**

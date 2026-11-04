@@ -10,7 +10,7 @@ import {
   createHostedMetadataClient,
   type HostedMetadataOptions,
 } from "./hosted-convex-metadata";
-import type { HostMetadata } from "./metadata";
+import { untilComplete, type HostMetadata } from "./metadata";
 import {
   createHostedLifecycleMetadata,
   type HostedLifecycleMetadata,
@@ -80,11 +80,10 @@ export function createHostedSourceMetadata(
         id,
       });
     },
-    clearAllData: async () => {
-      await (
-        await client()
-      ).mutation(api.hostedSourceOperations.clearAllData, {});
-    },
+    clearAllData: () =>
+      untilComplete(async () =>
+        (await client()).mutation(api.hostedSourceOperations.clearAllData, {}),
+      ),
   };
 }
 function wire<T>(input: T): T {

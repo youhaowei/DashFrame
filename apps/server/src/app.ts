@@ -147,12 +147,17 @@ export async function createDashframeServer(
       }),
     );
     try {
-      await retryConvexMutation(() =>
+      const repaired = await retryConvexMutation(() =>
         convex.internalClient.mutation(
           internal.host.repairGa4MeasureContracts,
           { workspaceId: options.project.workspaceId },
         ),
       );
+      if (!repaired.complete)
+        console.info(
+          "Repaired the first batch of GA4 measure contracts; the backend continues the rest",
+          repaired,
+        );
     } catch (error) {
       console.error("Failed to repair GA4 measure contracts", error);
     }

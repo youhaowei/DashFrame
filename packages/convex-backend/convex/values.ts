@@ -1,4 +1,5 @@
 import { v, type Validator } from "convex/values";
+import type { DataFramePage } from "./model";
 export type Json =
   | null
   | boolean
@@ -53,3 +54,11 @@ export const dataTableResourcePage = v.object({
   isDone: v.boolean(),
   continueCursor: v.string(),
 });
+/** One page of frames; the internal query and its hosted wrapper share it. */
+export const dataFramePage = typed<DataFramePage>(
+  v.object({
+    page: v.array(object),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+);
