@@ -88,4 +88,44 @@ describe("table replacement metadata", () => {
       ]),
     ).toMatchObject([{ id: "quantity-sum" }]);
   });
+
+  it("keeps min and max on every column type while sum and avg stay numeric", () => {
+    const metric = (
+      id: string,
+      columnName: string,
+      aggregation: Metric["aggregation"],
+    ): Metric => ({ id, tableId: "table", name: id, columnName, aggregation });
+    const metrics = [
+      metric("date-max", "order_date", "max"),
+      metric("date-min", "order_date", "min"),
+      metric("date-sum", "order_date", "sum"),
+      metric("date-avg", "order_date", "avg"),
+      metric("text-max", "customer", "max"),
+      metric("text-min", "customer", "min"),
+      metric("text-avg", "customer", "avg"),
+      metric("text-distinct", "customer", "count_distinct"),
+      metric("bool-max", "paid", "max"),
+      metric("amount-sum", "amount", "sum"),
+      metric("amount-max", "amount", "max"),
+      metric("gone-max", "gone", "max"),
+    ];
+
+    expect(
+      retainReplacementMetrics(metrics, [
+        field("field-date", "order_date", "date"),
+        field("field-text", "customer", "string"),
+        field("field-bool", "paid", "boolean"),
+        field("field-amount", "amount", "number"),
+      ]).map((retained) => retained.id),
+    ).toEqual([
+      "date-max",
+      "date-min",
+      "text-max",
+      "text-min",
+      "text-distinct",
+      "bool-max",
+      "amount-sum",
+      "amount-max",
+    ]);
+  });
 });

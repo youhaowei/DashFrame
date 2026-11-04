@@ -65,7 +65,13 @@ export function mergeReplacementFields(
   });
 }
 
-/** Drop metrics whose source column disappeared or is known to be incompatible. */
+/**
+ * Drop metrics whose source column disappeared or is known to be incompatible.
+ *
+ * `sum` and `avg` need a numeric column. `min` and `max` are ordered
+ * comparisons the query engine runs on every column type, so they survive
+ * whenever the column does.
+ */
 export function retainReplacementMetrics(
   metrics: Metric[],
   fields: Field[],
@@ -77,12 +83,7 @@ export function retainReplacementMetrics(
       (field) => field.columnName === metric.columnName,
     );
     if (matchingFields.length === 0) return false;
-    if (
-      metric.aggregation !== "sum" &&
-      metric.aggregation !== "avg" &&
-      metric.aggregation !== "min" &&
-      metric.aggregation !== "max"
-    ) {
+    if (metric.aggregation !== "sum" && metric.aggregation !== "avg") {
       return true;
     }
     return matchingFields.some(
