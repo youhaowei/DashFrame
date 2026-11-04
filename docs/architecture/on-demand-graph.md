@@ -30,8 +30,10 @@ earlier in the same batch are visible to later commands. `where` names the
 owner fields the artifact indexes cover: `dataSourceId`, `insightId`,
 `sourceId`, `definitionId`, `dataFrameId`, `parentArtifactId` (the `id` and
 `kind` indexes serve point reads and kind lookups, not scans). Every scan,
-index range or whole table, is bounded at `LIMIT` and refuses beyond it with
-the same pagination message as before.
+index range or whole table, is bounded at `LIMIT` (1,000 rows in `graph.ts`)
+and refuses beyond it with a pagination message. That refusal, inside
+`Graph.scan`, is the one row cap the command engine still has; the section
+below names what reaches it.
 
 Data frames are the one table that may not be scanned without a selector.
 `Graph.scan("dataFrames")` with an empty `where` is a programming error, not a
@@ -62,11 +64,46 @@ row's side, and all of them scan user-authored tables only:
   table, and `getDataSourceByType` under a draft scans data sources.
 
 All are bounded by what a user has built. If a workspace ever holds more than
-1,000 insights the scan refuses and names pagination, which is the tracked
-follow-up in #354. Preview lets that refusal through as the query's error
-rather than recording it against a command, so review and publish surface the
-same message. The cleanup outbox's reference scan (`cleanup.ts`) still
-reads eleven tables under its own cap; that is #368 and is unchanged here.
+`LIMIT` insights, the scan refuses and names pagination; because these scans
+run inside one command transaction they cannot page, and removing their cap
+needs an index per relationship they search or a denormalized reverse
+reference, which #531 leaves open. Preview lets that refusal through as the
+query's error rather than recording it against a command, so review and
+publish surface the same message. The cleanup outbox's reference scan
+(`cleanup.ts`) still reads eleven tables under its own cap; that is #368.
+
+## What no longer caps
+
+The other reads that once stopped at 1,000 rows were not bounded by anything a
+user builds, so #531 replaced each cap with the tool its situation called for:
+
+- `removeDataFrame` finds the table that points at a frame through
+  `by_workspaceId_and_dataFrameId` instead of scanning every table.
+- The host reads `listDataFrames` and `listDataFramesByInsight` return one
+  page at a time through `.paginate()`, and the host-side adapters in
+  `apps/server/src/host` follow the cursor until the backend reports it is
+  done.
+- `clearAllData` and `repairGa4MeasureContracts` work in batches bounded by
+  `BULK_WRITE_BATCH` rows and `BULK_READ_BYTES` per transaction, read in small
+  chunks charged against both (Convex allows one `paginate` per function, so
+  the reads are `take`s over exact index positions), and schedule their own
+  continuation
+  with `ctx.scheduler.runAfter` until nothing is left. Each returns `complete`;
+  the clear's host adapter calls again until it is true, so "Clear all data"
+  returns once the workspace is empty, while the repair reports the first
+  batch's counts and the backend finishes the rest on its own. A continuation
+  belongs to the run that scheduled it, recorded in `hostSettings`; a new call
+  starts a new run and retires the queued one, and completing a run removes
+  the record, so a continuation queued before a clear completed cannot clear
+  what the user created after it. A clear is no longer one atomic snapshot:
+  rows written while it is still running are cleared with the rest, and a
+  workspace read between two batches is partly cleared, children first. The repair walks only the tables of legacy
+  GA4 sources, through each source's index, and walks again on every boot: a
+  draft written before contracts can still publish legacy rows.
+- A draft's log is read whole under `DRAFT_COMMAND_LIMIT` (200), the limit
+  `replaceDraft` enforces, so the guard in `store.ts` asserts that invariant
+  rather than a workspace size. A draft's staged changes are written whole by
+  one transaction and are read back whole with no cap.
 
 ## Frame retention
 
@@ -81,7 +118,7 @@ because the cleanup outbox refuses to reclaim a blob while any row still names
 it, the protector for #367 acceptance case 1. Pruned frames leave the table and
 their blobs are queued for cleanup, which re-checks references before
 tombstoning. If the reference scan hits its cap, nothing is pruned. An owner
-that accumulated more than 1,000 frames before retention existed is not pruned
-either, and its refresh or publication still commits; the Data Frames recovery
-list is the way out of that state. The reference scan itself still reads eleven
-tables under its own cap on every prune; that cost is #368.
+that accumulated more than `LIMIT` frames before retention existed is not
+pruned either, and its refresh or publication still commits; deleting frames
+from the Data Frames page drains that history. The reference scan itself still
+reads eleven tables under its own cap on every prune; that cost is #368.

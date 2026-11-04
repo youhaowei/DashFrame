@@ -7,6 +7,7 @@ import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
 import { record } from "../convex/values";
 
+const page = { paginationOpts: { cursor: null, numItems: 100 } };
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
 let t: ReturnType<typeof makeTest>;
@@ -155,12 +156,15 @@ it("reads and publishes only the signed workspace, including operation receipts 
       ?.id,
   ).toBe(first.insightId);
   expect(
-    await client.query(api.hostedMetadata.listDataFramesByInsight, {
-      insightId: first.insightId,
-    }),
+    (
+      await client.query(api.hostedMetadata.listDataFramesByInsight, {
+        insightId: first.insightId,
+        ...page,
+      })
+    ).page,
   ).toHaveLength(1);
   expect(
-    await client.query(api.hostedMetadata.listDataFrames, {}),
+    (await client.query(api.hostedMetadata.listDataFrames, page)).page,
   ).toHaveLength(2);
   expect(
     await client.query(api.hostedMetadata.getOperation, {
@@ -180,9 +184,12 @@ it("reads and publishes only the signed workspace, including operation receipts 
   ])
     expect(await read()).toBeNull();
   expect(
-    await client.query(api.hostedMetadata.listDataFramesByInsight, {
-      insightId: other.insightId,
-    }),
+    (
+      await client.query(api.hostedMetadata.listDataFramesByInsight, {
+        insightId: other.insightId,
+        ...page,
+      })
+    ).page,
   ).toEqual([]);
   await expect(
     client.mutation(api.hostedMetadata.publishMaterialization, {
@@ -207,7 +214,7 @@ it.each(["browser", "service", "operator"])(
     await expect(
       host(workspaceId, { authority }).query(
         api.hostedMetadata.listDataFrames,
-        {},
+        page,
       ),
     ).rejects.toThrow("Invalid hosted authority");
     await expect(
@@ -224,7 +231,7 @@ it.each([undefined, "host-control", "admission", ""])(
     await expect(
       host(workspaceId, { purpose }).query(
         api.hostedMetadata.listDataFrames,
-        {},
+        page,
       ),
     ).rejects.toThrow("Host metadata purpose required");
   },
@@ -234,6 +241,7 @@ it("rejects caller-selected scope and identity in endpoint arguments", async () 
     b = await admit("b");
   await expect(
     host(a).query(api.hostedMetadata.listDataFrames, {
+      ...page,
       workspaceId: b,
     } as never),
   ).rejects.toThrow();
@@ -244,15 +252,18 @@ it("rejects caller-selected scope and identity in endpoint arguments", async () 
     } as never),
   ).rejects.toThrow();
   await expect(
-    host(a, { subject: "user:b" }).query(api.hostedMetadata.listDataFrames, {}),
+    host(a, { subject: "user:b" }).query(
+      api.hostedMetadata.listDataFrames,
+      page,
+    ),
   ).rejects.toThrow();
   await expect(
-    host(b).query(api.hostedMetadata.listDataFrames, {}),
+    host(b).query(api.hostedMetadata.listDataFrames, page),
   ).rejects.toThrow("Workspace admission required");
   await expect(
     host(a, { issuer: "https://untrusted.test" }).query(
       api.hostedMetadata.listDataFrames,
-      {},
+      page,
     ),
   ).rejects.toThrow();
   await expect(host(a).query(api.app.listDataSources, {})).rejects.toThrow(
@@ -271,7 +282,7 @@ it.each(["user", "service"] as const)(
     await ownCredential(workspaceId);
     const client = kind === "user" ? host(workspaceId) : service(workspaceId);
     expect(
-      await client.query(api.hostedMetadata.listDataFrames, {}),
+      (await client.query(api.hostedMetadata.listDataFrames, page)).page,
     ).toHaveLength(2);
     await operator().mutation(api.admission.revoke, { subject: "a" });
     const denied = [
@@ -283,8 +294,9 @@ it.each(["user", "service"] as const)(
       () =>
         client.query(api.hostedMetadata.listDataFramesByInsight, {
           insightId: data.insightId,
+          ...page,
         }),
-      () => client.query(api.hostedMetadata.listDataFrames, {}),
+      () => client.query(api.hostedMetadata.listDataFrames, page),
       () =>
         client.query(api.hostedMetadata.getOperation, {
           operationId: `materialize:${data.resultId}`,
@@ -306,7 +318,7 @@ it("enforces service ownership, individual revocation, and no direct commit priv
   const a = await admit(),
     b = await admit("b");
   await expect(
-    service(a).query(api.hostedMetadata.listDataFrames, {}),
+    service(a).query(api.hostedMetadata.listDataFrames, page),
   ).rejects.toThrow("Credential ownership required");
   await ownCredential(a);
   const client = service(a);
@@ -320,14 +332,14 @@ it("enforces service ownership, individual revocation, and no direct commit priv
     (await t.run((ctx) => ctx.db.query("drafts").take(10)))[0]?.owner,
   ).toBe("service:credential-a");
   await expect(
-    service(b).query(api.hostedMetadata.listDataFrames, {}),
+    service(b).query(api.hostedMetadata.listDataFrames, page),
   ).rejects.toThrow("Credential ownership required");
   await t.mutation(internal.host.revokeCredential, {
     workspaceId: a,
     credentialId: "credential-a",
   });
   await expect(
-    client.query(api.hostedMetadata.listDataFrames, {}),
+    client.query(api.hostedMetadata.listDataFrames, page),
   ).rejects.toThrow("Credential revoked");
   await expect(
     client.mutation(api.hostedMetadata.draftBatch, {
@@ -345,6 +357,6 @@ it("keeps unadmitted callers and local-mode identities outside the hosted bounda
   expect(await t.run((ctx) => ctx.db.query("drafts").take(10))).toEqual([]);
   vi.stubEnv("DASHFRAME_DEPLOYMENT_MODE", "local");
   await expect(
-    host("local").query(api.hostedMetadata.listDataFrames, {}),
+    host("local").query(api.hostedMetadata.listDataFrames, page),
   ).rejects.toThrow("unavailable in local mode");
 });

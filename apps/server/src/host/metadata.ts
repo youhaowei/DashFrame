@@ -37,6 +37,45 @@ export function importPublicationRejection(error: unknown): string | null {
     : null;
 }
 
+/** A cursor-paged read; follow `continueCursor` until `isDone`. */
+export interface Page<T> {
+  page: T[];
+  isDone: boolean;
+  continueCursor: string;
+}
+
+/** Every row of a cursor-paged read, collected one page at a time. */
+export async function collectPages<T>(
+  fetchPage: (cursor: string | null) => Promise<Page<T>>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const result = await fetchPage(cursor);
+    rows.push(...result.page);
+    if (result.isDone) return rows;
+    if (result.continueCursor === cursor)
+      throw new Error("A paged read did not advance its cursor");
+    cursor = result.continueCursor;
+  }
+}
+
+/**
+ * Drive a batched write until it reports completion. The backend schedules
+ * its own continuation after every full batch, so each call here only
+ * shortens the wait; each call starts a fresh run, so the two never double
+ * apply. The bound is far past any workspace size and only stops a backend
+ * that never reports completion from pinning the host in a loop.
+ */
+export async function untilComplete(
+  step: () => Promise<{ complete: boolean }>,
+  maxCalls = 10_000,
+): Promise<void> {
+  for (let calls = 0; calls < maxCalls; calls++)
+    if ((await step()).complete) return;
+  throw new Error("Bulk operation did not report completion");
+}
+
 export interface LocalImportClaim {
   frameId: string;
   fetchedAt: number;
@@ -122,12 +161,19 @@ export interface HostMetadata {
   listDataTableResources(
     dataSourceId: string,
     cursor: string | null,
-  ): Promise<{ page: string[]; isDone: boolean; continueCursor: string }>;
+  ): Promise<Page<string>>;
   getDataFrame(id: string): Promise<DataFrameRow | null>;
   getInsight(id: string): Promise<InsightRow | null>;
+  /** Every frame an insight holds, collected across pages. */
   listDataFramesByInsight(insightId: string): Promise<DataFrameRow[]>;
+  /** Every frame in the workspace, collected across pages. */
   listDataFrames(): Promise<DataFrameRow[]>;
   removeDataFrame(id: string): Promise<void>;
+  /**
+   * Resolves once the workspace is empty. The backend clears in batches and
+   * schedules the rest itself; this call waits on each batch until none is
+   * left, so a caller may act on the cleared workspace when it returns.
+   */
   clearAllData(): Promise<void>;
   commitImportedFrame(input: {
     operationId?: string;

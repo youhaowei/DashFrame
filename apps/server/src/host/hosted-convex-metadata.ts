@@ -2,7 +2,7 @@ import { api } from "@dashframe/convex-backend/api";
 import { ConvexHttpClient } from "convex/browser";
 import type { FunctionArgs } from "convex/server";
 import type { Command } from "@dashframe/types";
-import type { HostMetadata } from "./metadata";
+import { collectPages, type HostMetadata } from "./metadata";
 import { validateHostedDeploymentUrl } from "./hosted-deployment-url";
 
 /** Restricted hosted capabilities; broader local/admin operations are not exposed. */
@@ -72,12 +72,19 @@ export function createHostedMetadata(
         dataSourceId,
         paginationOpts: { cursor, numItems: 500 },
       }),
-    listDataFramesByInsight: async (insightId) =>
-      (await client()).query(api.hostedMetadata.listDataFramesByInsight, {
-        insightId,
-      }),
-    listDataFrames: async () =>
-      (await client()).query(api.hostedMetadata.listDataFrames, {}),
+    listDataFramesByInsight: (insightId) =>
+      collectPages(async (cursor) =>
+        (await client()).query(api.hostedMetadata.listDataFramesByInsight, {
+          insightId,
+          paginationOpts: { cursor, numItems: 500 },
+        }),
+      ),
+    listDataFrames: () =>
+      collectPages(async (cursor) =>
+        (await client()).query(api.hostedMetadata.listDataFrames, {
+          paginationOpts: { cursor, numItems: 500 },
+        }),
+      ),
     getOperation: async (operationId) =>
       (await client()).query(api.hostedMetadata.getOperation, { operationId }),
     publishMaterialization: async (value) => {

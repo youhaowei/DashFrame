@@ -4,7 +4,9 @@ import type { FunctionArgs } from "convex/server";
 import type { Field } from "@dashframe/types";
 import {
   ImportPublicationRejectedError,
+  collectPages,
   importPublicationRejection,
+  untilComplete,
   type HostMetadata,
   type LocalRecoveryMetadata,
 } from "./metadata";
@@ -137,18 +139,27 @@ export function createHostMetadata(
         paginationOpts: { cursor, numItems: 500 },
       }),
     listDataFramesByInsight: (insightId) =>
-      client.query(internal.host.listDataFramesByInsight, {
-        workspaceId,
-        insightId,
-      }),
+      collectPages((cursor) =>
+        client.query(internal.host.listDataFramesByInsight, {
+          workspaceId,
+          insightId,
+          paginationOpts: { cursor, numItems: 500 },
+        }),
+      ),
     listDataFrames: () =>
-      client.query(internal.host.listDataFrames, { workspaceId }),
+      collectPages((cursor) =>
+        client.query(internal.host.listDataFrames, {
+          workspaceId,
+          paginationOpts: { cursor, numItems: 500 },
+        }),
+      ),
     removeDataFrame: async (id) => {
       await client.mutation(internal.host.removeDataFrame, { workspaceId, id });
     },
-    clearAllData: async () => {
-      await client.mutation(internal.host.clearAllData, { workspaceId });
-    },
+    clearAllData: () =>
+      untilComplete(() =>
+        client.mutation(internal.host.clearAllData, { workspaceId }),
+      ),
     commitImportedFrame: async (input) => {
       try {
         await client.mutation(

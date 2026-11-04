@@ -26,6 +26,12 @@ export type DataFrameRow = Omit<HostRow, "storage"> & {
   storage: import("@dashframe/types").DataFrameStorageLocation;
   fieldIds: string[];
 };
+/** One page of frames; follow `continueCursor` until `isDone`. */
+export type DataFramePage = {
+  page: DataFrameRow[];
+  isDone: boolean;
+  continueCursor: string;
+};
 export type InsightRow = HostRow & {
   definition: import("./values").ObjectValue;
 };

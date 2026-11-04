@@ -226,13 +226,17 @@ export async function createHostedServerSurface(options: {
         if (!recovery) {
           recovery = Promise.all([
             retryConvexMutation(() => metadata.repairGa4MeasureContracts({}))
-              .then(({ tablesRepaired, insightsRepaired }) => {
-                if (tablesRepaired === 0 && insightsRepaired === 0) return;
-                console.info("Repaired GA4 measure contracts", {
-                  workspaceId,
-                  tablesRepaired,
-                  insightsRepaired,
-                });
+              .then(({ tablesRepaired, insightsRepaired, complete }) => {
+                if (complete && tablesRepaired === 0 && insightsRepaired === 0)
+                  return;
+                // The counts cover the first batch only; the backend schedules
+                // and runs the rest itself and does not report them here.
+                console.info(
+                  complete
+                    ? "Repaired GA4 measure contracts"
+                    : "Repaired the first batch of GA4 measure contracts; the backend continues the rest",
+                  { workspaceId, tablesRepaired, insightsRepaired },
+                );
               })
               .catch((error) =>
                 console.error(

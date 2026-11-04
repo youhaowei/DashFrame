@@ -20,9 +20,15 @@ it("uses only named public functions with Bearer auth and no body-selected tenan
         ...body,
         authorization: new Headers(init.headers).get("authorization"),
       });
-      return new Response(JSON.stringify({ status: "success", value: null }), {
-        status: 200,
-      });
+      return new Response(
+        JSON.stringify({
+          status: "success",
+          value: body.path.startsWith("hostedMetadata:listDataFrames")
+            ? { page: [], isDone: true, continueCursor: "" }
+            : null,
+        }),
+        { status: 200 },
+      );
     }),
   );
   const metadata = createHostedMetadata({
@@ -71,8 +77,44 @@ it("uses only named public functions with Bearer auth and no body-selected tenan
     expect(request.args[0]).not.toHaveProperty("workspaceId");
     expect(request.args[0]).not.toHaveProperty("principal");
   }
+  expect(requests[5]!.args).toEqual([
+    { insightId: "insight", paginationOpts: { cursor: null, numItems: 500 } },
+  ]);
+  expect(requests[6]!.args).toEqual([
+    { paginationOpts: { cursor: null, numItems: 500 } },
+  ]);
   expect(requests[9]!.args).toEqual([{ commands: [] }]);
   expect(Object.keys(metadata)).toHaveLength(11);
+});
+
+it("follows the frame list cursor until the backend reports it is done", async () => {
+  const cursors: (string | null)[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as {
+        path: string;
+        args: [{ paginationOpts: { cursor: string | null } }];
+      };
+      const cursor = body.args[0].paginationOpts.cursor;
+      cursors.push(cursor);
+      const value =
+        cursor === null
+          ? { page: [{ id: "frame-1" }], isDone: false, continueCursor: "c1" }
+          : { page: [{ id: "frame-2" }], isDone: true, continueCursor: "" };
+      return new Response(JSON.stringify({ status: "success", value }), {
+        status: 200,
+      });
+    }),
+  );
+  const metadata = createHostedMetadata({
+    deploymentUrl: "https://metadata.test",
+    getToken: async () => "synthetic-host-token",
+  });
+  expect(
+    (await metadata.listDataFramesByInsight("insight")).map((row) => row.id),
+  ).toEqual(["frame-1", "frame-2"]);
+  expect(cursors).toEqual([null, "c1"]);
 });
 
 it("keeps concurrent calls bound to their own token even when token acquisition finishes out of order", async () => {

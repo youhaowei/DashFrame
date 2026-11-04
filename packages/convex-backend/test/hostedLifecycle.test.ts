@@ -114,7 +114,11 @@ it("lets hosted workspace startup repair a legacy GA4 table with its service cre
 
   await expect(
     service.mutation(api.hostedLifecycle.repairGa4MeasureContracts, {}),
-  ).resolves.toEqual({ tablesRepaired: 1, insightsRepaired: 0 });
+  ).resolves.toEqual({
+    tablesRepaired: 1,
+    insightsRepaired: 0,
+    complete: true,
+  });
   const repaired = await t.run((ctx) =>
     ctx.db
       .query("dataTables")
@@ -482,7 +486,13 @@ it("rejects identity-free and stale claimed imports after workspace clear", asyn
   await expect(
     user.mutation(api.hostedLifecycle.commitImportedFrame, input),
   ).rejects.toThrow("invalidated");
-  expect(await user.query(api.hostedMetadata.listDataFrames, {})).toEqual([]);
+  expect(
+    (
+      await user.query(api.hostedMetadata.listDataFrames, {
+        paginationOpts: { cursor: null, numItems: 100 },
+      })
+    ).page,
+  ).toEqual([]);
 });
 
 it.each(["service", "revoked"] as const)(
