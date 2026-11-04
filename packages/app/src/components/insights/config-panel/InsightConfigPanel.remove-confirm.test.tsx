@@ -1,6 +1,6 @@
 import {
   nativeMutationMock,
-  nativeQueryMock,
+  nativeQueryMocks,
 } from "@/test/native-query-fixture";
 import type { DataTable, Field, Insight, UUID } from "@dashframe/types";
 import { cmd } from "@dashframe/types";
@@ -27,7 +27,7 @@ const { commitBatch, queryState, usedBy } = vi.hoisted(() => ({
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(() => queryState.current),
+  ...nativeQueryMocks(() => queryState.current),
   useMutation: nativeMutationMock(() => ({ mutateAsync: commitBatch })),
 }));
 vi.mock("../sections/DataModelSection", () => ({

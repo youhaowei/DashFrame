@@ -15,6 +15,7 @@ import {
   useWorkbenchPanes,
 } from "@/components/workbench/Workbench";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useOpenChartInReport } from "@/hooks/useOpenChartInReport";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
@@ -57,7 +58,7 @@ import {
   SearchIcon,
   TableIcon,
 } from "@wystack/ui-react/icons";
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ColumnInspector } from "./ColumnInspector";
@@ -178,11 +179,13 @@ export default function DataSourcePageContent({
     data: allDataSources = [],
     isLoading,
     isFetching,
-  } = queryStatus(useQuery({ query: api.app.listDataSources, args: {} }));
+  } = queryStatus(
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
+  );
   const commitBatch = useMutation(api.app.commitBatch);
   const { confirm } = useConfirmDialogStore();
   const { data: allDataFrames = [] } = queryStatus(
-    useQuery({ query: api.app.listDataFrames, args: {} }),
+    useArtifactList({ query: api.app.listDataFrames, args: {} }),
   );
   const dataSource = allDataSources.find((s) => s.id === sourceId);
 
@@ -191,7 +194,7 @@ export default function DataSourcePageContent({
     isLoading: isLoadingDataTables,
     isError: isDataTablesError,
   } = queryStatus(
-    useQuery({
+    useArtifactList({
       query: api.app.listDataTables,
       args: { dataSourceId: sourceId },
     }),

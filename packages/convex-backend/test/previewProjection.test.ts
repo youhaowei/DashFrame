@@ -227,7 +227,7 @@ it("reports a data frame linked through a deleted parent artifact", async () => 
   });
 });
 
-it("rejects an unselected data frame scan after a recovery list read", async () => {
+it("rejects an unselected data frame scan after a whole-table list read", async () => {
   await t.run(async (ctx) => {
     const graph = new Graph(ctx, "workspace");
     expect(await graph.list("dataFrames")).toEqual([]);

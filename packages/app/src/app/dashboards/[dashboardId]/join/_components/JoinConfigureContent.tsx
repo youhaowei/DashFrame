@@ -1,5 +1,6 @@
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useDataFramePagination } from "@/hooks/useDataFramePagination";
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
 import {
@@ -151,10 +152,10 @@ export default function JoinConfigureContent({
   );
 
   const { data: allInsights, isLoading: isInsightsLoading } = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
+    useArtifactList({ query: api.app.listInsights, args: {} }),
   );
   const { data: allDataTables, isLoading: isTablesLoading } = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
   const commitBatch = useMutation(api.app.commitBatch);
 

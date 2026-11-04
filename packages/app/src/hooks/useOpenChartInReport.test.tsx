@@ -1,6 +1,6 @@
 import {
   nativeMutationMock,
-  nativeQueryMock,
+  nativeQueryMocks,
 } from "@/test/native-query-fixture";
 /**
  * useOpenChartInReport — every way into a chart lands on a report.
@@ -30,7 +30,7 @@ const {
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(() => ({ data: server.reports })),
+  ...nativeQueryMocks(() => ({ data: server.reports })),
   useMutation: nativeMutationMock(() => ({ mutateAsync: mockCommitBatch })),
 }));
 vi.mock("@tanstack/react-router", () => ({

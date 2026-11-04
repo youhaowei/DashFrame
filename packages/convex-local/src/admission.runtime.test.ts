@@ -41,6 +41,9 @@ function token(
   return `${input}.${sign("RSA-SHA256", Buffer.from(input), keys.privateKey).toString("base64url")}`;
 }
 
+/** The list queries read one page per call; one page is enough here. */
+const firstPage = { paginationOpts: { cursor: null, numItems: 10 } };
+
 async function call(
   url: string,
   operation: string,
@@ -179,9 +182,9 @@ it(
         userId: "local",
         workspaceId: "local",
       });
-      expect((await call(backend.url, "app:listDataSources", local)).ok).toBe(
-        true,
-      );
+      expect(
+        (await call(backend.url, "app:listDataSources", local, firstPage)).ok,
+      ).toBe(true);
       await configureHosted(backend, directory, runtimeKeys, operatorKeys);
       const hostClaims = {
         sub: "user:user_a",
@@ -300,11 +303,15 @@ it(
         principalKind: "user",
         workspaceId,
       });
-      expect((await invoke("app:listDataSources", browser)).ok).toBe(true);
+      expect((await invoke("app:listDataSources", browser, firstPage)).ok).toBe(
+        true,
+      );
       expect(
         (await invoke("admission:revoke", operator, subject, "mutation")).ok,
       ).toBe(true);
-      expect((await invoke("app:listDataSources", browser)).ok).toBe(false);
+      expect((await invoke("app:listDataSources", browser, firstPage)).ok).toBe(
+        false,
+      );
       expect(
         (await invoke("admission:grant", operator, subject, "mutation")).ok,
       ).toBe(true);

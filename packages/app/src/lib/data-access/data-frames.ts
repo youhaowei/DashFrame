@@ -1,3 +1,4 @@
+import { listAllArtifacts } from "@/data/artifact-lists";
 import { requestHost } from "@/data/host";
 import type {
   DataFrameAnalysis,
@@ -109,6 +110,10 @@ export async function getDataFrameEntry(
 }
 
 export async function getAllDataFrames(): Promise<DataFrameEntry[]> {
-  const result = await getConvexClient().query(api.app.listDataFrames, {});
+  const result = await listAllArtifacts(
+    getConvexClient(),
+    api.app.listDataFrames,
+    {},
+  );
   return result as DataFrameEntry[];
 }

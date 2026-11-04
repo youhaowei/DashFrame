@@ -1,4 +1,5 @@
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { api } from "@dashframe/convex-backend/api";
 import type { Dashboard } from "@dashframe/types";
 import {
@@ -11,7 +12,6 @@ import {
   ItemCard,
 } from "@wystack/ui-react";
 import { DashboardIcon, PlusIcon } from "@wystack/ui-react/icons";
-import { useQuery_experimental as useQuery } from "convex/react";
 import { useMemo } from "react";
 
 /** Where a chart goes: a report that exists, or a new one. */
@@ -65,7 +65,7 @@ export function ReportPickerDialog({
     data: reports = [],
     isLoading,
     isError,
-  } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
+  } = queryStatus(useArtifactList({ query: api.app.listDashboards, args: {} }));
   const recent = useMemo(() => recentReports(reports), [reports]);
 
   return (

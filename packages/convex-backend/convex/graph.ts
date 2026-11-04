@@ -167,7 +167,7 @@ export class Graph {
   }
   /**
    * Bounded whole-table read for list surfaces. The only sanctioned way to
-   * read every frame in a workspace; the cap error names the recovery path.
+   * read every frame in a workspace; the cap error names the way out.
    */
   async list(table: ArtifactTable): Promise<ArtifactRow[]> {
     await this.load(table, {}, true);
@@ -305,7 +305,7 @@ export class Graph {
 
 export function capMessage(table: ArtifactTable): string {
   return table === "dataFrames"
-    ? `Workspace exceeds ${LIMIT} dataFrames; use the Data Frames recovery list to delete rows`
+    ? `Workspace exceeds ${LIMIT} dataFrames; delete frames from the Data Frames page`
     : `Workspace exceeds ${LIMIT} ${table}; pagination required`;
 }
 function matches(row: ArtifactRow, where: Where): boolean {

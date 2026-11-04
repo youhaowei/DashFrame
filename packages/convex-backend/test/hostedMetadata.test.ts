@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cmd } from "@dashframe/types";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import { listAll } from "./listAll";
 import { record } from "../convex/values";
 
 const modules = import.meta.glob("../convex/**/*.ts");
@@ -255,7 +256,7 @@ it("rejects caller-selected scope and identity in endpoint arguments", async () 
       {},
     ),
   ).rejects.toThrow();
-  await expect(host(a).query(api.app.listDataSources, {})).rejects.toThrow(
+  await expect(listAll(host(a), api.app.listDataSources, {})).rejects.toThrow(
     "Invalid hosted authority",
   );
   await expect(

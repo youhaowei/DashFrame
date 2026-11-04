@@ -4,8 +4,9 @@ import { reportBottom, startNewChartTab } from "@/lib/reports/chart-tabs";
 import { api } from "@dashframe/convex-backend/api";
 import { cmd, type Dashboard, type UUID } from "@dashframe/types";
 import { useNavigate } from "@tanstack/react-router";
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useCallback, useRef } from "react";
 import { toast } from "sonner";
 
@@ -31,7 +32,7 @@ export function useOpenChartInReport() {
   // The reports as they are now: a report offered in a picker may have been
   // deleted since, and a chart started on it would be left on no report.
   const { data: currentReports } = queryStatus(
-    useQuery({ query: api.app.listDashboards, args: {} }),
+    useArtifactList({ query: api.app.listDashboards, args: {} }),
   );
   // `false` from a call it skipped means "another start is in flight", not
   // a failure: nothing is shown, since the first call reports its own outcome.

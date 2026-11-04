@@ -153,7 +153,13 @@ describe("staged credential lifecycle", () => {
     ).rejects.toBeInstanceOf(HostBatchRejectedError);
     expect(refs).toHaveLength(2);
     for (const ref of refs) expect(await ctx.vault!.has(ref)).toBe(false);
-    expect(await user().query(api.app.listDataSources, {})).toEqual([]);
+    expect(
+      (
+        await user().query(api.app.listDataSources, {
+          paginationOpts: { cursor: null, numItems: 10 },
+        })
+      ).page,
+    ).toEqual([]);
 
     await executeHostCommandBatch(
       ctx,
@@ -222,7 +228,13 @@ describe("staged credential lifecycle", () => {
     await cleanup.recoverPendingBatches();
     await cleanup.run();
     expect(await ctx.vault!.has(refs[0]!)).toBe(false);
-    expect(await user().query(api.app.listDataSources, {})).toEqual([]);
+    expect(
+      (
+        await user().query(api.app.listDataSources, {
+          paginationOpts: { cursor: null, numItems: 10 },
+        })
+      ).page,
+    ).toEqual([]);
   });
   it("exposes a retryable operation ID even when an older caller omits one", async () => {
     const execute = vi

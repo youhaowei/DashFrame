@@ -1,6 +1,6 @@
 import {
   nativeMutationMock,
-  nativeQueryMock,
+  nativeQueryMocks,
 } from "@/test/native-query-fixture";
 import type {
   DataTable,
@@ -53,7 +53,7 @@ const margin: InsightMetric = {
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(() => ({ data: [] })),
+  ...nativeQueryMocks(() => ({ data: [] })),
   useMutation: nativeMutationMock(() => ({ mutateAsync: commitBatch })),
 }));
 vi.mock("../sections/DataModelSection", () => ({

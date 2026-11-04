@@ -11,6 +11,7 @@ import {
   type GraphReader,
   type NodeRef,
 } from "@dashframe/assistant";
+import { followPages } from "@dashframe/convex-backend/pages";
 import type {
   DataSource,
   DataTable,
@@ -85,6 +86,15 @@ export function createAssistantReadHost(
 
   async function read<T>(path: string, args: unknown): Promise<T> {
     return (await app.execute(path, args, context)) as T;
+  }
+  /** Every row of a paginated list read, following its cursor to the end. */
+  function readAll<T>(
+    path: string,
+    args: Record<string, unknown>,
+  ): Promise<T[]> {
+    return followPages<T>((paginationOpts) =>
+      read(path, { ...args, paginationOpts }),
+    );
   }
 
   /**
@@ -229,50 +239,36 @@ export function createAssistantReadHost(
       read<Visualization | null>("getVisualization", { id }),
     getDashboard: (id) => read<DashboardRead | null>("getDashboard", { id }),
 
-    listDataSources: () => read<DataSource[]>("listDataSources", {}),
-    // NOTE: the *filtered* list/get reads below pass NO server-side filter and
-    // filter in JS. The draft-overlay coalesce supports an UNFILTERED `.all()`
-    // and a PK-pinned `.where(eq(id, …))`, but THROWS on any non-PK read filter
-    // (the native Convex draft query). `listDataTables`'s
-    // dataSourceId filter, `listVisualizations`'s insightId filter, and
-    // `getDataFrameByInsight`'s insightId lookup are all non-PK — issuing them
-    // server-side would throw under an active draftId. Reading unfiltered (which
-    // coalesces correctly) and filtering here is identical in canonical too.
-    listDataTables: async (dataSourceId) => {
-      const all = await read<DataTable[]>("listDataTables", {});
-      return dataSourceId === undefined
-        ? all
-        : all.filter((t) => t.dataSourceId === dataSourceId);
-    },
+    listDataSources: () => readAll<DataSource>("listDataSources", {}),
+    // A `dataSourceId` or `insightId` filter is served through that index in
+    // both the canonical and the draft branch of the list query.
+    listDataTables: (dataSourceId) =>
+      readAll<DataTable>(
+        "listDataTables",
+        dataSourceId === undefined ? {} : { dataSourceId },
+      ),
     listDataFrames: async () =>
-      (await read<ServerDataFrameRead[]>("listDataFrames", {})).map(
+      (await readAll<ServerDataFrameRead>("listDataFrames", {})).map(
         toDataFrameRead,
       ),
-    listInsights: () => read<Insight[]>("listInsights", {}),
-    listVisualizations: async (insightId) => {
-      const all = await read<Visualization[]>("listVisualizations", {});
-      return insightId === undefined
-        ? all
-        : all.filter((v) => v.insightId === insightId);
-    },
-    listDashboards: () => read<DashboardRead[]>("listDashboards", {}),
+    listInsights: () => readAll<Insight>("listInsights", {}),
+    listVisualizations: (insightId) =>
+      readAll<Visualization>(
+        "listVisualizations",
+        insightId === undefined ? {} : { insightId },
+      ),
+    listDashboards: () => readAll<DashboardRead>("listDashboards", {}),
     getDataFrameByInsight: async (insightId) => {
-      const all = (await read<ServerDataFrameRead[]>("listDataFrames", {})).map(
-        toDataFrameRead,
-      );
+      const frames = (
+        await readAll<ServerDataFrameRead>("listDataFrames", { insightId })
+      ).map(toDataFrameRead);
       return (
-        all.find(
-          (frame) =>
-            frame.insightId === insightId &&
-            frame.currentInsightResult === true,
-        ) ??
-        all
-          .filter((frame) => frame.insightId === insightId)
-          .sort(
-            (left, right) =>
-              (right.lastRefreshedAt ?? right.createdAt ?? 0) -
-              (left.lastRefreshedAt ?? left.createdAt ?? 0),
-          )[0] ??
+        frames.find((frame) => frame.currentInsightResult === true) ??
+        frames.sort(
+          (left, right) =>
+            (right.lastRefreshedAt ?? right.createdAt ?? 0) -
+            (left.lastRefreshedAt ?? left.createdAt ?? 0),
+        )[0] ??
         null
       );
     },

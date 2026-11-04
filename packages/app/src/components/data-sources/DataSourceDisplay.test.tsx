@@ -1,4 +1,4 @@
-import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
+import { nativeQueryMocks, hostQueryMock } from "@/test/native-query-fixture";
 import type { DataSource, DataTable, UUID } from "@dashframe/types";
 import {
   act,
@@ -27,7 +27,7 @@ vi.mock("@/lib/data-access/data-frames", () => ({
 }));
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+  ...nativeQueryMocks((ref: { _path: string }) => {
     if (ref._path === "listDataSources") return { data: queryData.sources };
     if (ref._path === "listDataTables") return { data: queryData.tables };
     return { data: [] };

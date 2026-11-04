@@ -1,5 +1,5 @@
 import {
-  nativeQueryMock,
+  nativeQueryMocks,
   nativeMutationMock,
   hostQueryMock,
   hostMutationMock,
@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 // Keep generated Convex function references while replacing React hooks.
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(() => ({
+  ...nativeQueryMocks(() => ({
     data: [{ id: "viz", insightId: "insight", visualizationType: "bar" }],
   })),
   useMutation: nativeMutationMock(() => ({ mutateAsync: vi.fn() })),

@@ -7,7 +7,7 @@
  * the report as a tile and its tab takes the chart's name.
  */
 import { expect, type Page } from "@playwright/test";
-import { query } from "./native-api";
+import { queryAll } from "./native-api";
 
 /** The report opened on a new chart tab, showing the picked table's rows. */
 export async function expectNewChartTab(page: Page): Promise<void> {
@@ -87,7 +87,7 @@ export async function buildCountChart(
 
 /** The project's only insight: the one the chart tab edits. */
 export async function onlyInsight<T>(): Promise<T> {
-  const insights = await query<T[]>("listInsights", {});
+  const insights = await queryAll<T>("listInsights", {});
   expect(insights).toHaveLength(1);
   return insights[0]!;
 }

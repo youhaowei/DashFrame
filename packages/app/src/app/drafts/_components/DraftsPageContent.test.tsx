@@ -1,6 +1,6 @@
 import {
   nativeMutationMock,
-  nativeQueryMock,
+  nativeQueryMocks,
 } from "@/test/native-query-fixture";
 /**
  * DraftsPageContent — the drafts workbench.
@@ -39,14 +39,12 @@ const {
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(
-    (ref: { _path: string }, options?: { args: unknown }) => {
-      if (ref._path === "listDrafts") return mockListDrafts();
-      if (ref._path === "draftPublishReview")
-        return mockReview((options!.args as { draftId: string }).draftId);
-      throw new Error(`Unexpected query: ${ref._path}`);
-    },
-  ),
+  ...nativeQueryMocks((ref: { _path: string }, options?: { args: unknown }) => {
+    if (ref._path === "listDrafts") return mockListDrafts();
+    if (ref._path === "draftPublishReview")
+      return mockReview((options!.args as { draftId: string }).draftId);
+    throw new Error(`Unexpected query: ${ref._path}`);
+  }),
   useMutation: nativeMutationMock((ref: { _path: string }) => {
     const mutations: Record<string, unknown> = {
       publishDraft: mockPublish,

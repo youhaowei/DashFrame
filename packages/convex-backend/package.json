@@ -7,6 +7,7 @@
     "./api": "./convex/_generated/api.ts",
     "./app": "./convex/app.ts",
     "./model": "./convex/model.ts",
+    "./pages": "./convex/pages.ts",
     "./package.json": "./package.json",
     "./codecs": "./convex/codecs.ts",
     "./schema": "./convex/schema.ts"

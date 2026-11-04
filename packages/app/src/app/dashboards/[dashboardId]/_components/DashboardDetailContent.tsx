@@ -3,9 +3,10 @@ import { ArtifactPageHeader } from "@/components/artifacts/ArtifactPageHeader";
 import { DataPickerModal } from "@/components/data-sources/DataPickerModal";
 import { useAppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useCreateInsight } from "@/hooks/useCreateInsight";
 import { CHART_ICONS, type WorkbenchTabItem } from "@dashframe/ui";
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { DashboardControlBar } from "@/components/dashboards/DashboardControlBar";
 import { DashboardControlsManager } from "@/components/dashboards/DashboardControlsManager";
 import { DashboardGrid } from "@/components/dashboards/DashboardGrid";
@@ -103,19 +104,21 @@ export default function DashboardDetailContent({
     isLoading,
     isFetching,
     isError: dashboardsLoadError,
-  } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
+  } = queryStatus(useArtifactList({ query: api.app.listDashboards, args: {} }));
   const {
     data: visualizations = [],
     isLoading: visualizationsLoading,
     isError: visualizationsLoadError,
-  } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
+  } = queryStatus(
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
+  );
   const {
     data: insights = [],
     isLoading: insightsLoading,
     isError: insightsLoadError,
-  } = queryStatus(useQuery({ query: api.app.listInsights, args: {} }));
+  } = queryStatus(useArtifactList({ query: api.app.listInsights, args: {} }));
   const { data: dataTables = [] } = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
   const commitBatch = useMutation(api.app.commitBatch);
   const { createChartInsight } = useCreateInsight();

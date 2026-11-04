@@ -1,5 +1,5 @@
 import { expect, test } from "../lib/test-fixtures";
-import { query, mutate } from "../lib/native-api";
+import { mutate, queryAll } from "../lib/native-api";
 
 /** Every seeded draft starts by creating this source, which titles its tab. */
 const DRAFT_TITLE = 'Create data source "Review source"';
@@ -88,8 +88,8 @@ test.describe("draft review", () => {
   }) => {
     const { draftId, sourceId, insightId } = await seedDraft();
 
-    expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);
-    expect(await query<unknown[]>("listInsights", {})).toHaveLength(0);
+    expect(await queryAll<unknown>("listDataSources", {})).toHaveLength(0);
+    expect(await queryAll<unknown>("listInsights", {})).toHaveLength(0);
 
     // The only draft opens on its own; its link names it.
     await page.goto(`${workerBaseURL}/drafts`);
@@ -135,19 +135,17 @@ test.describe("draft review", () => {
     await expect(page.getByText("4 steps", { exact: true })).toBeVisible();
 
     // Still nothing in canonical — revision is not publication.
-    expect(await query<unknown[]>("listDataSources", {})).toHaveLength(0);
-    expect(await query<unknown[]>("listInsights", {})).toHaveLength(0);
+    expect(await queryAll<unknown>("listDataSources", {})).toHaveLength(0);
+    expect(await queryAll<unknown>("listInsights", {})).toHaveLength(0);
 
     await page.getByRole("button", { name: "Publish", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${workerBaseURL}/dashboards/?$`));
 
-    const sources = await query<Array<{ id: string }>>("listDataSources", {});
-    const insights = await query<
-      Array<{
-        id: string;
-        filters: Array<{ value: { kind: string; v: unknown } }>;
-      }>
-    >("listInsights", {});
+    const sources = await queryAll<{ id: string }>("listDataSources", {});
+    const insights = await queryAll<{
+      id: string;
+      filters: Array<{ value: { kind: string; v: unknown } }>;
+    }>("listInsights", {});
     expect(sources.map((source) => source.id)).toContain(sourceId);
     expect(
       insights.find((insight) => insight.id === insightId)?.filters,

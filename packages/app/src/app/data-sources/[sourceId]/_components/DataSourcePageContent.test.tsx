@@ -1,5 +1,5 @@
 import {
-  nativeQueryMock,
+  nativeQueryMocks,
   nativeMutationMock,
   hostMutationMock,
 } from "@/test/native-query-fixture";
@@ -68,7 +68,7 @@ const {
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+  ...nativeQueryMocks((ref: { _path: string }) => {
     if (ref._path === "listDataSources") return mockUseDataSources();
     if (ref._path === "listDataTables") return mockUseDataTables();
     if (ref._path === "listDataFrames") return mockUseDataFrames();

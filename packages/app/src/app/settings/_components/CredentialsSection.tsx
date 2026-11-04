@@ -5,6 +5,7 @@ import {
   useAccessCredentials,
 } from "@/data";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import {
   getConnectorById,
   useRegistryVersion,
@@ -19,7 +20,6 @@ import type {
 import { Link } from "@tanstack/react-router";
 import { Button, Input } from "@wystack/ui-react";
 import { AlertCircleIcon, CheckIcon, CopyIcon } from "@wystack/ui-react/icons";
-import { useQuery_experimental as useQuery } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -238,7 +238,7 @@ function CredentialRows({
 function DataSourceSignIns() {
   useRegistryVersion();
   const { data: sources, isError } = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   );
   if (isError)
     return (

@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import { COMMAND_PATHS } from "@dashframe/types";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import { listAll } from "./listAll";
 import {
   scanWorkspaceReferenceRows,
   WORKSPACE_REFERENCE_TABLES,
@@ -30,7 +31,7 @@ const user = () =>
     userId: "u",
   });
 
-it("returns a bounded recovery batch when a workspace has 1001 frames", async () => {
+it("lists every frame across pages when a workspace has 1001 frames", async () => {
   const frameIds = Array.from({ length: 1001 }, () => crypto.randomUUID());
   await t.run(async (ctx) => {
     for (const id of frameIds)
@@ -45,20 +46,16 @@ it("returns a bounded recovery batch when a workspace has 1001 frames", async ()
       });
   });
 
-  await expect(user().query(api.app.listDataFrames, {})).rejects.toThrow(
-    "use the Data Frames recovery list",
-  );
-  expect(
-    await user().query(api.app.listDataFrames, { recovery: true }),
-  ).toHaveLength(1000);
+  const listed = await listAll(user(), api.app.listDataFrames, {}, 400);
+  expect(listed).toHaveLength(1001);
+  expect(new Set(listed.map((row) => row.id)).size).toBe(1001);
   await t.mutation(internal.host.removeDataFrame, {
     workspaceId: "w",
     id: frameIds[0]!,
   });
-  expect(await user().query(api.app.listDataFrames, {})).toHaveLength(1000);
-  expect(
-    await user().query(api.app.listDataFrames, { recovery: true }),
-  ).toHaveLength(1000);
+  expect(await listAll(user(), api.app.listDataFrames, {}, 400)).toHaveLength(
+    1000,
+  );
 }, 15_000);
 
 it("returns one indexed data source when more than 1000 share its type", async () => {
@@ -117,7 +114,7 @@ it("serves draft-less indexed reads without loading unrelated artifact tables", 
     }
   });
 
-  expect(await user().query(api.app.listDataSources, {})).toHaveLength(1);
+  expect(await listAll(user(), api.app.listDataSources, {})).toHaveLength(1);
   expect(
     (await user().query(api.app.getDataSourceByType, { type: "csv" }))?.id,
   ).toBe(sourceId);
@@ -140,7 +137,7 @@ it("applies secondary filters after selecting a draft-less index", async () => {
       });
   });
 
-  const rows = await user().query(api.app.listDataSources, {
+  const rows = await listAll(user(), api.app.listDataSources, {
     dataSourceId: "shared-source",
     insightId: "matching",
   });
@@ -313,9 +310,9 @@ it("runs commits, drafts, review, and publish with more than 1000 frames present
     (await user().query(api.app.getDataSource, { id: sourceId, draftId }))
       ?.name,
   ).toBe("Drafted");
-  expect(await user().query(api.app.listDataSources, { draftId })).toHaveLength(
-    1,
-  );
+  expect(
+    await listAll(user(), api.app.listDataSources, { draftId }),
+  ).toHaveLength(1);
   const review = await user().query(api.app.draftPublishReview, { draftId });
   expect(review.diff.directNodes).toHaveLength(1);
   expect(review.publishBlocked).toBe(false);
@@ -323,9 +320,9 @@ it("runs commits, drafts, review, and publish with more than 1000 frames present
   expect(
     (await user().query(api.app.getDataSource, { id: sourceId }))?.name,
   ).toBe("Drafted");
-  // The list surface still refuses an unbounded frame read and names the exit.
-  await expect(user().query(api.app.listDataFrames, {})).rejects.toThrow(
-    "use the Data Frames recovery list",
+  // The list surface pages through the same frames instead of refusing.
+  expect(await listAll(user(), api.app.listDataFrames, {}, 400)).toHaveLength(
+    1001,
   );
 }, 30_000);
 

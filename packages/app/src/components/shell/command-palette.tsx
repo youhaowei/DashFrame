@@ -1,4 +1,5 @@
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { usePlatform } from "@/lib/platform";
 import { api } from "@dashframe/convex-backend/api";
 import { cmd, type UUID } from "@dashframe/types";
@@ -248,16 +249,16 @@ function PaletteBody({
   const [search, setSearch] = useState("");
   const { isMacOS } = usePlatform();
   const reportsList = queryStatus(
-    useQuery({ query: api.app.listDashboards, args: {} }),
+    useArtifactList({ query: api.app.listDashboards, args: {} }),
   );
   const chartsList = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
   );
   const dataSourcesList = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   );
   const dataTablesList = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
   const draftsList = queryStatus(
     useQuery({ query: api.app.listDrafts, args: {} }),

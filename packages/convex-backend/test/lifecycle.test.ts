@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import type { FunctionArgs } from "convex/server";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import { listAll } from "./listAll";
 import { cmd } from "@dashframe/types";
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -420,7 +421,7 @@ it("returns the committed result after a lost acknowledgement and cleans only lo
   ).toEqual(completed);
   expect(await claim("secret", first.stagedRefs[0]!)).toBeNull();
   expect(await claim("secret", other)).not.toBeNull();
-  expect(await user().query(api.app.listDataSources, {})).toHaveLength(1);
+  expect(await listAll(user(), api.app.listDataSources, {})).toHaveLength(1);
   expect(JSON.stringify(completed)).not.toContain("secret:");
 });
 it("cancels rejected batches and prevents their delayed commit", async () => {
@@ -445,7 +446,7 @@ it("cancels rejected batches and prevents their delayed commit", async () => {
   expect(
     await t.mutation(internal.host.executeHostBatch, identity(args)),
   ).toEqual({ status: "cancelled", result: null });
-  expect(await user().query(api.app.listDataSources, {})).toEqual([]);
+  expect(await listAll(user(), api.app.listDataSources, {})).toEqual([]);
   expect(await claim("secret", args.stagedRefs[0]!)).not.toBeNull();
 });
 it("serializes missing settlement before a delayed prepare and binds identity and hash", async () => {
@@ -508,7 +509,7 @@ it("serializes settlement against execution without losing referenced secrets", 
     }),
   ]);
   const final = await t.query(internal.host.getHostBatch, identity(args));
-  const sources = await user().query(api.app.listDataSources, {});
+  const sources = await listAll(user(), api.app.listDataSources, {});
   if (final?.status === "completed") {
     expect(sources).toHaveLength(1);
     expect(await claim("secret", args.stagedRefs[0]!)).toBeNull();

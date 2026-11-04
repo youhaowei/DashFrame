@@ -2,6 +2,7 @@ import { beforeEach, expect, it } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import { listAll } from "./listAll";
 import { cmd } from "@dashframe/types";
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -66,7 +67,7 @@ it("clears all workspace drafts with canonical data without touching another wor
     ],
   });
   await t.mutation(internal.host.clearAllData, { workspaceId: "w" });
-  expect(await user().query(api.app.listDataSources, {})).toEqual([]);
+  expect(await listAll(user(), api.app.listDataSources, {})).toEqual([]);
   expect(await user().query(api.app.listDrafts, {})).toEqual([]);
   expect(await user("w", "another-user").query(api.app.listDrafts, {})).toEqual(
     [],
@@ -88,9 +89,9 @@ it("clears all workspace drafts with canonical data without touching another wor
       ).not.toHaveLength(0);
     }
   });
-  expect(await user("other").query(api.app.listDataSources, {})).toHaveLength(
-    1,
-  );
+  expect(
+    await listAll(user("other"), api.app.listDataSources, {}),
+  ).toHaveLength(1);
   await user("other").mutation(api.app.publishDraft, {
     draftId: foreign.draftId,
   });
@@ -109,7 +110,7 @@ it("rolls back a clear that exceeds its bounded draft scan", async () => {
   await expect(
     t.mutation(internal.host.clearAllData, { workspaceId: "w" }),
   ).rejects.toThrow("Workspace limit exceeded");
-  expect(await user().query(api.app.listDataSources, {})).toHaveLength(1);
+  expect(await listAll(user(), api.app.listDataSources, {})).toHaveLength(1);
 });
 it("clears after more than 1000 completed connector receipts", async () => {
   await seed();
@@ -126,7 +127,7 @@ it("clears after more than 1000 completed connector receipts", async () => {
   await expect(
     t.mutation(internal.host.clearAllData, { workspaceId: "w" }),
   ).resolves.toBeNull();
-  expect(await user().query(api.app.listDataSources, {})).toEqual([]);
+  expect(await listAll(user(), api.app.listDataSources, {})).toEqual([]);
   expect(
     await t.run((ctx) => ctx.db.query("operations").collect()),
   ).toHaveLength(1001);
@@ -179,7 +180,7 @@ it.each([false, true])(
     expect(await t.mutation(internal.host.cancelLocalImport, request)).toBe(
       false,
     );
-    expect(await user().query(api.app.listDataFrames, {})).toEqual([]);
+    expect(await listAll(user(), api.app.listDataFrames, {})).toEqual([]);
     expect(
       await t.query(internal.host.getLocalImport, {
         ...request,

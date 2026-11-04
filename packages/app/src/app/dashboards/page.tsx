@@ -1,5 +1,6 @@
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useConfirmDialogStore, useToastStore } from "@/lib/stores";
 import { useCollectionView, useShellStore } from "@/lib/stores/shell-store";
 import { useNow } from "@/hooks/useNow";
@@ -91,13 +92,13 @@ function useUnplacedRecentQuestions(
   visualizations: readonly Visualization[],
 ) {
   const insightsQuery = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
+    useArtifactList({ query: api.app.listInsights, args: {} }),
   );
   const tablesQuery = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
   const sourcesQuery = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   );
   const insights = insightsQuery.data;
   const dataTables = tablesQuery.data;
@@ -342,12 +343,14 @@ export default function DashboardsPage() {
     data: dashboards = [],
     isLoading: dashboardsLoading,
     isError: dashboardsLoadError,
-  } = queryStatus(useQuery({ query: api.app.listDashboards, args: {} }));
+  } = queryStatus(useArtifactList({ query: api.app.listDashboards, args: {} }));
   const {
     data: visualizations = [],
     isLoading: visualizationsLoading,
     isError: visualizationsLoadError,
-  } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
+  } = queryStatus(
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
+  );
   const commitBatch = useMutation(api.app.commitBatch);
   const { showError } = useToastStore();
   const { confirm } = useConfirmDialogStore();

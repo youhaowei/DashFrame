@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import type { UserIdentity } from "convex/server";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import { listAll } from "./listAll";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -88,10 +89,10 @@ it("binds globally, retries only the identical active owner, and revokes without
     host("b", b).mutation(api.hostedCredentials.revoke, args),
   ).rejects.toThrow("ownership");
   const bearer = service(a, credentialId);
-  expect(await bearer.query(api.app.listDataSources, {})).toEqual([]);
+  expect(await listAll(bearer, api.app.listDataSources, {})).toEqual([]);
   await client.mutation(api.hostedCredentials.revoke, args);
   await client.mutation(api.hostedCredentials.revoke, args);
-  await expect(bearer.query(api.app.listDataSources, {})).rejects.toThrow(
+  await expect(listAll(bearer, api.app.listDataSources, {})).rejects.toThrow(
     "revoked",
   );
   await expect(

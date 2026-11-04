@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import type { FunctionArgs } from "convex/server";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import { listAll } from "./listAll";
 import { cmd } from "@dashframe/types";
 import { WORKSPACE_REFERENCE_TABLES } from "../convex/cleanup";
 const modules = import.meta.glob("../convex/**/*.ts");
@@ -106,7 +107,7 @@ it("stores metadata-only publication receipts and preserves retry identity", asy
     workspaceId: "w",
     value,
   });
-  expect(await user().query(api.app.listDataFrames, {})).toHaveLength(2);
+  expect(await listAll(user(), api.app.listDataFrames, {})).toHaveLength(2);
 });
 it.each([
   "sourceArrow",
@@ -208,7 +209,7 @@ it.each([
         value: candidate as Publication,
       }),
     ).rejects.toThrow();
-    expect(await user().query(api.app.listDataFrames, {})).toEqual([]);
+    expect(await listAll(user(), api.app.listDataFrames, {})).toEqual([]);
     expect(
       await t.query(internal.host.getOperation, {
         workspaceId: "w",
@@ -239,7 +240,7 @@ it.each(["deleted", "dataSourceId", "table"])(
         value,
       }),
     ).rejects.toThrow("SOURCE_BINDING_CHANGED");
-    expect(await user().query(api.app.listDataFrames, {})).toEqual([]);
+    expect(await listAll(user(), api.app.listDataFrames, {})).toEqual([]);
     expect(
       await t.query(internal.host.getOperation, {
         workspaceId: "w",
@@ -261,7 +262,7 @@ it("publishes transient sources without retaining their intermediate result", as
       id: value.result.id,
     }),
   ).toBeNull();
-  expect(await user().query(api.app.listDataFrames, {})).toHaveLength(1);
+  expect(await listAll(user(), api.app.listDataFrames, {})).toHaveLength(1);
 });
 it("rolls back earlier source publication when a later source binding changes", async () => {
   const first = await fixture(),
@@ -284,7 +285,7 @@ it("rolls back earlier source publication when a later source binding changes", 
       value,
     }),
   ).rejects.toThrow("SOURCE_BINDING_CHANGED");
-  expect(await user().query(api.app.listDataFrames, {})).toEqual([]);
+  expect(await listAll(user(), api.app.listDataFrames, {})).toEqual([]);
   expect(
     (
       await user().query(api.app.getDataTable, {
@@ -358,7 +359,7 @@ it("retains the latest and previous saved results for one-step rollback", async 
     (await user().query(api.app.getDataFrameByInsight, { insightId }))?.id,
   ).toBe(third.result.id);
   expect(
-    await user().query(api.app.listDataFrames, { insightId }),
+    await listAll(user(), api.app.listDataFrames, { insightId }),
   ).toHaveLength(2);
 });
 
@@ -410,7 +411,7 @@ it("skips the reference scan when no saved result is prunable", async () => {
   });
 
   expect(
-    await user().query(api.app.listDataFrames, { insightId }),
+    await listAll(user(), api.app.listDataFrames, { insightId }),
   ).toHaveLength(2);
 }, 15_000);
 
@@ -474,7 +475,7 @@ it("publishes and retains history when the reference scan exceeds its cap", asyn
     (await user().query(api.app.getDataFrameByInsight, { insightId }))?.id,
   ).toBe(third.result.id);
   expect(
-    await user().query(api.app.listDataFrames, { insightId }),
+    await listAll(user(), api.app.listDataFrames, { insightId }),
   ).toHaveLength(3);
   for (const id of [first.result.id, second.result.id])
     expect(
@@ -677,7 +678,7 @@ it("keeps the cleanup outbox claimable after more than 1000 refreshes", async ()
   expect(await scannedRowCounts()).toEqual(steadyState);
   expect(await frameJobs()).toBe(jobsAtSteadyState + 5);
   expect(
-    await user().query(api.app.listDataFrames, { insightId }),
+    await listAll(user(), api.app.listDataFrames, { insightId }),
   ).toHaveLength(2);
 
   // Grow the outbox itself past the scan cap, as 1000+ refreshes would.

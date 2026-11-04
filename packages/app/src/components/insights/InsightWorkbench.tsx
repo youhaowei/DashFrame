@@ -10,8 +10,9 @@ import {
   ReportDataTable,
   hasReportTable,
 } from "@/components/visualizations/ReportDataTable";
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import {
   Workbench,
   WorkbenchPaneToggle,
@@ -468,13 +469,13 @@ export function InsightWorkbench({
 
   // Fetch related data
   const { data: allDataTables = [] } = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
   const { data: allInsights = [] } = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
+    useArtifactList({ query: api.app.listInsights, args: {} }),
   );
   const { data: allVisualizations = [] } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
   );
 
   // The root table provides source-frame prerequisites; authoring uses the immediate output.

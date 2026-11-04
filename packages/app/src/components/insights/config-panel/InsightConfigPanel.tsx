@@ -1,8 +1,9 @@
 import { measureFilterFields } from "@/lib/insights/measure-filter-fields";
 import type { PivotSortOption } from "@/lib/insights/pivot-sort-options";
 import { ReportPeriodControl, ReportResultOptions } from "./ReportSettings";
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import {
   computeCombinedFields,
   computeFilterableFields,
@@ -292,7 +293,7 @@ export function InsightConfigPanel({
     isLoading: visualizationsLoading,
     isError: visualizationsError,
   } = queryStatus(
-    useQuery({
+    useArtifactList({
       query: api.app.listVisualizations,
       args: { insightId: insight.id },
     }),

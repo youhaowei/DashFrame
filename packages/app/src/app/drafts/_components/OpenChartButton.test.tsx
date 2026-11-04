@@ -1,4 +1,4 @@
-import { nativeQueryMock } from "@/test/native-query-fixture";
+import { nativeQueryMocks } from "@/test/native-query-fixture";
 /**
  * OpenChartButton — a draft's chart opens inside a report.
  *
@@ -21,7 +21,7 @@ const { mockOpenChart, server } = vi.hoisted(() => ({
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) =>
+  ...nativeQueryMocks((ref: { _path: string }) =>
     ref._path === "listDashboards" && server.dashboardsFail
       ? { isError: true }
       : {

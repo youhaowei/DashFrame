@@ -1,5 +1,5 @@
-import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import {
   getConnectorById,
   useRegistryVersion,
@@ -24,13 +24,13 @@ export function DataSourceTree({
   onDeleteTable,
 }: DataSourceTreeProps) {
   const { data: dataSources } = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   );
   const { data: tables } = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: { dataSourceId } }),
+    useArtifactList({ query: api.app.listDataTables, args: { dataSourceId } }),
   );
   const { data: dataFrames } = queryStatus(
-    useQuery({ query: api.app.listDataFrames, args: {} }),
+    useArtifactList({ query: api.app.listDataFrames, args: {} }),
   );
 
   // Subscribe so a re-render fires once the connector registry hydrates from

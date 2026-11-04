@@ -1,4 +1,4 @@
-import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
+import { nativeQueryMocks, hostQueryMock } from "@/test/native-query-fixture";
 import type { DataTable, Insight, UUID, Visualization } from "@dashframe/types";
 import { render, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vite-plus/test";
@@ -18,7 +18,7 @@ vi.mock("@/data/runtime", () => ({
 }));
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(useQuery),
+  ...nativeQueryMocks(useQuery),
 }));
 vi.mock("@/data/host", () => ({
   requestHost: (operation: string, args: unknown) =>

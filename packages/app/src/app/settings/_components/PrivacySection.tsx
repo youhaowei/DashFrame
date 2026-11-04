@@ -1,4 +1,5 @@
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useUsageAnalyticsService } from "@/lib/usage-analytics";
 import { api } from "@dashframe/convex-backend/api";
 import {
@@ -8,7 +9,6 @@ import {
 } from "@dashframe/types";
 import { Link } from "@tanstack/react-router";
 import { ShieldIcon } from "@wystack/ui-react/icons";
-import { useQuery_experimental as useQuery } from "convex/react";
 import { useMemo } from "react";
 
 import {
@@ -62,10 +62,10 @@ function countLine({ sensitive, unclassified, cleared }: SensitivityCounts) {
 export function PrivacySection({ mode }: { mode?: "local" | "hosted" }) {
   const analytics = useUsageAnalyticsService();
   const sourcesQuery = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   );
   const tablesQuery = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
   const sources = sourcesQuery.data;
   const tables = tablesQuery.data;

@@ -1,3 +1,4 @@
+import { listAllArtifacts } from "@/data/artifact-lists";
 import type { Insight, UUID } from "@dashframe/types";
 
 import { api } from "@dashframe/convex-backend/api";
@@ -9,6 +10,10 @@ export async function getInsight(id: UUID): Promise<Insight | undefined> {
 }
 
 export async function getAllInsights(): Promise<Insight[]> {
-  const result = await getConvexClient().query(api.app.listInsights, {});
+  const result = await listAllArtifacts(
+    getConvexClient(),
+    api.app.listInsights,
+    {},
+  );
   return result as Insight[];
 }

@@ -1,5 +1,5 @@
-import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { api } from "@dashframe/convex-backend/api";
 import type { UUID } from "@dashframe/types";
 
@@ -30,7 +30,7 @@ export function VisualizationRenderer({
   preview = false,
 }: VisualizationRendererProps) {
   const { data: visualizations = [] } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
   );
   const visualization = useMemo(
     () => visualizations.find((candidate) => candidate.id === visualizationId),

@@ -1,5 +1,5 @@
 import {
-  nativeQueryMock,
+  nativeQueryMocks,
   nativeMutationMock,
   hostQueryMock,
   hostMutationMock,
@@ -53,7 +53,7 @@ const { mockUseVisualizations, mockUseInsights, mockUseDataTables } =
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+  ...nativeQueryMocks((ref: { _path: string }) => {
     if (ref._path === "listVisualizations") return mockUseVisualizations();
     if (ref._path === "listInsights") return mockUseInsights();
     if (ref._path === "listDataTables") return mockUseDataTables();

@@ -43,6 +43,32 @@ export const query = <T>(path: string, args: unknown, token?: string) =>
 export const mutate = <T>(path: string, args: unknown, token?: string) =>
   nativeCall<T>("mutation", path, args, token);
 
+/**
+ * Every row of a paginated list query, following its cursor to the end the
+ * way the app's readers do (`followPages` in `@dashframe/convex-backend`).
+ */
+export async function queryAll<T>(
+  path: string,
+  args: Record<string, unknown>,
+  token?: string,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const page: { page: T[]; isDone: boolean; continueCursor: string } =
+      await query(
+        path,
+        { ...args, paginationOpts: { cursor, numItems: 500 } },
+        token,
+      );
+    rows.push(...page.page);
+    if (page.isDone) return rows;
+    if (page.continueCursor === cursor)
+      throw new Error("A list page did not advance its cursor");
+    cursor = page.continueCursor;
+  }
+}
+
 export async function hostCall<T>(
   path: string,
   args: unknown,

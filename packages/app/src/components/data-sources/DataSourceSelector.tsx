@@ -1,5 +1,5 @@
-import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import {
   getConnectorById,
@@ -57,10 +57,10 @@ export function DataSourceSelector({
   onCreateClick,
 }: DataSourceSelectorProps) {
   const { data: dataSources, isLoading } = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   );
   const { data: allTables } = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
 
   // Subscribed so `items` below recomputes once the connector registry

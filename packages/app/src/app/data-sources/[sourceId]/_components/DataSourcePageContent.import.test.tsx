@@ -1,7 +1,7 @@
 import {
   hostMutationMock,
   nativeMutationMock,
-  nativeQueryMock,
+  nativeQueryMocks,
 } from "@/test/native-query-fixture";
 /**
  * "Import file" on Local Files, through the real picker dialog: it offers
@@ -29,7 +29,7 @@ const LOCAL_SOURCE = {
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+  ...nativeQueryMocks((ref: { _path: string }) => {
     if (ref._path === "listDataSources") return { data: [LOCAL_SOURCE] };
     if (ref._path === "listDataTables") return { data: [] };
     if (ref._path === "listDataFrames") return { data: [] };

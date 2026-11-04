@@ -5,8 +5,9 @@ import {
   ArtifactEmptyState,
   ArtifactGrid,
 } from "@/components/artifacts/ArtifactCollection";
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useNow } from "@/hooks/useNow";
 import {
   removeDataFrame,
@@ -69,13 +70,13 @@ function resolveDefinitionName(
 
 export default function DataFramesPage() {
   const { data: dataFrames, isLoading } = queryStatus(
-    useQuery({ query: api.app.listDataFrames, args: { recovery: true } }),
+    useArtifactList({ query: api.app.listDataFrames, args: {} }),
   );
   const { data: dataSources, isLoading: isLoadingDataSources } = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   );
   const { data: dataTables, isLoading: isLoadingDataTables } = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
   const updateDataFrameEntry = useMutation(api.app.updateDataFrameEntry);
   const { confirm } = useConfirmDialogStore();

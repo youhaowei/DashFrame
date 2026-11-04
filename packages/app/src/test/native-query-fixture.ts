@@ -58,3 +58,36 @@ export function hostQueryMock<T>(
 export function hostMutationMock<T>(select: (ref: FixtureRef) => T) {
   return (operation: string) => select({ _path: operation });
 }
+
+/**
+ * Both native hook mocks from one fixture. `useArtifactList` reads each list
+ * through `useQueries` as page queries; a list fixture is served as one
+ * finished page, so the hook resolves it in one render.
+ */
+export function nativeQueryMocks(
+  select: Parameters<typeof nativeQueryMock>[0],
+) {
+  const queryFixture = nativeQueryMock(select);
+  return {
+    useQuery_experimental: queryFixture,
+    useQueries(
+      requests: Record<
+        string,
+        { query: FunctionReference<"query">; args: unknown }
+      >,
+    ) {
+      const results: Record<string, unknown> = {};
+      for (const [name, { query, args }] of Object.entries(requests)) {
+        const state = queryFixture({ query, args });
+        if (state.status === "error") results[name] = state.error;
+        else if (state.status === "success")
+          results[name] = {
+            page: state.data,
+            isDone: true,
+            continueCursor: "",
+          };
+      }
+      return results;
+    },
+  };
+}

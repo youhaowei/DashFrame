@@ -12,12 +12,23 @@ vi.mock("@/data/connector-catalog", () => ({
 }));
 
 vi.mock("convex/react", () => ({
-  useConvex: () => ({ query: vi.fn().mockResolvedValue([]) }),
+  useConvex: () => ({
+    query: vi
+      .fn()
+      .mockResolvedValue({ page: [], isDone: true, continueCursor: "" }),
+  }),
   useMutation: (reference: unknown) => {
     mutationReferences.push(reference);
     return vi.fn();
   },
   useQuery_experimental: () => ({ status: "success", data: [] }),
+  useQueries: (requests: Record<string, unknown>) =>
+    Object.fromEntries(
+      Object.keys(requests).map((name) => [
+        name,
+        { page: [], isDone: true, continueCursor: "" },
+      ]),
+    ),
 }));
 
 vi.mock("@tanstack/react-router", () => ({

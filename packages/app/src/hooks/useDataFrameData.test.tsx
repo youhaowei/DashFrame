@@ -1,4 +1,4 @@
-import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
+import { nativeQueryMocks, hostQueryMock } from "@/test/native-query-fixture";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -10,7 +10,7 @@ const { queryDataFrame, mockFrames } = vi.hoisted(() => ({
 vi.mock("@/lib/data-access/data-frames", () => ({ queryDataFrame }));
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(() => mockFrames()),
+  ...nativeQueryMocks(() => mockFrames()),
 }));
 vi.mock("@/data/host", () => ({
   useHostQuery: hostQueryMock(() => mockFrames()),

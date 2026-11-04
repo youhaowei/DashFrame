@@ -2,6 +2,7 @@ import { beforeEach, it, expect } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import { listAll } from "./listAll";
 import { cmd } from "@dashframe/types";
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -51,15 +52,15 @@ async function publication(draftId: string) {
   };
 }
 it("requires verified workspace principals and observes credential revocation", async () => {
-  await expect(t.query(api.app.listDataSources, {})).rejects.toThrow();
+  await expect(listAll(t, api.app.listDataSources, {})).rejects.toThrow();
   await seed();
-  expect(await user("other").query(api.app.listDataSources, {})).toEqual([]);
-  expect(await service().query(api.app.listDataSources, {})).toHaveLength(1);
+  expect(await listAll(user("other"), api.app.listDataSources, {})).toEqual([]);
+  expect(await listAll(service(), api.app.listDataSources, {})).toHaveLength(1);
   await t.mutation(internal.host.revokeCredential, {
     workspaceId: "w",
     credentialId: "bot",
   });
-  await expect(service().query(api.app.listDataSources, {})).rejects.toThrow(
+  await expect(listAll(service(), api.app.listDataSources, {})).rejects.toThrow(
     "revoked",
   );
 });
@@ -640,7 +641,7 @@ it("carries untouched staged rows forward when a draft is appended", async () =>
     commands: [cmd("CreateInsight", { id: second, name: "Second", source })],
   });
   expect(
-    (await user().query(api.app.listInsights, { draftId }))
+    (await listAll(user(), api.app.listInsights, { draftId }))
       .map((row) => row.name)
       .sort(),
   ).toEqual(["First", "Second"]);
@@ -652,6 +653,6 @@ it("carries untouched staged rows forward when a draft is appended", async () =>
   ]);
   await user().mutation(api.app.publishDraft, { draftId });
   expect(
-    (await user().query(api.app.listInsights, {})).map((r) => r.name).sort(),
+    (await listAll(user(), api.app.listInsights, {})).map((r) => r.name).sort(),
   ).toEqual(["First", "Second"]);
 });
