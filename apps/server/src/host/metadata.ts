@@ -54,6 +54,8 @@ export async function collectPages<T>(
     const result = await fetchPage(cursor);
     rows.push(...result.page);
     if (result.isDone) return rows;
+    if (result.continueCursor === cursor)
+      throw new Error("A paged read did not advance its cursor");
     cursor = result.continueCursor;
   }
 }

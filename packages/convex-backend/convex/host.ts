@@ -116,9 +116,7 @@ function advance(
   };
 }
 type ClearedTable =
-  | (typeof artifactTables)[number]
-  | "draftLog"
-  | "draftChanges";
+  (typeof artifactTables)[number] | "draftLog" | "draftChanges";
 /**
  * A bulk write's continuation is only valid for the run that scheduled it.
  * The current run of each operation is recorded in `hostSettings`; a call
@@ -510,24 +508,26 @@ export const repairGa4MeasureContracts = internalMutation({
       if (phase === "tables" && sourceId === undefined) {
         // One source per read, charged to the budget, so a long list of GA4
         // sources spans batches instead of one transaction.
-        const source = (
-          await ctx.db
-            .query("dataSources")
-            .withIndex("by_workspaceId_and_kind", (q) => {
-              const range = q
-                .eq("workspaceId", workspaceId)
-                .eq("kind", "googleAnalytics");
-              return sources.after === undefined
-                ? range
-                : range.gte("_creationTime", sources.after);
-            })
-            .take(1 + sources.seen.length)
-        ).find((row) => !sources.seen.includes(row.id));
+        const read = await ctx.db
+          .query("dataSources")
+          .withIndex("by_workspaceId_and_kind", (q) => {
+            const range = q
+              .eq("workspaceId", workspaceId)
+              .eq("kind", "googleAnalytics");
+            return sources.after === undefined
+              ? range
+              : range.gte("_creationTime", sources.after);
+          })
+          .take(1 + sources.seen.length);
+        // Rows tied at one creation time are read again on every chunk until
+        // the walk moves past them; charge the whole read, not just the row
+        // that advances the walk, so the transaction stays inside its budget.
+        budget.charge(read);
+        const source = read.find((row) => !sources.seen.includes(row.id));
         if (!source) {
           phase = "insights";
           continue;
         }
-        budget.charge([source]);
         sources = advance(sources, [source]);
         if (!legacyGa4Source(source)) continue;
         legacySources = true;
@@ -538,22 +538,23 @@ export const repairGa4MeasureContracts = internalMutation({
       if (phase === "tables") {
         const dataSourceId = sourceId!;
         const requested = budget.chunk;
-        const rows = (
-          await ctx.db
-            .query("dataTables")
-            .withIndex("by_workspaceId_and_dataSourceId", (q) => {
-              const range = q
-                .eq("workspaceId", workspaceId)
-                .eq("dataSourceId", dataSourceId);
-              return tables.after === undefined
-                ? range
-                : range.gte("_creationTime", tables.after);
-            })
-            .take(requested + tables.seen.length)
-        ).filter((row) => !tables.seen.includes(row.id));
+        const read = await ctx.db
+          .query("dataTables")
+          .withIndex("by_workspaceId_and_dataSourceId", (q) => {
+            const range = q
+              .eq("workspaceId", workspaceId)
+              .eq("dataSourceId", dataSourceId);
+            return tables.after === undefined
+              ? range
+              : range.gte("_creationTime", tables.after);
+          })
+          .take(requested + tables.seen.length);
+        // As above: the rows already in `seen` are read again, so the budget
+        // is charged for every row the query returned.
+        budget.charge(read);
+        const rows = read.filter((row) => !tables.seen.includes(row.id));
         for (const table of rows)
           if (await repairGa4Table(ctx, table)) tablesRepaired += 1;
-        budget.charge(rows);
         tables = advance(tables, rows);
         if (rows.length < requested) sourceId = undefined;
         continue;
