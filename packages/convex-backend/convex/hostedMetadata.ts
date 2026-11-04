@@ -5,11 +5,19 @@ import { internal } from "./_generated/api";
 import { requireHostedMetadataPrincipal } from "./hostedMetadataGuard";
 import { runHostCommit, runHostDraft } from "./hostCommands";
 import { publicationMetadata } from "./publication";
-import { command, dataTableResourcePage, json, object, typed } from "./values";
+import {
+  command,
+  dataFramePage,
+  dataTableResourcePage,
+  json,
+  object,
+  typed,
+} from "./values";
 import type {
   DataSourceRow,
   DataTableRow,
   DataFrameRow,
+  DataFramePage,
   InsightRow,
 } from "./model";
 
@@ -60,9 +68,9 @@ export const getInsight = query({
   },
 });
 export const listDataFramesByInsight = query({
-  args: { insightId: v.string() },
-  returns: typed<DataFrameRow[]>(v.array(object)),
-  handler: async (ctx, args): Promise<DataFrameRow[]> => {
+  args: { insightId: v.string(), paginationOpts: paginationOptsValidator },
+  returns: dataFramePage,
+  handler: async (ctx, args): Promise<DataFramePage> => {
     const { workspaceId } = await requireHostedMetadataPrincipal(ctx);
     return ctx.runQuery(internal.host.listDataFramesByInsight, {
       ...args,
@@ -71,11 +79,11 @@ export const listDataFramesByInsight = query({
   },
 });
 export const listDataFrames = query({
-  args: {},
-  returns: typed<DataFrameRow[]>(v.array(object)),
-  handler: async (ctx): Promise<DataFrameRow[]> => {
+  args: { paginationOpts: paginationOptsValidator },
+  returns: dataFramePage,
+  handler: async (ctx, args): Promise<DataFramePage> => {
     const { workspaceId } = await requireHostedMetadataPrincipal(ctx);
-    return ctx.runQuery(internal.host.listDataFrames, { workspaceId });
+    return ctx.runQuery(internal.host.listDataFrames, { ...args, workspaceId });
   },
 });
 export const getOperation = query({

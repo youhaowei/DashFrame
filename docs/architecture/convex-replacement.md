@@ -41,12 +41,16 @@ persists a private signing key and official local-backend configuration under `.
 Those files are runtime configuration, not a second application metadata store.
 
 Command batches, draft reads, previews, and publishes load artifact rows on demand rather
-than reading whole tables; see [on-demand-graph.md](on-demand-graph.md). Whole-table reads
-survive only over user-authored tables: bounded list surfaces, the delete cascade, the
-preview dependency walk, and two lookups (unmodified insight draft by table, data source
-by type), each refusing explicitly above 1,000 rows. Data frames are never read whole
-inside a command. Atomic command batches and complete draft logs are capped at 200 commands. These
-are deliberate limits, not pagination or silently truncated results.
+than reading whole tables; see [on-demand-graph.md](on-demand-graph.md). Inside a command,
+the delete cascade, the preview dependency walk, and two lookups (unmodified insight draft
+by table, data source by type) still scan user-authored tables whole and refuse above
+`LIMIT` (1,000) rows; that refusal and the cleanup outbox's reference scan (#368) are the
+remaining row caps, both left open by #531. Data frames are never read whole inside a
+command. Host reads page through cursors, bulk writes (clear all data, the GA4 measure
+repair) run in batches with scheduled continuation, and frame removal uses the frame index.
+Atomic command batches and complete draft logs are capped at 200 commands; that cap is an
+invariant the draft-log guard asserts, not a workspace size. The UI list queries in
+`app.ts` are the other half of #531.
 
 ## Required proof before publication
 

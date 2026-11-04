@@ -28,7 +28,14 @@ it("maps host-facing source calls to the four named Bearer wire operations witho
         ...request,
         authorization: new Headers(init.headers).get("authorization"),
       });
-      return new Response(JSON.stringify({ status: "success", value: null }));
+      return new Response(
+        JSON.stringify({
+          status: "success",
+          value: request.path.endsWith(":clearAllData")
+            ? { complete: true }
+            : null,
+        }),
+      );
     }),
   );
   const metadata = createHostedSourceMetadata({
@@ -65,6 +72,46 @@ it("maps host-facing source calls to the four named Bearer wire operations witho
   }
   expect(requests[2]!.args).toEqual([{ id: "frame" }]);
   expect(requests[3]!.args).toEqual([{}]);
+});
+
+it("calls clearAllData again until the backend reports the workspace empty", async () => {
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      calls += 1;
+      return new Response(
+        JSON.stringify({ status: "success", value: { complete: calls >= 3 } }),
+      );
+    }),
+  );
+  const metadata = createHostedSourceMetadata({
+    deploymentUrl: "https://metadata.test",
+    getToken: async () => "synthetic-token",
+    credentialVault: { has: async () => true },
+  });
+  await metadata.clearAllData();
+  expect(calls).toBe(3);
+});
+
+it("gives up on a clear whose backend never reports completion", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ status: "success", value: { complete: false } }),
+        ),
+    ),
+  );
+  const metadata = createHostedSourceMetadata({
+    deploymentUrl: "https://metadata.test",
+    getToken: async () => "synthetic-token",
+    credentialVault: { has: async () => true },
+  });
+  await expect(metadata.clearAllData()).rejects.toThrow(
+    "did not report completion",
+  );
 });
 
 it("rejects unsafe replacement and expected configs before token acquisition or network", async () => {

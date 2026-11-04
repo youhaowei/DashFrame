@@ -130,30 +130,38 @@ export async function draft(
     throw new ConvexError("Draft unavailable");
   return row;
 }
+/**
+ * Commands one draft may hold. `replaceDraft` in `app.ts` refuses a longer
+ * draft, so a log past this length is corrupt state, never a large workspace.
+ */
+export const DRAFT_COMMAND_LIMIT = 200;
 export async function log(ctx: QueryCtx, workspaceId: string, draftId: string) {
   const entries = await ctx.db
     .query("draftLog")
     .withIndex("by_workspaceId_and_draftId_and_sequence", (q) =>
       q.eq("workspaceId", workspaceId).eq("draftId", draftId),
     )
-    .take(LIMIT + 1);
-  if (entries.length > LIMIT)
-    throw new ConvexError("Draft command limit exceeded");
+    .take(DRAFT_COMMAND_LIMIT + 1);
+  if (entries.length > DRAFT_COMMAND_LIMIT)
+    throw new ConvexError("Draft log exceeds the draft command limit");
   return entries;
 }
+/**
+ * Every staged change of a draft. One `replaceDraft` transaction writes them
+ * whole, so one transaction can read them whole; an overlay missing rows would
+ * show a draft that never existed.
+ */
 export async function draftChanges(
   ctx: QueryCtx,
   workspaceId: string,
   draftId: string,
 ) {
-  const rows = await ctx.db
+  return ctx.db
     .query("draftChanges")
     .withIndex("by_workspaceId_and_draftId", (q) =>
       q.eq("workspaceId", workspaceId).eq("draftId", draftId),
     )
-    .take(LIMIT + 1);
-  if (rows.length > LIMIT) throw new ConvexError("Draft change limit exceeded");
-  return rows;
+    .collect();
 }
 /**
  * Open the artifact graph as seen through an optional draft: canonical rows
