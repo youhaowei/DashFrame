@@ -29,6 +29,7 @@ import type { Doc } from "./_generated/dataModel";
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { internal } from "./_generated/api";
+import { reconcileReplacementSensitivity, type Field } from "@dashframe/types";
 import {
   internalMutation,
   internalQuery,
@@ -853,6 +854,20 @@ export const commitImportedFrame = internalMutation({
       { ...table, ...args.tableUpdate },
       "Imported table",
     );
+    // Replacement fields were merged from a snapshot that no fence covers:
+    // field metadata edits do not move the frame pointer. Sensitivity is
+    // decided here against the stored row, inside the same transaction, so a
+    // classification made since that snapshot is kept. The reconciled state
+    // needs no second parse: it only copies markers from the stored row.
+    const tableUpdate = Array.isArray(args.tableUpdate.fields)
+      ? {
+          ...args.tableUpdate,
+          fields: reconcileReplacementSensitivity(
+            args.tableUpdate.fields as Field[],
+            (table.fields ?? []) as Field[],
+          ),
+        }
+      : args.tableUpdate;
     // A frame committed for a table belongs to it. Stamp the ownership the
     // retention index reads, whatever the caller supplied.
     await putFrame(ctx, args.workspaceId, {
@@ -861,7 +876,7 @@ export const commitImportedFrame = internalMutation({
       sourceId: args.dataSourceId,
     });
     await ctx.db.patch(table._id, {
-      ...args.tableUpdate,
+      ...tableUpdate,
       refreshRevision: crypto.randomUUID(),
       revision: table.revision + 1,
       updatedAt: Date.now(),
