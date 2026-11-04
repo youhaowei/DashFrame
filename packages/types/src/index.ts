@@ -38,6 +38,7 @@ export { AGGREGATIONS, GRAIN_SCOPES, measureCombinesOver } from "./metric";
 
 export {
   mergeReplacementFields,
+  reconcileReplacementSensitivity,
   retainReplacementMetrics,
 } from "./table-replacement";
 

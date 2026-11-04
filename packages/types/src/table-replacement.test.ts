@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { Field, Metric } from "./index";
 import {
   mergeReplacementFields,
+  reconcileReplacementSensitivity,
   retainReplacementMetrics,
 } from "./table-replacement";
 
@@ -127,5 +128,68 @@ describe("table replacement metadata", () => {
       "amount-sum",
       "amount-max",
     ]);
+  });
+
+  it("decides replacement sensitivity from the stored fields at commit", () => {
+    const marker = {
+      sensitivity: "sensitive" as const,
+      sensitivityReason: "Marked sensitive by you",
+      sensitivitySource: "user" as const,
+    };
+    const reset = {
+      sensitivity: "unclassified" as const,
+      sensitivityReason: "Reset to unclassified by you",
+      sensitivitySource: "user" as const,
+    };
+    const stored = [
+      { ...field("customer", "customer", "string"), ...marker },
+      { ...field("email", "email", "string"), ...marker },
+      {
+        ...field("region", "region", "string"),
+        sensitivity: "cleared" as const,
+      },
+      { ...field("note", "note", "string"), ...reset },
+      field("phone", "phone", "string"),
+    ];
+    const replacement = [
+      // Matched by id: the stored marker is carried over.
+      field("customer", "customer", "string"),
+      // A fresh id (a connector's reviewed field) is not a stored field.
+      {
+        ...field("fresh-email", "email", "string"),
+        sensitivity: "cleared" as const,
+      },
+      // The snapshot said sensitive; the user cleared it meanwhile. New data
+      // resets a clearance, as the merge does.
+      { ...field("region", "region", "string"), ...marker },
+      // The snapshot said sensitive; the stored reset and its reason win.
+      { ...field("note", "note", "string"), ...marker },
+      // The snapshot said sensitive; the stored field was never classified.
+      { ...field("phone", "phone", "string"), ...marker },
+      // No stored counterpart: untouched.
+      field("added", "added", "number"),
+    ];
+
+    expect(reconcileReplacementSensitivity(replacement, stored)).toEqual([
+      { ...replacement[0], ...marker },
+      replacement[1],
+      {
+        ...replacement[2],
+        sensitivity: "unclassified",
+        sensitivityReason: undefined,
+        sensitivitySource: undefined,
+      },
+      { ...replacement[3], ...reset },
+      {
+        ...replacement[4],
+        sensitivity: undefined,
+        sensitivityReason: undefined,
+        sensitivitySource: undefined,
+      },
+      replacement[5],
+    ]);
+    expect(reconcileReplacementSensitivity(replacement, [])).toEqual(
+      replacement,
+    );
   });
 });
