@@ -294,9 +294,9 @@ describe("MCP route", () => {
         return this;
       },
       async execute(path) {
-        return path === "listDrafts" && draftChecks++ === 0
-          ? [{ draftId }]
-          : [];
+        if (path === "listDrafts")
+          return draftChecks++ === 0 ? [{ draftId }] : [];
+        return { page: [], isDone: true, continueCursor: "" };
       },
     };
     const tool = createMcpTools(
@@ -329,7 +329,7 @@ describe("MCP route", () => {
           ];
         readDraftIds.push(context?.draftId);
         requestContext.draftId = replacementDraftId;
-        return [];
+        return { page: [], isDone: true, continueCursor: "" };
       },
     };
     const tool = createMcpTools(fakeApp, requestContext, "stateful").find(

@@ -1,5 +1,5 @@
-import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import {
   queryDataFrame,
   type DataFrameEntry,
@@ -32,7 +32,7 @@ export function useDataFrameData(
   options?: { limit?: number; skip?: boolean },
 ): UseDataFrameDataResult {
   const { data: allDataFrames } = queryStatus(
-    useQuery({ query: api.app.listDataFrames, args: {} }),
+    useArtifactList({ query: api.app.listDataFrames, args: {} }),
   );
   const entry = useMemo(
     () => allDataFrames?.find((frame) => frame.id === dataFrameId),
@@ -102,7 +102,7 @@ export function useDataFrameDataByInsight(
   options?: { limit?: number; skip?: boolean },
 ): UseDataFrameDataResult {
   const { data: allDataFrames } = queryStatus(
-    useQuery({ query: api.app.listDataFrames, args: {} }),
+    useArtifactList({ query: api.app.listDataFrames, args: {} }),
   );
   const entry = useMemo(
     () =>

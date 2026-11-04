@@ -26,7 +26,7 @@ import {
   onlyInsight,
   openSection,
 } from "../lib/chart-tab";
-import { query } from "../lib/native-api";
+import { queryAll } from "../lib/native-api";
 import { expect, test } from "../lib/test-fixtures";
 
 interface SavedInsight {
@@ -39,9 +39,10 @@ async function expectFieldSaved(name: string, present: boolean) {
   await expect
     .poll(async () => {
       const insight = await onlyInsight<SavedInsight>(),
-        tables = await query<
-          { id: string; fields: { id: string; name: string }[] }[]
-        >("listDataTables", {});
+        tables = await queryAll<{
+          id: string;
+          fields: { id: string; name: string }[];
+        }>("listDataTables", {});
       const field = tables
         .find((table) => table.id === insight.source.sourceId)
         ?.fields.find((field) => field.name === name);

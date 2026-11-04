@@ -3,13 +3,13 @@
  * with several tiles reads as several distinct buttons, and pressing it
  * shelves that chart.
  */
-import { nativeQueryMock } from "@/test/native-query-fixture";
+import { nativeQueryMocks } from "@/test/native-query-fixture";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(() => ({ data: undefined })),
+  ...nativeQueryMocks(() => ({ data: undefined })),
 }));
 
 import { AppDragProvider } from "./drag-context";

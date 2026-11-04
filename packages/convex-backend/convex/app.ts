@@ -11,7 +11,13 @@ import {
   type Command,
   type Json,
 } from "./values";
-import { v, ConvexError } from "convex/values";
+import { v, ConvexError, type ObjectType } from "convex/values";
+import {
+  paginationOptsValidator,
+  paginationResultValidator,
+  type PaginationOptions,
+  type PaginationResult,
+} from "convex/server";
 import type {
   DataSource,
   DataTable,
@@ -45,7 +51,7 @@ import {
   DRAFT_COMMAND_LIMIT,
 } from "./store";
 import { execute } from "./engine";
-import { type Graph, capMessage } from "./graph";
+import { type Graph, type Where, capMessage } from "./graph";
 import {
   describeCommand,
   publicRow,
@@ -54,7 +60,8 @@ import {
   signature,
   redact,
 } from "./preview";
-import type { ArtifactTable } from "./model";
+import type { ArtifactRow, ArtifactTable } from "./model";
+import { PAGE_LIMIT } from "./pages";
 const draftArg = { draftId: v.optional(v.string()) };
 async function readOne(
   ctx: QueryCtx,
@@ -77,70 +84,104 @@ function assertCompleteArtifactRows(
   if (rows.length <= LIMIT) return;
   throw new ConvexError(capMessage(table));
 }
-function listQuery<T>(table: ArtifactTable) {
-  return query({
-    args: {
-      ...draftArg,
-      dataSourceId: v.optional(v.string()),
-      insightId: v.optional(v.string()),
-      excludeIds: v.optional(v.array(v.string())),
-    },
-    returns: typed<T[]>(v.array(object)),
-    handler: async (ctx, args) => {
-      const who = await principal(ctx);
-      if (!args.draftId) {
-        const rows = args.dataSourceId
-          ? await ctx.db
-              .query(table)
-              .withIndex("by_workspaceId_and_dataSourceId", (q) =>
-                q
-                  .eq("workspaceId", who.workspaceId)
-                  .eq("dataSourceId", args.dataSourceId),
-              )
-              .take(LIMIT + 1)
-          : args.insightId
-            ? await ctx.db
-                .query(table)
-                .withIndex("by_workspaceId_and_insightId", (q) =>
-                  q
-                    .eq("workspaceId", who.workspaceId)
-                    .eq("insightId", args.insightId),
-                )
-                .take(LIMIT + 1)
-            : await ctx.db
-                .query(table)
-                .withIndex("by_workspaceId_and_id", (q) =>
-                  q.eq("workspaceId", who.workspaceId),
-                )
-                .take(LIMIT + 1);
-        assertCompleteArtifactRows(rows, table);
-        return rows
-          .filter(
-            (row) =>
-              (!args.dataSourceId || row.dataSourceId === args.dataSourceId) &&
-              (!args.insightId || row.insightId === args.insightId) &&
-              !args.excludeIds?.includes(row.id),
+const listArgs = {
+  ...draftArg,
+  dataSourceId: v.optional(v.string()),
+  insightId: v.optional(v.string()),
+  excludeIds: v.optional(v.array(v.string())),
+  paginationOpts: paginationOptsValidator,
+};
+type ListArgs = ObjectType<typeof listArgs>;
+function clampPage(opts: PaginationOptions): PaginationOptions {
+  const asked = Number.isFinite(opts.numItems) ? opts.numItems : PAGE_LIMIT;
+  return { ...opts, numItems: Math.min(PAGE_LIMIT, Math.max(1, asked)) };
+}
+/** The secondary filters every list applies after its index selection. */
+function listFilter(args: ListArgs) {
+  return (row: { id: string; dataSourceId?: unknown; insightId?: unknown }) =>
+    (!args.dataSourceId || row.dataSourceId === args.dataSourceId) &&
+    (!args.insightId || row.insightId === args.insightId) &&
+    !args.excludeIds?.includes(row.id);
+}
+/** A whole result served as the one page there is. */
+function wholePage<T>(page: T[]): PaginationResult<T> {
+  return { page, isDone: true, continueCursor: "" };
+}
+/**
+ * One index range of `table`, paginated. A `dataSourceId` or `insightId`
+ * selects through that index; without either the whole workspace is read,
+ * one page per call, so a workspace of any size lists.
+ */
+function paginateTable(
+  ctx: QueryCtx,
+  workspaceId: string,
+  table: ArtifactTable,
+  args: ListArgs,
+) {
+  const q = ctx.db.query(table),
+    opts = clampPage(args.paginationOpts),
+    dataSourceId = args.dataSourceId,
+    insightId = args.insightId;
+  return dataSourceId
+    ? q
+        .withIndex("by_workspaceId_and_dataSourceId", (q) =>
+          q.eq("workspaceId", workspaceId).eq("dataSourceId", dataSourceId),
+        )
+        .paginate(opts)
+    : insightId
+      ? q
+          .withIndex("by_workspaceId_and_insightId", (q) =>
+            q.eq("workspaceId", workspaceId).eq("insightId", insightId),
           )
-          .map((row) => publicRow(table, rowValue(row)) as unknown as T);
+          .paginate(opts)
+      : q
+          .withIndex("by_workspaceId_and_id", (q) =>
+            q.eq("workspaceId", workspaceId),
+          )
+          .paginate(opts);
+}
+/**
+ * The list read over one artifact table. Without a draft each call returns
+ * one page and the client follows `continueCursor`, so no workspace size
+ * refuses the list. Under a draft `draftRead` serves the same selection whole
+ * from the graph, overlay included, as a single finished page; that read keeps
+ * the graph's LIMIT-row bound.
+ */
+function listQuery<T>(
+  table: ArtifactTable,
+  draftRead: (graph: Graph, where: Where) => Promise<ArtifactRow[]> = (
+    graph,
+    where,
+  ) => graph.scan(table, where),
+) {
+  return query({
+    args: listArgs,
+    returns: typed<PaginationResult<T>>(paginationResultValidator(object)),
+    handler: async (ctx, args) => {
+      const who = await principal(ctx),
+        keep = listFilter(args);
+      if (!args.draftId) {
+        const result = await paginateTable(ctx, who.workspaceId, table, args);
+        return {
+          ...result,
+          page: result.page
+            .filter(keep)
+            .map((row) => publicRow(table, rowValue(row)) as unknown as T),
+        };
       }
       const graph = await readGraph(ctx, who, args.draftId);
-      return (
-        await graph.scan(
-          table,
-          args.dataSourceId
-            ? { dataSourceId: args.dataSourceId }
-            : args.insightId
-              ? { insightId: args.insightId }
-              : {},
-        )
-      )
-        .filter(
-          (row) =>
-            (!args.dataSourceId || row.dataSourceId === args.dataSourceId) &&
-            (!args.insightId || row.insightId === args.insightId) &&
-            !args.excludeIds?.includes(row.id),
-        )
-        .map((row) => publicRow(table, row) as unknown as T);
+      // The draft view is one page, so a cursor past it has nothing left.
+      if (args.paginationOpts.cursor !== null) return wholePage([]);
+      const where: Where = args.dataSourceId
+        ? { dataSourceId: args.dataSourceId }
+        : args.insightId
+          ? { insightId: args.insightId }
+          : {};
+      return wholePage(
+        (await draftRead(graph, where))
+          .filter(keep)
+          .map((row) => publicRow(table, row) as unknown as T),
+      );
     },
   });
 }
@@ -170,83 +211,17 @@ export type FrameEntry = DataFrameJSON & {
   currentInsightResult?: boolean;
 };
 /**
- * The list read over frames. A `dataSourceId` or `insightId` filter selects
- * through that index; without one the whole table is read. Every branch,
- * filtered or not, is bounded at LIMIT rows and refuses beyond that naming
- * the recovery path, except `recovery: true` without a draft, which returns a
- * truncated batch so the Data Frames page can still delete rows through the
- * host. Under a draft the same selection runs through the graph (`scan` with
- * the filter, `list` without) and `recovery` is ignored. Command batches never
- * read frames this way, so an over-cap workspace keeps committing, drafting,
- * and publishing; only surfaces whose selection here exceeds LIMIT stop
- * rendering.
+ * The list read over frames. The graph never scans frames whole, so an
+ * unfiltered draft read goes through `list`, the one sanctioned whole-table
+ * frame read; a filtered one selects through its index like any other table.
  */
-export const listDataFrames = query({
-  args: {
-    ...draftArg,
-    dataSourceId: v.optional(v.string()),
-    insightId: v.optional(v.string()),
-    excludeIds: v.optional(v.array(v.string())),
-    recovery: v.optional(v.boolean()),
-  },
-  returns: typed<FrameEntry[]>(v.array(object)),
-  handler: async (ctx, args) => {
-    const who = await principal(ctx),
-      dataSourceId = args.dataSourceId,
-      insightId = args.insightId;
-    if (args.draftId) {
-      const graph = await readGraph(ctx, who, args.draftId);
-      return (
-        await (dataSourceId
-          ? graph.scan("dataFrames", { dataSourceId })
-          : insightId
-            ? graph.scan("dataFrames", { insightId })
-            : graph.list("dataFrames"))
-      )
-        .filter(
-          (row) =>
-            (!args.dataSourceId || row.dataSourceId === args.dataSourceId) &&
-            (!args.insightId || row.insightId === args.insightId) &&
-            !args.excludeIds?.includes(row.id),
-        )
-        .map((row) => publicRow("dataFrames", row) as unknown as FrameEntry);
-    }
-    const rows = dataSourceId
-      ? await ctx.db
-          .query("dataFrames")
-          .withIndex("by_workspaceId_and_dataSourceId", (q) =>
-            q
-              .eq("workspaceId", who.workspaceId)
-              .eq("dataSourceId", dataSourceId),
-          )
-          .take(args.recovery ? LIMIT : LIMIT + 1)
-      : insightId
-        ? await ctx.db
-            .query("dataFrames")
-            .withIndex("by_workspaceId_and_insightId", (q) =>
-              q.eq("workspaceId", who.workspaceId).eq("insightId", insightId),
-            )
-            .take(args.recovery ? LIMIT : LIMIT + 1)
-        : await ctx.db
-            .query("dataFrames")
-            .withIndex("by_workspaceId_and_id", (q) =>
-              q.eq("workspaceId", who.workspaceId),
-            )
-            .take(args.recovery ? LIMIT : LIMIT + 1);
-    if (!args.recovery) assertCompleteArtifactRows(rows, "dataFrames");
-    return rows
-      .filter(
-        (row) =>
-          (!dataSourceId || row.dataSourceId === dataSourceId) &&
-          (!insightId || row.insightId === insightId) &&
-          !args.excludeIds?.includes(row.id),
-      )
-      .map(
-        (row) =>
-          publicRow("dataFrames", rowValue(row)) as unknown as FrameEntry,
-      );
-  },
-});
+export const listDataFrames = listQuery<FrameEntry>(
+  "dataFrames",
+  (graph, where) =>
+    where.dataSourceId !== undefined || where.insightId !== undefined
+      ? graph.scan("dataFrames", where)
+      : graph.list("dataFrames"),
+);
 export const getDataFrameEntry = query({
   args: { id: v.string(), ...draftArg },
   returns: typed<FrameEntry | null>(v.union(object, v.null())),

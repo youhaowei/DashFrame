@@ -1,6 +1,6 @@
 import { requestHost } from "@/data/host";
-import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useDataFrameData } from "@/hooks/useDataFrameData";
 import {
   getConnectorById,
@@ -260,10 +260,10 @@ function RemoteDataSourceView({
 
 export function DataSourceDisplay({ dataSourceId }: DataSourceDisplayProps) {
   const { data: dataSources } = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   );
   const { data: allTables } = queryStatus(
-    useQuery({
+    useArtifactList({
       query: api.app.listDataTables,
       args: { dataSourceId: dataSourceId ?? undefined },
     }),

@@ -156,7 +156,9 @@ describe.runIf(live)("native host and local Convex integration", () => {
     ).toBe(404);
     const anonymous = new ConvexHttpClient(`${server.url}/api/convex`);
     await expect(
-      anonymous.query(api.app.listDataSources, {}),
+      anonymous.query(api.app.listDataSources, {
+        paginationOpts: { cursor: null, numItems: 10 },
+      }),
     ).rejects.toThrow();
     expect(await host("getAccessCapabilities")).toEqual({
       canManageCredentials: true,
@@ -323,7 +325,11 @@ describe.runIf(live)("native host and local Convex integration", () => {
       service.mutation(api.app.publishDraft, { draftId: draft.draftId }),
     ).rejects.toThrow();
     await host("revokeAccessCredential", { id: issued.credential.id });
-    await expect(service.query(api.app.listDataSources, {})).rejects.toThrow();
+    await expect(
+      service.query(api.app.listDataSources, {
+        paginationOpts: { cursor: null, numItems: 10 },
+      }),
+    ).rejects.toThrow();
     const review = await user.query(api.app.draftPublishReview, {
       draftId: draft.draftId,
     });

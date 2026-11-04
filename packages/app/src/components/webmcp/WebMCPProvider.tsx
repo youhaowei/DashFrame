@@ -1,5 +1,6 @@
 import { useConnectorCatalog } from "@/data/connector-catalog";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList, listAllArtifacts } from "@/data/artifact-lists";
 import { api } from "@dashframe/convex-backend/api";
 import type { Command } from "@dashframe/types";
 import {
@@ -25,19 +26,19 @@ export function WebMCPProvider({ children }: { children: ReactNode }) {
   const highlight = useWebMCPHighlightController(document);
   const connectors = useConnectorCatalog().data;
   const dataSources = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   ).data;
   const dataTables = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   ).data;
   const insights = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
+    useArtifactList({ query: api.app.listInsights, args: {} }),
   ).data;
   const visualizations = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
   ).data;
   const dashboards = queryStatus(
-    useQuery({ query: api.app.listDashboards, args: {} }),
+    useArtifactList({ query: api.app.listDashboards, args: {} }),
   ).data;
   const drafts = queryStatus(
     useQuery({ query: api.app.listDrafts, args: {} }),
@@ -51,8 +52,8 @@ export function WebMCPProvider({ children }: { children: ReactNode }) {
           read: {
             getDraftData: async (draftId: string) => {
               const [insights, dataTables] = await Promise.all([
-                client.query(api.app.listInsights, { draftId }),
-                client.query(api.app.listDataTables, { draftId }),
+                listAllArtifacts(client, api.app.listInsights, { draftId }),
+                listAllArtifacts(client, api.app.listDataTables, { draftId }),
               ]);
               return { insights, dataTables };
             },

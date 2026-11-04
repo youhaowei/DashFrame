@@ -1,4 +1,4 @@
-import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
+import { nativeQueryMocks, hostQueryMock } from "@/test/native-query-fixture";
 import type {
   DataTable,
   Insight,
@@ -30,7 +30,7 @@ vi.mock("@/data/runtime", () => ({
 }));
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock(useQuery),
+  ...nativeQueryMocks(useQuery),
 }));
 vi.mock("@/data/host", async (importOriginal) => ({
   HostOperationError: (await importOriginal<typeof import("@/data/host")>())

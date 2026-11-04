@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import type { FunctionArgs } from "convex/server";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import { listAll } from "./listAll";
 import { cmd } from "@dashframe/types";
 
 const modules = import.meta.glob("../convex/**/*.ts");
@@ -108,7 +109,7 @@ it("keeps a live-connector table at current plus previous frames across 1001 ref
     (await user().query(api.app.getDataTable, { id: tableId }))?.dataFrameId,
   ).toBe(ids.at(-1));
   // The workspace never crossed the cap, so ordinary reads and writes work.
-  expect(await user().query(api.app.listDataFrames, {})).toHaveLength(2);
+  expect(await listAll(user(), api.app.listDataFrames, {})).toHaveLength(2);
   await user().mutation(api.app.commitBatch, {
     commands: [cmd("RenameNode", { id: tableId, name: "Renamed" })],
   });
@@ -291,7 +292,7 @@ it("bounds source frames written by saved-result publication the same way", asyn
     });
   expect(await tableFrames(tableId)).toHaveLength(2);
   expect(
-    await user().query(api.app.listDataFrames, { insightId }),
+    await listAll(user(), api.app.listDataFrames, { insightId }),
   ).toHaveLength(2);
 });
 

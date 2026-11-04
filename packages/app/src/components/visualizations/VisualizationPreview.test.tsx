@@ -1,4 +1,4 @@
-import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
+import { nativeQueryMocks, hostQueryMock } from "@/test/native-query-fixture";
 /**
  * Tests for VisualizationPreview terminal-state routing.
  *
@@ -59,7 +59,7 @@ const { mockUseInsight, mockUseDataTables } = vi.hoisted(() => ({
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+  ...nativeQueryMocks((ref: { _path: string }) => {
     if (ref._path === "getInsight") return mockUseInsight();
     if (ref._path === "listDataTables") return mockUseDataTables();
     if (ref._path === "listInsights") return { data: [], isLoading: false };

@@ -9,8 +9,8 @@ import {
   reportEncoding,
 } from "@/lib/insights/report-runtime";
 import { ReportDataTable, hasReportTable } from "./ReportDataTable";
-import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useChartEngine } from "@/components/providers/ChartEngineProvider";
 import {
   resolveInsightSourceDataTable,
@@ -78,7 +78,9 @@ export function VisualizationDisplay(props: VisualizationDisplayProps) {
     data: visualizations = [],
     isLoading,
     isError,
-  } = queryStatus(useQuery({ query: api.app.listVisualizations, args: {} }));
+  } = queryStatus(
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
+  );
   const active = visualizations.find(
     (candidate) => candidate.id === props.visualizationId,
   );
@@ -272,13 +274,13 @@ function VisualizationDisplayContent({
   }, []);
 
   const { data: visualizations = [], isLoading: isVizLoading } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
   );
   const { data: insights = [] } = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
+    useArtifactList({ query: api.app.listInsights, args: {} }),
   );
   const { data: dataTables = [] } = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
 
   // Get the visualization

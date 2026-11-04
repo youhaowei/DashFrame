@@ -1,6 +1,7 @@
 import { useHostMutation, requestHost } from "@/data/host";
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { getConnectorById } from "@/lib/connectors/registry";
 import { handleFileConnectorResult } from "@/lib/local-csv-handler";
 import {
@@ -112,12 +113,12 @@ export function DataPickerContent({
   connectorSourceTypes,
 }: DataPickerContentProps) {
   const dataSourcesQuery = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   );
   const { data: dataSources = [], isLoading: isLoadingDataSources } =
     dataSourcesQuery;
   const dataTablesQuery = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
   const { data: allDataTables = [], isLoading: isLoadingDataTables } =
     dataTablesQuery;

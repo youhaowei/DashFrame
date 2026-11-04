@@ -1,5 +1,5 @@
 import {
-  nativeQueryMock,
+  nativeQueryMocks,
   nativeMutationMock,
   hostQueryMock,
   hostMutationMock,
@@ -60,7 +60,7 @@ let handleFileSelect: AddConnectionPanelProps["onFileSelect"] | undefined;
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+  ...nativeQueryMocks((ref: { _path: string }) => {
     switch (ref._path) {
       case "listDataSources":
         return {

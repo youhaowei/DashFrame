@@ -1,9 +1,9 @@
 import { ReportPickerDialog } from "@/components/dashboards/ReportPickerDialog";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useOpenChartInReport } from "@/hooks/useOpenChartInReport";
 import { api } from "@dashframe/convex-backend/api";
 import { Button } from "@wystack/ui-react";
-import { useQuery_experimental as useQuery } from "convex/react";
 import { useState } from "react";
 
 /**
@@ -22,10 +22,10 @@ export function OpenChartButton({
   visualizationId: string;
 }) {
   const reportsQuery = queryStatus(
-    useQuery({ query: api.app.listDashboards, args: {} }),
+    useArtifactList({ query: api.app.listDashboards, args: {} }),
   );
   const visualizationsQuery = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
   );
   const { openChart } = useOpenChartInReport();
   const [isPickerOpen, setIsPickerOpen] = useState(false);

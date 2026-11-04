@@ -1,4 +1,4 @@
-import { nativeQueryMock, hostQueryMock } from "@/test/native-query-fixture";
+import { nativeQueryMocks, hostQueryMock } from "@/test/native-query-fixture";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -19,7 +19,7 @@ vi.mock("@/lib/stores/shell-store", () => ({
 }));
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => ({
+  ...nativeQueryMocks((ref: { _path: string }) => ({
     data: ref._path === "listDraftCount" ? 0 : [],
   })),
 }));

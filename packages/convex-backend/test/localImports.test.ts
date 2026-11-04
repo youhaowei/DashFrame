@@ -2,6 +2,7 @@ import { beforeEach, expect, it } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import { listAll } from "./listAll";
 import { cmd } from "@dashframe/types";
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -68,7 +69,7 @@ it("reserves one durable frame and timestamp for concurrent identical requests",
   expect(first).toMatchObject({ status: "pending", result: null });
   expect(await t.query(internal.host.getLocalImport, request)).toEqual(first);
   expect(
-    await t.withIdentity(identity).query(api.app.listDataFrames, {}),
+    await listAll(t.withIdentity(identity), api.app.listDataFrames, {}),
   ).toEqual([]);
   await expect(
     t.mutation(internal.host.beginLocalImport, {
@@ -126,7 +127,7 @@ it("completes with metadata atomically and returns the original result after a n
     )?.dataFrameId,
   ).toBe(second.frameId);
   expect(
-    await t.withIdentity(identity).query(api.app.listDataFrames, {}),
+    await listAll(t.withIdentity(identity), api.app.listDataFrames, {}),
   ).toHaveLength(2);
 });
 it("keeps a failed CAS claim pending without leaking a frame or completed result", async () => {

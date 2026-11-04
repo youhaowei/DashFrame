@@ -1,6 +1,6 @@
 import {
   nativeMutationMock,
-  nativeQueryMock,
+  nativeQueryMocks,
 } from "@/test/native-query-fixture";
 /**
  * DashboardDetailContent — charts edited in tabs inside the report.
@@ -80,7 +80,7 @@ const REPORT = {
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+  ...nativeQueryMocks((ref: { _path: string }) => {
     if (ref._path === "listDashboards") return { data: [REPORT] };
     if (ref._path === "listVisualizations")
       return { data: server.visualizations };

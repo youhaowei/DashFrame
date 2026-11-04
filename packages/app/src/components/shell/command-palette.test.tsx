@@ -1,4 +1,4 @@
-import { nativeQueryMock } from "@/test/native-query-fixture";
+import { nativeQueryMocks } from "@/test/native-query-fixture";
 import {
   act,
   fireEvent,
@@ -57,7 +57,7 @@ const LISTS: Record<string, unknown[]> = {
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
   useMutation: () => mockCommitBatch,
-  useQuery_experimental: nativeQueryMock(
+  ...nativeQueryMocks(
     (ref: { _path: string }) =>
       LIST_STATES[ref._path] ?? { data: LISTS[ref._path] ?? [] },
   ),

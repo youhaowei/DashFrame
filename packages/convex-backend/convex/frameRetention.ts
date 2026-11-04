@@ -19,7 +19,7 @@ export function byFreshness(a: FrameDoc, b: FrameDoc): number {
  * Every frame one owner holds, through the owner's index. `null` when the
  * history is already over LIMIT: nothing can be pruned safely from a history
  * that cannot be read whole, and the write that asked must still commit. The
- * Data Frames recovery list is the way out of that state.
+ * Data Frames page, where frames can be deleted, is the way out.
  */
 export async function frameHistory(
   ctx: QueryCtx,

@@ -6,7 +6,7 @@
  */
 import type { Page } from "@playwright/test";
 import { buildCountChart, expectNewChartTab } from "../lib/chart-tab";
-import { query } from "../lib/native-api";
+import { queryAll } from "../lib/native-api";
 import { expect, test } from "../lib/test-fixtures";
 
 function reportId(page: Page): string {
@@ -43,7 +43,7 @@ test.describe("Start a report from a data source", () => {
     await expect(page.getByText(/5 rows/).first()).toBeVisible({
       timeout: 30_000,
     });
-    expect(await query<unknown[]>("listDashboards", {})).toHaveLength(1);
+    expect(await queryAll<unknown>("listDashboards", {})).toHaveLength(1);
   });
 
   test("opens a new chart on a new report", async ({ page }) => {
@@ -54,6 +54,6 @@ test.describe("Start a report from a data source", () => {
 
     await expectNewChartTab(page);
     expect(reportId(page)).not.toBe(firstReportId);
-    expect(await query<unknown[]>("listDashboards", {})).toHaveLength(2);
+    expect(await queryAll<unknown>("listDashboards", {})).toHaveLength(2);
   });
 });

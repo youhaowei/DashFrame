@@ -4,6 +4,7 @@ import {
 } from "@/lib/insights/chart-presentation";
 import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useInsightPagination } from "@/hooks/useInsightPagination";
 import { useInsightView } from "@/hooks/useInsightView";
 import { resolveDashboardRuntime } from "@/lib/insights/dashboard-runtime";
@@ -219,7 +220,7 @@ function VisualizationPreviewContent({
 
   // Fetch data tables for encoding resolution
   const { data: dataTables = [] } = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
 
   // Find the data table for this insight (React Compiler memoizes this).
@@ -243,7 +244,7 @@ function VisualizationPreviewContent({
   // Filters on an insight-sourced Insight resolve against its upstream
   // fields, so the Insight list is needed only when there are overrides.
   const { data: insights = [] } = queryStatus(
-    useQuery({
+    useArtifactList({
       query: api.app.listInsights,
       args: overrides ? {} : "skip",
     }),

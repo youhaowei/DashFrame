@@ -5,7 +5,7 @@
  * type edits the saved chart in place.
  */
 import { buildCountChart, expectNewChartTab } from "../lib/chart-tab";
-import { query } from "../lib/native-api";
+import { queryAll } from "../lib/native-api";
 import { expect, test } from "../lib/test-fixtures";
 
 const CHART_TAB = "Count by Product";
@@ -35,7 +35,7 @@ test.describe("Chart Editing", () => {
     // Editing in place kept one saved chart.
     await expect
       .poll(
-        async () => (await query<unknown[]>("listVisualizations", {})).length,
+        async () => (await queryAll<unknown>("listVisualizations", {})).length,
       )
       .toBe(1);
   });

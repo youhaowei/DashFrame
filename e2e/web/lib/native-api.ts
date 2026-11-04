@@ -43,6 +43,64 @@ export const query = <T>(path: string, args: unknown, token?: string) =>
 export const mutate = <T>(path: string, args: unknown, token?: string) =>
   nativeCall<T>("mutation", path, args, token);
 
+/**
+ * Every row of a paginated list query, following its cursor to the end the
+ * way the app's readers do (`followPages` in `@dashframe/convex-backend`).
+ */
+interface ListPage<T> {
+  page: T[];
+  isDone: boolean;
+  continueCursor: string;
+  pageStatus?: "SplitRecommended" | "SplitRequired" | null;
+  splitCursor?: string | null;
+}
+
+export async function queryAll<T>(
+  path: string,
+  args: Record<string, unknown>,
+  token?: string,
+): Promise<T[]> {
+  const fetchPage = (paginationOpts: Record<string, unknown>) =>
+    query<ListPage<T>>(path, { ...args, paginationOpts }, token);
+  // A page the backend could not read whole comes back as `SplitRequired`
+  // with a partial `page`; read it again as its two halves, as `followPages`
+  // in `@dashframe/convex-backend` does, so assertions never miss rows.
+  const wholeRange = async (
+    cursor: string | null,
+    page: ListPage<T>,
+  ): Promise<T[]> => {
+    const split = page.splitCursor;
+    if (page.pageStatus !== "SplitRequired" || typeof split !== "string")
+      return page.page;
+    if (split === cursor) throw new Error("A list page could not be split");
+    const halves: T[] = [];
+    for (const [from, to] of [
+      [cursor, split],
+      [split, page.continueCursor],
+    ] as const) {
+      const half = await fetchPage({
+        cursor: from,
+        numItems: 500,
+        endCursor: to,
+      });
+      halves.push(...(await wholeRange(from, half)));
+    }
+    return halves;
+  };
+  const rows: T[] = [];
+  const seen = new Set<string | null>();
+  let cursor: string | null = null;
+  for (;;) {
+    seen.add(cursor);
+    const page = await fetchPage({ cursor, numItems: 500 });
+    rows.push(...(await wholeRange(cursor, page)));
+    if (page.isDone) return rows;
+    if (seen.has(page.continueCursor))
+      throw new Error("A list page led back to an earlier page");
+    cursor = page.continueCursor;
+  }
+}
+
 export async function hostCall<T>(
   path: string,
   args: unknown,

@@ -3,6 +3,7 @@
  * Every source has both, so carrying never depends on a pointer.
  */
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { api } from "@dashframe/convex-backend/api";
 import type { Metric } from "@dashframe/types";
 import { WorkbenchChip } from "@dashframe/ui";
@@ -13,7 +14,6 @@ import {
   LayersIcon,
   PlusIcon,
 } from "@wystack/ui-react/icons";
-import { useQuery_experimental as useQuery } from "convex/react";
 import { useCarryable } from "./drag-context";
 import { useShelf } from "./shelf-scope";
 import type { ShelfItemRef } from "./shelf-store";
@@ -167,7 +167,7 @@ export function PutTileChartOnShelfButton({
   className?: string;
 }) {
   const { data: visualizations } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
   );
   const chart = visualizations?.find((entry) => entry.id === visualizationId);
   return <PutChartOnShelfButton chart={chart} className={className} />;

@@ -1,9 +1,9 @@
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { useShellStore } from "@/lib/stores/shell-store";
 import { api } from "@dashframe/convex-backend/api";
 import { cn } from "@wystack/ui-react";
 import { ChevronDownIcon, LayersIcon } from "@wystack/ui-react/icons";
-import { useQuery_experimental as useQuery } from "convex/react";
 import { useCallback, useState } from "react";
 import {
   useDropTarget,
@@ -36,13 +36,13 @@ export function useShelfView() {
   // Each list is subscribed to only while an item of its kind is on the
   // shelf; the subscriptions are shared with the pages that show them.
   const tables = queryStatus(
-    useQuery({
+    useArtifactList({
       query: api.app.listDataTables,
       args: needs("metric") ? {} : "skip",
     }),
   ).data;
   const visualizations = queryStatus(
-    useQuery({
+    useArtifactList({
       query: api.app.listVisualizations,
       args: needs("chart") ? {} : "skip",
     }),

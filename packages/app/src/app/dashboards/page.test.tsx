@@ -1,5 +1,5 @@
 import {
-  nativeQueryMock,
+  nativeQueryMocks,
   nativeMutationMock,
   hostQueryMock,
   hostMutationMock,
@@ -38,9 +38,7 @@ const { mockCommit, mockUseQuery } = vi.hoisted(() => ({
 // refs) and replace the hooks.
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) =>
-    mockUseQuery(ref),
-  ),
+  ...nativeQueryMocks((ref: { _path: string }) => mockUseQuery(ref)),
   useMutation: nativeMutationMock(() => ({ mutateAsync: mockCommit })),
 }));
 vi.mock("@/data/host", () => ({

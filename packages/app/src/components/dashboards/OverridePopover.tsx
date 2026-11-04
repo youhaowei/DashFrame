@@ -1,5 +1,6 @@
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 /**
  * Per-cell override popover — anchored to the cell, opened by the customize button.
  *
@@ -279,13 +280,13 @@ export function OverridePopover({
 
   // Self-fetch visualization → insight → data table (same pattern as VisualizationDisplay).
   const { data: visualizations = [] } = queryStatus(
-    useQuery({ query: api.app.listVisualizations, args: {} }),
+    useArtifactList({ query: api.app.listVisualizations, args: {} }),
   );
   const { data: insights = [] } = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
+    useArtifactList({ query: api.app.listInsights, args: {} }),
   );
   const { data: dataTables = [] } = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
 
   const visualization = useMemo(

@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import type { UserIdentity } from "convex/server";
 import schema from "../convex/schema";
 import { api, internal } from "../convex/_generated/api";
+import { listAll } from "./listAll";
 import { admissionAuthConfig } from "../convex/admissionConfig";
 
 const modules = import.meta.glob("../convex/**/*.ts");
@@ -176,7 +177,7 @@ it("rejects browser/control/issuer substitution and caller-selected subject or w
       issuer: environment.DASHFRAME_OPERATOR_AUTH_ISSUER,
     }),
   ])
-    await expect(caller.query(api.app.listDataSources, {})).rejects.toThrow(
+    await expect(listAll(caller, api.app.listDataSources, {})).rejects.toThrow(
       "authority",
     );
   await expect(
@@ -198,15 +199,15 @@ it("checks current user admission and workspace ownership for existing browser i
   const a = await admit();
   const b = await admit("user_b");
   const client = browser(a);
-  expect(await client.query(api.app.listDataSources, {})).toEqual([]);
-  await expect(browser(b).query(api.app.listDataSources, {})).rejects.toThrow(
-    "admission",
-  );
+  expect(await listAll(client, api.app.listDataSources, {})).toEqual([]);
   await expect(
-    browser(a, "unadmitted").query(api.app.listDataSources, {}),
+    listAll(browser(b), api.app.listDataSources, {}),
+  ).rejects.toThrow("admission");
+  await expect(
+    listAll(browser(a, "unadmitted"), api.app.listDataSources, {}),
   ).rejects.toThrow("admission");
   await operator().mutation(api.admission.revoke, { subject: "user_a" });
-  await expect(client.query(api.app.listDataSources, {})).rejects.toThrow(
+  await expect(listAll(client, api.app.listDataSources, {})).rejects.toThrow(
     "admission",
   );
   await expect(
@@ -285,7 +286,7 @@ it("denies unmapped and foreign services and checks owner admission plus credent
   const a = await admit();
   const b = await admit("user_b");
   const client = service(a);
-  await expect(client.query(api.app.listDataSources, {})).rejects.toThrow(
+  await expect(listAll(client, api.app.listDataSources, {})).rejects.toThrow(
     "ownership",
   );
   await t.run((ctx) =>
@@ -295,18 +296,19 @@ it("denies unmapped and foreign services and checks owner admission plus credent
       workspaceId: a,
     }),
   );
-  expect(await client.query(api.app.listDataSources, {})).toEqual([]);
-  await expect(service(b).query(api.app.listDataSources, {})).rejects.toThrow(
-    "ownership",
-  );
+  expect(await listAll(client, api.app.listDataSources, {})).toEqual([]);
   await expect(
-    service(a, "credential_a", { subject: "service:other" }).query(
+    listAll(service(b), api.app.listDataSources, {}),
+  ).rejects.toThrow("ownership");
+  await expect(
+    listAll(
+      service(a, "credential_a", { subject: "service:other" }),
       api.app.listDataSources,
       {},
     ),
   ).rejects.toThrow("identity");
   await operator().mutation(api.admission.revoke, { subject: "user_a" });
-  await expect(client.query(api.app.listDataSources, {})).rejects.toThrow(
+  await expect(listAll(client, api.app.listDataSources, {})).rejects.toThrow(
     "admission",
   );
   await operator().mutation(api.admission.grant, { subject: "user_a" });
@@ -314,7 +316,7 @@ it("denies unmapped and foreign services and checks owner admission plus credent
     workspaceId: a,
     credentialId: "credential_a",
   });
-  await expect(client.query(api.app.listDataSources, {})).rejects.toThrow(
+  await expect(listAll(client, api.app.listDataSources, {})).rejects.toThrow(
     "revoked",
   );
 });
@@ -328,17 +330,17 @@ it("fails closed for missing or unknown mode and preserves explicit local princi
   });
   for (const mode of [undefined, "unknown"]) {
     vi.stubEnv("DASHFRAME_DEPLOYMENT_MODE", mode);
-    await expect(local.query(api.app.listDataSources, {})).rejects.toThrow(
+    await expect(listAll(local, api.app.listDataSources, {})).rejects.toThrow(
       "DASHFRAME_DEPLOYMENT_MODE",
     );
   }
   vi.stubEnv("DASHFRAME_DEPLOYMENT_MODE", "local");
-  expect(await local.query(api.app.listDataSources, {})).toEqual([]);
+  expect(await listAll(local, api.app.listDataSources, {})).toEqual([]);
   await expect(host().query(api.admission.status, {})).rejects.toThrow(
     "local mode",
   );
   await expect(
-    browser("local").query(api.app.listDataSources, {}),
+    listAll(browser("local"), api.app.listDataSources, {}),
   ).rejects.toThrow("local mode");
 });
 

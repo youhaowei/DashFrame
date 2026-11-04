@@ -1,4 +1,4 @@
-import { nativeQueryMock } from "@/test/native-query-fixture";
+import { nativeQueryMocks } from "@/test/native-query-fixture";
 import { render, screen, within } from "@testing-library/react";
 import type React from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -12,7 +12,7 @@ const REPORT = {
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref) => ({
+  ...nativeQueryMocks((ref) => ({
     data: ref._path === "listDashboards" ? [REPORT] : [],
   })),
   useMutation: () => vi.fn(),

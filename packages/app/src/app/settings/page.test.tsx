@@ -1,7 +1,7 @@
 import {
   hostMutationMock,
   hostQueryMock,
-  nativeQueryMock,
+  nativeQueryMocks,
 } from "@/test/native-query-fixture";
 import {
   fireEvent,
@@ -75,7 +75,7 @@ const TABLES = [
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) => {
+  ...nativeQueryMocks((ref: { _path: string }) => {
     if (mockHost.failingQueries.includes(ref._path))
       return { isError: true, error: new Error("query failed") };
     if (ref._path === "projectInfo")

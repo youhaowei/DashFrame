@@ -43,6 +43,9 @@ function token(
   return `${input}.${sign("RSA-SHA256", Buffer.from(input), keys.privateKey).toString("base64url")}`;
 }
 
+/** The list queries read one page per call; one page is enough here. */
+const firstPage = { paginationOpts: { cursor: null, numItems: 10 } };
+
 async function call(
   url: string,
   operation: string,
@@ -245,20 +248,21 @@ it(
         workspaceId: a,
       };
       const existingService = token(runtimeKeys, serviceClaims);
-      expect((await invoke("app:listDataSources", existingService)).ok).toBe(
-        false,
-      );
+      expect(
+        (await invoke("app:listDataSources", existingService, firstPage)).ok,
+      ).toBe(false);
       const binding = { credentialId, subject: "a", workspaceId: a };
       expect(await ownerA.register(credentialId)).toEqual(binding);
       expect(await ownerA.register(credentialId)).toEqual(binding);
-      expect((await invoke("app:listDataSources", existingService)).ok).toBe(
-        true,
-      );
+      expect(
+        (await invoke("app:listDataSources", existingService, firstPage)).ok,
+      ).toBe(true);
       expect(
         (
           await invoke(
             "app:listDataSources",
             token(runtimeKeys, { ...serviceClaims, workspaceId: b }),
+            firstPage,
           )
         ).ok,
       ).toBe(false);
@@ -346,14 +350,14 @@ it(
       await configureHosted(backend, directory, runtimeKeys, operatorKeys);
       expect(await adapter("a", a).register(credentialId)).toEqual(binding);
       await expect(adapter("b", b).register(credentialId)).rejects.toThrow();
-      expect((await invoke("app:listDataSources", existingService)).ok).toBe(
-        true,
-      );
+      expect(
+        (await invoke("app:listDataSources", existingService, firstPage)).ok,
+      ).toBe(true);
       await adapter("a", a).revoke(credentialId);
       await adapter("a", a).revoke(credentialId);
-      expect((await invoke("app:listDataSources", existingService)).ok).toBe(
-        false,
-      );
+      expect(
+        (await invoke("app:listDataSources", existingService, firstPage)).ok,
+      ).toBe(false);
       await expect(adapter("a", a).register(credentialId)).rejects.toThrow();
       expect(
         (
@@ -382,9 +386,9 @@ it(
       backend = undefined;
       backend = await startLocalConvex(options);
       await configureHosted(backend, directory, runtimeKeys, operatorKeys);
-      expect((await invoke("app:listDataSources", existingService)).ok).toBe(
-        false,
-      );
+      expect(
+        (await invoke("app:listDataSources", existingService, firstPage)).ok,
+      ).toBe(false);
       await expect(adapter("a", a).register(credentialId)).rejects.toThrow();
     } finally {
       await backend?.stop();

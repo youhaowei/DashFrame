@@ -1,5 +1,6 @@
-import { useQuery_experimental as useQuery, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { ConnectorIcon } from "@/components/data-sources/renderers/ConnectorIcon";
 import { RoutedCardActionMenuTrigger } from "@/components/RoutedCardActionMenuTrigger";
 import {
@@ -122,7 +123,7 @@ export default function DataSourcesPage({
   useRegistryVersion();
 
   const dataSourcesQuery = queryStatus(
-    useQuery({ query: api.app.listDataSources, args: {} }),
+    useArtifactList({ query: api.app.listDataSources, args: {} }),
   );
   const dataSources = dataSourcesQuery.data;
   const commitBatch = useMutation(api.app.commitBatch);
@@ -130,7 +131,7 @@ export default function DataSourcesPage({
 
   // Get all data tables to count them per source
   const dataTablesQuery = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
   const allDataTables = dataTablesQuery.data;
 

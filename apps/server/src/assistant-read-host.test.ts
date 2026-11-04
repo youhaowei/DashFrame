@@ -16,6 +16,26 @@ import { createAssistantReadHost } from "./assistant-read-host";
 
 type Artifact = Record<string, unknown> & { id: string; kind: string };
 
+/**
+ * One page of a fixture list: two rows whatever the request asks, so every
+ * list read in these tests crosses a page boundary the way a large workspace
+ * would.
+ */
+function listPage(operation: string, input: unknown, rows: Artifact[]) {
+  const { paginationOpts } = input as {
+    paginationOpts?: { cursor: string | null };
+  };
+  if (!paginationOpts)
+    throw new Error(`List read without pagination: ${operation}`);
+  const start = paginationOpts.cursor ? Number(paginationOpts.cursor) : 0;
+  const end = Math.min(start + 2, rows.length);
+  return structuredClone({
+    page: rows.slice(start, end),
+    isDone: end >= rows.length,
+    continueCursor: String(end),
+  });
+}
+
 function createReadFixture() {
   const canonical = new Map<string, Artifact>();
   const drafts = new Map<string, Map<string, Artifact>>();
@@ -45,8 +65,19 @@ function createReadFixture() {
         const expectedKind =
           entity === "DataFrame" ? "dataFrame" : kinds[entity];
         if (!expectedKind) throw new Error(`Unexpected list: ${operation}`);
-        return structuredClone(
-          [...records.values()].filter((row) => row.kind === expectedKind),
+        const filter = input as { dataSourceId?: string; insightId?: string };
+        return listPage(
+          operation,
+          input,
+          [...records.values()].filter(
+            (row) =>
+              row.kind === expectedKind &&
+              (filter.dataSourceId === undefined ||
+                (row as { dataSourceId?: string }).dataSourceId ===
+                  filter.dataSourceId) &&
+              (filter.insightId === undefined ||
+                (row as { insightId?: string }).insightId === filter.insightId),
+          ),
         );
       }
       throw new Error(`Unexpected operation: ${operation}`);
@@ -236,12 +267,15 @@ describe("assistant read host (ApplicationOperations adapter)", () => {
     ).toEqual([vizId]);
     expect(fixture.execute).toHaveBeenCalledWith(
       "listDataTables",
-      {},
+      {
+        dataSourceId: sourceId,
+        paginationOpts: { cursor: null, numItems: 500 },
+      },
       { draftId },
     );
     expect(fixture.execute).toHaveBeenCalledWith(
       "listVisualizations",
-      {},
+      { insightId, paginationOpts: { cursor: null, numItems: 500 } },
       { draftId },
     );
     // No frame has been materialized for the insight.
@@ -274,7 +308,8 @@ describe("assistant read host (ApplicationOperations adapter)", () => {
       forPrincipal: () => fakeApp,
       execute: async (path: string) => {
         if (path === "getDataFrameEntry") return rawFrame;
-        if (path === "listDataFrames") return [rawFrame];
+        if (path === "listDataFrames")
+          return { page: [rawFrame], isDone: true, continueCursor: "" };
         throw new Error(`Unexpected read: ${path}`);
       },
     };

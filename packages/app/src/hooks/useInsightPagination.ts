@@ -1,6 +1,6 @@
 import { HostOperationError, requestHost } from "@/data/host";
-import { useQuery_experimental as useQuery } from "convex/react";
 import { queryStatus } from "@/data/query-status";
+import { useArtifactList } from "@/data/artifact-lists";
 import { queryDataFrame } from "@/lib/data-access/data-frames";
 import { buildInsightColumnDisplayNames } from "@/lib/insight-column-display-names";
 import { api } from "@dashframe/convex-backend/api";
@@ -256,11 +256,11 @@ export function useInsightPagination({
   presentation,
 }: UseInsightPaginationOptions) {
   const dataTablesQuery = queryStatus(
-    useQuery({ query: api.app.listDataTables, args: {} }),
+    useArtifactList({ query: api.app.listDataTables, args: {} }),
   );
   const dataTables = dataTablesQuery.data ?? EMPTY_DATA_TABLES;
   const insightsQuery = queryStatus(
-    useQuery({ query: api.app.listInsights, args: {} }),
+    useArtifactList({ query: api.app.listInsights, args: {} }),
   );
   const insights = insightsQuery.data ?? EMPTY_INSIGHTS;
   const sourcesReady =

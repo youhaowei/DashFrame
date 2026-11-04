@@ -1,5 +1,5 @@
 import {
-  nativeQueryMock,
+  nativeQueryMocks,
   nativeMutationMock,
   hostQueryMock,
   hostMutationMock,
@@ -17,9 +17,7 @@ const { mockUseQuery, mockRemoveDataFrame, mockUpdateDataFrameEntry } =
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  useQuery_experimental: nativeQueryMock((ref: { _path: string }) =>
-    mockUseQuery(ref),
-  ),
+  ...nativeQueryMocks((ref: { _path: string }) => mockUseQuery(ref)),
   useMutation: nativeMutationMock((ref: { _path: string }) => {
     if (ref._path === "updateDataFrameEntry") {
       return { mutateAsync: mockUpdateDataFrameEntry };
