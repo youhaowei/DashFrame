@@ -116,7 +116,9 @@ function advance(
   };
 }
 type ClearedTable =
-  (typeof artifactTables)[number] | "draftLog" | "draftChanges";
+  | (typeof artifactTables)[number]
+  | "draftLog"
+  | "draftChanges";
 /**
  * A bulk write's continuation is only valid for the run that scheduled it.
  * The current run of each operation is recorded in `hostSettings`; a call
