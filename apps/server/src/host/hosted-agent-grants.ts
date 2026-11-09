@@ -26,14 +26,12 @@ export function createHostedAgentGrants(options: {
       user: HostedUserTokenSource,
       workspaceId: string,
       clientKey: string,
-      issuedAt: number,
     ): Promise<EnsuredAgentGrant> {
       const client = new ConvexHttpClient(deploymentUrl);
       client.setAuth(options.tokens.agentGrant(user, workspaceId).token);
       try {
         const grant = await client.mutation(api.agentGrants.ensureOAuthGrant, {
           clientKey,
-          issuedAt,
         });
         return { status: "active", grantId: grant.grantId };
       } catch (error) {

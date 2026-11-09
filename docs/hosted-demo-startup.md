@@ -59,7 +59,7 @@ In the WorkOS dashboard for the environment the hosted app already uses for sign
 
 An unauthenticated request gets a 401 whose `WWW-Authenticate` header points at `/.well-known/oauth-protected-resource/mcp`. Claude reads that metadata, signs the user in through AuthKit, and retries with the token. An account without admission gets 403.
 
-Each sign-in creates an agent grant for that user and OAuth client. A grant can read and draft but not publish, the same limits as a named credential. Revoking a grant denies the next request, and tokens issued before the revocation stay refused even after the client reconnects.
+Each sign-in creates an agent grant for that user and OAuth client. A grant can read and draft but not publish, the same limits as a named credential. Revoking a grant denies the next request and every later one, including requests with refreshed tokens. Reconnecting a revoked client is not supported yet.
 
 ## Vault key rotation
 

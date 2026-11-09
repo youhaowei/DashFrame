@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { ConvexError } from "convex/values";
 import { createMcpRoute } from "../mcp/route";
 import type {
   HostedCredentialTokenSource,
@@ -74,8 +75,11 @@ export function mountHostedMcpRoutes(
       )
         return unauthorized();
       ownerId = binding.subject;
-    } catch {
-      return unauthorized();
+    } catch (error) {
+      // Convex denials (revoked, unowned, unadmitted) are auth failures; a
+      // transport fault is our outage and must not trigger re-authorization.
+      if (error instanceof ConvexError) return unauthorized();
+      return c.json({ error: "Agent request unavailable" }, 503);
     }
     try {
       return await withPrincipalContext(
@@ -167,9 +171,8 @@ async function bindAgent(
       user,
       admission.workspaceId,
       token.clientKey,
-      token.issuedAt,
     );
-    // A token minted before revocation stays denied; the client must reconnect.
+    // Revocation is final until the owner explicitly reconnects this client.
     if (grant.status === "revoked") return "revoked";
     return {
       workspaceId: admission.workspaceId,

@@ -106,9 +106,6 @@ export default defineSchema({
     permissions: v.array(agentPermission),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
-    // Latest revocation time. It outlives reissue: tokens issued at or before
-    // it stay refused even after the client reconnects with a newer token.
-    notBefore: v.optional(v.number()),
   })
     .index("by_subject_and_clientKey", ["subject", "clientKey"])
     .index("by_grantId", ["grantId"])

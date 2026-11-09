@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { Hono } from "hono";
+import { ConvexError } from "convex/values";
 import {
   mountHostedMcpRoutes,
   type HostedMcpOAuthOptions,
@@ -21,7 +22,7 @@ function setup(
     verify?: AgentTokenVerification;
     admission?: HostedAdmission | Error;
     grant?: EnsuredAgentGrant;
-    bindingFails?: boolean;
+    bindingFails?: boolean | "outage";
     oauth?: false;
   } = {},
 ) {
@@ -73,7 +74,8 @@ function setup(
     publicOrigin: origin,
     serviceAccess: {
       resolve: async (workspaceId, source) => {
-        if (bindingFails) throw new Error("Credential revoked");
+        if (bindingFails === "outage") throw new TypeError("fetch failed");
+        if (bindingFails) throw new ConvexError("Credential revoked");
         return {
           workspaceId,
           credentialId: source.credentialId,
@@ -98,7 +100,7 @@ function setup(
     calls,
     request,
     authorized,
-    setBindingFails: (value: boolean) => (bindingFails = value),
+    setBindingFails: (value: boolean | "outage") => (bindingFails = value),
   };
 }
 
@@ -195,11 +197,7 @@ describe("universal /mcp endpoint", () => {
     expect(await (await authorized()).text()).toBe("served");
     expect(calls.admission).toBe(1);
     expect(calls.ensure).toHaveLength(1);
-    expect(calls.ensure[0]!.slice(1)).toEqual([
-      "w1",
-      "oauth:claude",
-      expect.any(Number),
-    ]);
+    expect(calls.ensure[0]!.slice(1)).toEqual(["w1", "oauth:claude"]);
     expect(calls.served).toHaveLength(2);
     expect(calls.served[0]).toMatchObject({
       workspaceId: "w1",
@@ -220,6 +218,15 @@ describe("universal /mcp endpoint", () => {
     setBindingFails(false);
     await authorized();
     expect(calls.admission).toBe(2);
+  });
+
+  it("answers a backend outage in the service check with 503, not a challenge", async () => {
+    const { authorized, setBindingFails } = setup();
+    await authorized();
+    setBindingFails("outage");
+    const response = await authorized();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
   });
 
   it("rejects a token that is already within a second of expiry", async () => {

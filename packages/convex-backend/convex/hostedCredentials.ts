@@ -6,6 +6,7 @@ import {
   requireAdmittedWorkspace,
   requireHostedAuthority,
 } from "./admissionGuard";
+import { isAgentGrantId } from "./agentGrants";
 
 const ownership = v.object({
   credentialId: v.string(),
@@ -57,6 +58,9 @@ async function owner(ctx: QueryCtx, credentialId: string) {
     )
   )
     throw new ConvexError("Invalid credential ID");
+  // Agent grant IDs share credentialOwners; their lifecycle lives in agentGrants.
+  if (await isAgentGrantId(ctx, credentialId))
+    throw new ConvexError("Agent grants are not named credentials");
   return { credentialId, subject, workspaceId: admission.workspaceId! };
 }
 

@@ -1137,7 +1137,7 @@ it(
 );
 
 it(
-  "serves an AuthKit-signed agent through a real grant, revokes it live, and reissues only for a newer token",
+  "serves an AuthKit-signed agent through a real grant and keeps a revoked grant refused",
   { skip: process.env.DASHFRAME_CONVEX_INTEGRATION !== "1", timeout: 180_000 },
   async () => {
     const directory = await mkdtemp(
@@ -1294,7 +1294,13 @@ it(
       admin.setAuth(
         issued(userClaims("a", binding!.workspaceId, "host-credentials")).token,
       );
-      expect(await admin.query(api.agentGrants.listGrants, {})).toEqual([
+      expect(
+        (
+          await admin.query(api.agentGrants.listGrants, {
+            paginationOpts: { cursor: null, numItems: 10 },
+          })
+        ).page,
+      ).toEqual([
         expect.objectContaining({
           grantId: binding!.grantId,
           clientKey: "oauth:claude",
@@ -1313,10 +1319,9 @@ it(
       );
       expect(served).toHaveLength(1);
 
-      const reconnected = await oauthToken("a", now + 5);
-      expect(await (await call(reconnected)).text()).toBe("served");
-      expect(served[1]!.grantId).not.toBe(binding!.grantId);
-      expect((await call(first)).status).toBe(401);
+      // A refreshed token for the same client stays refused.
+      expect((await call(await oauthToken("a", now + 5))).status).toBe(401);
+      expect(served).toHaveLength(1);
     } finally {
       await backend?.stop();
       await rm(directory, { recursive: true, force: true });

@@ -71,11 +71,10 @@ function agent(workspaceId: string, grantId: string) {
     workspaceId,
   });
 }
-const now = () => Math.floor(Date.now() / 1000);
 
 it("creates one review-only grant per subject and client and serves it as a service principal", async () => {
   const a = await admit("a");
-  const args = { clientKey: "oauth:https://claude.ai/client", issuedAt: now() };
+  const args = { clientKey: "oauth:https://claude.ai/client" };
   const first = await host("a", a).mutation(
     api.agentGrants.ensureOAuthGrant,
     args,
@@ -120,7 +119,7 @@ it("creates one review-only grant per subject and client and serves it as a serv
 it("denies the wrong authority, purpose, principal, workspace, or an unadmitted subject", async () => {
   const a = await admit("a");
   const b = await admit("b");
-  const args = { clientKey: "oauth:client", issuedAt: now() };
+  const args = { clientKey: "oauth:client" };
   for (const caller of [
     t,
     operator(),
@@ -149,14 +148,13 @@ it("denies the wrong authority, purpose, principal, workspace, or an unadmitted 
   ).rejects.toThrow("admission");
 });
 
-it("revokes immediately, keeps pre-revocation tokens denied, and reissues for a newer token", async () => {
+it("revokes immediately and keeps the grant revoked for every later token", async () => {
   const a = await admit("a");
   const b = await admit("b");
   const clientKey = "oauth:client";
-  const issuedAt = now() - 10;
   const { grantId } = await host("a", a).mutation(
     api.agentGrants.ensureOAuthGrant,
-    { clientKey, issuedAt },
+    { clientKey },
   );
   await expect(
     owner("b", b).mutation(api.agentGrants.revokeGrant, { grantId }),
@@ -166,39 +164,42 @@ it("revokes immediately, keeps pre-revocation tokens denied, and reissues for a 
   await expect(
     listAll(agent(a, grantId), api.app.listDataSources, {}),
   ).rejects.toThrow("revoked");
+  // A refreshed token is indistinguishable from a new consent, so no token
+  // may reactivate the grant on its own.
   await expect(
-    host("a", a).mutation(api.agentGrants.ensureOAuthGrant, {
-      clientKey,
-      issuedAt,
-    }),
+    host("a", a).mutation(api.agentGrants.ensureOAuthGrant, { clientKey }),
   ).rejects.toThrow("Agent grant revoked");
 
-  const reissued = await host("a", a).mutation(
-    api.agentGrants.ensureOAuthGrant,
-    { clientKey, issuedAt: now() + 5 },
-  );
-  expect(reissued.grantId).not.toBe(grantId);
-  expect(
-    await listAll(agent(a, reissued.grantId), api.app.listDataSources, {}),
-  ).toEqual([]);
-  await expect(
-    listAll(agent(a, grantId), api.app.listDataSources, {}),
-  ).rejects.toThrow("revoked");
-  // Reissue must not resurrect a token minted before the revocation.
-  await expect(
-    host("a", a).mutation(api.agentGrants.ensureOAuthGrant, {
-      clientKey,
-      issuedAt,
-    }),
-  ).rejects.toThrow("Agent grant revoked");
-
-  const listed = await owner("a", a).query(api.agentGrants.listGrants, {});
-  expect(listed).toEqual([
+  const paging = { paginationOpts: { cursor: null, numItems: 10 } };
+  const listed = await owner("a", a).query(api.agentGrants.listGrants, paging);
+  expect(listed.page).toEqual([
     expect.objectContaining({
-      grantId: reissued.grantId,
+      grantId,
       clientKey,
-      revokedAt: null,
+      revokedAt: expect.any(Number),
     }),
   ]);
-  expect(await owner("b", b).query(api.agentGrants.listGrants, {})).toEqual([]);
+  expect(
+    (await owner("b", b).query(api.agentGrants.listGrants, paging)).page,
+  ).toEqual([]);
+});
+
+it("refuses grant IDs on the named-credential administration path", async () => {
+  const a = await admit("a");
+  const { grantId } = await host("a", a).mutation(
+    api.agentGrants.ensureOAuthGrant,
+    { clientKey: "oauth:client" },
+  );
+  for (const fn of [
+    api.hostedCredentials.revoke,
+    api.hostedCredentials.register,
+  ])
+    await expect(
+      owner("a", a).mutation(fn, { credentialId: grantId }),
+    ).rejects.toThrow("Agent grants are not named credentials");
+  expect(
+    await host("a", a).mutation(api.agentGrants.ensureOAuthGrant, {
+      clientKey: "oauth:client",
+    }),
+  ).toMatchObject({ grantId });
 });

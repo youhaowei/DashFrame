@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import type { UserIdentity } from "convex/server";
+import { paginationOptsValidator, type UserIdentity } from "convex/server";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import {
   hostedUserSubject,
@@ -86,59 +86,44 @@ async function unusedGrantId(ctx: QueryCtx) {
 }
 
 /**
- * Find or create the caller's grant for one OAuth client. A revoked grant is
- * reissued under a new grantId only for an access token minted after the
- * latest revocation. Tokens issued before it stay denied, even after reissue.
+ * Find or create the caller's grant for one OAuth client. Revocation is final
+ * here: a refreshed access token looks the same as a fresh consent, so
+ * reconnecting a revoked client has to be an explicit owner action.
  */
 export const ensureOAuthGrant = mutation({
-  args: { clientKey: v.string(), issuedAt: v.number() },
+  args: { clientKey: v.string() },
   returns: grantResult,
-  handler: async (ctx, { clientKey, issuedAt }) => {
+  handler: async (ctx, { clientKey }) => {
     const { subject, workspaceId } = await hostUser(ctx, "host-agent-grants");
     validateClientKey(clientKey);
-    if (!Number.isFinite(issuedAt) || issuedAt <= 0)
-      throw new ConvexError("Invalid token issue time");
     const existing = await ctx.db
       .query("agentGrants")
       .withIndex("by_subject_and_clientKey", (q) =>
         q.eq("subject", subject).eq("clientKey", clientKey),
       )
       .unique();
-    if (!existing) {
-      const grantId = await unusedGrantId(ctx);
-      await ctx.db.insert("credentialOwners", {
-        credentialId: grantId,
-        subject,
-        workspaceId,
-      });
-      await ctx.db.insert("agentGrants", {
-        grantId,
-        subject,
-        workspaceId,
-        clientKey,
-        permissions: REVIEW_PERMISSIONS,
-        createdAt: Date.now(),
-      });
-      return { grantId, permissions: REVIEW_PERMISSIONS };
-    }
-    if (existing.workspaceId !== workspaceId)
-      throw new ConvexError("Agent grant workspace mismatch");
-    if (
-      existing.notBefore !== undefined &&
-      issuedAt * 1000 <= existing.notBefore
-    )
-      throw new ConvexError("Agent grant revoked");
-    if (existing.revokedAt === undefined)
+    if (existing) {
+      if (existing.workspaceId !== workspaceId)
+        throw new ConvexError("Agent grant workspace mismatch");
+      if (existing.revokedAt !== undefined)
+        throw new ConvexError("Agent grant revoked");
       return { grantId: existing.grantId, permissions: existing.permissions };
-    // The old grantId keeps its revocation marker; reconnecting gets a new one.
+    }
     const grantId = await unusedGrantId(ctx);
     await ctx.db.insert("credentialOwners", {
       credentialId: grantId,
       subject,
       workspaceId,
     });
-    await ctx.db.patch(existing._id, { grantId, revokedAt: undefined });
-    return { grantId, permissions: existing.permissions };
+    await ctx.db.insert("agentGrants", {
+      grantId,
+      subject,
+      workspaceId,
+      clientKey,
+      permissions: REVIEW_PERMISSIONS,
+      createdAt: Date.now(),
+    });
+    return { grantId, permissions: REVIEW_PERMISSIONS };
   },
 });
 
@@ -158,10 +143,8 @@ export const revokeGrant = mutation({
       grant.workspaceId !== workspaceId
     )
       throw new ConvexError("Agent grant ownership required");
-    if (grant.revokedAt === undefined) {
-      const revokedAt = Date.now();
-      await ctx.db.patch(grant._id, { revokedAt, notBefore: revokedAt });
-    }
+    if (grant.revokedAt === undefined)
+      await ctx.db.patch(grant._id, { revokedAt: Date.now() });
     const marker = await ctx.db
       .query("revokedCredentials")
       .withIndex("by_workspaceId_and_credentialId", (q) =>
@@ -178,22 +161,44 @@ export const revokeGrant = mutation({
 });
 
 export const listGrants = query({
-  args: {},
-  returns: v.array(grantSummary),
-  handler: async (ctx) => {
+  args: { paginationOpts: paginationOptsValidator },
+  returns: v.object({
+    page: v.array(grantSummary),
+    isDone: v.boolean(),
+    continueCursor: v.string(),
+  }),
+  handler: async (ctx, { paginationOpts }) => {
     const { subject, workspaceId } = await hostUser(ctx, "host-credentials");
-    const grants = await ctx.db
+    // One admission owns each workspace, so every row here is the caller's.
+    const result = await ctx.db
       .query("agentGrants")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", workspaceId))
-      .take(256);
-    return grants
-      .filter((grant) => grant.subject === subject)
-      .map((grant) => ({
-        grantId: grant.grantId,
-        clientKey: grant.clientKey,
-        permissions: grant.permissions,
-        createdAt: grant.createdAt,
-        revokedAt: grant.revokedAt ?? null,
-      }));
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(100, paginationOpts.numItems),
+      });
+    return {
+      page: result.page
+        .filter((grant) => grant.subject === subject)
+        .map((grant) => ({
+          grantId: grant.grantId,
+          clientKey: grant.clientKey,
+          permissions: grant.permissions,
+          createdAt: grant.createdAt,
+          revokedAt: grant.revokedAt ?? null,
+        })),
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
   },
 });
+
+/** True when an ID belongs to an agent grant, which named-credential admin must not touch. */
+export async function isAgentGrantId(ctx: QueryCtx, id: string) {
+  return (
+    (await ctx.db
+      .query("agentGrants")
+      .withIndex("by_grantId", (q) => q.eq("grantId", id))
+      .unique()) !== null
+  );
+}
