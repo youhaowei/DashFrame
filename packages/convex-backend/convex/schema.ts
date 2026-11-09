@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { json, object, command } from "./values";
+import { agentPermission } from "./agentPermissions";
 import {
   cleanupResource,
   hostPrincipal,
@@ -95,6 +96,23 @@ export default defineSchema({
     subject: v.string(),
     workspaceId: v.string(),
   }).index("by_credentialId", ["credentialId"]),
+  // One grant per (WorkOS subject, OAuth client). Its current grantId is also a
+  // credentialOwners id, so OAuth agents reuse the service-principal path.
+  agentGrants: defineTable({
+    grantId: v.string(),
+    subject: v.string(),
+    workspaceId: v.string(),
+    clientKey: v.string(),
+    permissions: v.array(agentPermission),
+    createdAt: v.number(),
+    revokedAt: v.optional(v.number()),
+    // Latest revocation time. It outlives reissue: tokens issued at or before
+    // it stay refused even after the client reconnects with a newer token.
+    notBefore: v.optional(v.number()),
+  })
+    .index("by_subject_and_clientKey", ["subject", "clientKey"])
+    .index("by_grantId", ["grantId"])
+    .index("by_workspaceId", ["workspaceId"]),
   workspaces: defineTable({
     workspaceId: v.string(),
     projectId: v.string(),

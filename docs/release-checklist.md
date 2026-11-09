@@ -55,9 +55,13 @@ connection, so nothing happens automatically on merge.
      workspace, and its MCP bearer token is refused there.
   4. Credentials: issue a named credential in Settings, call MCP `initialize`
      with it, revoke it, and confirm the same request now returns 401.
-  5. Connectors: start a GA4 setup, finish the Google sign-in, and run one
+  5. Agent OAuth, when `DASHFRAME_MCP_OAUTH_ISSUER` is set: an unauthenticated
+     `POST /mcp` returns 401 with a `resource_metadata` challenge, and adding
+     `https://dashframe.dev/mcp` to Claude as a custom connector signs in and
+     lists the tools.
+  6. Connectors: start a GA4 setup, finish the Google sign-in, and run one
      report; import a CSV and a PostgreSQL table.
-  6. Restart: redeploy or restart the service and confirm the browser session,
+  7. Restart: redeploy or restart the service and confirm the browser session,
      imported data, and issued credentials survive.
 - Record the result, the deployed SHA, and any limitation accepted for this
   release in the private operations record.
