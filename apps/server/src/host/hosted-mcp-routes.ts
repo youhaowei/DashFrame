@@ -227,7 +227,6 @@ function mountUniversalMcpRoute(
     oauth: HostedMcpOAuthOptions,
     key: string,
     token: VerifiedAgentToken,
-    unauthorized: (invalid?: boolean) => Response,
   ): Promise<AgentBinding | Response> {
     const cached = bindings.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached;
@@ -260,7 +259,7 @@ function mountUniversalMcpRoute(
     const token = await verifiedToken(c, oauth, unauthorized);
     if (token instanceof Response) return token;
     const key = `${token.subject}\n${token.clientKey}\n${token.issuedAt}`;
-    const bound = await binding(c, oauth, key, token, unauthorized);
+    const bound = await binding(c, oauth, key, token);
     if (bound instanceof Response) return bound;
     return serveAsService(
       c,
@@ -306,7 +305,7 @@ async function verifiedToken(
   oauth: HostedMcpOAuthOptions,
   unauthorized: (invalid?: boolean) => Response,
 ): Promise<VerifiedAgentToken | Response> {
-  const bearer = /^Bearer ([A-Za-z0-9._~+/-]+=*)$/i.exec(
+  const bearer = /^Bearer ([a-z0-9._~+/-]+=*)$/i.exec(
     c.req.header("Authorization") ?? "",
   );
   if (!bearer) return unauthorized();
