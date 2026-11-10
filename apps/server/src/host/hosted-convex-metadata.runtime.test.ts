@@ -1320,8 +1320,11 @@ it(
       );
       expect(served).toHaveLength(1);
 
-      // A refreshed token for the same client stays refused.
-      expect((await call(await oauthToken("a", now + 5))).status).toBe(401);
+      // A refreshed token for the same client stays refused, without a
+      // challenge that would loop it back through sign-in.
+      const refreshed = await call(await oauthToken("a", now + 5));
+      expect(refreshed.status).toBe(403);
+      expect(refreshed.headers.get("WWW-Authenticate")).toBeNull();
       expect(served).toHaveLength(1);
     } finally {
       await backend?.stop();

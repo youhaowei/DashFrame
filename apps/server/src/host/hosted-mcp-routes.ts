@@ -237,7 +237,13 @@ function mountUniversalMcpRoute(
       remember(key, bound);
       return bound;
     }
-    if (bound === "revoked") return unauthorized(true);
+    // Final revocation: a 401 would only send the client back through sign-in,
+    // which maps to the same revoked grant, so end the flow with a 403.
+    if (bound === "revoked")
+      return c.json(
+        { error: "This agent's access to DashFrame was revoked" },
+        403,
+      );
     if (bound === "unavailable")
       return c.json({ error: "Agent sign-in unavailable" }, 503);
     return c.json({ error: ADMISSION_REFUSALS[bound] }, 403);

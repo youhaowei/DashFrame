@@ -195,10 +195,10 @@ describe("universal /mcp endpoint", () => {
     ).toBe(503);
   });
 
-  it("refuses a token minted before its grant was revoked", async () => {
+  it("ends the flow with 403 for a revoked grant instead of a sign-in loop", async () => {
     const response = await setup({ grant: { status: "revoked" } }).authorized();
-    expect(response.status).toBe(401);
-    expect(response.headers.get("WWW-Authenticate")).toContain("invalid_token");
+    expect(response.status).toBe(403);
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
   });
 
   it("serves the admitted workspace as the grant's service principal and caches the binding", async () => {
