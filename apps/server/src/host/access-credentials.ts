@@ -92,3 +92,24 @@ export async function revokeAccessCredential(
   if (!(await store.revoke(id))) throw new Error("Access credential not found");
   return { ok: true as const };
 }
+
+function agentGrants(ctx: HostContext) {
+  requireWorkspaceOwner(ctx);
+  if (!ctx.agentGrants)
+    throw new Error("Agent sign-in is available only on the hosted app");
+  return ctx.agentGrants;
+}
+
+export async function listAgentGrants(ctx: HostContext) {
+  return agentGrants(ctx).listAgentGrants();
+}
+
+export async function revokeAgentGrant(
+  ctx: HostContext,
+  input: { id: string },
+) {
+  const grants = agentGrants(ctx);
+  const { id } = z.object({ id: z.string().uuid() }).strict().parse(input);
+  await grants.revokeAgentGrant(id);
+  return { ok: true as const };
+}

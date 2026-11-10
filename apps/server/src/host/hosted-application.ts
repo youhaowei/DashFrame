@@ -116,6 +116,7 @@ export function createHostedApplication(options: {
     accessCredentials: resources.accessCredentials
       ? createHostedAccessCredentials(resources.accessCredentials, ownership)
       : undefined,
+    agentGrants: ownership,
     principal,
     workspaceOwnerId,
     requestSignal: options.requestSignal,

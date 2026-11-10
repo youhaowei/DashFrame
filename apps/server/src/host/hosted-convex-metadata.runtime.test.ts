@@ -34,6 +34,7 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { Hono } from "hono";
 import { createAuthKitAccessTokenVerifier } from "./hosted-mcp-oauth";
 import { createHostedAgentGrants } from "./hosted-agent-grants";
+import { createHostedCredentialOwnership } from "./hosted-credential-ownership";
 import { mountHostedMcpRoutes } from "./hosted-mcp-routes";
 import { createHostedApplication } from "./hosted-application";
 import { createHostedServiceAccess } from "./hosted-service-access";
@@ -1290,17 +1291,15 @@ it(
       const [binding] = served;
       expect(binding).toMatchObject({ ownerId: "a" });
 
-      const admin = new ConvexHttpClient(backend.url);
-      admin.setAuth(
-        issued(userClaims("a", binding!.workspaceId, "host-credentials")).token,
-      );
-      expect(
-        (
-          await admin.query(api.agentGrants.listGrants, {
-            paginationOpts: { cursor: null, numItems: 10 },
-          })
-        ).page,
-      ).toEqual([
+      // The owner's host-side administration path, as Settings will call it.
+      const admin = createHostedCredentialOwnership({
+        deploymentUrl: backend.url,
+        allowInsecureLoopbackForTests: true,
+        getToken: async () =>
+          issued(userClaims("a", binding!.workspaceId, "host-credentials"))
+            .token,
+      });
+      expect(await admin.listAgentGrants()).toEqual([
         expect.objectContaining({
           grantId: binding!.grantId,
           clientKey: "oauth:claude",
@@ -1308,9 +1307,11 @@ it(
           revokedAt: null,
         }),
       ]);
-      await admin.mutation(api.agentGrants.revokeGrant, {
-        grantId: binding!.grantId,
+      // The real backend redacts messages; a ConvexError's text is its data.
+      await expect(admin.revoke(binding!.grantId)).rejects.toMatchObject({
+        data: "Agent grants are not named credentials",
       });
+      await admin.revokeAgentGrant(binding!.grantId);
       // Live revocation: the cached binding fails the per-request service check.
       const revoked = await call(first);
       expect(revoked.status).toBe(401);

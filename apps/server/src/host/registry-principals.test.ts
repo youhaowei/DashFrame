@@ -63,6 +63,8 @@ const cases = {
   listAccessCredentials: { input: {} },
   issueAccessCredential: { input: { name: "Bot" } },
   revokeAccessCredential: { input: { id } },
+  listAgentGrants: { input: {} },
+  revokeAgentGrant: { input: { id } },
   startConnectorSetup: {
     input: { connectorId: "notion", requestedName: "Source" },
   },

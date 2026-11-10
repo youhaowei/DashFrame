@@ -139,6 +139,8 @@ export const hostOperations = {
     access.issueAccessCredential,
   ),
   revokeAccessCredential: operation(id, access.revokeAccessCredential),
+  listAgentGrants: operation(empty, access.listAgentGrants),
+  revokeAgentGrant: operation(id, access.revokeAgentGrant),
   startConnectorSetup: operation(
     z
       .object({
