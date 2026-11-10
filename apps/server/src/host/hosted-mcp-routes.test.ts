@@ -148,6 +148,16 @@ describe("universal /mcp endpoint", () => {
     }
   });
 
+  it("accepts the Bearer scheme in any letter case", async () => {
+    const { request } = setup();
+    for (const scheme of ["bearer", "BEARER", "BeArEr"]) {
+      const response = await request("/mcp", {
+        headers: { Authorization: `${scheme} a.b.c` },
+      });
+      expect(await response.text()).toBe("served");
+    }
+  });
+
   it("answers an invalid token with invalid_token and a key outage with 503", async () => {
     const invalid = await setup({
       verify: { ok: false, reason: "invalid" },

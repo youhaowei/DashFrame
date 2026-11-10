@@ -300,7 +300,7 @@ async function verifiedToken(
   oauth: HostedMcpOAuthOptions,
   unauthorized: (invalid?: boolean) => Response,
 ): Promise<VerifiedAgentToken | Response> {
-  const bearer = /^Bearer ([A-Za-z0-9._~+/-]+=*)$/.exec(
+  const bearer = /^Bearer ([A-Za-z0-9._~+/-]+=*)$/i.exec(
     c.req.header("Authorization") ?? "",
   );
   if (!bearer) return unauthorized();
