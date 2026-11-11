@@ -49,4 +49,13 @@ describe("command guide — self consistency", () => {
     expect(update?.args.updates).toContain("overrides are not editable");
     expect(update?.notes).toContain("PatchDashboardItemOverride");
   });
+
+  it.each([
+    "PatchDashboardItemOverride",
+    "AddDashboardItem",
+    "SetDashboardLayout",
+  ])("%s states that a tile sort override takes one key", (name) => {
+    const entry = COMMAND_GUIDE.find((candidate) => candidate.name === name);
+    expect(entry?.notes).toMatch(/one key/);
+  });
 });

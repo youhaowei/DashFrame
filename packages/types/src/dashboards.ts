@@ -32,7 +32,11 @@ export interface DashboardItemOverrides {
    * `cleared: true`).  Fields not mentioned fall through to the insight default.
    */
   filters?: InsightFilterOverride[];
-  /** Sort override — replaces the insight's sorts array when present. */
+  /**
+   * Sort override — replaces the insight's sort when present.  It runs as the
+   * insight's runtime sort, which takes one key, so writes reject a longer
+   * list; a list saved before that rule may still hold more.
+   */
   sorts?: InsightSort[];
   /** Row-limit override — replaces the insight's limit when present. */
   limit?: number;
@@ -178,5 +182,6 @@ export type DashboardItemOverridePatch =
       field: string;
       value: InsightFilterOverride | null;
     }
+  // One key at most: see `DashboardItemOverrides.sorts`.
   | { kind: "sorts"; value: InsightSort[] | null }
   | { kind: "limit"; value: number | null };

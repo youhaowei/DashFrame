@@ -390,6 +390,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     notes:
       "Rejects a duplicate item id. " +
       "overrides is optional — omit for a plain panel; supply to pin filters/sorts/limit at the item level. " +
+      "overrides.sorts takes one key; a longer list is rejected. " +
       "Use FanOutDashboardItems to batch-create N items with distinct field-value pins.",
   },
   {
@@ -410,7 +411,8 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     group: "dashboard",
     summary: "Replace-all the dashboard layout (bulk rearrange).",
     args: { dashboardId: "UUID", items: "DashboardItemInput[]" },
-    notes: "Rejects duplicate item ids.",
+    notes:
+      "Rejects duplicate item ids, and an item whose overrides.sorts gains more than one key.",
   },
   {
     name: "RemoveDashboardItem",
@@ -428,10 +430,12 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       dashboardId: "UUID",
       itemId: "UUID",
       patch:
-        "{ kind:'filter', field, value } | { kind:'sorts', value } | { kind:'limit', value }",
+        "{ kind:'filter', field, value } | { kind:'sorts', value: [{ field, direction:'asc'|'desc' }] | null } | { kind:'limit', value }",
     },
     notes:
-      "Null clears the selected override without replacing sibling overrides.",
+      "Null clears the selected override without replacing sibling overrides. " +
+      "A sort override takes one key, because a tile runs one runtime sort key; a longer list is rejected. " +
+      "Its field is the id of a field or metric the Insight's viewer controls allow sorting by.",
   },
   {
     name: "SetDashboardControls",

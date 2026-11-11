@@ -1173,6 +1173,21 @@ async function run(
   }
   throw new Error(`Unimplemented command ${p}`);
 }
+/** A tile's sort override list, when it has one. */
+function tileSorts(item: ObjectValue): Json[] | undefined {
+  const overrides = item.overrides;
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides))
+    return undefined;
+  return Array.isArray(overrides.sorts) ? overrides.sorts : undefined;
+}
+/**
+ * A tile's sort override runs as the Insight's runtime sort, which the host
+ * limits to one key (`maxKeys` in `insightCodec.ts`).  A longer list would
+ * save and then fail every time the tile loads.
+ */
+function tileSortKeyLimit(keys: number): string {
+  return `A tile sort override takes one key, not ${keys}. Send one { field, direction }.`;
+}
 async function dashboardCommand(
   graph: Graph,
   p: string,
@@ -1259,6 +1274,12 @@ async function dashboardCommand(
       }
       overrides.filters = filters;
     } else if (patch.kind === "sorts" || patch.kind === "limit") {
+      if (
+        patch.kind === "sorts" &&
+        Array.isArray(patch.value) &&
+        patch.value.length > 1
+      )
+        throw new Error(tileSortKeyLimit(patch.value.length));
       if (patch.value === null) delete overrides[patch.kind];
       else overrides[patch.kind] = patch.value!;
     } else throw new Error("Unknown override patch");
@@ -1274,6 +1295,13 @@ async function dashboardCommand(
     const source = items.find((x) => x.id === a.sourceItemId);
     if (!source || source.type !== "visualization" || !source.visualizationId)
       throw new Error("Source must be a visualization item");
+    // Each clone copies the source's overrides, so a longer list saved before
+    // the one-key rule would be written again onto every new tile.
+    const sourceSortKeys = tileSorts(source)?.length ?? 0;
+    if (sourceSortKeys > 1)
+      throw new Error(
+        `The source item's sort override has ${sourceSortKeys} keys, and a tile sort takes one. Patch it to one key before repeating the item.`,
+      );
     const placements = objects(a.placements, "placements");
     if (!placements.length) throw new Error("Placements must not be empty");
     const field = str(a.field, "field");
@@ -1301,6 +1329,17 @@ async function dashboardCommand(
   }
   if (new Set(items.map((i) => i.id)).size !== items.length)
     throw new Error("Duplicate dashboard item id");
+  // Every command that writes an item passes here, so none can store a sort
+  // override the tile cannot run.  A longer list saved before this rule stays
+  // readable: rejecting it would also refuse an unrelated move or resize of
+  // that dashboard, so only a list this command added or changed is refused.
+  for (const item of items) {
+    const sorts = tileSorts(item);
+    if (!sorts || sorts.length <= 1) continue;
+    const saved = (row.layout ?? []).find((stored) => stored.id === item.id);
+    if (!saved || stable(tileSorts(saved)) !== stable(sorts))
+      throw new Error(tileSortKeyLimit(sorts.length));
+  }
   const state = clean(
     parseStoredDashboardState({ layout: items, controls: row.controls }, p),
   );

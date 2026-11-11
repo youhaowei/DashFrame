@@ -3922,6 +3922,165 @@ describe("existing command behavior on native Convex", () => {
     ).find((candidate) => candidate.id === itemId);
     expect(item?.overrides).toBeUndefined();
   });
+  describe("tile sort override key limit", () => {
+    const twoKeys = [
+      { field: "revenue", direction: "desc" as const },
+      { field: "region", direction: "asc" as const },
+    ];
+    const oneKeyMessage =
+      "A tile sort override takes one key, not 2. Send one { field, direction }.";
+    type StoredItem = {
+      id: string;
+      x: number;
+      overrides?: { sorts?: unknown[] };
+    };
+    const storedItems = async (dashId: string) =>
+      (await dashboardsById(dashId))[0]!.layout as StoredItem[];
+    /** Stores a sort list the way a write before the one-key rule could. */
+    const storeSorts = (dashId: string, itemId: string, sorts: unknown[]) =>
+      t.run(async (ctx) => {
+        const row = (
+          await ctx.db
+            .query("dashboards")
+            .withIndex("by_workspaceId_and_id", (q) =>
+              q.eq("workspaceId", "test").eq("id", dashId),
+            )
+            .take(1)
+        )[0]!;
+        await ctx.db.patch(row._id, {
+          layout: (row.layout as StoredItem[]).map((item) =>
+            item.id === itemId ? { ...item, overrides: { sorts } } : item,
+          ) as never,
+        });
+      });
+
+    it("rejects a sort patch with more than one key and keeps the saved sort", async () => {
+      const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+      const oneKey = [{ field: "revenue", direction: "desc" as const }];
+      await commit(
+        cmd("PatchDashboardItemOverride", {
+          dashboardId: dashId,
+          itemId,
+          patch: { kind: "sorts", value: oneKey },
+        }),
+      );
+
+      await expect(
+        commit(
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashId,
+            itemId,
+            patch: { kind: "sorts", value: twoKeys },
+          }),
+        ),
+      ).rejects.toThrow(oneKeyMessage);
+
+      expect((await storedItems(dashId))[0]?.overrides).toEqual({
+        sorts: oneKey,
+      });
+    });
+
+    it("rejects a new item and a replaced layout that carry more than one sort key", async () => {
+      const { dashId, sourceItemId, vizId } = await makeDashWithVizItem();
+      const [source] = await storedItems(dashId);
+      const tile = {
+        id: id(),
+        type: "visualization" as const,
+        visualizationId: vizId,
+        x: 0,
+        y: 4,
+        width: 6,
+        height: 4,
+        overrides: { sorts: twoKeys },
+      };
+
+      await expect(
+        commit(cmd("AddDashboardItem", { dashboardId: dashId, item: tile })),
+      ).rejects.toThrow(oneKeyMessage);
+      await expect(
+        commit(
+          cmd("SetDashboardLayout", {
+            dashboardId: dashId,
+            items: [{ ...source, overrides: { sorts: twoKeys } }] as never,
+          }),
+        ),
+      ).rejects.toThrow(oneKeyMessage);
+
+      const items = await storedItems(dashId);
+      expect(items.map((item) => item.id)).toEqual([sourceItemId]);
+      expect(items[0]?.overrides).toBeUndefined();
+    });
+
+    it("keeps a longer list saved before the rule through a layout edit, and refuses to copy it", async () => {
+      const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+      await storeSorts(dashId, itemId, twoKeys);
+      const [stored] = await storedItems(dashId);
+
+      // Moving the tile sends its saved overrides back unchanged.
+      await commit(
+        cmd("SetDashboardLayout", {
+          dashboardId: dashId,
+          items: [{ ...stored, x: 3 }] as never,
+        }),
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          updates: { y: 2 },
+        }),
+      );
+      const [moved] = await storedItems(dashId);
+      expect(moved?.x).toBe(3);
+      expect(moved?.overrides?.sorts).toEqual(twoKeys);
+
+      // A changed list is a new write, and still has two keys.
+      await expect(
+        commit(
+          cmd("SetDashboardLayout", {
+            dashboardId: dashId,
+            items: [
+              { ...moved, overrides: { sorts: [...twoKeys].reverse() } },
+            ] as never,
+          }),
+        ),
+      ).rejects.toThrow(oneKeyMessage);
+      await expect(
+        commit(
+          cmd("FanOutDashboardItems", {
+            dashboardId: dashId,
+            sourceItemId: itemId,
+            field: "region",
+            placements: [{ id: id(), value: "EMEA", x: 0, y: 8 }],
+          }),
+        ),
+      ).rejects.toThrow(
+        "The source item's sort override has 2 keys, and a tile sort takes one.",
+      );
+      expect(await storedItems(dashId)).toHaveLength(1);
+
+      // A patch is always a new write, even one repeating the saved list.
+      await expect(
+        commit(
+          cmd("PatchDashboardItemOverride", {
+            dashboardId: dashId,
+            itemId,
+            patch: { kind: "sorts", value: twoKeys },
+          }),
+        ),
+      ).rejects.toThrow(oneKeyMessage);
+
+      // One key repairs the tile.
+      await commit(
+        cmd("PatchDashboardItemOverride", {
+          dashboardId: dashId,
+          itemId,
+          patch: { kind: "sorts", value: [twoKeys[0]!] },
+        }),
+      );
+      expect((await storedItems(dashId))[0]?.overrides?.sorts).toEqual([
+        twoKeys[0],
+      ]);
+    });
+  });
   it("should replace dashboard controls through the command vocabulary", async () => {
     const dashId = id();
     const itemId = id();
