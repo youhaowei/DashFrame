@@ -40,6 +40,32 @@ test.describe("Chart Editing", () => {
       .toBe(1);
   });
 
+  test("deleting the chart takes its tile off the report and its unused insight with it", async ({
+    page,
+    waitForChart,
+  }) => {
+    await waitForChart();
+    const tiles = async () =>
+      (await queryAll<{ items: unknown[] }>("listDashboards", {})).flatMap(
+        (report) => report.items,
+      );
+    await expect.poll(async () => (await tiles()).length).toBe(1);
+
+    await page.getByRole("button", { name: "More chart actions" }).click();
+    await page.getByRole("menuitem", { name: /Delete chart/ }).click();
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+
+    await expect
+      .poll(
+        async () => (await queryAll<unknown>("listVisualizations", {})).length,
+      )
+      .toBe(0);
+    // The client asked only for the chart and its insight; the server took
+    // the tile off the report in the same commit.
+    expect(await tiles()).toEqual([]);
+    expect(await queryAll<unknown>("listInsights", {})).toEqual([]);
+  });
+
   test("keeps the chart's tab and its edits across a reload", async ({
     page,
     waitForChart,
