@@ -16,9 +16,10 @@
  * 8. sortChange: replaces sorts; preserves filters + limit.
  * 9. limitChange: replaces limit; preserves filters + sorts.
  *
- * SORT KEYS:
+ * SORT ROW — a tile sort override holds one key:
+ * 11. sortKeyToPin: Pin saves one key, by a reference the field select shows.
  * 12. formatSortKeys: names every key in priority order.
- * 13. buildSortFieldLabels: every stored reference form maps to a readable name.
+ * 13. buildSortFieldOptions: every stored reference form maps to one option.
  *
  * BADGE — hasOverrides truth table.
  * 10. hasOverrides: true on non-empty filters/sorts/limit, false otherwise.
@@ -33,7 +34,7 @@ import type {
 } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
 import {
-  buildSortFieldLabels,
+  buildSortFieldOptions,
   computeNewOverridesOnClear,
   computeNewOverridesOnInherit,
   computeNewOverridesOnLimitChange,
@@ -43,6 +44,7 @@ import {
   formatSortKeys,
   hasOverrides,
   resolveDeclaredRuntimeFilterId,
+  sortKeyToPin,
   withDeclaredFilterId,
 } from "./override-field-row-utils";
 
@@ -498,8 +500,77 @@ describe("hasOverrides — badge truth table", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Sort keys
+// Sort row
 // ---------------------------------------------------------------------------
+
+const fieldId = "11111111-1111-4111-8111-111111111111";
+const fieldAlias = "field_11111111_1111_4111_8111_111111111111";
+const metricId = "22222222-2222-4222-8222-222222222222";
+const metricAlias = "metric_22222222_2222_4222_8222_222222222222";
+
+describe("sortKeyToPin — what Pin saves", () => {
+  const fields = buildSortFieldOptions(
+    [{ id: fieldId, name: "Region", columnName: "region" }],
+    [{ id: metricId, name: "Revenue" }],
+  );
+
+  it("11a. stores the Insight's field alias as the option's reference", () => {
+    expect(
+      sortKeyToPin([{ field: fieldAlias, direction: "desc" }], fields),
+    ).toEqual({ field: fieldId, direction: "desc" });
+  });
+
+  it("11b. stores the Insight's metric alias as the option's reference", () => {
+    expect(
+      sortKeyToPin([{ field: metricAlias, direction: "asc" }], fields),
+    ).toEqual({ field: metricId, direction: "asc" });
+  });
+
+  it.each([fieldAlias, metricAlias, "region", "Revenue"])(
+    "11c. saves a reference the field select offers, for an Insight sorted by %s",
+    (field) => {
+      const pinned = sortKeyToPin([{ field, direction: "asc" }], fields)!;
+      expect(fields.options.map((option) => option.value)).toContain(
+        pinned.field,
+      );
+    },
+  );
+
+  it("11d. saves only the first key of a multi-key Insight sort, without its pivot cell", () => {
+    expect(
+      sortKeyToPin(
+        [
+          {
+            field: metricAlias,
+            direction: "desc",
+            pivotValues: [{ fieldId, value: "Web" }],
+          },
+          { field: fieldAlias, direction: "asc" },
+        ],
+        fields,
+      ),
+    ).toEqual({ field: metricId, direction: "desc" });
+  });
+
+  it("11e. falls back to the first option when the Insight has no sort, or one it cannot name", () => {
+    expect(sortKeyToPin(undefined, fields)).toEqual({
+      field: fieldId,
+      direction: "asc",
+    });
+    expect(
+      sortKeyToPin([{ field: "field_gone", direction: "desc" }], fields),
+    ).toEqual({ field: fieldId, direction: "desc" });
+  });
+
+  it("11f. saves nothing when there is nothing to sort by", () => {
+    expect(
+      sortKeyToPin(
+        [{ field: fieldAlias, direction: "asc" }],
+        buildSortFieldOptions([], []),
+      ),
+    ).toBeUndefined();
+  });
+});
 
 describe("formatSortKeys", () => {
   it("12a. names every key in priority order", () => {
@@ -528,25 +599,23 @@ describe("formatSortKeys", () => {
     ).toBe("revenue · Web desc, revenue · (empty) desc");
   });
 
-  it("12c. shows a labelled reference by its label and any other as stored", () => {
+  it("12c. shows a known reference by its label and any other as stored", () => {
     expect(
       formatSortKeys(
         [
-          { field: "field_abc", direction: "asc" },
+          { field: fieldAlias, direction: "asc" },
           { field: "order_date", direction: "desc" },
         ],
-        new Map([["field_abc", "region"]]),
+        buildSortFieldOptions([{ id: fieldId, name: "region" }], [])
+          .byReference,
       ),
     ).toBe("region asc, order_date desc");
   });
 });
 
-describe("buildSortFieldLabels", () => {
-  const fieldId = "11111111-1111-4111-8111-111111111111";
-  const metricId = "22222222-2222-4222-8222-222222222222";
-
-  it("13a. maps a field's id, alias, and column name to its display name", () => {
-    const labels = buildSortFieldLabels(
+describe("buildSortFieldOptions", () => {
+  it("13a. maps a field's id, alias, and column name to one option valued by id", () => {
+    const { options, byReference } = buildSortFieldOptions(
       [
         {
           id: fieldId,
@@ -557,54 +626,61 @@ describe("buildSortFieldLabels", () => {
       ],
       [],
     );
-    expect(labels.get(fieldId)).toBe("orders.region");
-    expect(labels.get("field_11111111_1111_4111_8111_111111111111")).toBe(
-      "orders.region",
-    );
-    expect(labels.get("region_code")).toBe("orders.region");
+    expect(options).toEqual([{ value: fieldId, label: "orders.region" }]);
+    expect(
+      [fieldId, fieldAlias, "region_code"].map((reference) =>
+        byReference.get(reference),
+      ),
+    ).toEqual([options[0], options[0], options[0]]);
   });
 
-  it("13b. maps a metric's id and alias to its name", () => {
-    const labels = buildSortFieldLabels(
+  it("13b. maps a metric's id, alias, and name to one option valued by id", () => {
+    const { options, byReference } = buildSortFieldOptions(
       [],
       [{ id: metricId, name: "Revenue" }],
     );
-    expect(labels.get(metricId)).toBe("Revenue");
-    expect(labels.get("metric_22222222_2222_4222_8222_222222222222")).toBe(
-      "Revenue",
-    );
+    expect(options).toEqual([{ value: metricId, label: "Revenue" }]);
+    expect(
+      [metricId, metricAlias, "Revenue"].map((reference) =>
+        byReference.get(reference),
+      ),
+    ).toEqual([options[0], options[0], options[0]]);
   });
 
   it("13c. names a field of an insight built on another insight, whose column name is an alias", () => {
     // The upstream insight's metric arrives as a field whose column name is the
     // generated alias; only `name` is readable.
-    const upstreamMetricColumn = "metric_22222222_2222_4222_8222_222222222222";
-    const labels = buildSortFieldLabels(
-      [
-        {
-          id: fieldId,
-          name: "Total Revenue",
-          columnName: upstreamMetricColumn,
-        },
-      ],
+    const { byReference } = buildSortFieldOptions(
+      [{ id: metricId, name: "Total Revenue", columnName: metricAlias }],
       [],
     );
     expect(
-      formatSortKeys(
-        [{ field: upstreamMetricColumn, direction: "desc" }],
-        labels,
-      ),
+      formatSortKeys([{ field: metricAlias, direction: "desc" }], byReference),
     ).toBe("Total Revenue desc");
   });
 
-  it("13d. keeps the base table's label when a joined table shares a column name", () => {
-    const labels = buildSortFieldLabels(
+  it("13d. keeps joined fields that share a column name apart, and gives the name to the base table", () => {
+    const { options, byReference } = buildSortFieldOptions(
       [
         { id: fieldId, name: "id", columnName: "id", displayName: "orders.id" },
         { id: metricId, name: "id", columnName: "id", displayName: "users.id" },
       ],
       [],
     );
-    expect(labels.get("id")).toBe("orders.id");
+    expect(options.map((option) => option.label)).toEqual([
+      "orders.id",
+      "users.id",
+    ]);
+    expect(byReference.get("id")?.label).toBe("orders.id");
+    expect(byReference.get(metricId)?.label).toBe("users.id");
+  });
+
+  it("13e. lists fields before metrics", () => {
+    expect(
+      buildSortFieldOptions(
+        [{ id: fieldId, name: "Region" }],
+        [{ id: metricId, name: "Revenue" }],
+      ).options.map((option) => option.label),
+    ).toEqual(["Region", "Revenue"]);
   });
 });

@@ -255,25 +255,107 @@ export function hasOverrides(
 }
 
 // ---------------------------------------------------------------------------
-// Display helpers
+// Sort row
 // ---------------------------------------------------------------------------
+
+/** One choice in the sort row's field select. */
+export interface SortFieldOption {
+  /** The reference a tile sort override stores for this choice. */
+  value: string;
+  /** The name a person reads. */
+  label: string;
+}
+
+export interface SortFieldOptions {
+  /** What the field select offers: fields, then metrics. */
+  options: SortFieldOption[];
+  /** Every reference a sort key may store, mapped to the option it names. */
+  byReference: ReadonlyMap<string, SortFieldOption>;
+}
+
+/**
+ * The fields and metrics the sort row offers.
+ *
+ * A sort key names its field by id, by result-column alias (`field_<id>`,
+ * `metric_<id>`), by column name, or by metric name, and for an insight built
+ * on another insight the column name is itself an alias.  None of those is fit
+ * to show, so each maps to an option labelled with the field's display name or
+ * the metric's name.
+ *
+ * An option's value is the id.  It is the one reference the tile runtime
+ * resolves without a lookup, and the only one that stays unique when joined
+ * tables share a column name.
+ */
+export function buildSortFieldOptions(
+  fields: readonly {
+    id: string;
+    name: string;
+    columnName?: string;
+    displayName?: string;
+  }[],
+  metrics: readonly { id: string; name: string }[],
+): SortFieldOptions {
+  const options: SortFieldOption[] = [];
+  const byReference = new Map<string, SortFieldOption>();
+  const add = (id: string, label: string, references: string[]) => {
+    if (byReference.has(id)) return;
+    const option = { value: id, label };
+    options.push(option);
+    byReference.set(id, option);
+    // Joined tables can share a column name, and a metric can share its name
+    // with a column; the first (base table, then fields) keeps it.
+    for (const reference of references)
+      if (!byReference.has(reference)) byReference.set(reference, option);
+  };
+  for (const field of fields)
+    add(field.id, field.displayName ?? field.name, [
+      fieldIdToColumnAlias(field.id),
+      field.columnName ?? field.name,
+    ]);
+  for (const metric of metrics)
+    add(metric.id, metric.name, [
+      metricIdToColumnAlias(metric.id),
+      metric.name,
+    ]);
+  return { options, byReference };
+}
+
+/**
+ * The single key Pin saves: the Insight's first sort key, stored by the
+ * reference its option in the field select uses, so the pinned row shows that
+ * field and the tile runtime resolves it.  Later keys of the Insight's sort
+ * are not carried over, because a tile sort takes one key.
+ *
+ * Falls back to the first option when the Insight has no sort, or one that
+ * names nothing the tile can offer.  Undefined when there is nothing to offer.
+ */
+export function sortKeyToPin(
+  insightSorts: readonly InsightSort[] | undefined,
+  { options, byReference }: SortFieldOptions,
+): InsightSort | undefined {
+  const inherited = insightSorts?.[0];
+  const option = (inherited && byReference.get(inherited.field)) ?? options[0];
+  return option
+    ? { field: option.value, direction: inherited?.direction ?? "asc" }
+    : undefined;
+}
 
 /**
  * One-line summary of sort keys in priority order, e.g.
  * "region asc, Revenue · Web desc".  A pivot key names its cell, so two keys on
  * the same metric stay distinguishable.
  *
- * `fieldLabels` maps a stored sort reference to the name a person reads (see
- * `buildSortFieldLabels`); a reference with no label is shown as stored.
+ * `byReference` names each stored reference (see `buildSortFieldOptions`); a
+ * reference it does not know is shown as stored.
  */
 export function formatSortKeys(
   sorts: readonly InsightSort[],
-  fieldLabels?: ReadonlyMap<string, string>,
+  byReference?: SortFieldOptions["byReference"],
 ): string {
   return sorts
     .map((sort) => {
       const label = [
-        fieldLabels?.get(sort.field) ?? sort.field,
+        byReference?.get(sort.field)?.label ?? sort.field,
         ...(sort.pivotValues ?? []).map(({ value }) =>
           value === null ? "(empty)" : String(value),
         ),
@@ -283,40 +365,9 @@ export function formatSortKeys(
     .join(", ");
 }
 
-/**
- * Readable names for the references a sort key may store.
- *
- * A sort key names its field by id, by result-column alias (`field_<id>`,
- * `metric_<id>`), or by column name, and for an insight built on another
- * insight the column name is itself an alias.  None of those is fit to show,
- * so each maps to the field's display name or the metric's name.
- */
-export function buildSortFieldLabels(
-  fields: readonly {
-    id: string;
-    name: string;
-    columnName?: string;
-    displayName?: string;
-  }[],
-  metrics: readonly { id: string; name: string }[],
-): Map<string, string> {
-  const labels = new Map<string, string>();
-  const add = (reference: string | undefined, label: string) => {
-    // Joined tables can share a column name; the first (base table) keeps it.
-    if (reference && !labels.has(reference)) labels.set(reference, label);
-  };
-  for (const field of fields) {
-    const label = field.displayName ?? field.name;
-    add(field.id, label);
-    add(fieldIdToColumnAlias(field.id), label);
-    add(field.columnName, label);
-  }
-  for (const metric of metrics) {
-    add(metric.id, metric.name);
-    add(metricIdToColumnAlias(metric.id), metric.name);
-  }
-  return labels;
-}
+// ---------------------------------------------------------------------------
+// Display helpers
+// ---------------------------------------------------------------------------
 
 /** Human-readable label for a filter operator. */
 export function formatOperator(operator: InsightFilter["operator"]): string {

@@ -53,12 +53,14 @@ import { EditIcon, SettingsIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
-  buildSortFieldLabels,
+  buildSortFieldOptions,
   computeNewOverridesOnClear,
   deriveFieldState,
   formatSortKeys,
   hasOverrides,
   resolveDeclaredRuntimeFilterId,
+  type SortFieldOptions,
+  sortKeyToPin,
   withDeclaredFilterId,
 } from "./override-field-row-utils";
 import { OverrideFieldRow } from "./OverrideFieldRow";
@@ -89,21 +91,19 @@ interface OverridePopoverProps {
 export function SortOverrideRow({
   insightSorts,
   overrideSorts,
-  availableFields,
-  fieldLabels,
+  fields,
   onChange,
 }: {
   insightSorts?: InsightSort[];
   overrideSorts?: InsightSort[];
-  availableFields: string[];
-  /** Readable names for stored sort references; see `buildSortFieldLabels`. */
-  fieldLabels?: ReadonlyMap<string, string>;
+  /** What the field select offers, and how stored references map to it. */
+  fields: SortFieldOptions;
   onChange: (sorts: InsightSort[] | undefined) => void;
 }) {
-  const current: InsightSort | undefined =
-    overrideSorts?.[0] ?? insightSorts?.[0];
+  const { options, byReference } = fields;
   const isPinned = overrideSorts !== undefined;
   const pinned = overrideSorts?.[0];
+  const keyToPin = sortKeyToPin(insightSorts, fields);
 
   return (
     <div className="py-1.5">
@@ -112,16 +112,22 @@ export function SortOverrideRow({
           <span className="text-xs font-medium text-neutral-fg">Sort</span>
           {!isPinned && insightSorts && insightSorts.length > 0 && (
             <span className="text-xs break-words text-neutral-fg-subtle">
-              default: {formatSortKeys(insightSorts, fieldLabels)}
+              default: {formatSortKeys(insightSorts, byReference)}
             </span>
           )}
         </div>
 
         {isPinned ? (
           <div className="flex items-center gap-1">
-            {/* Field select */}
+            {/* Field select.  A reference stored in another form (a column
+                name, an alias) selects the option it names. */}
             <Select
-              value={pinned?.field ?? ""}
+              items={options}
+              value={
+                pinned
+                  ? (byReference.get(pinned.field)?.value ?? pinned.field)
+                  : ""
+              }
               onValueChange={(field) => {
                 if (!field) return;
                 // Only the direction carries over: `pivotValues` name a cell
@@ -133,9 +139,13 @@ export function SortOverrideRow({
                 <SelectValue placeholder="field" />
               </SelectTrigger>
               <SelectContent>
-                {availableFields.map((f) => (
-                  <SelectItem key={f} value={f} className="text-xs">
-                    {f}
+                {options.map((option) => (
+                  <SelectItem
+                    key={option.value}
+                    value={option.value}
+                    className="text-xs"
+                  >
+                    {option.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -146,7 +156,7 @@ export function SortOverrideRow({
               onValueChange={(direction) =>
                 onChange([
                   {
-                    ...(pinned ?? { field: availableFields[0] ?? "" }),
+                    ...(pinned ?? { field: options[0]?.value ?? "" }),
                     direction: direction as InsightSort["direction"],
                   },
                 ])
@@ -181,15 +191,8 @@ export function SortOverrideRow({
             variant="ghost"
             size="sm"
             className="h-6 px-1.5 text-xs"
-            onClick={() =>
-              onChange([
-                {
-                  field: current?.field ?? availableFields[0] ?? "",
-                  direction: current?.direction ?? "asc",
-                },
-              ])
-            }
-            disabled={availableFields.length === 0}
+            onClick={() => keyToPin && onChange([keyToPin])}
+            disabled={!keyToPin}
           >
             Pin
           </Button>
@@ -548,14 +551,8 @@ export function OverridePopover({
     }
   }
 
-  // Available field names for the sort row.
-  const availableFieldNames = useMemo(
-    () => combinedFields.map((field) => field.columnName ?? field.name),
-    [combinedFields],
-  );
-
-  const sortFieldLabels = useMemo(
-    () => buildSortFieldLabels(combinedFields, insight?.metrics ?? []),
+  const sortFields = useMemo(
+    () => buildSortFieldOptions(combinedFields, insight?.metrics ?? []),
     [combinedFields, insight?.metrics],
   );
 
@@ -663,8 +660,7 @@ export function OverridePopover({
             <SortOverrideRow
               insightSorts={insight?.sorts}
               overrideSorts={item.overrides?.sorts}
-              availableFields={availableFieldNames}
-              fieldLabels={sortFieldLabels}
+              fields={sortFields}
               onChange={handleSortChange}
             />
 

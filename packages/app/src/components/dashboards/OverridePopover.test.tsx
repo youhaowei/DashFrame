@@ -2,7 +2,8 @@
  * The sort and limit rows of the tile override popover:
  *
  * - The sort row edits a one-key override, because a tile runs one runtime
- *   sort key.  Every edit saves one key.
+ *   sort key.  Every edit saves one key, and Pin saves a reference the field
+ *   select can show.
  * - The limit row keeps a local draft.  The saved limit can change while the
  *   editor is open; an editor the user never typed in must not write its old
  *   number back, and a user's typing must survive that change.
@@ -25,6 +26,7 @@ import {
   it,
   vi,
 } from "vite-plus/test";
+import { buildSortFieldOptions } from "./override-field-row-utils";
 import {
   LimitOverrideRow,
   OverridePopover,
@@ -40,12 +42,23 @@ vi.mock("@/data/artifact-lists", () => ({ useArtifactList: () => undefined }));
 vi.mock("@/data/query-status", () => ({ queryStatus: () => ({ data: [] }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
+const regionId = "20000000-0000-4000-8000-000000000001";
+const orderDateId = "20000000-0000-4000-8000-000000000002";
+const revenueId = "20000000-0000-4000-8000-000000000003";
+const fields = buildSortFieldOptions(
+  [
+    { id: regionId, name: "Region", columnName: "region" },
+    { id: orderDateId, name: "Order date", columnName: "order_date" },
+  ],
+  [{ id: revenueId, name: "Revenue" }],
+);
+const regionAlias = "field_20000000_0000_4000_8000_000000000001";
+const revenueAlias = "metric_20000000_0000_4000_8000_000000000003";
 /** A list longer than a tile runs, as saved before writes rejected it. */
 const twoKeys: InsightSort[] = [
   { field: "region", direction: "asc" },
   { field: "order_date", direction: "desc" },
 ];
-const fields = ["region", "order_date", "channel"];
 
 const dashboardId = "10000000-0000-4000-8000-000000000001";
 const tile = {
@@ -71,80 +84,74 @@ async function openPopover() {
 }
 
 describe("SortOverrideRow", () => {
-  it("lists only the one key it edits", () => {
-    render(
-      <SortOverrideRow
-        overrideSorts={twoKeys}
-        availableFields={fields}
-        onChange={vi.fn()}
-      />,
-    );
-    expect(screen.queryByText(/order_date/)).toBeNull();
-  });
+  /** The field select's text, without its chevron. */
+  const shownField = () =>
+    screen.getAllByRole("combobox")[0]!.querySelector("span")?.textContent;
 
-  it("names every key of the inherited default", () => {
-    render(
-      <SortOverrideRow
-        insightSorts={twoKeys}
-        availableFields={fields}
-        onChange={vi.fn()}
-      />,
-    );
-    expect(
-      screen.getByText("default: region asc, order_date desc"),
-    ).toBeTruthy();
-  });
-
-  it("names an inherited key by its field, not its stored alias", () => {
-    render(
-      <SortOverrideRow
-        insightSorts={[
-          { field: "field_abc", direction: "asc" },
-          { field: "metric_def", direction: "desc" },
-        ]}
-        availableFields={fields}
-        fieldLabels={
-          new Map([
-            ["field_abc", "region"],
-            ["metric_def", "Revenue"],
-          ])
-        }
-        onChange={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("default: region asc, Revenue desc")).toBeTruthy();
-  });
-
-  it("saves one key when the field changes", async () => {
-    const user = userEvent.setup({ delay: null });
+  function renderRow(props: {
+    insightSorts?: InsightSort[];
+    overrideSorts?: InsightSort[];
+  }) {
     const onChange = vi.fn();
-    render(
-      <SortOverrideRow
-        overrideSorts={twoKeys}
-        availableFields={fields}
-        onChange={onChange}
-      />,
-    );
+    render(<SortOverrideRow {...props} fields={fields} onChange={onChange} />);
+    return { onChange, user: userEvent.setup({ delay: null }) };
+  }
 
-    await user.click(screen.getAllByRole("combobox")[0]!);
-    await user.click(await screen.findByRole("option", { name: "channel" }));
+  it("names every key of the inherited default by field, not by stored alias", () => {
+    renderRow({
+      insightSorts: [
+        { field: regionAlias, direction: "asc" },
+        { field: revenueAlias, direction: "desc" },
+      ],
+    });
+    expect(screen.getByText("default: Region asc, Revenue desc")).toBeTruthy();
+  });
+
+  it("pins the Insight's first sort key by a reference the field select shows", async () => {
+    const { onChange, user } = renderRow({
+      insightSorts: [
+        { field: revenueAlias, direction: "desc" },
+        { field: regionAlias, direction: "asc" },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Pin" }));
 
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith([
-      { field: "channel", direction: "asc" },
+      { field: revenueId, direction: "desc" },
+    ]);
+  });
+
+  it.each([
+    ["id", revenueId],
+    ["result-column alias", revenueAlias],
+    ["name", "Revenue"],
+  ])("shows a pinned field stored by its %s by name", (_form, field) => {
+    renderRow({ overrideSorts: [{ field, direction: "desc" }] });
+    expect(shownField()).toBe("Revenue");
+  });
+
+  it("lists only the one key it edits", () => {
+    renderRow({ overrideSorts: twoKeys });
+    expect(shownField()).toBe("Region");
+    expect(screen.queryByText(/order.date/i)).toBeNull();
+  });
+
+  it("saves one key when the field changes", async () => {
+    const { onChange, user } = renderRow({ overrideSorts: twoKeys });
+
+    await user.click(screen.getAllByRole("combobox")[0]!);
+    await user.click(await screen.findByRole("option", { name: "Revenue" }));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith([
+      { field: revenueId, direction: "asc" },
     ]);
   });
 
   it("saves one key when the direction changes", async () => {
-    const user = userEvent.setup({ delay: null });
-    const onChange = vi.fn();
-    render(
-      <SortOverrideRow
-        overrideSorts={twoKeys}
-        availableFields={fields}
-        onChange={onChange}
-      />,
-    );
+    const { onChange, user } = renderRow({ overrideSorts: twoKeys });
 
     await user.click(screen.getAllByRole("combobox")[1]!);
     await user.click(await screen.findByRole("option", { name: "desc" }));
@@ -153,6 +160,18 @@ describe("SortOverrideRow", () => {
     expect(onChange).toHaveBeenCalledWith([
       { field: "region", direction: "desc" },
     ]);
+  });
+
+  it("offers no Pin when the tile has nothing to sort by", () => {
+    render(
+      <SortOverrideRow
+        fields={buildSortFieldOptions([], [])}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Pin" }).hasAttribute("disabled"),
+    ).toBe(true);
   });
 });
 
