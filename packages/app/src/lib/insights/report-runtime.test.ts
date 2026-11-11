@@ -436,6 +436,22 @@ describe("reportEncoding with a field the viewer added", () => {
     ).toEqual({ ...dots, size: "field:country" });
   });
 
+  it("colors by a second added field once size has its replacement", () => {
+    const dots: VisualizationEncoding = {
+      x: "metric:orders",
+      y: "metric:orders",
+      size: "field:channel",
+    };
+    expect(
+      reportEncoding(
+        dots,
+        report,
+        { dimensions: ["date", "country", "product"] },
+        fields,
+      ),
+    ).toEqual({ ...dots, size: "field:country", color: "field:product" });
+  });
+
   it.each(["hexbin", "heatmap", "raster"] as const)(
     "leaves a %s chart alone, since its fill is computed",
     (chartType) => {

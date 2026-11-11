@@ -170,9 +170,6 @@ function colorAddedField(
   if (!dimensions || current?.type === "metric") return false;
   if (current && fixedRuntimeIds(insight, "dimensions").includes(current.id))
     return false;
-  // Size is rebound after color; a field removed from it gets its replacement.
-  const size = parseEncoding(result.size);
-  if (size?.type === "field" && !dimensions.includes(size.id)) return false;
   const added = dimensions.findLast(
     (id) =>
       !insight.selectedFields.includes(id as UUID) && !usedDimensions.has(id),
@@ -236,7 +233,9 @@ export function reportEncoding(
   chartType: VisualizationType = "dot",
 ): VisualizationEncoding {
   const result = { ...encoding };
-  const channels = ["x", "y", "color", "size"] as const;
+  // Color goes last: an added field takes it only after every other channel
+  // has claimed the replacement for a field the viewer removed.
+  const channels = ["x", "y", "size", "color"] as const;
   const parsedChannels = channels.map((channel) => ({
     channel,
     parsed: parseEncoding(encoding[channel]),
