@@ -266,12 +266,14 @@ function VisualizationPreviewContent({
             insight,
             dashboardRuntime.runtime,
             dataTable?.fields ?? [],
+            visualization.visualizationType,
           )
         : visualization.encoding,
     [
       reportCell,
       insight,
       visualization.encoding,
+      visualization.visualizationType,
       dashboardRuntime.runtime,
       dataTable?.fields,
     ],

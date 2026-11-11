@@ -366,6 +366,7 @@ function VisualizationDisplayContent({
             insight,
             effectiveRuntime,
             instanceAwareFields,
+            activeViz.visualizationType,
           )
         : {},
     [activeViz, insight, effectiveRuntime, instanceAwareFields],

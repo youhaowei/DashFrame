@@ -502,7 +502,10 @@ describe("VisualizationPreview — report cell overrides", () => {
 });
 
 describe("VisualizationPreview — report cell pivot", () => {
-  function renderPivoted(reportCell: boolean) {
+  function renderPivoted(
+    reportCell: boolean,
+    visualizationType: import("@dashframe/types").VisualizationType = "barY",
+  ) {
     mockUseInsightView.mockClear();
     mockUseInsight.mockReturnValue({
       data: {
@@ -521,7 +524,7 @@ describe("VisualizationPreview — report cell pivot", () => {
     });
     render(
       <VisualizationPreview
-        visualization={visualization}
+        visualization={{ ...visualization, visualizationType }}
         reportCell={reportCell}
       />,
     );
@@ -535,6 +538,15 @@ describe("VisualizationPreview — report cell pivot", () => {
       expect.objectContaining({
         presentation: { dimensions: ["f1", "p1"] },
       }),
+    );
+  });
+
+  it("leaves the pivot off a report cell's chart that fills by density", () => {
+    renderPivoted(true, "heatmap");
+
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ presentation: { dimensions: ["f1"] } }),
     );
   });
 

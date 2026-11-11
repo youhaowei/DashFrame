@@ -1,4 +1,5 @@
 import {
+  chartTypeDraws,
   fieldEncoding,
   fixedRuntimeIds,
   metricEncoding,
@@ -10,6 +11,7 @@ import type {
   InsightRuntimeInput,
   UUID,
   VisualizationEncoding,
+  VisualizationType,
 } from "@dashframe/types";
 
 /**
@@ -172,11 +174,16 @@ function withPivotColor(
   result: VisualizationEncoding,
   insight: Insight,
   runtime: InsightRuntimeInput | undefined,
+  chartType: VisualizationType,
 ) {
-  if (result.color) return;
+  // A chart that computes its own fill has no color to give the pivot.
+  if (result.color || !chartTypeDraws(chartType, "color")) return;
   const selected = runtime?.dimensions ?? insight.selectedFields;
+  // A channel this chart type leaves out shows nothing, whatever it holds.
   const drawn = new Set(
-    [result.x, result.y, result.size].map((value) => parseEncoding(value)?.id),
+    (["x", "y", "size"] as const)
+      .filter((channel) => chartTypeDraws(chartType, channel))
+      .map((channel) => parseEncoding(result[channel])?.id),
   );
   // Selected order, which is how the table nests its pivot columns.
   const pivots = new Set(insight.reporting?.pivotFields);
@@ -194,6 +201,7 @@ export function reportEncoding(
   insight: Insight,
   runtime: InsightRuntimeInput | undefined,
   fields: Field[],
+  chartType: VisualizationType = "dot",
 ): VisualizationEncoding {
   const result = { ...encoding };
   const channels = ["x", "y", "color", "size"] as const;
@@ -246,7 +254,7 @@ export function reportEncoding(
       );
     }
   }
-  withPivotColor(result, insight, runtime);
+  withPivotColor(result, insight, runtime, chartType);
   return result;
 }
 
@@ -256,7 +264,8 @@ export function reportPivotColor(
   insight: Insight,
   runtime: InsightRuntimeInput | undefined,
   fields: Field[],
+  chartType: VisualizationType = "dot",
 ): string | undefined {
   if (!encoding || encoding.color) return undefined;
-  return reportEncoding(encoding, insight, runtime, fields).color;
+  return reportEncoding(encoding, insight, runtime, fields, chartType).color;
 }

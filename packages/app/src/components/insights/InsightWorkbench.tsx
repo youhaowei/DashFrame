@@ -704,6 +704,7 @@ export function InsightWorkbench({
             insight,
             viewerRuntime,
             modelResolvedFields,
+            activeVisualization?.visualizationType,
           )}
           dataTable={authoringTable}
           availableFields={encodingAvailableFields}
@@ -781,6 +782,7 @@ export function InsightWorkbench({
                 insight,
                 viewerRuntime,
                 modelResolvedFields,
+                activeVisualization.visualizationType,
               ),
             }}
             height="container"
