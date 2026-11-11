@@ -452,6 +452,19 @@ describe("reportEncoding with a field the viewer added", () => {
     ).toEqual({ ...dots, size: "field:country", color: "field:product" });
   });
 
+  it("ignores a size left over from a scatter on a chart that draws none", () => {
+    const bars: VisualizationEncoding = { ...chart, size: "field:channel" };
+    const runtime = { dimensions: ["date", "country"] };
+    expect(reportEncoding(bars, report, runtime, fields, "barY")).toEqual({
+      ...bars,
+      color: "field:country",
+    });
+    expect(reportEncoding(bars, report, runtime, fields, "dot")).toEqual({
+      ...bars,
+      size: "field:country",
+    });
+  });
+
   it.each(["hexbin", "heatmap", "raster"] as const)(
     "leaves a %s chart alone, since its fill is computed",
     (chartType) => {

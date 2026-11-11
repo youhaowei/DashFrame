@@ -236,7 +236,12 @@ export function reportEncoding(
   // Color goes last: an added field takes it only after every other channel
   // has claimed the replacement for a field the viewer removed.
   const channels = ["x", "y", "size", "color"] as const;
-  const parsedChannels = channels.map((channel) => ({
+  // Only a scatter draws size. A size left over from one claims no field, so
+  // it cannot take a replacement the chart would never show.
+  const drawnChannels = channels.filter(
+    (channel) => channel !== "size" || chartType === "dot",
+  );
+  const parsedChannels = drawnChannels.map((channel) => ({
     channel,
     parsed: parseEncoding(encoding[channel]),
   }));
