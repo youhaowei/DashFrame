@@ -207,24 +207,75 @@ export function SortOverrideRow({
 // Limit row
 // ---------------------------------------------------------------------------
 
-function LimitOverrideRow({
+interface LimitDraft {
+  /** What the input shows. */
+  text: string;
+  /** True while `text` holds typing that has not been committed. */
+  dirty: boolean;
+  /** The `overrideLimit` this draft was last reconciled with. */
+  limit: number | undefined;
+}
+
+export function LimitOverrideRow({
   insightLimit,
   overrideLimit,
   onChange,
 }: {
   insightLimit?: number;
   overrideLimit?: number;
-  onChange: (limit: number | undefined) => void;
+  /** Resolves `false` when the save failed, so the draft can stop claiming it. */
+  onChange: (limit: number | undefined) => Promise<boolean> | void;
 }) {
   const isPinned = overrideLimit !== undefined;
   // Local draft so that typing "100" doesn't fire three separate DB mutations.
   // The mutation only fires on blur / Enter.
-  const [draft, setDraft] = useState(overrideLimit?.toString() ?? "");
+  const [draft, setDraft] = useState<LimitDraft>({
+    text: overrideLimit?.toString() ?? "",
+    dirty: false,
+    limit: overrideLimit,
+  });
+
+  // The saved limit can change while this editor stays open (another tab, an
+  // agent's published draft, an undo).  Follow it unless the user is mid-edit:
+  // their typing wins until they commit it.  Losing the override unmounts the
+  // input, so nothing is mid-edit then.
+  if (draft.limit !== overrideLimit) {
+    setDraft(
+      draft.dirty && overrideLimit !== undefined
+        ? { ...draft, limit: overrideLimit }
+        : {
+            text: overrideLimit?.toString() ?? "",
+            dirty: false,
+            limit: overrideLimit,
+          },
+    );
+  }
 
   function commitDraft() {
-    const n = parseInt(draft, 10);
-    if (!isNaN(n) && n > 0) onChange(n);
-    else if (overrideLimit !== undefined) setDraft(overrideLimit.toString());
+    // Blur and Enter also fire on an editor the user only looked at.  Writing
+    // its text back would overwrite a newer saved limit with a stale one.
+    if (!draft.dirty) return;
+    const n = parseInt(draft.text, 10);
+    if (isNaN(n) || n <= 0) {
+      setDraft({ ...draft, text: draft.limit?.toString() ?? "", dirty: false });
+      return;
+    }
+    const committed = n.toString();
+    setDraft({ ...draft, text: committed, dirty: false });
+    // Typed text is always written, even when it equals the saved limit: an
+    // earlier save may still be in flight, and this one has to land after it.
+    //
+    // A failed save must not leave the input claiming the rejected number:
+    // show the saved limit again, unless the input has moved on since.
+    const showSavedLimit = () =>
+      setDraft((latest) =>
+        latest.dirty || latest.text !== committed
+          ? latest
+          : { ...latest, text: latest.limit?.toString() ?? "" },
+      );
+    Promise.resolve(onChange(n)).then((saved) => {
+      if (saved === false) showSavedLimit();
+    }, showSavedLimit);
   }
 
   return (
@@ -244,8 +295,10 @@ function LimitOverrideRow({
             <Input
               type="number"
               min={1}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              value={draft.text}
+              onChange={(e) =>
+                setDraft({ ...draft, text: e.target.value, dirty: true })
+              }
               onBlur={commitDraft}
               onKeyDown={(e) => {
                 if (e.key === "Enter") commitDraft();
@@ -257,7 +310,7 @@ function LimitOverrideRow({
               variant="ghost"
               size="sm"
               className="h-6 px-1.5 text-xs"
-              onClick={() => onChange(undefined)}
+              onClick={() => void onChange(undefined)}
             >
               ×
             </Button>
@@ -268,11 +321,7 @@ function LimitOverrideRow({
             variant="ghost"
             size="sm"
             className="h-6 px-1.5 text-xs"
-            onClick={() => {
-              const initial = insightLimit ?? 100;
-              setDraft(initial.toString());
-              onChange(initial);
-            }}
+            onClick={() => void onChange(insightLimit ?? 100)}
           >
             Pin
           </Button>
@@ -379,8 +428,11 @@ export function OverridePopover({
   // Mutation handlers
   // ---------------------------------------------------------------------------
 
-  function persistOverride(patch: DashboardItemOverridePatch) {
-    commitBatch({
+  /** Resolves `true` once the patch is saved, `false` when it was rejected. */
+  function persistOverride(
+    patch: DashboardItemOverridePatch,
+  ): Promise<boolean> {
+    return commitBatch({
       commands: [
         cmd("PatchDashboardItemOverride", {
           dashboardId: dashboardId as UUID,
@@ -388,10 +440,14 @@ export function OverridePopover({
           patch,
         }),
       ],
-    }).catch((error: unknown) => {
-      console.error("Failed to save dashboard override:", error);
-      toast.error("Failed to save dashboard override");
-    });
+    }).then(
+      () => true,
+      (error: unknown) => {
+        console.error("Failed to save dashboard override:", error);
+        toast.error("Failed to save dashboard override");
+        return false;
+      },
+    );
   }
 
   function handlePin(fieldName: string, filter: InsightFilterOverride) {
@@ -443,7 +499,7 @@ export function OverridePopover({
   }
 
   function handleLimitChange(limit: number | undefined) {
-    persistOverride({
+    return persistOverride({
       kind: "limit",
       value: limit ?? null,
     });
