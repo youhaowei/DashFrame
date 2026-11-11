@@ -23,9 +23,15 @@ people cutting a release do the same things in the same order.
 - A minor changeset moves the web app one minor version. If the number has to
   skip ahead, set the baseline by hand in its own commit with a `CHANGELOG.md`
   note, then let a changeset make the release bump.
-- The version PR is opened with the workflow's own token, so GitHub does not
-  start CI on it. Check out its branch and run `bun run check` and
-  `bun run format:check` before merging.
+- The version PR is opened with the workflow's own token, which has two
+  consequences:
+  - The repository setting **Settings → Actions → General → Allow GitHub
+    Actions to create and approve pull requests** must be on. With it off, the
+    run pushes `changeset-release/main` and then fails with a 403 instead of
+    opening the PR.
+  - GitHub does not start CI on a PR opened that way, and `main` requires the
+    CI checks. Close and reopen the version PR from your own account to start
+    them.
 
 ## 2. Freeze the candidate
 
