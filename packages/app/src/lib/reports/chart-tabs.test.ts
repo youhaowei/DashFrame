@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import {
   buildLandChartCommands,
   countReportsUsingChart,
+  deleteChartDescription,
   disambiguateLabels,
   isReadyToLand,
+  planChartDeletion,
   reconcileNewChartTab,
   resolveChartTabs,
   tabAfterClose,
@@ -233,6 +235,174 @@ describe("countReportsUsingChart", () => {
     ];
     expect(countReportsUsingChart(reports, "chart-1")).toBe(2);
     expect(countReportsUsingChart(reports, "chart-3")).toBe(0);
+  });
+});
+
+describe("planChartDeletion", () => {
+  const CHART = { id: "chart-1" as UUID, insightId: "insight-1" as UUID };
+  const chartOn = (id: string, insightId: string) => ({
+    id: id as UUID,
+    insightId: insightId as UUID,
+  });
+  const insightOn = (
+    id: string,
+    sourceId = "table-1",
+    sourceType = "dataTable",
+  ) =>
+    ({ id, source: { sourceType, sourceId } }) as Parameters<
+      typeof planChartDeletion
+    >[0]["insights"][number];
+  const report = (id: string, items: DashboardItem[]) => ({
+    id: id as UUID,
+    items,
+  });
+  const removeTile = (dashboardId: string, itemId: string) => ({
+    path: "removeDashboardItemCmd",
+    args: { dashboardId, itemId },
+  });
+  const deleteNode = (id: string) => ({ path: "deleteNode", args: { id } });
+  const reports = [
+    report("report-1", [
+      tile("chart-1"),
+      { ...tile("chart-1"), id: "item-fanned-out" as UUID },
+      tile("chart-2"),
+    ]),
+    report("report-2", [tile("chart-2")]),
+    report("report-3", [tile("chart-1")]),
+  ];
+
+  it("takes the chart off every report, then deletes it and its unused insight, in one batch", () => {
+    const deletion = planChartDeletion({
+      chart: CHART,
+      reportId: "report-1",
+      reports,
+      visualizations: [CHART, chartOn("chart-2", "insight-2")],
+      insights: [insightOn("insight-1"), insightOn("insight-2")],
+    });
+
+    expect(deletion.commands).toEqual([
+      removeTile("report-1", "item-chart-1"),
+      removeTile("report-1", "item-fanned-out"),
+      removeTile("report-3", "item-chart-1"),
+      deleteNode("chart-1"),
+      deleteNode("insight-1"),
+    ]);
+    expect(deletion).toMatchObject({
+      reportCount: 2,
+      onThisReport: true,
+      deletesInsight: true,
+    });
+  });
+
+  it("keeps an insight another chart plots", () => {
+    const deletion = planChartDeletion({
+      chart: CHART,
+      reportId: "report-2",
+      reports,
+      visualizations: [CHART, chartOn("chart-2", "insight-1")],
+      insights: [insightOn("insight-1")],
+    });
+
+    expect(deletion.commands).toEqual([
+      removeTile("report-1", "item-chart-1"),
+      removeTile("report-1", "item-fanned-out"),
+      removeTile("report-3", "item-chart-1"),
+      deleteNode("chart-1"),
+    ]);
+    expect(deletion).toMatchObject({
+      reportCount: 2,
+      onThisReport: false,
+      deletesInsight: false,
+    });
+  });
+
+  it("keeps an insight another insight reads from", () => {
+    const deletion = planChartDeletion({
+      chart: CHART,
+      reportId: "report-1",
+      reports: [],
+      visualizations: [CHART],
+      insights: [
+        insightOn("insight-1"),
+        insightOn("insight-2", "insight-1", "insight"),
+      ],
+    });
+
+    expect(deletion.commands).toEqual([deleteNode("chart-1")]);
+    expect(deletion.deletesInsight).toBe(false);
+  });
+
+  it("does not delete an insight that is not listed", () => {
+    const deletion = planChartDeletion({
+      chart: CHART,
+      reportId: "report-1",
+      reports: [],
+      visualizations: [CHART],
+      insights: [],
+    });
+
+    expect(deletion.commands).toEqual([deleteNode("chart-1")]);
+  });
+
+  it("says when the chart has more tiles than one batch can remove", () => {
+    const planFor = (tileCount: number) =>
+      planChartDeletion({
+        chart: CHART,
+        reportId: "report-1",
+        reports: [
+          report(
+            "report-1",
+            Array.from({ length: tileCount }, (_, index) => ({
+              ...tile("chart-1"),
+              id: `item-${index}` as UUID,
+            })),
+          ),
+        ],
+        visualizations: [CHART],
+        insights: [insightOn("insight-1")],
+      });
+
+    // The server takes 200 commands; the chart and its insight are two.
+    expect(planFor(198)).toMatchObject({ tooManyTiles: false });
+    expect(planFor(198).commands).toHaveLength(200);
+    expect(planFor(199)).toMatchObject({ tooManyTiles: true });
+  });
+});
+
+describe("deleteChartDescription", () => {
+  const describeDeletion = (
+    reportCount: number,
+    onThisReport: boolean,
+    deletesInsight = false,
+  ) =>
+    deleteChartDescription("Revenue by region", {
+      reportCount,
+      onThisReport,
+      deletesInsight,
+    });
+
+  it("says which reports lose the chart", () => {
+    expect(describeDeletion(1, true)).toBe(
+      'Are you sure you want to delete "Revenue by region"? It will be removed from this report. This action cannot be undone.',
+    );
+    expect(describeDeletion(3, true)).toContain(
+      "It will be removed from 3 reports, including this one.",
+    );
+    expect(describeDeletion(1, false)).toContain(
+      "It will be removed from 1 other report.",
+    );
+    expect(describeDeletion(2, false)).toContain(
+      "It will be removed from 2 other reports.",
+    );
+    expect(describeDeletion(0, false)).toBe(
+      'Are you sure you want to delete "Revenue by region"? This action cannot be undone.',
+    );
+  });
+
+  it("says when the insight goes with the chart", () => {
+    expect(describeDeletion(1, true, true)).toBe(
+      'Are you sure you want to delete "Revenue by region"? It will be removed from this report. Its insight will be deleted with it. This action cannot be undone.',
+    );
   });
 });
 
