@@ -24,6 +24,14 @@
  *
  * BADGE — hasOverrides truth table.
  * 10. hasOverrides: true on non-empty filters/sorts/limit, false otherwise.
+ *
+ * OFFER — which rows a tile gets, from what its Insight declares for viewers:
+ * 14. overrideOffer: editable when declared, reset-only for an undeclared
+ *     override the tile already holds, hidden otherwise.
+ * 15. resolveFilterRow: the declared filter a field row edits, resolved for a
+ *     held override as the tile runtime resolves it.
+ * 17. controlCanDrive: whether a dashboard control can be bound to a row.
+ * 16. clampLimit: a limit inside the range the Insight offers.
  */
 
 import type {
@@ -36,6 +44,7 @@ import type {
 import { describe, expect, it } from "vite-plus/test";
 import {
   buildSortFieldOptions,
+  clampLimit,
   computeNewOverridesOnClear,
   computeNewOverridesOnInherit,
   computeNewOverridesOnLimitChange,
@@ -44,9 +53,10 @@ import {
   deriveFieldState,
   formatSortKeys,
   hasOverrides,
-  resolveDeclaredRuntimeFilterId,
+  controlCanDrive,
+  overrideOffer,
+  resolveFilterRow,
   sortKeyToPin,
-  withDeclaredFilterId,
 } from "./override-field-row-utils";
 
 // ---------------------------------------------------------------------------
@@ -261,74 +271,6 @@ describe("computeNewOverridesOnClear — transition payload", () => {
     );
     expect(result.sorts).toEqual([{ field: "name", direction: "asc" }]);
     expect(result.limit).toBe(20);
-  });
-});
-
-describe("withDeclaredFilterId", () => {
-  it("adds the canonical saved-filter ID to a newly pinned override", () => {
-    const override = filter(FIELD, { id: undefined, value: "new" });
-    expect(
-      withDeclaredFilterId(
-        FIELD,
-        override,
-        [{ id: "filter-1", field: FIELD, operator: "eq", value: "default" }],
-        [{ key: "runtime", filterId: "filter-1", label: "Runtime" }],
-      ),
-    ).toEqual({ ...override, id: "filter-1" });
-  });
-
-  it("pins the declared second predicate when two saved filters share a field", () => {
-    const saved = [
-      { id: "filter-1", field: FIELD, operator: "gte" as const, value: 10 },
-      { id: "filter-2", field: FIELD, operator: "lte" as const, value: 20 },
-    ];
-    const override = filter(FIELD, { id: undefined, value: 15 });
-    expect(
-      withDeclaredFilterId(FIELD, override, saved, [
-        { key: "maximum", filterId: "filter-2", label: "Maximum" },
-      ]),
-    ).toEqual({ ...override, id: "filter-2" });
-  });
-});
-
-describe("resolveDeclaredRuntimeFilterId", () => {
-  it("clears the declared second predicate when two saved filters share a field", () => {
-    const saved = [
-      { id: "filter-1", field: FIELD, operator: "gte" as const, value: 10 },
-      { id: "filter-2", field: FIELD, operator: "lte" as const, value: 20 },
-    ];
-    const declaredId = resolveDeclaredRuntimeFilterId(FIELD, saved, [
-      { key: "maximum", filterId: "filter-2", label: "Maximum" },
-    ]);
-    const result = computeNewOverridesOnClear(FIELD, undefined, declaredId);
-    expect(result.filters?.[0]).toMatchObject({
-      id: "filter-2",
-      field: FIELD,
-      cleared: true,
-    });
-  });
-
-  it.each([
-    {
-      name: "two declarations target the same field",
-      runtime: [
-        { key: "minimum", filterId: "filter-1", label: "Minimum" },
-        { key: "maximum", filterId: "filter-2", label: "Maximum" },
-      ],
-    },
-    { name: "the field is undeclared", runtime: [] },
-    {
-      name: "the declaration references a missing predicate",
-      runtime: [{ key: "missing", filterId: "missing", label: "Missing" }],
-    },
-  ])("does not guess when $name", ({ runtime }) => {
-    const saved = [
-      { id: "filter-1", field: FIELD, operator: "gte" as const, value: 10 },
-      { id: "filter-2", field: FIELD, operator: "lte" as const, value: 20 },
-    ];
-    expect(
-      resolveDeclaredRuntimeFilterId(FIELD, saved, runtime),
-    ).toBeUndefined();
   });
 });
 
@@ -710,5 +652,220 @@ describe("buildSortFieldOptions", () => {
         [{ id: metricId, name: "Revenue" }],
       ).options.map((option) => option.label),
     ).toEqual(["Region", "Revenue"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14–16: What a tile is offered
+// ---------------------------------------------------------------------------
+
+describe("overrideOffer — which row a control gets", () => {
+  it.each([
+    { declared: true, held: false, offer: "editable" },
+    { declared: true, held: true, offer: "editable" },
+    { declared: false, held: true, offer: "resetOnly" },
+    { declared: false, held: false, offer: "hidden" },
+  ])(
+    "14. declared=$declared, held=$held → $offer",
+    ({ declared, held, offer }) => {
+      expect(overrideOffer(declared, held)).toBe(offer);
+    },
+  );
+});
+
+describe("resolveFilterRow — the declared filter a row edits", () => {
+  const fieldId = "20000000-0000-4000-8000-000000000001";
+  const alias = "field_20000000_0000_4000_8000_000000000001";
+  // Two saved filters on one field, as a range has.
+  const range = [
+    { id: "filter-1", field: FIELD, operator: "gte" as const, value: 10 },
+    { id: "filter-2", field: FIELD, operator: "lte" as const, value: 20 },
+  ];
+  const minimum = { key: "minimum", filterId: "filter-1", label: "Minimum" };
+  const maximum = {
+    key: "maximum",
+    filterId: "filter-2",
+    label: "Maximum",
+    allowClear: true,
+  };
+  type Runtime = NonNullable<
+    Parameters<typeof resolveFilterRow>[2]["runtimeControls"]
+  >["filters"];
+  const row = (
+    held: InsightFilterOverride | undefined,
+    filters: InsightFilter[],
+    runtime: Runtime,
+    fields?: Parameters<typeof resolveFilterRow>[3],
+  ) =>
+    resolveFilterRow(
+      FIELD,
+      held,
+      { filters, runtimeControls: { filters: runtime } },
+      fields,
+    );
+
+  it("15a. returns the field's one declaration with the saved filter it varies", () => {
+    expect(row(undefined, range, [maximum])).toEqual({
+      declaration: maximum,
+      filter: range[1],
+    });
+  });
+
+  it("15b. clears the declared second predicate when two saved filters share a field", () => {
+    const declaredId = row(undefined, range, [maximum])?.declaration.filterId;
+    const result = computeNewOverridesOnClear(FIELD, undefined, declaredId);
+    expect(result.filters?.[0]).toMatchObject({
+      id: "filter-2",
+      field: FIELD,
+      cleared: true,
+    });
+  });
+
+  it.each([
+    {
+      name: "two declarations target the same field",
+      runtime: [minimum, maximum],
+    },
+    { name: "the field is undeclared", runtime: [] },
+    { name: "the Insight declares no runtime filters", runtime: undefined },
+    {
+      name: "the declaration references a missing predicate",
+      runtime: [{ key: "missing", filterId: "missing", label: "Missing" }],
+    },
+  ])("15c. does not guess, with nothing held, when $name", ({ runtime }) => {
+    expect(row(undefined, range, runtime)).toBeUndefined();
+  });
+
+  it("15d. takes the declaration a held override runs through when a field has two", () => {
+    const both = [minimum, maximum];
+    // By the saved filter's id, whatever operator the override carries.
+    expect(
+      row(filter(FIELD, { id: "filter-2", operator: "eq" }), range, both),
+    ).toEqual({ declaration: maximum, filter: range[1] });
+    // Without an id, by the operator, as the tile runtime does.
+    expect(row(filter(FIELD, { operator: "gte" }), range, both)).toEqual({
+      declaration: minimum,
+      filter: range[0],
+    });
+    // An equality matches neither bound, and a clear matches both.
+    expect(row(filter(FIELD), range, both)).toBeUndefined();
+    expect(row(filter(FIELD, { cleared: true }), range, both)).toBeUndefined();
+  });
+
+  it("15e. has no declaration for a held override the tile cannot run", () => {
+    // One declared filter, but the override carries another operator.
+    expect(row(filter(FIELD), range, [maximum])).toBeUndefined();
+    // Or the id of a filter that is not declared.
+    expect(
+      row(filter(FIELD, { id: "filter-1", operator: "gte" }), range, [maximum]),
+    ).toBeUndefined();
+  });
+
+  it("15f. has no declaration for a held override whose id names another field's filter", () => {
+    const saved = [
+      { id: "filter-1", field: OTHER_FIELD, operator: "eq" as const, value: 1 },
+    ];
+    expect(
+      row(filter(FIELD, { id: "filter-1" }), saved, [minimum]),
+    ).toBeUndefined();
+  });
+
+  it("15g. finds a saved filter stored by the field's result-column alias", () => {
+    const saved = [
+      { id: "filter-1", field: alias, operator: "eq" as const, value: 1 },
+    ];
+    const fields = [{ id: fieldId, name: "Created", columnName: FIELD }];
+    const declared = { declaration: minimum, filter: saved[0] };
+
+    expect(row(undefined, saved, [minimum], fields)).toEqual(declared);
+    // A control bound by column name runs through it too.
+    expect(row(filter(FIELD), saved, [minimum], fields)).toEqual(declared);
+    // Without the fields the alias names nothing.
+    expect(row(undefined, saved, [minimum])).toBeUndefined();
+    // Another field's alias is not this row's.
+    expect(
+      resolveFilterRow(
+        OTHER_FIELD,
+        undefined,
+        { filters: saved, runtimeControls: { filters: [minimum] } },
+        fields,
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("controlCanDrive — whether a control may be bound to a row", () => {
+  const equality: InsightFilter = {
+    id: "filter-1",
+    field: FIELD,
+    operator: "eq",
+    value: "a",
+  };
+  const clearable = {
+    key: "k",
+    filterId: "filter-1",
+    label: "Created",
+    allowClear: true,
+  };
+  /** Whether a control can drive the first declaration of `declarations`. */
+  const drives = (
+    filters: InsightFilter[],
+    declarations: (typeof clearable | Omit<typeof clearable, "allowClear">)[],
+  ) =>
+    controlCanDrive(
+      FIELD,
+      { declaration: declarations[0]!, filter: filters[0]! },
+      { filters, runtimeControls: { filters: declarations } },
+    );
+
+  it("17a. an equality that allows clearing", () => {
+    expect(drives([equality], [clearable])).toBe(true);
+  });
+
+  it("17b. not one that does not allow clearing: a blank control sends a clear", () => {
+    const { allowClear: _allowClear, ...fixed } = clearable;
+    expect(drives([equality], [fixed])).toBe(false);
+  });
+
+  it("17c. not a required filter", () => {
+    expect(drives([equality], [{ ...clearable, required: true }])).toBe(false);
+  });
+
+  it("17d. not a filter that is not an equality: a control sends one", () => {
+    expect(drives([{ ...equality, operator: "gte" }], [clearable])).toBe(false);
+  });
+
+  it("17e. not when another declared filter on the field would take the control's override", () => {
+    const second = { ...clearable, key: "k2", filterId: "filter-2" };
+    // A second equality: the control's value matches both.
+    expect(
+      drives([equality, { ...equality, id: "filter-2" }], [clearable, second]),
+    ).toBe(false);
+    // Another operator: the value finds the equality, but a blank control's
+    // clear matches both.
+    expect(
+      drives(
+        [equality, { ...equality, id: "filter-2", operator: "gte" }],
+        [clearable, second],
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("clampLimit", () => {
+  const bounds = { min: 10, max: 50 };
+
+  it.each([
+    { limit: 5, clamped: 10 },
+    { limit: 10, clamped: 10 },
+    { limit: 25, clamped: 25 },
+    { limit: 50, clamped: 50 },
+    { limit: 900, clamped: 50 },
+  ])("16a. moves $limit to $clamped within 10–50", ({ limit, clamped }) => {
+    expect(clampLimit(limit, bounds)).toBe(clamped);
+  });
+
+  it("16b. leaves the limit alone when there is no range", () => {
+    expect(clampLimit(900, undefined)).toBe(900);
   });
 });
