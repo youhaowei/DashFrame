@@ -107,8 +107,11 @@ export interface PreviewDirectNode {
  *   date but still structurally valid. The renderer shows it as stale.
  * - `orphaned`: a deleted upstream artifact leaves a downstream reference
  *   dangling. The native preview reports this from the proposed deletion.
+ * - `losesTiles`: a report that shows a chart these commands delete. Its tiles
+ *   for that chart are removed with it, so the report is edited, not left
+ *   dangling.
  */
-export type DownstreamFlag = "recompute" | "orphaned" | "stale";
+export type DownstreamFlag = "recompute" | "orphaned" | "stale" | "losesTiles";
 
 /**
  * The implicit DAG edge by which a downstream node was reached from a touched

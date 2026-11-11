@@ -160,6 +160,91 @@ it("keeps the deletion marker for a deleted artifact", async () => {
   });
 });
 
+async function placeOnReport(visualizationId: string) {
+  const reportId = uuid();
+  await user.mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDashboard", { id: reportId, name: "Report" }),
+      cmd("AddDashboardItem", {
+        dashboardId: reportId,
+        item: {
+          id: uuid(),
+          type: "visualization",
+          visualizationId,
+          x: 0,
+          y: 0,
+          width: 4,
+          height: 3,
+        },
+      }),
+    ],
+  });
+  return reportId;
+}
+const downstreamFlags = (diff: {
+  affectedDownstream: { kind: string; nodeId: string; flag: string }[];
+}) =>
+  diff.affectedDownstream
+    .map((n) => [n.kind, n.nodeId, n.flag])
+    .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+const sorted = (rows: string[][]) =>
+  rows.sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+
+// Deleting a chart takes its tiles off its reports in the same commit, so the
+// report is edited rather than left pointing at a chart that is gone.
+it("flags a report as losing tiles when a chart on it is deleted", async () => {
+  const visualizationId = await seedVisualization();
+  const reportId = await placeOnReport(visualizationId);
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: visualizationId })],
+  });
+
+  expect(downstreamFlags(diff)).toEqual([
+    ["dashboard", reportId, "losesTiles"],
+  ]);
+  expect(diff.tablesWritten).toContain("dashboards");
+});
+
+it("flags a report as losing tiles when its chart goes with a deleted insight", async () => {
+  const { insightId, visualizationId } = await seedChain();
+  const reportId = await placeOnReport(visualizationId);
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: insightId })],
+  });
+
+  expect(downstreamFlags(diff)).toEqual(
+    sorted([
+      ["visualization", visualizationId, "orphaned"],
+      ["dashboard", reportId, "losesTiles"],
+    ]),
+  );
+});
+
+it("keeps a report orphaned or stale when its chart is not deleted", async () => {
+  const { sourceId, tableId, insightId, visualizationId } = await seedChain();
+  const reportId = await placeOnReport(visualizationId);
+
+  // Deleting the source leaves the insight and its chart in place.
+  const deleted = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: sourceId })],
+  });
+  expect(downstreamFlags(deleted)).toEqual(
+    sorted([
+      ["dataTable", tableId, "orphaned"],
+      ["insight", insightId, "orphaned"],
+      ["visualization", visualizationId, "orphaned"],
+      ["dashboard", reportId, "orphaned"],
+    ]),
+  );
+
+  const renamed = await user.query(api.app.previewDiff, {
+    commands: [cmd("RenameNode", { id: visualizationId, name: "Renamed" })],
+  });
+  expect(downstreamFlags(renamed)).toEqual([["dashboard", reportId, "stale"]]);
+});
+
 it("previews an ifUnused delete of a node in use as no change", async () => {
   const { insightId } = await seedChain();
 

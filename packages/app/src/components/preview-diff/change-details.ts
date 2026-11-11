@@ -42,12 +42,14 @@ export const FLAG_COLORS: Record<
   recompute: "warning",
   stale: "secondary",
   orphaned: "danger",
+  losesTiles: "warning",
 };
 
 export const FLAG_LABELS: Record<PreviewDownstreamNode["flag"], string> = {
   recompute: "Will recompute",
   stale: "Stale",
   orphaned: "Orphaned",
+  losesTiles: "Loses tiles",
 };
 
 export type ChangeDetail = {

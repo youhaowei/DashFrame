@@ -454,17 +454,24 @@ export async function preview(
           key = graphKey(table, row.id);
         if (!e || visited.has(key) || direct.has(key)) continue;
         visited.add(key);
+        // A deleted chart takes its tiles with it, so its reports are edited
+        // by the same commands, not left pointing at a chart that is gone.
+        const losesTiles =
+          e === "visualization->dashboard" &&
+          !(await graph.has("visualizations", current.id));
         downstream.push({
           nodeId: row.id as UUID,
           kind: artifactKinds[table],
           name: row.name,
           edge: e,
           via: { kind: node.kind, id: node.nodeId },
-          flag: node.proposedDefinition.deleted
-            ? "orphaned"
-            : table === "insights"
-              ? "recompute"
-              : "stale",
+          flag: losesTiles
+            ? "losesTiles"
+            : node.proposedDefinition.deleted
+              ? "orphaned"
+              : table === "insights"
+                ? "recompute"
+                : "stale",
         });
         queue.push({ table, id: row.id });
       }
