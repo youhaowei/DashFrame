@@ -16,8 +16,15 @@ people cutting a release do the same things in the same order.
 - The MCP server reports its own version to agents in
   `apps/server/src/mcp/route.ts` (`serverInfo.version`). It must match the web
   app version of the release; it is not derived from `package.json` yet.
-- Unversioned apps (`apps/desktop`, `apps/renderer`, `apps/server`) stay at
-  `0.0.0`; the web app version is the release number.
+- Unversioned apps (`apps/desktop`, `apps/renderer`, `apps/server`) and the
+  workspace root stay at `0.0.0`; the web app version is the release number.
+  Nothing reads the root version.
+- A minor changeset moves the web app one minor version. If the number has to
+  skip ahead, set the baseline by hand in its own commit with a `CHANGELOG.md`
+  note, then let a changeset make the release bump.
+- The version PR is opened with the workflow's own token, so GitHub does not
+  start CI on it. Check out its branch and run `bun run check` and
+  `bun run format:check` before merging.
 
 ## 2. Freeze the candidate
 
@@ -43,9 +50,14 @@ connection, so nothing happens automatically on merge.
   the built commit. Set it to the deployed SHA, or treat container start time as
   the deploy marker until the endpoint derives its value from build metadata.
 - Connector OAuth clients are deployment configuration. Google Analytics needs
-  `DASHFRAME_GOOGLE_CLIENT_ID` and `DASHFRAME_GOOGLE_CLIENT_SECRET` on the
-  service, with `${DASHFRAME_PUBLIC_ORIGIN}/auth/callback` allowed in the Google
-  OAuth client; without them connector setup returns 400.
+  `DASHFRAME_GOOGLE_CLIENT_ID`, `DASHFRAME_GOOGLE_CLIENT_SECRET`, and
+  `DASHFRAME_OAUTH_REDIRECT_BASE` (the public origin) on the service, with
+  `${DASHFRAME_OAUTH_REDIRECT_BASE}/api/connectors/oauth/callback` allowed as a
+  redirect URI in the Google OAuth client. `/auth/callback` is the WorkOS
+  sign-in callback and is not used by connectors. Without the client ID and
+  secret, connector setup returns 400. Always set the redirect base on a
+  deployment: without it the callback is derived from the server's own
+  endpoint, which is refused unless that endpoint is loopback.
 - Verify with a real signed-in session, not a synthetic workspace:
   1. Admission: a Google sign-in lands on the reports list with that
      workspace's reports and a sign-out control.
@@ -64,6 +76,9 @@ connection, so nothing happens automatically on merge.
 
 ## 4. Desktop
 
+- Provision the pinned Convex backend first with
+  `bun --filter @dashframe/convex-local provision`; the desktop build verifies
+  the binary but does not download it.
 - `bun run --cwd apps/desktop package:dir` builds the unpacked macOS app.
   Launch it, import the sample data, open a report, and quit cleanly. Linux and
   Windows builds are not part of the release until the tracker says so.
