@@ -155,7 +155,12 @@ async function bindAgent(
   oauth: HostedMcpOAuthOptions,
   token: VerifiedAgentToken,
 ): Promise<
-  AgentBinding | "unavailable" | "pending" | "admission revoked" | "revoked"
+  | AgentBinding
+  | "unavailable"
+  | "pending"
+  | "admission revoked"
+  | "revoked"
+  | "refused"
 > {
   const user = { userId: token.subject, expiresAt: token.expiresAt };
   let admission: HostedAdmission;
@@ -173,7 +178,7 @@ async function bindAgent(
       token.clientKey,
     );
     // Revocation is final until the owner explicitly reconnects this client.
-    if (grant.status === "revoked") return "revoked";
+    if (grant.status !== "active") return grant.status;
     return {
       workspaceId: admission.workspaceId,
       grantId: grant.grantId,
@@ -245,6 +250,12 @@ function mountUniversalMcpRoute(
       );
     if (bound === "unavailable")
       return c.json({ error: "Agent sign-in unavailable" }, 503);
+    // A denial that signing in again or retrying cannot change.
+    if (bound === "refused")
+      return c.json(
+        { error: "This agent cannot be connected to this DashFrame account" },
+        403,
+      );
     return c.json({ error: ADMISSION_REFUSALS[bound] }, 403);
   }
 
@@ -310,10 +321,21 @@ async function verifiedToken(
   );
   if (!bearer) return unauthorized();
   const verified = await oauth.verifier.verify(bearer[1]!);
-  if (!verified.ok)
-    return verified.reason === "unavailable"
-      ? c.json({ error: "Agent sign-in unavailable" }, 503)
-      : unauthorized(true);
+  if (!verified.ok) {
+    if (verified.reason === "unavailable")
+      return c.json({ error: "Agent sign-in unavailable" }, 503);
+    if (verified.reason === "unidentified client") {
+      // Signing in again yields the same token shape, so do not challenge.
+      console.error(
+        "[dashframe] MCP sign-in refused: the access token names no OAuth client (client_id or azp)",
+      );
+      return c.json(
+        { error: "This sign-in does not identify the connecting agent" },
+        403,
+      );
+    }
+    return unauthorized(true);
+  }
   // jwtVerify allows clock skew; a token this close to expiry cannot sign anything.
   if (verified.token.expiresAt <= Date.now() + 1_000) return unauthorized(true);
   return verified.token;

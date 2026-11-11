@@ -9,7 +9,12 @@ import type {
 
 export type EnsuredAgentGrant =
   | { status: "active"; grantId: string }
-  | { status: "revoked" };
+  | { status: "revoked" }
+  /** The backend refused this grant for a reason a retry cannot change. */
+  | { status: "refused" };
+
+/** The one Convex denial from `ensureOAuthGrant` that a retry can clear. */
+const ALLOCATION_CONFLICT = "Agent grant allocation conflict; retry";
 
 /** Call only with a subject verified from an AuthKit token and its admitted workspace. */
 export function createHostedAgentGrants(options: {
@@ -35,12 +40,15 @@ export function createHostedAgentGrants(options: {
         });
         return { status: "active", grantId: grant.grantId };
       } catch (error) {
+        // Anything that is not a Convex denial is a transport fault: our
+        // outage, reported as such so the client retries.
         if (
-          error instanceof ConvexError &&
-          error.data === "Agent grant revoked"
+          !(error instanceof ConvexError) ||
+          error.data === ALLOCATION_CONFLICT
         )
-          return { status: "revoked" };
-        throw error;
+          throw error;
+        if (error.data === "Agent grant revoked") return { status: "revoked" };
+        return { status: "refused" };
       }
     },
   };

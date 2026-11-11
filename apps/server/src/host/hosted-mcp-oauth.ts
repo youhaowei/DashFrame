@@ -20,7 +20,8 @@ export interface VerifiedAgentToken {
 
 export type AgentTokenVerification =
   | { ok: true; token: VerifiedAgentToken }
-  | { ok: false; reason: "invalid" | "unavailable" };
+  /** `unidentified client`: a genuine token that names no OAuth client. */
+  | { ok: false; reason: "invalid" | "unavailable" | "unidentified client" };
 
 export interface AgentTokenVerifier {
   verify(token: string): Promise<AgentTokenVerification>;
@@ -80,10 +81,14 @@ export function createAuthKitAccessTokenVerifier(
       }
       const subject = payload.sub;
       const client = clientClaim(payload);
+      // Grants are per client and revocation is final. A token that names no
+      // client would share one grant across every agent the user connects, so
+      // revoking one would lock out all of them; refuse it instead.
+      if (client === undefined)
+        return { ok: false, reason: "unidentified client" };
       if (
         !boundedIdentifier(subject, MAX_SUBJECT_LENGTH) ||
-        (client !== undefined &&
-          !boundedIdentifier(client, MAX_CLIENT_LENGTH)) ||
+        !boundedIdentifier(client, MAX_CLIENT_LENGTH) ||
         typeof payload.iat !== "number" ||
         typeof payload.exp !== "number"
       )
@@ -92,8 +97,7 @@ export function createAuthKitAccessTokenVerifier(
         ok: true,
         token: {
           subject: subject as string,
-          // AuthKit may omit a client claim; one grant per subject is the safe fallback.
-          clientKey: client === undefined ? "oauth" : `oauth:${client}`,
+          clientKey: `oauth:${client}`,
           issuedAt: payload.iat,
           expiresAt: payload.exp * 1000,
         },

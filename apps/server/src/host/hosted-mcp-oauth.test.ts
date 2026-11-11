@@ -48,10 +48,21 @@ describe("AuthKit access token verifier", () => {
       ok: true,
       token: { subject: "user_01", clientKey: "oauth:claude" },
     });
-    const noClient = await verifier.verify(
-      await sign({ client_id: undefined }),
+    const oidcStyle = await verifier.verify(
+      await sign({ client_id: undefined, azp: "cursor" }),
     );
-    expect(noClient).toMatchObject({ ok: true, token: { clientKey: "oauth" } });
+    expect(oidcStyle).toMatchObject({
+      ok: true,
+      token: { clientKey: "oauth:cursor" },
+    });
+  });
+
+  it("refuses a genuine token that names no client instead of sharing one grant", async () => {
+    const { keys, sign } = await signer();
+    const verifier = createAuthKitAccessTokenVerifier(config, keys);
+    expect(await verifier.verify(await sign({ client_id: undefined }))).toEqual(
+      { ok: false, reason: "unidentified client" },
+    );
   });
 
   it("rejects wrong audience, wrong issuer, expired, foreign-key, and unsigned tokens as invalid", async () => {

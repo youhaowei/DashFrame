@@ -21,7 +21,7 @@ function setup(
   overrides: {
     verify?: AgentTokenVerification;
     admission?: HostedAdmission | Error;
-    grant?: EnsuredAgentGrant;
+    grant?: EnsuredAgentGrant | Error;
     bindingFails?: boolean | "outage";
     oauth?: false;
   } = {},
@@ -64,6 +64,7 @@ function setup(
     grants: {
       ensure: async (...args) => {
         calls.ensure.push(args);
+        if (overrides.grant instanceof Error) throw overrides.grant;
         return overrides.grant ?? { status: "active", grantId: "g1" };
       },
     },
@@ -173,6 +174,16 @@ describe("universal /mcp endpoint", () => {
     expect(outage.headers.get("WWW-Authenticate")).toBeNull();
   });
 
+  it("refuses a token that names no client with 403 and no challenge", async () => {
+    const { authorized, calls } = setup({
+      verify: { ok: false, reason: "unidentified client" },
+    });
+    const response = await authorized();
+    expect(response.status).toBe(403);
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
+    expect(calls.admission).toBe(0);
+  });
+
   it("refuses a foreign Origin before reading the token", async () => {
     const { authorized, calls } = setup();
     const response = await authorized({
@@ -193,6 +204,17 @@ describe("universal /mcp endpoint", () => {
     expect(
       (await setup({ admission: new Error("down") }).authorized()).status,
     ).toBe(503);
+  });
+
+  it("answers a permanent grant denial with 403 and a grant outage with 503", async () => {
+    const refused = await setup({ grant: { status: "refused" } }).authorized();
+    expect(refused.status).toBe(403);
+    expect(refused.headers.get("WWW-Authenticate")).toBeNull();
+    const outage = await setup({
+      grant: new TypeError("fetch failed"),
+    }).authorized();
+    expect(outage.status).toBe(503);
+    expect(outage.headers.get("WWW-Authenticate")).toBeNull();
   });
 
   it("ends the flow with 403 for a revoked grant instead of a sign-in loop", async () => {
@@ -245,7 +267,7 @@ describe("universal /mcp endpoint", () => {
         ok: true,
         token: {
           subject: "user_01",
-          clientKey: "oauth",
+          clientKey: "oauth:claude",
           issuedAt: 1,
           expiresAt: Date.now() + 500,
         },
