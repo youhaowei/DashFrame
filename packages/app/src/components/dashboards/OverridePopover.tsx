@@ -31,6 +31,7 @@ import {
   type DashboardControl,
   type DashboardItem,
   type DashboardItemOverridePatch,
+  type DashboardItemOverrides,
   type InsightFilterOverride,
   type InsightRuntimeDeclaration,
   type InsightSort,
@@ -81,6 +82,13 @@ interface OverridePopoverProps {
   dashboardId: string;
   /** Dashboard-level controls (from dashboard.controls ?? []). */
   controls: DashboardControl[];
+  /**
+   * What the tile runs right now: its overrides with each bound control's
+   * current value in place of the field it drives, including a value a viewer
+   * typed and did not save.  Absent, it is worked out from the controls' saved
+   * defaults.
+   */
+  effectiveOverrides?: DashboardItemOverrides;
   /** Opens the tile's chart for editing, as a tab in the report. */
   onEditChart?: (visualizationId: string) => void;
 }
@@ -416,6 +424,7 @@ export function OverridePopover({
   item,
   dashboardId,
   controls,
+  effectiveOverrides,
   onEditChart,
 }: OverridePopoverProps) {
   const commitBatch = useMutation(api.app.commitBatch);
@@ -648,7 +657,8 @@ export function OverridePopover({
   const runtimeControls = known?.runtimeControls;
   // What the tile runs: its own overrides, with a bound control's in place of
   // the field it drives.
-  const effectiveFilters = computeItemOverrides(item, controls)?.filters ?? [];
+  const effectiveFilters =
+    (effectiveOverrides ?? computeItemOverrides(item, controls))?.filters ?? [];
   const offersNothing =
     !runtimeControls?.sort &&
     !runtimeControls?.limit &&

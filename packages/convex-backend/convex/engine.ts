@@ -1228,8 +1228,13 @@ async function requireDeclaredOverride(
     const { min, max } = record(controls.limit),
       limit = patch.value;
     // Anything but a number is refused when the stored layout is parsed.
+    if (typeof limit !== "number") return;
+    // The host counts rows: it takes a whole number and nothing else.
+    if (!Number.isInteger(limit))
+      throw new Error(
+        `A limit override is a whole number of rows, not ${limit}.`,
+      );
     if (
-      typeof limit === "number" &&
       typeof min === "number" &&
       typeof max === "number" &&
       (limit < min || limit > max)

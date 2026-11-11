@@ -4306,6 +4306,17 @@ describe("existing command behavior on native Convex", () => {
       expect((await storedItems(dashId))[0]?.overrides).toEqual({ limit: 100 });
     });
 
+    it("refuses a limit that is not a whole number of rows", async () => {
+      const { dashId, sourceItemId: itemId } =
+        await makeDashWithOverridableItem();
+
+      // Inside the offered range, but the host takes whole rows only.
+      await expect(
+        patch(dashId, itemId, { kind: "limit", value: 1.5 }),
+      ).rejects.toThrow("A limit override is a whole number of rows, not 1.5.");
+      expect((await storedItems(dashId))[0]?.overrides).toBeUndefined();
+    });
+
     it("takes a sort override only by a field or metric the Insight allows", async () => {
       const {
         dashId,

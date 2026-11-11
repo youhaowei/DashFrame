@@ -159,12 +159,14 @@ async function openPopover({
   insight = declaringInsight,
   loading = false,
   controls = [],
+  effectiveOverrides,
   onEditChart,
 }: {
   item?: DashboardItem;
   insight?: Insight | null;
   loading?: boolean;
   controls?: DashboardControl[];
+  effectiveOverrides?: DashboardItemOverrides;
   onEditChart?: (visualizationId: string) => void;
 } = {}) {
   lists.listVisualizations = [{ id: item.visualizationId, insightId }];
@@ -177,6 +179,7 @@ async function openPopover({
       item={item}
       dashboardId={dashboardId}
       controls={controls}
+      effectiveOverrides={effectiveOverrides}
       onEditChart={onEditChart}
     />,
   );
@@ -765,6 +768,36 @@ describe("OverridePopover offered controls", () => {
 
       expect(screen.queryByText(staleFilter) !== null).toBe(stale);
       expect(screen.queryByText("← Region picker") !== null).toBe(!stale);
+    });
+
+    it("offers only Unbind when a viewer's unsaved control value is one the filter cannot take", async () => {
+      // The control's saved default is blank, which clears the filter and
+      // runs.  The viewer has typed a value since: the tile now sends an
+      // equality this `contains` filter does not take, and the row says so.
+      await openPopover({
+        item: tileWith(),
+        insight: makeInsight(
+          { filters: [{ ...regionControl, allowClear: true }] },
+          [{ ...regionFilter, operator: "contains" }],
+        ),
+        controls: [
+          {
+            id: "10000000-0000-4000-8000-000000000006" as UUID,
+            field: "region",
+            label: "Region picker",
+            boundInstances: [tile.id],
+          },
+        ],
+        effectiveOverrides: {
+          filters: [{ field: "region", operator: "eq", value: "West" }],
+        },
+      });
+
+      expect(screen.getByText(staleFilter)).toBeTruthy();
+      expect(screen.queryByText("← Region picker")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Unbind region from control" }),
+      ).toBeTruthy();
     });
 
     it("keeps the bound row when the control drives a declared equality", async () => {
