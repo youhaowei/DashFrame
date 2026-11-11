@@ -16,6 +16,11 @@
  * 8. sortChange: replaces sorts; preserves filters + limit.
  * 9. limitChange: replaces limit; preserves filters + sorts.
  *
+ * SORT KEYS — the sort row edits one key of a list:
+ * 11. changeFirstSortKey: changes only the first key; every later key survives.
+ * 12. formatSortKeys: names every key in priority order.
+ * 13. buildSortFieldLabels: every stored reference form maps to a readable name.
+ *
  * BADGE — hasOverrides truth table.
  * 10. hasOverrides: true on non-empty filters/sorts/limit, false otherwise.
  */
@@ -29,12 +34,15 @@ import type {
 } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
 import {
+  buildSortFieldLabels,
+  changeFirstSortKey,
   computeNewOverridesOnClear,
   computeNewOverridesOnInherit,
   computeNewOverridesOnLimitChange,
   computeNewOverridesOnPin,
   computeNewOverridesOnSortChange,
   deriveFieldState,
+  formatSortKeys,
   hasOverrides,
   resolveDeclaredRuntimeFilterId,
   withDeclaredFilterId,
@@ -488,5 +496,194 @@ describe("hasOverrides — badge truth table", () => {
   it("10h. only sorts=undefined, limit=undefined → false", () => {
     // Explicitly undefined properties still yield false.
     expect(hasOverrides({ sorts: undefined, limit: undefined })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sort keys
+// ---------------------------------------------------------------------------
+
+describe("changeFirstSortKey — the first key of a multi-key sort", () => {
+  const twoKeys: InsightSort[] = [
+    { field: "region", direction: "asc" },
+    { field: "order_date", direction: "desc" },
+  ];
+  const threeKeys: InsightSort[] = [
+    ...twoKeys,
+    { field: "id", direction: "asc" },
+  ];
+
+  it("11a. changing the first key's field keeps the second key", () => {
+    expect(changeFirstSortKey(twoKeys, { field: "channel" })).toEqual([
+      { field: "channel", direction: "asc" },
+      { field: "order_date", direction: "desc" },
+    ]);
+  });
+
+  it("11b. changing the first key's direction keeps the second key", () => {
+    expect(changeFirstSortKey(twoKeys, { direction: "desc" })).toEqual([
+      { field: "region", direction: "desc" },
+      { field: "order_date", direction: "desc" },
+    ]);
+  });
+
+  it("11c. leaves the later keys as the same objects, in the same order", () => {
+    const next = changeFirstSortKey(threeKeys, { direction: "desc" });
+    expect(next).toHaveLength(3);
+    expect(next[1]).toBe(threeKeys[1]);
+    expect(next[2]).toBe(threeKeys[2]);
+    expect(threeKeys[0]).toEqual({ field: "region", direction: "asc" });
+  });
+
+  it("11d. a direction change keeps the key's pivot cell; a field change drops it", () => {
+    const pivotKey: InsightSort = {
+      field: "revenue",
+      direction: "desc",
+      pivotValues: [{ fieldId: "channel", value: "Web" }],
+    };
+    expect(changeFirstSortKey([pivotKey], { direction: "asc" })).toEqual([
+      { ...pivotKey, direction: "asc" },
+    ]);
+    expect(changeFirstSortKey([pivotKey], { field: "region" })).toEqual([
+      { field: "region", direction: "desc" },
+    ]);
+    expect(changeFirstSortKey([pivotKey], { field: "revenue" })).toEqual([
+      pivotKey,
+    ]);
+  });
+
+  it("11e. an empty list gains its first key", () => {
+    expect(changeFirstSortKey([], { field: "region" })).toEqual([
+      { field: "region", direction: "asc" },
+    ]);
+    expect(changeFirstSortKey([], { direction: "desc" }, "region")).toEqual([
+      { field: "region", direction: "desc" },
+    ]);
+  });
+
+  it("11f. a field a later key sorts by moves to the first key instead of duplicating", () => {
+    expect(changeFirstSortKey(threeKeys, { field: "order_date" })).toEqual([
+      { field: "order_date", direction: "asc" },
+      { field: "id", direction: "asc" },
+    ]);
+  });
+
+  it("11g. a field change leaves a later pivot key on that field alone", () => {
+    const pivotKey: InsightSort = {
+      field: "revenue",
+      direction: "desc",
+      pivotValues: [{ fieldId: "channel", value: "Web" }],
+    };
+    expect(
+      changeFirstSortKey([twoKeys[0]!, pivotKey], { field: "revenue" }),
+    ).toEqual([{ field: "revenue", direction: "asc" }, pivotKey]);
+  });
+});
+
+describe("formatSortKeys", () => {
+  it("12a. names every key in priority order", () => {
+    expect(
+      formatSortKeys([
+        { field: "region", direction: "asc" },
+        { field: "order_date", direction: "desc" },
+      ]),
+    ).toBe("region asc, order_date desc");
+  });
+
+  it("12b. names a pivot key's cell so keys on one metric stay distinct", () => {
+    expect(
+      formatSortKeys([
+        {
+          field: "revenue",
+          direction: "desc",
+          pivotValues: [{ fieldId: "channel", value: "Web" }],
+        },
+        {
+          field: "revenue",
+          direction: "desc",
+          pivotValues: [{ fieldId: "channel", value: null }],
+        },
+      ]),
+    ).toBe("revenue · Web desc, revenue · (empty) desc");
+  });
+
+  it("12c. shows a labelled reference by its label and any other as stored", () => {
+    expect(
+      formatSortKeys(
+        [
+          { field: "field_abc", direction: "asc" },
+          { field: "order_date", direction: "desc" },
+        ],
+        new Map([["field_abc", "region"]]),
+      ),
+    ).toBe("region asc, order_date desc");
+  });
+});
+
+describe("buildSortFieldLabels", () => {
+  const fieldId = "11111111-1111-4111-8111-111111111111";
+  const metricId = "22222222-2222-4222-8222-222222222222";
+
+  it("13a. maps a field's id, alias, and column name to its display name", () => {
+    const labels = buildSortFieldLabels(
+      [
+        {
+          id: fieldId,
+          name: "region",
+          columnName: "region_code",
+          displayName: "orders.region",
+        },
+      ],
+      [],
+    );
+    expect(labels.get(fieldId)).toBe("orders.region");
+    expect(labels.get("field_11111111_1111_4111_8111_111111111111")).toBe(
+      "orders.region",
+    );
+    expect(labels.get("region_code")).toBe("orders.region");
+  });
+
+  it("13b. maps a metric's id and alias to its name", () => {
+    const labels = buildSortFieldLabels(
+      [],
+      [{ id: metricId, name: "Revenue" }],
+    );
+    expect(labels.get(metricId)).toBe("Revenue");
+    expect(labels.get("metric_22222222_2222_4222_8222_222222222222")).toBe(
+      "Revenue",
+    );
+  });
+
+  it("13c. names a field of an insight built on another insight, whose column name is an alias", () => {
+    // The upstream insight's metric arrives as a field whose column name is the
+    // generated alias; only `name` is readable.
+    const upstreamMetricColumn = "metric_22222222_2222_4222_8222_222222222222";
+    const labels = buildSortFieldLabels(
+      [
+        {
+          id: fieldId,
+          name: "Total Revenue",
+          columnName: upstreamMetricColumn,
+        },
+      ],
+      [],
+    );
+    expect(
+      formatSortKeys(
+        [{ field: upstreamMetricColumn, direction: "desc" }],
+        labels,
+      ),
+    ).toBe("Total Revenue desc");
+  });
+
+  it("13d. keeps the base table's label when a joined table shares a column name", () => {
+    const labels = buildSortFieldLabels(
+      [
+        { id: fieldId, name: "id", columnName: "id", displayName: "orders.id" },
+        { id: metricId, name: "id", columnName: "id", displayName: "users.id" },
+      ],
+      [],
+    );
+    expect(labels.get("id")).toBe("orders.id");
   });
 });

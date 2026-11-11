@@ -53,8 +53,11 @@ import { EditIcon, SettingsIcon } from "@wystack/ui-react/icons";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
+  buildSortFieldLabels,
+  changeFirstSortKey,
   computeNewOverridesOnClear,
   deriveFieldState,
+  formatSortKeys,
   hasOverrides,
   resolveDeclaredRuntimeFilterId,
   withDeclaredFilterId,
@@ -78,29 +81,38 @@ interface OverridePopoverProps {
 // Sort row
 // ---------------------------------------------------------------------------
 
-function SortOverrideRow({
+/**
+ * Edits the first key of the tile's sort override.  Later keys are not
+ * editable here, so every edit sends them back untouched and the row lists
+ * them, rather than presenting a multi-key sort as a single-key one.
+ */
+export function SortOverrideRow({
   insightSorts,
   overrideSorts,
   availableFields,
+  fieldLabels,
   onChange,
 }: {
   insightSorts?: InsightSort[];
   overrideSorts?: InsightSort[];
   availableFields: string[];
+  /** Readable names for stored sort references; see `buildSortFieldLabels`. */
+  fieldLabels?: ReadonlyMap<string, string>;
   onChange: (sorts: InsightSort[] | undefined) => void;
 }) {
   const current: InsightSort | undefined =
     overrideSorts?.[0] ?? insightSorts?.[0];
   const isPinned = overrideSorts !== undefined;
+  const laterSorts = overrideSorts?.slice(1) ?? [];
 
   return (
     <div className="py-1.5">
       <div className="flex items-center gap-2">
-        <div className="flex flex-1 flex-col gap-0.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-xs font-medium text-neutral-fg">Sort</span>
-          {!isPinned && current && (
-            <span className="text-xs text-neutral-fg-subtle">
-              default: {current.field} {current.direction}
+          {!isPinned && insightSorts && insightSorts.length > 0 && (
+            <span className="text-xs break-words text-neutral-fg-subtle">
+              default: {formatSortKeys(insightSorts, fieldLabels)}
             </span>
           )}
         </div>
@@ -112,9 +124,7 @@ function SortOverrideRow({
               value={overrideSorts![0]?.field ?? ""}
               onValueChange={(field) => {
                 if (!field) return;
-                onChange([
-                  { field, direction: overrideSorts![0]?.direction ?? "asc" },
-                ]);
+                onChange(changeFirstSortKey(overrideSorts!, { field }));
               }}
             >
               <SelectTrigger className="h-6 w-28 text-xs">
@@ -132,12 +142,13 @@ function SortOverrideRow({
             <Select
               value={overrideSorts![0]?.direction ?? "asc"}
               onValueChange={(dir) =>
-                onChange([
-                  {
-                    field: overrideSorts![0]?.field ?? availableFields[0] ?? "",
-                    direction: dir as "asc" | "desc",
-                  },
-                ])
+                onChange(
+                  changeFirstSortKey(
+                    overrideSorts!,
+                    { direction: dir as "asc" | "desc" },
+                    availableFields[0],
+                  ),
+                )
               }
             >
               <SelectTrigger className="h-6 w-16 text-xs">
@@ -183,6 +194,11 @@ function SortOverrideRow({
           </Button>
         )}
       </div>
+      {laterSorts.length > 0 && (
+        <p className="mt-1 text-xs break-words text-neutral-fg-subtle">
+          then {formatSortKeys(laterSorts, fieldLabels)}
+        </p>
+      )}
     </div>
   );
 }
@@ -486,6 +502,11 @@ export function OverridePopover({
     [combinedFields],
   );
 
+  const sortFieldLabels = useMemo(
+    () => buildSortFieldLabels(combinedFields, insight?.metrics ?? []),
+    [combinedFields, insight?.metrics],
+  );
+
   const overridePresent = hasOverrides(item.overrides);
 
   return (
@@ -591,6 +612,7 @@ export function OverridePopover({
               insightSorts={insight?.sorts}
               overrideSorts={item.overrides?.sorts}
               availableFields={availableFieldNames}
+              fieldLabels={sortFieldLabels}
               onChange={handleSortChange}
             />
 

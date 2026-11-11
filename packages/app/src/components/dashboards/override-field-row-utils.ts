@@ -7,6 +7,7 @@
  * tested in override-field-row-utils.test.ts.
  */
 
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import type {
   DashboardControl,
   DashboardItemOverrides,
@@ -216,6 +217,44 @@ export function computeNewOverridesOnSortChange(
 }
 
 /**
+ * Edit the first key of a sort list, leaving every later key exactly as it was.
+ *
+ * The sort row edits only the first key, so its handlers must send the whole
+ * list back with that key changed; emitting a one-element list would delete
+ * the keys the row does not edit.
+ *
+ * A direction change keeps the rest of the key (including `pivotValues`).  A
+ * field change drops `pivotValues`, which name a pivot cell of the old field.
+ * It also removes any later plain key on the new field: behind a first key on
+ * the same field that key can no longer affect the order, so keeping it would
+ * only leave a duplicate.
+ *
+ * An empty list gains its first key; `fallbackField` names it when only a
+ * direction was chosen.
+ */
+export function changeFirstSortKey(
+  sorts: readonly InsightSort[],
+  change: { field: string } | { direction: InsightSort["direction"] },
+  fallbackField = "",
+): InsightSort[] {
+  const [first, ...later] = sorts;
+  const current: InsightSort = first ?? {
+    field: fallbackField,
+    direction: "asc",
+  };
+  if ("direction" in change) {
+    return [{ ...current, direction: change.direction }, ...later];
+  }
+  if (first && change.field === first.field) return [...sorts];
+  return [
+    { field: change.field, direction: current.direction },
+    ...later.filter(
+      (sort) => sort.field !== change.field || sort.pivotValues !== undefined,
+    ),
+  ];
+}
+
+/**
  * Replace the limit override.  Pass `undefined` to remove the cell's limit
  * override (revert to inherit = insight default).
  */
@@ -256,6 +295,66 @@ export function hasOverrides(
 // ---------------------------------------------------------------------------
 // Display helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * One-line summary of sort keys in priority order, e.g.
+ * "region asc, Revenue · Web desc".  A pivot key names its cell, so two keys on
+ * the same metric stay distinguishable.
+ *
+ * `fieldLabels` maps a stored sort reference to the name a person reads (see
+ * `buildSortFieldLabels`); a reference with no label is shown as stored.
+ */
+export function formatSortKeys(
+  sorts: readonly InsightSort[],
+  fieldLabels?: ReadonlyMap<string, string>,
+): string {
+  return sorts
+    .map((sort) => {
+      const label = [
+        fieldLabels?.get(sort.field) ?? sort.field,
+        ...(sort.pivotValues ?? []).map(({ value }) =>
+          value === null ? "(empty)" : String(value),
+        ),
+      ].join(" · ");
+      return `${label} ${sort.direction}`;
+    })
+    .join(", ");
+}
+
+/**
+ * Readable names for the references a sort key may store.
+ *
+ * A sort key names its field by id, by result-column alias (`field_<id>`,
+ * `metric_<id>`), or by column name, and for an insight built on another
+ * insight the column name is itself an alias.  None of those is fit to show,
+ * so each maps to the field's display name or the metric's name.
+ */
+export function buildSortFieldLabels(
+  fields: readonly {
+    id: string;
+    name: string;
+    columnName?: string;
+    displayName?: string;
+  }[],
+  metrics: readonly { id: string; name: string }[],
+): Map<string, string> {
+  const labels = new Map<string, string>();
+  const add = (reference: string | undefined, label: string) => {
+    // Joined tables can share a column name; the first (base table) keeps it.
+    if (reference && !labels.has(reference)) labels.set(reference, label);
+  };
+  for (const field of fields) {
+    const label = field.displayName ?? field.name;
+    add(field.id, label);
+    add(fieldIdToColumnAlias(field.id), label);
+    add(field.columnName, label);
+  }
+  for (const metric of metrics) {
+    add(metric.id, metric.name);
+    add(metricIdToColumnAlias(metric.id), metric.name);
+  }
+  return labels;
+}
 
 /** Human-readable label for a filter operator. */
 export function formatOperator(operator: InsightFilter["operator"]): string {
