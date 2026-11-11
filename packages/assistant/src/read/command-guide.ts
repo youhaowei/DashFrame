@@ -433,7 +433,13 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
         "{ kind:'filter', field, value } | { kind:'sorts', value: [{ field, direction:'asc'|'desc' }] | null } | { kind:'limit', value }",
     },
     notes:
-      "Null clears the selected override without replacing sibling overrides. " +
+      "Null clears the selected override without replacing sibling overrides, and is always accepted. " +
+      "Setting an override is rejected unless the item's Insight declares that control for viewers: " +
+      "runtimeControls.sort for a sort, runtimeControls.limit for a limit inside its min and max, " +
+      "and an entry in runtimeControls.filters for a filter (with allowClear for a cleared one). " +
+      "Declare it with SetInsightRuntimeControls first. " +
+      "A filter override supplies a value for the Insight's saved filter, so it keeps that filter's field and operator; " +
+      "send the saved filter's id when the Insight declares more than one filter on the field. " +
       "A sort override takes one key, because a tile runs one runtime sort key; a longer list is rejected. " +
       "Its field is the id of a field or metric the Insight's viewer controls allow sorting by.",
   },

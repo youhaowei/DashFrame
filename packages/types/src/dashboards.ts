@@ -49,8 +49,8 @@ export interface DashboardItemOverrides {
  * this field" rather than applying a predicate.  This is a DISTINCT signal from
  * absence: absence means inherit, cleared means widen.
  *
- * v0.3: clear widens freely — no permission gate (single-user data only).
- * Multi-tenant widening-permission logic is explicitly deferred to v0.4+.
+ * A clear runs as a null value for the Insight's declared runtime filter, so
+ * the host accepts it only when that declaration sets `allowClear`.
  */
 export interface InsightFilterOverride extends InsightFilter {
   /**
@@ -175,6 +175,10 @@ export interface DashboardItemPatch {
 /**
  * Intent-level override edits. The server applies these against its current
  * dashboard state so callers never have to replace a stale override bag.
+ *
+ * A non-null value sets an override, which the server accepts only through a
+ * control the item's Insight declares for viewers (`runtimeControls`).  Null
+ * removes one and is always accepted.
  */
 export type DashboardItemOverridePatch =
   | {

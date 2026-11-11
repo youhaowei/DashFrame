@@ -50,6 +50,19 @@ describe("command guide — self consistency", () => {
     expect(update?.notes).toContain("PatchDashboardItemOverride");
   });
 
+  it("states that a tile override needs a control the Insight declares", () => {
+    const patch = COMMAND_GUIDE.find(
+      (entry) => entry.name === "PatchDashboardItemOverride",
+    );
+    for (const control of [
+      "runtimeControls.sort",
+      "runtimeControls.limit",
+      "runtimeControls.filters",
+    ])
+      expect(patch?.notes).toContain(control);
+    expect(patch?.notes).toContain("SetInsightRuntimeControls");
+  });
+
   it.each([
     "PatchDashboardItemOverride",
     "AddDashboardItem",

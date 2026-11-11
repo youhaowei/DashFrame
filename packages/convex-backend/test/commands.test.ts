@@ -9,6 +9,7 @@ import {
   type Insight,
   type CommandName,
   type Command,
+  type DashboardItemOverridePatch,
   tableOrigin,
   type TableOrigin,
 } from "@dashframe/types";
@@ -369,6 +370,63 @@ async function makeDashWithVizItem(overrides?: {
   );
 
   return { tableId, insightId, vizId, dashId, sourceItemId };
+}
+/**
+ * Declares viewer controls on an Insight: a sort by one metric, a limit of 1
+ * to 100 rows, and a filter on `region`.  A tile override is accepted only
+ * through a control its Insight declares.
+ */
+async function offerViewerControls(
+  insightId: string,
+  tableId: string,
+  regionFilter: { allowClear?: boolean } = {},
+) {
+  const metricId = id();
+  await commit(
+    cmd("AddMetric", {
+      nodeId: insightId,
+      metric: {
+        id: metricId,
+        name: "Revenue",
+        sourceTable: tableId,
+        aggregation: "sum",
+        columnName: "revenue",
+      },
+    }),
+    cmd("SetInsightFilter", {
+      id: insightId,
+      filters: [
+        {
+          id: "region-filter",
+          field: "region",
+          operator: "eq",
+          value: { kind: "value", v: "EMEA" },
+        },
+      ],
+    }),
+    cmd("SetInsightRuntimeControls", {
+      id: insightId,
+      runtimeControls: {
+        filters: [
+          {
+            key: "region",
+            filterId: "region-filter",
+            label: "Region",
+            ...regionFilter,
+          },
+        ],
+        sort: { allowedFieldIds: [metricId], maxKeys: 1 },
+        limit: { min: 1, max: 100 },
+      },
+    }),
+  );
+  return { metricId };
+}
+/** A dashboard tile whose Insight declares the viewer controls above. */
+async function makeDashWithOverridableItem() {
+  const made = await makeDashWithVizItem();
+  await offerViewerControls(made.insightId, made.tableId);
+  return made;
 }
 describe("existing command behavior on native Convex", () => {
   it("should key idempotency on the id, not the kind (two ids of one kind = two sources)", async () => {
@@ -3815,7 +3873,8 @@ describe("existing command behavior on native Convex", () => {
     expect(item.overrides).toBeUndefined();
   });
   it("serializes concurrent override intents without dropping sibling fields", async () => {
-    const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+    const { dashId, sourceItemId: itemId } =
+      await makeDashWithOverridableItem();
 
     await Promise.all([
       commit(
@@ -3896,7 +3955,8 @@ describe("existing command behavior on native Convex", () => {
     ).rejects.toThrow();
   });
   it("normalizes cleared and empty override intents to no override bag", async () => {
-    const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+    const { dashId, sourceItemId: itemId } =
+      await makeDashWithOverridableItem();
     await commit(
       cmd("PatchDashboardItemOverride", {
         dashboardId: dashId,
@@ -3955,7 +4015,8 @@ describe("existing command behavior on native Convex", () => {
       });
 
     it("rejects a sort patch with more than one key and keeps the saved sort", async () => {
-      const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+      const { dashId, sourceItemId: itemId } =
+        await makeDashWithOverridableItem();
       const oneKey = [{ field: "revenue", direction: "desc" as const }];
       await commit(
         cmd("PatchDashboardItemOverride", {
@@ -4012,7 +4073,8 @@ describe("existing command behavior on native Convex", () => {
     });
 
     it("keeps a longer list saved before the rule through a layout edit, and refuses to copy it", async () => {
-      const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+      const { dashId, sourceItemId: itemId } =
+        await makeDashWithOverridableItem();
       await storeSorts(dashId, itemId, twoKeys);
       const [stored] = await storedItems(dashId);
 
@@ -4079,6 +4141,366 @@ describe("existing command behavior on native Convex", () => {
       expect((await storedItems(dashId))[0]?.overrides?.sorts).toEqual([
         twoKeys[0],
       ]);
+    });
+  });
+  describe("tile override the Insight does not declare", () => {
+    type Overrides = {
+      filters?: unknown[];
+      sorts?: unknown[];
+      limit?: number;
+    };
+    type StoredItem = { id: string; x: number; overrides?: Overrides };
+    const storedItems = async (dashId: string) =>
+      (await dashboardsById(dashId))[0]!.layout as StoredItem[];
+    const patch = (
+      dashId: string,
+      itemId: string,
+      patch: DashboardItemOverridePatch,
+    ) =>
+      commit(
+        cmd("PatchDashboardItemOverride", {
+          dashboardId: dashId,
+          itemId,
+          patch,
+        }),
+      );
+    /** Stores overrides the way a write before this rule could. */
+    const storeOverrides = (
+      dashId: string,
+      itemId: string,
+      overrides: Overrides,
+    ) =>
+      t.run(async (ctx) => {
+        const row = (
+          await ctx.db
+            .query("dashboards")
+            .withIndex("by_workspaceId_and_id", (q) =>
+              q.eq("workspaceId", "test").eq("id", dashId),
+            )
+            .take(1)
+        )[0]!;
+        await ctx.db.patch(row._id, {
+          layout: (row.layout as StoredItem[]).map((item) =>
+            item.id === itemId ? { ...item, overrides } : item,
+          ) as never,
+        });
+      });
+    const regionWest = {
+      field: "region",
+      operator: "eq" as const,
+      value: "West",
+    };
+    const undeclared: Overrides = {
+      filters: [regionWest],
+      sorts: [{ field: "revenue", direction: "desc" }],
+      limit: 25,
+    };
+
+    it.each([
+      {
+        control: "sort",
+        patch: {
+          kind: "sorts",
+          value: [{ field: "revenue", direction: "desc" }],
+        },
+        message:
+          'The Insight "Sales Insight" does not offer viewers a sort, so this tile cannot take a sort override. Declare runtimeControls.sort on the Insight first.',
+      },
+      {
+        control: "limit",
+        patch: { kind: "limit", value: 25 },
+        message:
+          'The Insight "Sales Insight" does not offer viewers a limit, so this tile cannot take a limit override. Declare runtimeControls.limit on the Insight first.',
+      },
+      {
+        control: "filter",
+        patch: { kind: "filter", field: "region", value: regionWest },
+        message:
+          'The Insight "Sales Insight" does not offer viewers a "eq" filter on "region", so this tile cannot take that filter override. Declare the filter in runtimeControls.filters on the Insight first.',
+      },
+    ] satisfies {
+      control: string;
+      patch: DashboardItemOverridePatch;
+      message: string;
+    }[])(
+      "refuses to set a $control override the Insight does not declare",
+      async ({ patch: undeclaredPatch, message }) => {
+        const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+
+        await expect(patch(dashId, itemId, undeclaredPatch)).rejects.toThrow(
+          message,
+        );
+
+        expect((await storedItems(dashId))[0]?.overrides).toBeUndefined();
+      },
+    );
+
+    it("sets each override once the Insight declares its control", async () => {
+      const { dashId, sourceItemId: itemId } =
+        await makeDashWithOverridableItem();
+
+      await patch(dashId, itemId, {
+        kind: "sorts",
+        value: [{ field: "revenue", direction: "desc" }],
+      });
+      await patch(dashId, itemId, { kind: "limit", value: 25 });
+      await patch(dashId, itemId, {
+        kind: "filter",
+        field: "region",
+        value: regionWest,
+      });
+
+      expect((await storedItems(dashId))[0]?.overrides).toEqual(undeclared);
+    });
+
+    it("removes an undeclared override saved before the rule", async () => {
+      const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+      await storeOverrides(dashId, itemId, undeclared);
+
+      await patch(dashId, itemId, { kind: "sorts", value: null });
+      expect((await storedItems(dashId))[0]?.overrides).toEqual({
+        filters: undeclared.filters,
+        limit: 25,
+      });
+      await patch(dashId, itemId, { kind: "limit", value: null });
+      await patch(dashId, itemId, {
+        kind: "filter",
+        field: "region",
+        value: null,
+      });
+
+      expect((await storedItems(dashId))[0]?.overrides).toBeUndefined();
+    });
+
+    it("removes an undeclared sort override sent as an empty list", async () => {
+      const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+      await storeOverrides(dashId, itemId, { sorts: undeclared.sorts });
+
+      await patch(dashId, itemId, { kind: "sorts", value: [] });
+
+      expect((await storedItems(dashId))[0]?.overrides).toBeUndefined();
+    });
+
+    it("refuses to replace an undeclared override saved before the rule, and keeps it", async () => {
+      const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+      await storeOverrides(dashId, itemId, undeclared);
+
+      await expect(
+        patch(dashId, itemId, { kind: "limit", value: 50 }),
+      ).rejects.toThrow("does not offer viewers a limit");
+
+      expect((await storedItems(dashId))[0]?.overrides).toEqual(undeclared);
+    });
+
+    it("refuses a limit outside the range the Insight offers", async () => {
+      const { dashId, sourceItemId: itemId } =
+        await makeDashWithOverridableItem();
+
+      await expect(
+        patch(dashId, itemId, { kind: "limit", value: 500 }),
+      ).rejects.toThrow(
+        'The Insight "Sales Insight" offers viewers a limit of 1 to 100 rows, so this tile cannot take a limit override of 500.',
+      );
+      await patch(dashId, itemId, { kind: "limit", value: 100 });
+
+      expect((await storedItems(dashId))[0]?.overrides).toEqual({ limit: 100 });
+    });
+
+    it("takes a sort override only by a field or metric the Insight allows", async () => {
+      const {
+        dashId,
+        sourceItemId: itemId,
+        insightId,
+        tableId,
+      } = await makeDashWithVizItem();
+      const { metricId } = await offerViewerControls(insightId, tableId);
+
+      await expect(
+        patch(dashId, itemId, {
+          kind: "sorts",
+          value: [{ field: "customer_name", direction: "asc" }],
+        }),
+      ).rejects.toThrow(
+        'The Insight "Sales Insight" does not offer viewers a sort by "customer_name", so this tile cannot take that sort override. Sort by the id of a field or metric in runtimeControls.sort.allowedFieldIds.',
+      );
+      expect((await storedItems(dashId))[0]?.overrides).toBeUndefined();
+
+      // A key has to name something.
+      await expect(
+        patch(dashId, itemId, {
+          kind: "sorts",
+          value: [{ direction: "asc" }] as never,
+        }),
+      ).rejects.toThrow();
+      expect((await storedItems(dashId))[0]?.overrides).toBeUndefined();
+
+      // The id, its result-column alias, and the metric's column all name it.
+      for (const field of [
+        metricId,
+        metricIdToColumnAlias(metricId),
+        "revenue",
+      ]) {
+        await patch(dashId, itemId, {
+          kind: "sorts",
+          value: [{ field, direction: "asc" }],
+        });
+        expect((await storedItems(dashId))[0]?.overrides).toEqual({
+          sorts: [{ field, direction: "asc" }],
+        });
+      }
+    });
+
+    it("takes a filter override by the declared filter's id, with that filter's field and operator", async () => {
+      const { dashId, sourceItemId: itemId } =
+        await makeDashWithOverridableItem();
+      const byId = {
+        id: "region-filter",
+        field: "region",
+        operator: "eq" as const,
+        value: "West",
+      };
+
+      await patch(dashId, itemId, {
+        kind: "filter",
+        field: "region",
+        value: byId,
+      });
+      await expect(
+        patch(dashId, itemId, {
+          kind: "filter",
+          field: "region",
+          value: { ...byId, id: "other-filter" },
+        }),
+      ).rejects.toThrow('does not offer viewers the filter "other-filter"');
+      // The tile runs the saved filter's operator with the override's value,
+      // so a value sent for another operator would run as something else.
+      await expect(
+        patch(dashId, itemId, {
+          kind: "filter",
+          field: "region",
+          value: { ...byId, operator: "in", value: ["West", "East"] },
+        }),
+      ).rejects.toThrow(
+        'The Insight "Sales Insight" offers viewers a "eq" filter on "region", so this tile cannot take a "in" override of it. Send the override with that operator.',
+      );
+      // The id is the region filter's, whatever field the override names.
+      await expect(
+        patch(dashId, itemId, {
+          kind: "filter",
+          field: "status",
+          value: { ...byId, field: "status" },
+        }),
+      ).rejects.toThrow(
+        'The filter "region-filter" of The Insight "Sales Insight" is on "region", not "status". Send the override for that field.',
+      );
+      // Without an id the operator has to be the declared filter's.
+      await expect(
+        patch(dashId, itemId, {
+          kind: "filter",
+          field: "region",
+          value: { field: "region", operator: "ne", value: "West" },
+        }),
+      ).rejects.toThrow('does not offer viewers a "ne" filter on "region"');
+
+      expect((await storedItems(dashId))[0]?.overrides).toEqual({
+        filters: [byId],
+      });
+    });
+
+    it("takes a cleared filter override only when the declared filter allows clearing", async () => {
+      const cleared = {
+        field: "region",
+        operator: "eq" as const,
+        value: null,
+        cleared: true,
+      };
+      const fixed = await makeDashWithOverridableItem();
+      await expect(
+        patch(fixed.dashId, fixed.sourceItemId, {
+          kind: "filter",
+          field: "region",
+          value: cleared,
+        }),
+      ).rejects.toThrow(
+        'The Insight "Sales Insight" does not let viewers clear its filter on "region", so this tile cannot take a cleared filter override. Set allowClear on that filter in runtimeControls.filters first.',
+      );
+      // The tile sends a null value as a clear, with or without the flag.
+      await expect(
+        patch(fixed.dashId, fixed.sourceItemId, {
+          kind: "filter",
+          field: "region",
+          value: { field: "region", operator: "eq", value: null },
+        }),
+      ).rejects.toThrow("does not let viewers clear its filter");
+      expect((await storedItems(fixed.dashId))[0]?.overrides).toBeUndefined();
+
+      const clearable = await makeDashWithVizItem();
+      await offerViewerControls(clearable.insightId, clearable.tableId, {
+        allowClear: true,
+      });
+      await patch(clearable.dashId, clearable.sourceItemId, {
+        kind: "filter",
+        field: "region",
+        value: cleared,
+      });
+      expect((await storedItems(clearable.dashId))[0]?.overrides).toEqual({
+        filters: [cleared],
+      });
+      // Only the flag frees a clear from the operator match, as in the tile:
+      // a null value under another operator finds no declared filter there.
+      await expect(
+        patch(clearable.dashId, clearable.sourceItemId, {
+          kind: "filter",
+          field: "region",
+          value: { field: "region", operator: "gt", value: null },
+        }),
+      ).rejects.toThrow('does not offer viewers a "gt" filter on "region"');
+    });
+
+    it("refuses an override on an item that is not a chart", async () => {
+      const dashId = id();
+      const itemId = id();
+      await commit(
+        cmd("CreateDashboard", { id: dashId, name: "Notes" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: itemId,
+            type: "markdown",
+            content: "Note",
+            x: 0,
+            y: 0,
+            width: 6,
+            height: 2,
+          },
+        }),
+      );
+
+      await expect(
+        patch(dashId, itemId, { kind: "limit", value: 25 }),
+      ).rejects.toThrow(
+        "Only a chart item takes a sort, limit, or filter override.",
+      );
+    });
+
+    // The check is scoped to the patch command.  These commands send back what
+    // is saved, so checking them would refuse a move of a report that holds an
+    // override saved before the rule.
+    it("still saves a layout that carries an undeclared override saved before the rule", async () => {
+      const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
+      await storeOverrides(dashId, itemId, undeclared);
+      const [stored] = await storedItems(dashId);
+
+      await commit(
+        cmd("SetDashboardLayout", {
+          dashboardId: dashId,
+          items: [{ ...stored, x: 3 }] as never,
+        }),
+      );
+
+      const [moved] = await storedItems(dashId);
+      expect(moved?.x).toBe(3);
+      expect(moved?.overrides).toEqual(undeclared);
     });
   });
   it("should replace dashboard controls through the command vocabulary", async () => {
