@@ -58,6 +58,13 @@ function resolveRuntimeSorts(
   if (!declaration) {
     return { error: "This dashboard sort is not declared by the Insight." };
   }
+  // The host refuses a longer list with a message that names no cause.  Writes
+  // reject one now, so this is a list saved before they did.
+  if (overrides.length > declaration.maxKeys) {
+    return {
+      error: `This dashboard sort has ${overrides.length} keys, and the Insight runs ${declaration.maxKeys}.`,
+    };
+  }
   const fields = dataTables.flatMap((table) => table.fields ?? []);
   const sorts = overrides.map((sort) => {
     const fieldId = declaration.allowedFieldIds.find((allowedId) => {

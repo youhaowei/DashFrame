@@ -105,6 +105,19 @@ describe("resolveDashboardRuntime — tile sort override", () => {
     },
   );
 
+  it("names the cause when a saved list has more keys than a tile runs", () => {
+    expect(
+      resolveDashboardRuntime(insight, [dataTable], {
+        sorts: [
+          { field: metricId, direction: "desc" },
+          { field: fieldId, direction: "asc" },
+        ],
+      }),
+    ).toEqual({
+      error: "This dashboard sort has 2 keys, and the Insight runs 1.",
+    });
+  });
+
   it("refuses any sort when the Insight declares none", () => {
     expect(
       resolveSort(fieldId, { ...insight, runtimeControls: undefined }),
