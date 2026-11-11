@@ -41,6 +41,7 @@ import { VisualizationErrorBoundary } from "./VisualizationErrorBoundary";
 function encodingLabel(
   value: string | undefined,
   fields: readonly Field[],
+  sourceFields: readonly Field[],
   metrics: Insight["metrics"],
   columnDisplayNames: Readonly<Record<string, string>> | undefined,
 ): string | undefined {
@@ -52,8 +53,14 @@ function encodingLabel(
   }
   if (parsed?.type === "metric") {
     const metric = metrics.find((candidate) => candidate.id === parsed.id);
+    // A metric's column need not be one the chart draws, and a result field
+    // carries its alias as its column, so the source fields name it.
     return metric
-      ? getMetricDisplayLabel(metric, [...fields], columnDisplayNames)
+      ? getMetricDisplayLabel(
+          metric,
+          [...sourceFields, ...fields],
+          columnDisplayNames,
+        )
       : undefined;
   }
   return undefined;
@@ -90,6 +97,11 @@ interface VisualizationPreviewProps {
    * repeat-join fields read distinctly. Falls back to the field name.
    */
   columnDisplayNames?: Readonly<Record<string, string>>;
+  /**
+   * The Insight's source fields, joined ones included, which name a metric's
+   * column in axis and legend titles. Falls back to the source table's fields.
+   */
+  metricLabelFields?: Field[];
   /**
    * A report cell's saved filters, sorts and limit, so the preview draws the
    * same values the report does. Undeclared overrides show the fallback, as
@@ -207,6 +219,7 @@ function VisualizationPreviewContent({
   fallback = null,
   thumbnail = true,
   columnDisplayNames,
+  metricLabelFields,
   overrides,
   reportCell = false,
 }: VisualizationPreviewProps) {
@@ -321,6 +334,7 @@ function VisualizationPreviewContent({
       fallback={fallback}
       thumbnail={thumbnail}
       columnDisplayNames={columnDisplayNames}
+      metricLabelFields={metricLabelFields}
       insight={insight}
       dataTable={dataTable}
       instanceAwareFields={instanceAwareFields}
@@ -345,6 +359,7 @@ function ResolvedVisualizationPreview({
   fallback = null,
   thumbnail = true,
   columnDisplayNames,
+  metricLabelFields,
   insight,
   dataTable,
   instanceAwareFields,
@@ -355,7 +370,12 @@ function ResolvedVisualizationPreview({
   presentationApplied = false,
 }: Pick<
   VisualizationPreviewProps,
-  "visualization" | "height" | "fallback" | "thumbnail" | "columnDisplayNames"
+  | "visualization"
+  | "height"
+  | "fallback"
+  | "thumbnail"
+  | "columnDisplayNames"
+  | "metricLabelFields"
 > & {
   insight: Insight | null | undefined;
   dataTable: DataTable | undefined;
@@ -390,6 +410,7 @@ function ResolvedVisualizationPreview({
           : (dataTable?.fields ?? []),
       metrics: insight.metrics ?? [],
     };
+    const sourceFields = metricLabelFields ?? dataTable?.fields ?? [];
 
     // Resolve prefixed IDs to SQL expressions
     const resolved = resolveReportChartEncoding(
@@ -409,24 +430,28 @@ function ResolvedVisualizationPreview({
       xLabel: encodingLabel(
         visualization.encoding.x,
         context.fields,
+        sourceFields,
         context.metrics,
         columnDisplayNames,
       ),
       yLabel: encodingLabel(
         visualization.encoding.y,
         context.fields,
+        sourceFields,
         context.metrics,
         columnDisplayNames,
       ),
       colorLabel: encodingLabel(
         visualization.encoding.color,
         context.fields,
+        sourceFields,
         context.metrics,
         columnDisplayNames,
       ),
       sizeLabel: encodingLabel(
         visualization.encoding.size,
         context.fields,
+        sourceFields,
         context.metrics,
         columnDisplayNames,
       ),
@@ -439,6 +464,7 @@ function ResolvedVisualizationPreview({
     instanceAwareFields,
     presentationApplied,
     columnDisplayNames,
+    metricLabelFields,
   ]);
 
   // Error state — checked BEFORE the loading guard so that view-creation errors

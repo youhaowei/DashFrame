@@ -6,7 +6,13 @@ import {
 } from "@/test/native-query-fixture";
 /** VisualizationDisplay saved execution and declared runtime-control coverage. */
 import type { Insight, Visualization } from "@dashframe/types";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import { parseEncoding } from "@dashframe/types";
+import {
+  fieldIdToColumnAlias,
+  getMetricDisplayLabel,
+  metricIdToColumnAlias,
+  resolveEncodingToResultFrame,
+} from "@dashframe/engine";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -228,6 +234,87 @@ function setupCommonMocks(currentInsight = insight, currentViz = viz) {
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
+
+describe("VisualizationDisplay — metric titles", () => {
+  it("names a metric's column from the source fields, not the chart's result", async () => {
+    const region = {
+      id: "field-region",
+      name: "Region",
+      columnName: "region",
+      type: "string",
+      tableId: "t1",
+    };
+    const revenue = {
+      id: "field-revenue",
+      name: "Revenue",
+      columnName: "revenue_usd",
+      type: "number",
+      tableId: "t1",
+    };
+    const report = {
+      ...insight,
+      selectedFields: [region.id],
+      metrics: [
+        {
+          id: "m1",
+          name: "",
+          sourceTable: "t1",
+          columnName: "revenue_usd",
+          aggregation: "sum",
+        },
+      ],
+    } as unknown as Insight;
+    const { parseEncoding: realParseEncoding } =
+      await vi.importActual<typeof import("@dashframe/types")>(
+        "@dashframe/types",
+      );
+    vi.clearAllMocks();
+    vi.mocked(parseEncoding).mockImplementation(realParseEncoding);
+    vi.mocked(resolveEncodingToResultFrame).mockReturnValue({ y: "metric_m1" });
+    try {
+      setupCommonMocks(report, {
+        ...viz,
+        encoding: { x: `field:${region.id}`, y: "metric:m1" },
+      } as Visualization);
+      mockUseDataTables.mockReturnValue({
+        data: [
+          {
+            ...(dataTable as object),
+            name: "Orders",
+            dataFrameId: "orders-frame",
+            fields: [region, revenue],
+          },
+        ],
+      });
+      mockUseInsightPagination.mockReturnValue({
+        fetchData: vi.fn(),
+        totalCount: 4,
+        columns: [],
+        // The chart's result holds only what it draws, under its alias.
+        resolvedFields: [
+          { ...region, columnName: fieldIdToColumnAlias(region.id) },
+        ],
+        isReady: true,
+        columnDisplayNames: {},
+      });
+
+      render(<VisualizationDisplay visualizationId="viz-1" />);
+
+      expect(getMetricDisplayLabel).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "m1" }),
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "Revenue",
+            columnName: "revenue_usd",
+          }),
+        ]),
+      );
+    } finally {
+      vi.mocked(parseEncoding).mockReturnValue(null);
+      vi.mocked(resolveEncodingToResultFrame).mockReturnValue({});
+    }
+  });
+});
 
 describe("VisualizationDisplay — declared runtime controls", () => {
   beforeEach(() => {
