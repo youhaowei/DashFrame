@@ -244,9 +244,12 @@ describe("currentViewerRuntime", () => {
     });
   });
 
-  it("keeps a viewer's choice to hide every field", () => {
+  it("keeps a viewer's choice to hide every field while a metric shows", () => {
     const report = {
       ...saved,
+      metrics: [
+        { id: "a", name: "A", sourceTable: "source", aggregation: "count" },
+      ],
       runtimeControls: {
         dimensions: { allowedIds: ["region", "date"], maxSelected: 2 },
       },
@@ -254,6 +257,11 @@ describe("currentViewerRuntime", () => {
     expect(currentViewerRuntime(report, { dimensions: [] })).toEqual({
       dimensions: [],
     });
+    // The author has since removed the metric, so nothing would be left.
+    const withoutMetrics = { ...report, metrics: [] } as Insight;
+    expect(currentViewerRuntime(withoutMetrics, { dimensions: [] })).toEqual(
+      {},
+    );
   });
 
   it("drops picks that are no longer viewer choices", () => {

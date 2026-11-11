@@ -62,8 +62,9 @@ export function currentViewerRuntime(
       .slice(0, control.maxSelected);
     const rebuilt = withFixedIds(saved, fixed, optional);
     // A viewer who hid every field sees the metrics alone. Otherwise nothing
-    // the viewer picked is left, so fall back to the saved report.
-    const hidAllFields = kind === "dimensions" && picks.length === 0;
+    // the viewer picked is left to show, so fall back to the saved report.
+    const hidAllFields =
+      kind === "dimensions" && picks.length === 0 && insight.metrics.length > 0;
     if (rebuilt.length === 0 && !hidAllFields) delete next[kind];
     else next[kind] = rebuilt;
   }
