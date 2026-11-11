@@ -16,8 +16,7 @@
  * 8. sortChange: replaces sorts; preserves filters + limit.
  * 9. limitChange: replaces limit; preserves filters + sorts.
  *
- * SORT KEYS — the sort row edits one key of a list:
- * 11. changeFirstSortKey: changes only the first key; every later key survives.
+ * SORT KEYS:
  * 12. formatSortKeys: names every key in priority order.
  * 13. buildSortFieldLabels: every stored reference form maps to a readable name.
  *
@@ -35,7 +34,6 @@ import type {
 import { describe, expect, it } from "vite-plus/test";
 import {
   buildSortFieldLabels,
-  changeFirstSortKey,
   computeNewOverridesOnClear,
   computeNewOverridesOnInherit,
   computeNewOverridesOnLimitChange,
@@ -502,83 +500,6 @@ describe("hasOverrides — badge truth table", () => {
 // ---------------------------------------------------------------------------
 // Sort keys
 // ---------------------------------------------------------------------------
-
-describe("changeFirstSortKey — the first key of a multi-key sort", () => {
-  const twoKeys: InsightSort[] = [
-    { field: "region", direction: "asc" },
-    { field: "order_date", direction: "desc" },
-  ];
-  const threeKeys: InsightSort[] = [
-    ...twoKeys,
-    { field: "id", direction: "asc" },
-  ];
-
-  it("11a. changing the first key's field keeps the second key", () => {
-    expect(changeFirstSortKey(twoKeys, { field: "channel" })).toEqual([
-      { field: "channel", direction: "asc" },
-      { field: "order_date", direction: "desc" },
-    ]);
-  });
-
-  it("11b. changing the first key's direction keeps the second key", () => {
-    expect(changeFirstSortKey(twoKeys, { direction: "desc" })).toEqual([
-      { field: "region", direction: "desc" },
-      { field: "order_date", direction: "desc" },
-    ]);
-  });
-
-  it("11c. leaves the later keys as the same objects, in the same order", () => {
-    const next = changeFirstSortKey(threeKeys, { direction: "desc" });
-    expect(next).toHaveLength(3);
-    expect(next[1]).toBe(threeKeys[1]);
-    expect(next[2]).toBe(threeKeys[2]);
-    expect(threeKeys[0]).toEqual({ field: "region", direction: "asc" });
-  });
-
-  it("11d. a direction change keeps the key's pivot cell; a field change drops it", () => {
-    const pivotKey: InsightSort = {
-      field: "revenue",
-      direction: "desc",
-      pivotValues: [{ fieldId: "channel", value: "Web" }],
-    };
-    expect(changeFirstSortKey([pivotKey], { direction: "asc" })).toEqual([
-      { ...pivotKey, direction: "asc" },
-    ]);
-    expect(changeFirstSortKey([pivotKey], { field: "region" })).toEqual([
-      { field: "region", direction: "desc" },
-    ]);
-    expect(changeFirstSortKey([pivotKey], { field: "revenue" })).toEqual([
-      pivotKey,
-    ]);
-  });
-
-  it("11e. an empty list gains its first key", () => {
-    expect(changeFirstSortKey([], { field: "region" })).toEqual([
-      { field: "region", direction: "asc" },
-    ]);
-    expect(changeFirstSortKey([], { direction: "desc" }, "region")).toEqual([
-      { field: "region", direction: "desc" },
-    ]);
-  });
-
-  it("11f. a field a later key sorts by moves to the first key instead of duplicating", () => {
-    expect(changeFirstSortKey(threeKeys, { field: "order_date" })).toEqual([
-      { field: "order_date", direction: "asc" },
-      { field: "id", direction: "asc" },
-    ]);
-  });
-
-  it("11g. a field change leaves a later pivot key on that field alone", () => {
-    const pivotKey: InsightSort = {
-      field: "revenue",
-      direction: "desc",
-      pivotValues: [{ fieldId: "channel", value: "Web" }],
-    };
-    expect(
-      changeFirstSortKey([twoKeys[0]!, pivotKey], { field: "revenue" }),
-    ).toEqual([{ field: "revenue", direction: "asc" }, pivotKey]);
-  });
-});
 
 describe("formatSortKeys", () => {
   it("12a. names every key in priority order", () => {

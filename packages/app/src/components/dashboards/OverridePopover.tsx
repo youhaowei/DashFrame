@@ -54,7 +54,6 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   buildSortFieldLabels,
-  changeFirstSortKey,
   computeNewOverridesOnClear,
   deriveFieldState,
   formatSortKeys,
@@ -82,9 +81,10 @@ interface OverridePopoverProps {
 // ---------------------------------------------------------------------------
 
 /**
- * Edits the first key of the tile's sort override.  Later keys are not
- * editable here, so every edit sends them back untouched and the row lists
- * them, rather than presenting a multi-key sort as a single-key one.
+ * Edits the tile's sort override, which holds one key: the tile runtime sends
+ * it to the host as a runtime sort, and the host runs one.  Every edit
+ * therefore saves a one-key list, including over a longer list saved before
+ * writes started rejecting those.
  */
 export function SortOverrideRow({
   insightSorts,
@@ -103,7 +103,7 @@ export function SortOverrideRow({
   const current: InsightSort | undefined =
     overrideSorts?.[0] ?? insightSorts?.[0];
   const isPinned = overrideSorts !== undefined;
-  const laterSorts = overrideSorts?.slice(1) ?? [];
+  const pinned = overrideSorts?.[0];
 
   return (
     <div className="py-1.5">
@@ -121,10 +121,12 @@ export function SortOverrideRow({
           <div className="flex items-center gap-1">
             {/* Field select */}
             <Select
-              value={overrideSorts![0]?.field ?? ""}
+              value={pinned?.field ?? ""}
               onValueChange={(field) => {
                 if (!field) return;
-                onChange(changeFirstSortKey(overrideSorts!, { field }));
+                // Only the direction carries over: `pivotValues` name a cell
+                // of the old field.
+                onChange([{ field, direction: pinned?.direction ?? "asc" }]);
               }}
             >
               <SelectTrigger className="h-6 w-28 text-xs">
@@ -140,15 +142,14 @@ export function SortOverrideRow({
             </Select>
             {/* Direction toggle */}
             <Select
-              value={overrideSorts![0]?.direction ?? "asc"}
-              onValueChange={(dir) =>
-                onChange(
-                  changeFirstSortKey(
-                    overrideSorts!,
-                    { direction: dir as "asc" | "desc" },
-                    availableFields[0],
-                  ),
-                )
+              value={pinned?.direction ?? "asc"}
+              onValueChange={(direction) =>
+                onChange([
+                  {
+                    ...(pinned ?? { field: availableFields[0] ?? "" }),
+                    direction: direction as InsightSort["direction"],
+                  },
+                ])
               }
             >
               <SelectTrigger className="h-6 w-16 text-xs">
@@ -194,11 +195,6 @@ export function SortOverrideRow({
           </Button>
         )}
       </div>
-      {laterSorts.length > 0 && (
-        <p className="mt-1 text-xs break-words text-neutral-fg-subtle">
-          then {formatSortKeys(laterSorts, fieldLabels)}
-        </p>
-      )}
     </div>
   );
 }

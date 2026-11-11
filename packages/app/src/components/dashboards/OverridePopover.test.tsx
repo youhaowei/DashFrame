@@ -1,9 +1,8 @@
 /**
- * The sort and limit rows of the tile override popover must change only what
- * the user changed:
+ * The sort and limit rows of the tile override popover:
  *
- * - The sort row edits the first key of a list.  Editing it must not delete the
- *   keys it does not edit, and the row must say those keys exist.
+ * - The sort row edits a one-key override, because a tile runs one runtime
+ *   sort key.  Every edit saves one key.
  * - The limit row keeps a local draft.  The saved limit can change while the
  *   editor is open; an editor the user never typed in must not write its old
  *   number back, and a user's typing must survive that change.
@@ -41,6 +40,7 @@ vi.mock("@/data/artifact-lists", () => ({ useArtifactList: () => undefined }));
 vi.mock("@/data/query-status", () => ({ queryStatus: () => ({ data: [] }) }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
+/** A list longer than a tile runs, as saved before writes rejected it. */
 const twoKeys: InsightSort[] = [
   { field: "region", direction: "asc" },
   { field: "order_date", direction: "desc" },
@@ -71,26 +71,15 @@ async function openPopover() {
 }
 
 describe("SortOverrideRow", () => {
-  it("names the keys after the one it edits", () => {
+  it("lists only the one key it edits", () => {
     render(
       <SortOverrideRow
-        overrideSorts={[...twoKeys, { field: "channel", direction: "asc" }]}
+        overrideSorts={twoKeys}
         availableFields={fields}
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByText("then order_date desc, channel asc")).toBeTruthy();
-  });
-
-  it("adds no line for a single-key sort", () => {
-    render(
-      <SortOverrideRow
-        overrideSorts={[twoKeys[0]!]}
-        availableFields={fields}
-        onChange={vi.fn()}
-      />,
-    );
-    expect(screen.queryByText(/^then /)).toBeNull();
+    expect(screen.queryByText(/order_date/)).toBeNull();
   });
 
   it("names every key of the inherited default", () => {
@@ -126,7 +115,7 @@ describe("SortOverrideRow", () => {
     expect(screen.getByText("default: region asc, Revenue desc")).toBeTruthy();
   });
 
-  it("keeps the second key when the first key's field changes", async () => {
+  it("saves one key when the field changes", async () => {
     const user = userEvent.setup({ delay: null });
     const onChange = vi.fn();
     render(
@@ -143,31 +132,10 @@ describe("SortOverrideRow", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith([
       { field: "channel", direction: "asc" },
-      { field: "order_date", direction: "desc" },
     ]);
   });
 
-  it("moves a later key's field to the first key instead of duplicating it", async () => {
-    const user = userEvent.setup({ delay: null });
-    const onChange = vi.fn();
-    render(
-      <SortOverrideRow
-        overrideSorts={[...twoKeys, { field: "channel", direction: "asc" }]}
-        availableFields={fields}
-        onChange={onChange}
-      />,
-    );
-
-    await user.click(screen.getAllByRole("combobox")[0]!);
-    await user.click(await screen.findByRole("option", { name: "order_date" }));
-
-    expect(onChange).toHaveBeenCalledWith([
-      { field: "order_date", direction: "asc" },
-      { field: "channel", direction: "asc" },
-    ]);
-  });
-
-  it("keeps the second key when the first key's direction changes", async () => {
+  it("saves one key when the direction changes", async () => {
     const user = userEvent.setup({ delay: null });
     const onChange = vi.fn();
     render(
@@ -184,7 +152,6 @@ describe("SortOverrideRow", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith([
       { field: "region", direction: "desc" },
-      { field: "order_date", direction: "desc" },
     ]);
   });
 });
@@ -196,7 +163,7 @@ describe("OverridePopover sort wiring", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("saves a first-key edit as a sort patch that still carries the later key", async () => {
+  it("saves an edit as a one-key sort patch", async () => {
     commitBatch.mockResolvedValue({});
     const user = await openPopover();
 
@@ -209,10 +176,7 @@ describe("OverridePopover sort wiring", () => {
       itemId: tile.id,
       patch: {
         kind: "sorts",
-        value: [
-          { field: "region", direction: "desc" },
-          { field: "order_date", direction: "desc" },
-        ],
+        value: [{ field: "region", direction: "desc" }],
       },
     });
   });
