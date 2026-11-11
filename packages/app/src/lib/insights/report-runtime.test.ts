@@ -328,6 +328,146 @@ describe("reportEncoding with fixed selections", () => {
   });
 });
 
+describe("reportEncoding with a field the viewer added", () => {
+  const report = {
+    id: "report",
+    name: "Report",
+    source: { sourceType: "dataTable", sourceId: "source" },
+    selectedFields: ["date", "channel"],
+    metrics: [
+      {
+        id: "orders",
+        name: "Orders",
+        sourceTable: "source",
+        aggregation: "count",
+      },
+    ],
+    // Date always shows; Country and Product are offered to viewers only.
+    runtimeControls: {
+      dimensions: {
+        allowedIds: ["channel", "country", "product"],
+        maxSelected: 3,
+      },
+    },
+    createdAt: 0,
+  } as unknown as Insight;
+  const chart: VisualizationEncoding = {
+    x: "field:date",
+    xType: "temporal",
+    y: "metric:orders",
+  };
+
+  it("colors the chart by a viewer-only field picked with no other change", () => {
+    expect(
+      reportEncoding(
+        chart,
+        report,
+        { dimensions: ["date", "channel", "country"] },
+        fields,
+      ),
+    ).toEqual({ ...chart, color: "field:country" });
+    // The saved selection alone leaves the chart as the author drew it.
+    expect(
+      reportEncoding(chart, report, { dimensions: ["date", "channel"] }, fields)
+        .color,
+    ).toBeUndefined();
+  });
+
+  it("takes the color of another viewer choice, and the newest pick wins", () => {
+    const colored = { ...chart, color: "field:channel" };
+    expect(
+      reportEncoding(
+        colored,
+        report,
+        { dimensions: ["date", "channel", "country"] },
+        fields,
+      ).color,
+    ).toBe("field:country");
+    expect(
+      reportEncoding(
+        colored,
+        report,
+        { dimensions: ["date", "channel", "country", "product"] },
+        fields,
+      ).color,
+    ).toBe("field:product");
+  });
+
+  it("keeps a color the author fixed", () => {
+    const runtime = { dimensions: ["date", "channel", "country"] };
+    expect(
+      reportEncoding({ ...chart, color: "field:date" }, report, runtime, fields)
+        .color,
+    ).toBe("field:date");
+    expect(
+      reportEncoding(
+        { ...chart, color: "metric:orders" },
+        report,
+        runtime,
+        fields,
+      ).color,
+    ).toBe("metric:orders");
+  });
+
+  it("leaves color alone when the added field replaced a removed axis", () => {
+    expect(
+      reportEncoding(
+        { x: "field:channel", xType: "nominal", y: "metric:orders" },
+        report,
+        { dimensions: ["date", "country"] },
+        fields,
+      ),
+    ).toEqual({
+      x: "field:country",
+      xType: "nominal",
+      xTransform: undefined,
+      y: "metric:orders",
+    });
+  });
+
+  it("gives a removed size field its replacement before coloring", () => {
+    const dots: VisualizationEncoding = {
+      x: "metric:orders",
+      y: "metric:orders",
+      size: "field:channel",
+    };
+    expect(
+      reportEncoding(dots, report, { dimensions: ["date", "country"] }, fields),
+    ).toEqual({ ...dots, size: "field:country" });
+  });
+
+  it.each(["hexbin", "heatmap", "raster"] as const)(
+    "leaves a %s chart alone, since its fill is computed",
+    (chartType) => {
+      const runtime = { dimensions: ["date", "channel", "country"] };
+      expect(reportEncoding(chart, report, runtime, fields, chartType)).toEqual(
+        chart,
+      );
+      expect(reportEncoding(chart, report, runtime, fields, "barY").color).toBe(
+        "field:country",
+      );
+    },
+  );
+
+  it("colors by the added field ahead of a pivot", () => {
+    const pivoted = {
+      ...report,
+      reporting: { pivotFields: ["channel"] },
+    } as Insight;
+    expect(reportEncoding(chart, pivoted, undefined, fields).color).toBe(
+      "field:channel",
+    );
+    expect(
+      reportEncoding(
+        chart,
+        pivoted,
+        { dimensions: ["date", "channel", "country"] },
+        fields,
+      ).color,
+    ).toBe("field:country");
+  });
+});
+
 describe("reportEncoding with a pivot", () => {
   it("splits the chart by the pivot when color is free", () => {
     expect(

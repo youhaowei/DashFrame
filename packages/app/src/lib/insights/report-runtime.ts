@@ -10,6 +10,7 @@ import type {
   InsightRuntimeInput,
   UUID,
   VisualizationEncoding,
+  VisualizationType,
 } from "@dashframe/types";
 
 /**
@@ -145,6 +146,43 @@ function rebindRemovedField(
   if (replacement) usedDimensions.add(replacement);
 }
 
+/** These marks compute their own fill, so they never draw a color field. */
+const COMPUTED_FILL_CHARTS: ReadonlySet<VisualizationType> = new Set([
+  "hexbin",
+  "heatmap",
+  "raster",
+]);
+
+/**
+ * Colors the chart by a field the viewer added to the saved selection, so
+ * every pick shows in the chart and not only in the table. The newest pick
+ * the chart doesn't draw yet wins, in place of another viewer choice. A color
+ * the author fixed, a metric or a fixed field, stays.
+ */
+function colorAddedField(
+  result: VisualizationEncoding,
+  current: ReturnType<typeof parseEncoding>,
+  dimensions: string[] | undefined,
+  insight: Insight,
+  fields: Field[],
+  usedDimensions: Set<string>,
+): boolean {
+  if (!dimensions || current?.type === "metric") return false;
+  if (current && fixedRuntimeIds(insight, "dimensions").includes(current.id))
+    return false;
+  // Size is rebound after color; a field removed from it gets its replacement.
+  const size = parseEncoding(result.size);
+  if (size?.type === "field" && !dimensions.includes(size.id)) return false;
+  const added = dimensions.findLast(
+    (id) =>
+      !insight.selectedFields.includes(id as UUID) && !usedDimensions.has(id),
+  );
+  if (!added) return false;
+  rebindField(result, "color", added, fields);
+  usedDimensions.add(added);
+  return true;
+}
+
 function rebindRemovedMetric(
   result: VisualizationEncoding,
   channel: Channel,
@@ -195,6 +233,7 @@ export function reportEncoding(
   insight: Insight,
   runtime: InsightRuntimeInput | undefined,
   fields: Field[],
+  chartType: VisualizationType = "dot",
 ): VisualizationEncoding {
   const result = { ...encoding };
   const channels = ["x", "y", "color", "size"] as const;
@@ -224,6 +263,19 @@ export function reportEncoding(
     ),
   );
   for (const { channel, parsed } of parsedChannels) {
+    if (
+      channel === "color" &&
+      !COMPUTED_FILL_CHARTS.has(chartType) &&
+      colorAddedField(
+        result,
+        parsed,
+        dimensions,
+        insight,
+        fields,
+        usedDimensions,
+      )
+    )
+      continue;
     if (!parsed) continue;
     if (parsed.type === "field") {
       rebindRemovedField(

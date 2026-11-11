@@ -781,6 +781,7 @@ export function InsightWorkbench({
                 insight,
                 viewerRuntime,
                 modelResolvedFields,
+                activeVisualization.visualizationType,
               ),
             }}
             height="container"
