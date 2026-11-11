@@ -162,6 +162,26 @@ describe("SortOverrideRow", () => {
     ]);
   });
 
+  it("offers only what the Insight allows, and still names a pinned field it does not", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(
+      <SortOverrideRow
+        overrideSorts={[{ field: revenueId, direction: "desc" }]}
+        fields={buildSortFieldOptions(
+          [{ id: regionId, name: "Region", columnName: "region" }],
+          [{ id: revenueId, name: "Revenue" }],
+          [regionId],
+        )}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(shownField()).toBe("Revenue");
+
+    await user.click(screen.getAllByRole("combobox")[0]!);
+    expect(await screen.findByRole("option", { name: "Region" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Revenue" })).toBeNull();
+  });
+
   it("offers no Pin when the tile has nothing to sort by", () => {
     render(
       <SortOverrideRow

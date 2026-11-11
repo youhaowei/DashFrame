@@ -103,6 +103,7 @@ export function SortOverrideRow({
   const { options, byReference } = fields;
   const isPinned = overrideSorts !== undefined;
   const pinned = overrideSorts?.[0];
+  const pinnedOption = pinned && byReference.get(pinned.field);
   const keyToPin = sortKeyToPin(insightSorts, fields);
 
   return (
@@ -120,14 +121,16 @@ export function SortOverrideRow({
         {isPinned ? (
           <div className="flex items-center gap-1">
             {/* Field select.  A reference stored in another form (a column
-                name, an alias) selects the option it names. */}
+                name, an alias) selects the option it names.  `items` only
+                labels the trigger, so it also carries a pinned field that is
+                no longer offered. */}
             <Select
-              items={options}
-              value={
-                pinned
-                  ? (byReference.get(pinned.field)?.value ?? pinned.field)
-                  : ""
+              items={
+                pinnedOption && !options.includes(pinnedOption)
+                  ? [...options, pinnedOption]
+                  : options
               }
+              value={pinnedOption?.value ?? pinned?.field ?? ""}
               onValueChange={(field) => {
                 if (!field) return;
                 // Only the direction carries over: `pivotValues` name a cell
@@ -552,8 +555,13 @@ export function OverridePopover({
   }
 
   const sortFields = useMemo(
-    () => buildSortFieldOptions(combinedFields, insight?.metrics ?? []),
-    [combinedFields, insight?.metrics],
+    () =>
+      buildSortFieldOptions(
+        combinedFields,
+        insight?.metrics ?? [],
+        insight?.runtimeControls?.sort?.allowedFieldIds,
+      ),
+    [combinedFields, insight?.metrics, insight?.runtimeControls?.sort],
   );
 
   const overridePresent = hasOverrides(item.overrides);

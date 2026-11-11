@@ -269,7 +269,11 @@ export interface SortFieldOption {
 export interface SortFieldOptions {
   /** What the field select offers: fields, then metrics. */
   options: SortFieldOption[];
-  /** Every reference a sort key may store, mapped to the option it names. */
+  /**
+   * Every reference a sort key may store, mapped to the option it names.
+   * Covers fields and metrics that are not offered too, so a key naming one
+   * can still be shown by name.
+   */
   byReference: ReadonlyMap<string, SortFieldOption>;
 }
 
@@ -285,6 +289,11 @@ export interface SortFieldOptions {
  * An option's value is the id.  It is the one reference the tile runtime
  * resolves without a lookup, and the only one that stays unique when joined
  * tables share a column name.
+ *
+ * `allowedIds` is the Insight's declared viewer sort.  When given, only those
+ * fields and metrics are offered, because the tile refuses any other.  When
+ * the Insight declares no viewer sort, no choice can run, and all are offered
+ * so that the tile can say so.
  */
 export function buildSortFieldOptions(
   fields: readonly {
@@ -294,13 +303,14 @@ export function buildSortFieldOptions(
     displayName?: string;
   }[],
   metrics: readonly { id: string; name: string }[],
+  allowedIds?: readonly string[],
 ): SortFieldOptions {
   const options: SortFieldOption[] = [];
   const byReference = new Map<string, SortFieldOption>();
   const add = (id: string, label: string, references: string[]) => {
     if (byReference.has(id)) return;
     const option = { value: id, label };
-    options.push(option);
+    if (!allowedIds || allowedIds.includes(id)) options.push(option);
     byReference.set(id, option);
     // Joined tables can share a column name, and a metric can share its name
     // with a column; the first (base table, then fields) keeps it.
@@ -324,17 +334,20 @@ export function buildSortFieldOptions(
  * The single key Pin saves: the Insight's first sort key, stored by the
  * reference its option in the field select uses, so the pinned row shows that
  * field and the tile runtime resolves it.  Later keys of the Insight's sort
- * are not carried over, because a tile sort takes one key.
+ * are not carried over, because a tile sort takes one key.  Nor are
+ * `pivotValues`: the host takes a metric's pivot cell from the Insight's own
+ * saved sort, never from the override.
  *
  * Falls back to the first option when the Insight has no sort, or one that
- * names nothing the tile can offer.  Undefined when there is nothing to offer.
+ * names nothing the select offers.  Undefined when there is nothing to offer.
  */
 export function sortKeyToPin(
   insightSorts: readonly InsightSort[] | undefined,
   { options, byReference }: SortFieldOptions,
 ): InsightSort | undefined {
   const inherited = insightSorts?.[0];
-  const option = (inherited && byReference.get(inherited.field)) ?? options[0];
+  const named = inherited && byReference.get(inherited.field);
+  const option = named && options.includes(named) ? named : options[0];
   return option
     ? { field: option.value, direction: inherited?.direction ?? "asc" }
     : undefined;

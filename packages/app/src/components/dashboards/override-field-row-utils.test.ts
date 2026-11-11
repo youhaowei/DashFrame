@@ -19,7 +19,8 @@
  * SORT ROW — a tile sort override holds one key:
  * 11. sortKeyToPin: Pin saves one key, by a reference the field select shows.
  * 12. formatSortKeys: names every key in priority order.
- * 13. buildSortFieldOptions: every stored reference form maps to one option.
+ * 13. buildSortFieldOptions: every stored reference form maps to one option;
+ *     only what the Insight's viewer sort allows is offered.
  *
  * BADGE — hasOverrides truth table.
  * 10. hasOverrides: true on non-empty filters/sorts/limit, false otherwise.
@@ -562,6 +563,17 @@ describe("sortKeyToPin — what Pin saves", () => {
     ).toEqual({ field: fieldId, direction: "desc" });
   });
 
+  it("11g. pins a field the Insight allows when its own sort is on one it does not", () => {
+    const regionOnly = buildSortFieldOptions(
+      [{ id: fieldId, name: "Region", columnName: "region" }],
+      [{ id: metricId, name: "Revenue" }],
+      [fieldId],
+    );
+    expect(
+      sortKeyToPin([{ field: metricAlias, direction: "desc" }], regionOnly),
+    ).toEqual({ field: fieldId, direction: "desc" });
+  });
+
   it("11f. saves nothing when there is nothing to sort by", () => {
     expect(
       sortKeyToPin(
@@ -673,6 +685,22 @@ describe("buildSortFieldOptions", () => {
     ]);
     expect(byReference.get("id")?.label).toBe("orders.id");
     expect(byReference.get(metricId)?.label).toBe("users.id");
+  });
+
+  it("13f. offers only what the Insight's viewer sort allows, and still names the rest", () => {
+    const { options, byReference } = buildSortFieldOptions(
+      [{ id: fieldId, name: "Region", columnName: "region" }],
+      [{ id: metricId, name: "Revenue" }],
+      [fieldId],
+    );
+    expect(options).toEqual([{ value: fieldId, label: "Region" }]);
+    expect(byReference.get(metricAlias)?.label).toBe("Revenue");
+  });
+
+  it("13g. offers nothing when the Insight's viewer sort allows nothing known", () => {
+    expect(
+      buildSortFieldOptions([{ id: fieldId, name: "Region" }], [], []).options,
+    ).toEqual([]);
   });
 
   it("13e. lists fields before metrics", () => {

@@ -1,6 +1,7 @@
 import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import type { DataTable, Insight } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
+import { buildSortFieldOptions } from "@/components/dashboards/override-field-row-utils";
 import { resolveDashboardRuntime } from "./dashboard-runtime";
 
 const fieldId = "11111111-1111-4111-8111-111111111111";
@@ -104,6 +105,22 @@ describe("resolveDashboardRuntime — tile sort override", () => {
       });
     },
   );
+
+  it("runs every choice the sort row offers for an Insight that declares a sort", () => {
+    const regionOnly = {
+      ...insight,
+      runtimeControls: { sort: { allowedFieldIds: [fieldId], maxKeys: 1 } },
+    } as unknown as Insight;
+    const { options } = buildSortFieldOptions(
+      dataTable.fields ?? [],
+      regionOnly.metrics,
+      regionOnly.runtimeControls?.sort?.allowedFieldIds,
+    );
+    expect(options.map((option) => option.label)).toEqual(["Region"]);
+    expect(
+      options.map((option) => resolveSort(option.value, regionOnly)),
+    ).toEqual([{ runtime: { sort: [{ fieldId, direction: "desc" }] } }]);
+  });
 
   it("names the cause when a saved list has more keys than a tile runs", () => {
     expect(
