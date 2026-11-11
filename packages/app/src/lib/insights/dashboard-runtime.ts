@@ -1,4 +1,4 @@
-import { fieldIdToColumnAlias } from "@dashframe/engine";
+import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import type {
   DashboardItemOverrides,
   DataTable,
@@ -61,7 +61,16 @@ function resolveRuntimeSorts(
   const fields = dataTables.flatMap((table) => table.fields ?? []);
   const sorts = overrides.map((sort) => {
     const fieldId = declaration.allowedFieldIds.find((allowedId) => {
-      if (allowedId === sort.field) return true;
+      // An allowed id may be stored as itself or as the result-column alias
+      // the Insight's own sorts use for it.  Both alias forms are checked for
+      // every id: a column selected from an upstream insight keeps that
+      // insight's metric id but is aliased as a field.
+      if (
+        allowedId === sort.field ||
+        fieldIdToColumnAlias(allowedId) === sort.field ||
+        metricIdToColumnAlias(allowedId) === sort.field
+      )
+        return true;
       const field = fields.find((candidate) => candidate.id === allowedId);
       if (field) return (field.columnName ?? field.name) === sort.field;
       const metric = insight.metrics.find(
