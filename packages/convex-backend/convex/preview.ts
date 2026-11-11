@@ -378,7 +378,8 @@ export async function preview(
       };
       let target = fixed[command.path];
       if (result && typeof result === "object" && !Array.isArray(result)) {
-        const resolved = result.target ?? result.renamed ?? result.deleted;
+        const resolved =
+          result.target ?? result.renamed ?? result.deleted ?? result.kept;
         if (resolved) {
           const location = record(resolved);
           target = artifactTables.find(

@@ -160,6 +160,24 @@ it("keeps the deletion marker for a deleted artifact", async () => {
   });
 });
 
+it("previews an ifUnused delete of a node in use as no change", async () => {
+  const { insightId } = await seedChain();
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: insightId, ifUnused: true })],
+  });
+
+  expect(diff.error).toBeUndefined();
+  expect(diff.directNodes).toEqual([
+    expect.objectContaining({
+      nodeId: insightId,
+      kind: "insight",
+      change: "noop",
+    }),
+  ]);
+  expect(diff.affectedDownstream).toEqual([]);
+});
+
 // The downstream walk reads the graph as it stood before the commands ran, so
 // a delete cascade reports the rows it removes as orphaned instead of walking
 // a graph they have already left.

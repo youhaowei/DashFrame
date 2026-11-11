@@ -388,18 +388,9 @@ function chartOwnsInsight(
   );
 }
 
-/** The most commands the server takes in one batch (`execute`, in the engine). */
-const BATCH_COMMAND_LIMIT = 200;
-
 export interface ChartDeletion {
-  /** Tiles off every report, then the chart, then its insight if unused. */
+  /** The chart, then its insight if nothing else is built on it. */
   commands: Command[];
-  /**
-   * The chart has more tiles than one batch can remove with it. The delete is
-   * not split across batches: a second chart saved on the insight in between
-   * would be deleted along with it.
-   */
-  tooManyTiles: boolean;
   /** How many reports lose a tile. */
   reportCount: number;
   /** The report the chart is open in is one of them. */
@@ -409,10 +400,12 @@ export interface ChartDeletion {
 }
 
 /**
- * Deletes a saved chart: its tiles on every report that places it, the chart,
- * and its insight when nothing else is built on it. Deleting a chart on the
- * server does not take its tiles with it, so they go first, in the same batch:
- * no report is left holding a tile whose chart is gone.
+ * Deletes a saved chart, and its insight when nothing else is built on it.
+ *
+ * The lists passed in only word the confirm dialog. What is removed is decided
+ * on the server when the batch commits: deleting the chart takes its tiles off
+ * every report, and the insight goes only if it is still unused then, so a
+ * chart saved on it in the meantime is not deleted with it.
  */
 export function planChartDeletion(input: {
   chart: ChartRef;
@@ -424,29 +417,23 @@ export function planChartDeletion(input: {
   insights: readonly Pick<Insight, "id" | "source">[];
 }): ChartDeletion {
   const { chart } = input;
-  const placements = input.reports.flatMap((report) =>
-    report.items
-      .filter((item) => isTileOf(item, chart.id))
-      .map((item) => ({ dashboardId: report.id, itemId: item.id })),
-  );
+  const reportIds = input.reports
+    .filter((report) => report.items.some((item) => isTileOf(item, chart.id)))
+    .map((report) => report.id);
   const deletesInsight = chartOwnsInsight(
     chart,
     input.visualizations,
     input.insights,
   );
-  const commands = [
-    ...placements.map((placement) => cmd("RemoveDashboardItem", placement)),
-    cmd("DeleteNode", { id: chart.id }),
-    ...(deletesInsight ? [cmd("DeleteNode", { id: chart.insightId })] : []),
-  ];
   return {
-    commands,
-    tooManyTiles: commands.length > BATCH_COMMAND_LIMIT,
-    reportCount: new Set(placements.map((placement) => placement.dashboardId))
-      .size,
-    onThisReport: placements.some(
-      (placement) => placement.dashboardId === input.reportId,
-    ),
+    commands: [
+      cmd("DeleteNode", { id: chart.id }),
+      ...(deletesInsight
+        ? [cmd("DeleteNode", { id: chart.insightId, ifUnused: true })]
+        : []),
+    ],
+    reportCount: reportIds.length,
+    onThisReport: reportIds.includes(input.reportId),
     deletesInsight,
   };
 }

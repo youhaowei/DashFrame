@@ -4667,7 +4667,92 @@ describe("existing command behavior on native Convex", () => {
       orphanedNodes: [],
     });
   });
-  it("should surface dashboards that reference a deleted Visualization in orphanedNodes (reference boundary)", async () => {
+  it("should take a deleted Visualization's tiles off every dashboard and list them in removedTiles", async () => {
+    const { tableId } = await makeTable();
+    const insightId = id();
+    const vizId = id();
+    const otherVizId = id();
+    const dashId = id();
+    const secondDashId = id();
+    const [tileId, fannedTileId, otherTileId, secondTileId] = [
+      id(),
+      id(),
+      id(),
+      id(),
+    ];
+    const place = (
+      dashboardId: string,
+      itemId: string,
+      visualizationId: string,
+      y: number,
+    ) =>
+      cmd("AddDashboardItem", {
+        dashboardId,
+        item: {
+          id: itemId,
+          type: "visualization",
+          visualizationId,
+          x: 0,
+          y,
+          width: 4,
+          height: 3,
+        },
+      });
+    await commit(
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "I",
+        source: { sourceType: "dataTable", sourceId: tableId },
+      }),
+      cmd("CreateVisualization", {
+        id: vizId,
+        name: "V",
+        insightId,
+        visualizationType: "barY",
+        spec: {},
+      }),
+      cmd("CreateVisualization", {
+        id: otherVizId,
+        name: "Other",
+        insightId,
+        visualizationType: "barY",
+        spec: {},
+      }),
+      cmd("CreateDashboard", { id: dashId, name: "D" }),
+      cmd("CreateDashboard", { id: secondDashId, name: "D2" }),
+      place(dashId, tileId, vizId, 0),
+      place(dashId, fannedTileId, vizId, 3),
+      place(dashId, otherTileId, otherVizId, 6),
+      place(secondDashId, secondTileId, vizId, 0),
+    );
+
+    const result = await commit(cmd("DeleteNode", { id: vizId }));
+
+    expect(await vizsById(vizId)).toHaveLength(0);
+    const value = result.results[0]?.value as {
+      orphanedNodes: unknown[];
+      removedTiles: { dashboardId: string; itemId: string }[];
+    };
+    // No dashboard is left holding a tile whose chart is gone.
+    expect(value.orphanedNodes).toEqual([]);
+    expect(
+      value.removedTiles.map((t) => `${t.dashboardId}:${t.itemId}`).sort(),
+    ).toEqual(
+      [
+        `${dashId}:${tileId}`,
+        `${dashId}:${fannedTileId}`,
+        `${secondDashId}:${secondTileId}`,
+      ].sort(),
+    );
+    const layoutOf = async (dashboardId: string) =>
+      ((await dashboardsById(dashboardId))[0]?.layout ?? []).map(
+        (item) => item.id,
+      );
+    // The other chart's tile stays where it was.
+    expect(await layoutOf(dashId)).toEqual([otherTileId]);
+    expect(await layoutOf(secondDashId)).toEqual([]);
+  });
+  it("should not list a dashboard as orphaned when a tile's chart is deleted (single tile)", async () => {
     const { tableId } = await makeTable();
     const insightId = id();
     const vizId = id();
@@ -4705,13 +4790,11 @@ describe("existing command behavior on native Convex", () => {
     expect(await vizsById(vizId)).toHaveLength(0);
     const value = result.results[0]?.value as {
       orphanedNodes: { id: string; kind: string }[];
+      removedTiles: { dashboardId: string }[];
     };
-    // The dashboard is surfaced as an orphaned node (its viz item is now stale).
-    expect(value.orphanedNodes).toHaveLength(1);
-    expect(value.orphanedNodes[0]).toMatchObject({
-      id: dashId,
-      kind: "dashboard",
-    });
+    expect(value.orphanedNodes).toEqual([]);
+    expect(value.removedTiles).toHaveLength(1);
+    expect(value.removedTiles[0]?.dashboardId).toBe(dashId);
     // The dashboard itself is NOT deleted.
     expect(await dashboardsById(dashId)).toHaveLength(1);
   });
@@ -4727,6 +4810,149 @@ describe("existing command behavior on native Convex", () => {
   });
   it("should throw on DeleteNode for an unknown id (no silent no-op)", async () => {
     await expect(commit(cmd("DeleteNode", { id: id() }))).rejects.toThrow();
+  });
+  describe("DeleteNode ifUnused", () => {
+    const chartOn = (vizId: string, insightId: string) =>
+      cmd("CreateVisualization", {
+        id: vizId,
+        name: "V",
+        insightId,
+        visualizationType: "barY",
+        spec: {},
+      });
+    async function makeInsight() {
+      const { tableId } = await makeTable();
+      const insightId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: insightId,
+          name: "I",
+          source: { sourceType: "dataTable", sourceId: tableId },
+        }),
+      );
+      return insightId;
+    }
+
+    it("should delete an Insight nothing is built on", async () => {
+      const insightId = await makeInsight();
+
+      const result = await commit(
+        cmd("DeleteNode", { id: insightId, ifUnused: true }),
+      );
+
+      expect(await insightsById(insightId)).toHaveLength(0);
+      expect(result.results[0]?.value).toMatchObject({
+        ok: true,
+        deleted: { kind: "insight", id: insightId },
+      });
+    });
+    it("should delete a chart and its Insight in one batch when the chart was all that used it", async () => {
+      const insightId = await makeInsight();
+      const vizId = id();
+      await commit(chartOn(vizId, insightId));
+
+      const result = await commit(
+        cmd("DeleteNode", { id: vizId }),
+        cmd("DeleteNode", { id: insightId, ifUnused: true }),
+      );
+
+      expect(await vizsById(vizId)).toHaveLength(0);
+      // The chart deleted earlier in the batch no longer counts as a use.
+      expect(await insightsById(insightId)).toHaveLength(0);
+      expect(result.results[1]?.value).toMatchObject({
+        deleted: { kind: "insight", id: insightId },
+      });
+    });
+    it("should keep the Insight, and a chart saved on it since the delete was planned", async () => {
+      const insightId = await makeInsight();
+      const vizId = id();
+      const savedSince = id();
+      await commit(chartOn(vizId, insightId));
+      // A second writer saves a chart on the same Insight after the first
+      // one's client decided the Insight was unused.
+      await commit(chartOn(savedSince, insightId));
+
+      const result = await commit(
+        cmd("DeleteNode", { id: vizId }),
+        cmd("DeleteNode", { id: insightId, ifUnused: true }),
+      );
+
+      expect(await vizsById(vizId)).toHaveLength(0);
+      expect(await insightsById(insightId)).toHaveLength(1);
+      expect(await vizsById(savedSince)).toHaveLength(1);
+      expect(result.results[1]?.value).toEqual({
+        ok: true,
+        kept: { kind: "insight", id: insightId },
+        usedBy: [{ kind: "visualization", id: savedSince }],
+      });
+    });
+    it("should keep an Insight another Insight reads from", async () => {
+      const insightId = await makeInsight();
+      const derivedId = id();
+      await commit(
+        cmd("CreateInsight", {
+          id: derivedId,
+          name: "Derived",
+          source: { sourceType: "insight", sourceId: insightId },
+        }),
+      );
+
+      const result = await commit(
+        cmd("DeleteNode", { id: insightId, ifUnused: true }),
+      );
+
+      expect(await insightsById(insightId)).toHaveLength(1);
+      expect(result.results[0]?.value).toMatchObject({
+        kept: { kind: "insight", id: insightId },
+        usedBy: [{ kind: "insight", id: derivedId }],
+      });
+    });
+    it("should keep a chart that is on a dashboard, tile included", async () => {
+      const insightId = await makeInsight();
+      const vizId = id();
+      const dashId = id();
+      const tileId = id();
+      await commit(
+        chartOn(vizId, insightId),
+        cmd("CreateDashboard", { id: dashId, name: "D" }),
+        cmd("AddDashboardItem", {
+          dashboardId: dashId,
+          item: {
+            id: tileId,
+            type: "visualization",
+            visualizationId: vizId,
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 3,
+          },
+        }),
+      );
+
+      const result = await commit(
+        cmd("DeleteNode", { id: vizId, ifUnused: true }),
+      );
+
+      expect(await vizsById(vizId)).toHaveLength(1);
+      const [dashboard] = await dashboardsById(dashId);
+      expect(dashboard?.layout).toHaveLength(1);
+      expect(result.results[0]?.value).toMatchObject({
+        kept: { kind: "visualization", id: vizId },
+        usedBy: [{ kind: "dashboard", id: dashId }],
+      });
+    });
+    it("should reject an ifUnused that is not a boolean", async () => {
+      const insightId = await makeInsight();
+      await expect(
+        commit(
+          cmd("DeleteNode", {
+            id: insightId,
+            ifUnused: "yes" as unknown as boolean,
+          }),
+        ),
+      ).rejects.toThrow("ifUnused must be true or false");
+      expect(await insightsById(insightId)).toHaveLength(1);
+    });
   });
   it("should cascade-delete owned Visualizations when their Insight is deleted (ownership edge)", async () => {
     // Spec — DashFrame Artifact Model: Visualization is owned by its Insight
@@ -4767,10 +4993,9 @@ describe("existing command behavior on native Convex", () => {
     expect(await vizsById(vizId)).toHaveLength(0);
     expect(await vizsById(viz2Id)).toHaveLength(0);
   });
-  it("should surface dashboards that contain an Insight's owned Visualizations in orphanedNodes when the Insight is deleted", async () => {
+  it("should take the tiles of an Insight's owned Visualizations off their dashboards when the Insight is deleted", async () => {
     // When deleting an Insight, its Visualizations cascade-delete via FK.
-    // Any Dashboard that had a layout item referencing one of those Visualizations
-    // is now left with a stale tile — it must appear in orphanedNodes.
+    // A tile cannot outlive its chart, so their tiles go in the same commit.
     const { tableId } = await makeTable();
     const insightId = id();
     const vizId = id();
@@ -4807,17 +5032,15 @@ describe("existing command behavior on native Convex", () => {
 
     expect(await insightsById(insightId)).toHaveLength(0);
     expect(await vizsById(vizId)).toHaveLength(0);
-    // The dashboard is surfaced as an orphaned node.
     const value = result.results[0]?.value as {
       orphanedNodes: { id: string; kind: string }[];
+      removedTiles: { dashboardId: string }[];
     };
-    const dashboardOrphans = value.orphanedNodes.filter(
-      (n) => n.kind === "dashboard",
-    );
-    expect(dashboardOrphans).toHaveLength(1);
-    expect(dashboardOrphans[0]?.id).toBe(dashId);
-    // The dashboard itself is NOT deleted.
-    expect(await dashboardsById(dashId)).toHaveLength(1);
+    expect(value.orphanedNodes).toEqual([]);
+    expect(value.removedTiles.map((t) => t.dashboardId)).toEqual([dashId]);
+    // The dashboard itself is NOT deleted, and holds no stale tile.
+    const [dashboard] = await dashboardsById(dashId);
+    expect(dashboard?.layout).toEqual([]);
   });
   it("should cascade-delete owned DataTables when their DataSource is deleted (ownership edge)", async () => {
     // DataSource → DataTable is the only ownership edge in the graph.
