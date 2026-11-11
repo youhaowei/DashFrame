@@ -18,7 +18,8 @@ people cutting a release do the same things in the same order.
   app version of the release; it is not derived from `package.json` yet.
 - Unversioned apps (`apps/desktop`, `apps/renderer`, `apps/server`) and the
   workspace root stay at `0.0.0`; the web app version is the release number.
-  Nothing reads the root version.
+  `@dashframe/server-core` exports the root version as
+  `DASHFRAME_PROJECT_VERSION`, but no current caller uses it.
 - A minor changeset moves the web app one minor version. If the number has to
   skip ahead, set the baseline by hand in its own commit with a `CHANGELOG.md`
   note, then let a changeset make the release bump.
