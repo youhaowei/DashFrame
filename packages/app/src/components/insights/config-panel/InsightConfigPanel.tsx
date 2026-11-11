@@ -886,7 +886,7 @@ export function InsightConfigPanel({
         // No need to update state - affectedVisualizations is computed reactively
       } catch (error) {
         console.error("Failed to remove from visualization:", error);
-        alert("Failed to update visualization. Please try again.");
+        toast.error("Failed to update visualization. Please try again.");
       } finally {
         setProcessingVizId(null);
       }
@@ -907,7 +907,7 @@ export function InsightConfigPanel({
         // No need to update state - affectedVisualizations is computed reactively
       } catch (error) {
         console.error("Failed to delete visualization:", error);
-        alert("Failed to delete visualization. Please try again.");
+        toast.error("Failed to delete visualization. Please try again.");
       } finally {
         setProcessingVizId(null);
       }
