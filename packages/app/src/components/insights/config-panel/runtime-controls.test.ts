@@ -1,6 +1,10 @@
 import type { InsightFilter, UUID } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
-import { pruneRuntimeControls, withoutViewerField } from "./runtime-controls";
+import {
+  pruneRuntimeControls,
+  withoutViewerField,
+  withViewerChoice,
+} from "./runtime-controls";
 
 describe("pruneRuntimeControls", () => {
   it("removes declarations whose saved targets disappeared", () => {
@@ -89,5 +93,44 @@ describe("withoutViewerField", () => {
         "region" as UUID,
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("withViewerChoice", () => {
+  it("offers a field alongside the other viewer controls", () => {
+    expect(
+      withViewerChoice(
+        {
+          limit: { min: 1, max: 100 },
+          dimensions: { allowedIds: ["region" as UUID], maxSelected: 1 },
+        },
+        "dimensions",
+        "channel",
+        true,
+      ),
+    ).toEqual({
+      limit: { min: 1, max: 100 },
+      dimensions: { allowedIds: ["region", "channel"], maxSelected: 2 },
+    });
+  });
+
+  it("offers a metric when nothing is exposed yet", () => {
+    expect(withViewerChoice(undefined, "measures", "revenue", true)).toEqual({
+      measures: { allowedIds: ["revenue"], maxSelected: 1 },
+    });
+  });
+
+  it("drops the choice list when its last entry is withdrawn", () => {
+    expect(
+      withViewerChoice(
+        {
+          limit: { min: 1, max: 100 },
+          measures: { allowedIds: ["revenue" as UUID], maxSelected: 1 },
+        },
+        "measures",
+        "revenue",
+        false,
+      ),
+    ).toEqual({ limit: { min: 1, max: 100 }, measures: undefined });
   });
 });

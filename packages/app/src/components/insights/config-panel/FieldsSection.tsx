@@ -152,6 +152,18 @@ function rankError(rank: FieldGrouping["rank"]) {
     : "Enter a whole number from 1 to 10,000.";
 }
 
+/**
+ * What one save of the field editor changes. A key that is absent is left as
+ * it was, and everything present is written together. The viewer choice is
+ * present only alongside a changed name or grouping.
+ */
+export interface FieldSave {
+  name?: string;
+  grouping?: FieldGrouping;
+  /** Whether viewers can show or hide the field. */
+  viewerChoice?: boolean;
+}
+
 /** Short qualifier for a field chip, e.g. "by month · columns · top 10". */
 export function groupingSummary(grouping: FieldGrouping) {
   const parts: string[] = [];
@@ -167,11 +179,10 @@ export function groupingSummary(grouping: FieldGrouping) {
 function FieldRenameEditor({
   field,
   dragHandle,
-  onRename,
+  onSave,
   reporting,
   measures = [],
   rankedFieldName,
-  onConfigure,
   viewerChoice = false,
   onViewerChange,
   onRemove,
@@ -185,9 +196,8 @@ function FieldRenameEditor({
   measures?: readonly { id: string; name: string }[];
   /** Another field that holds the report's Top N, if any. */
   rankedFieldName?: string;
-  onConfigure?: (fieldId: string, grouping: FieldGrouping) => Promise<void>;
   dragHandle: ReactNode;
-  onRename: (field: CombinedField, name: string) => Promise<void> | void;
+  onSave: (field: CombinedField, changes: FieldSave) => Promise<void> | void;
   onRemove: () => void;
 }) {
   const saved = groupingOf(reporting, field.id);
@@ -217,14 +227,23 @@ function FieldRenameEditor({
   };
   const save = async () => {
     const next = name.trim();
-    if (!next || countError) return;
+    // A second Enter must not start another save while one is in flight.
+    if (!next || countError || isPending()) return;
     setIsSaving(true);
     setError(null);
+    const changes: FieldSave = {};
+    if (next !== field.name) changes.name = next;
+    if (!sameGrouping(grouping, saved)) changes.grouping = grouping;
+    const definitionChanged = Object.keys(changes).length > 0;
     try {
-      if (next !== field.name) await onRename(field, next);
-      if (!sameGrouping(grouping, saved))
-        await onConfigure?.(field.id, grouping);
-      if (viewer !== viewerChoice) await onViewerChange?.(field.id, viewer);
+      if (definitionChanged) {
+        // One call, so the name, the grouping, and a viewer choice changed
+        // with them are saved together or not at all.
+        if (viewer !== viewerChoice) changes.viewerChoice = viewer;
+        await onSave(field, changes);
+      } else if (viewer !== viewerChoice) {
+        await onViewerChange?.(field.id, viewer);
+      }
       setOpen(false);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Unknown error";
@@ -299,7 +318,7 @@ function FieldRenameEditor({
             autoFocus
           />
         </div>
-        {onConfigure && field.type === "date" && (
+        {field.type === "date" && (
           <div className="space-y-1.5">
             <Label>Group date by</Label>
             <Select
@@ -332,21 +351,19 @@ function FieldRenameEditor({
             </Select>
           </div>
         )}
-        {onConfigure && (
-          <div className="space-y-1.5">
-            <Label>Show values as</Label>
-            <Toggle
-              size="sm"
-              value={grouping.pivot ? "columns" : "rows"}
-              options={[
-                { value: "rows", label: "Rows" },
-                { value: "columns", label: "Columns" },
-              ]}
-              onValueChange={(value) => update({ pivot: value === "columns" })}
-            />
-          </div>
-        )}
-        {onConfigure && measures.length > 0 && (
+        <div className="space-y-1.5">
+          <Label>Show values as</Label>
+          <Toggle
+            size="sm"
+            value={grouping.pivot ? "columns" : "rows"}
+            options={[
+              { value: "rows", label: "Rows" },
+              { value: "columns", label: "Columns" },
+            ]}
+            onValueChange={(value) => update({ pivot: value === "columns" })}
+          />
+        </div>
+        {measures.length > 0 && (
           <div className="space-y-1.5">
             <Label>Keep</Label>
             <Select
@@ -472,7 +489,6 @@ function FieldRenameEditor({
 
 export function FieldsSection({
   reporting,
-  onConfigure,
   measures,
   selectedFields,
   availableFields,
@@ -480,16 +496,16 @@ export function FieldsSection({
   baseTableId,
   onReorder,
   onRemove,
-  onRename,
+  onSave,
   onAdd,
   viewerFieldIds = [],
   onViewerChange,
 }: {
   /** Fields viewers can show or hide, selected or not. */
   viewerFieldIds?: readonly string[];
+  /** Offers or withdraws a field when nothing else about it changes. */
   onViewerChange?: (fieldId: string, enabled: boolean) => Promise<void>;
   reporting?: InsightReporting;
-  onConfigure?: (fieldId: string, grouping: FieldGrouping) => Promise<void>;
   /** Measures a Top N can rank by. */
   measures?: readonly { id: string; name: string }[];
   selectedFields: CombinedField[];
@@ -498,7 +514,11 @@ export function FieldsSection({
   baseTableId: string;
   onReorder: (newOrder: string[]) => void;
   onRemove: (fieldId: string) => void;
-  onRename: (field: CombinedField, name: string) => Promise<void> | void;
+  /**
+   * Saves a changed name or grouping in a single write, with the viewer
+   * choice when that changed too.
+   */
+  onSave: (field: CombinedField, changes: FieldSave) => Promise<void> | void;
   onAdd: (fieldId: string) => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
@@ -559,11 +579,10 @@ export function FieldsSection({
             <FieldRenameEditor
               field={item.field}
               reporting={reporting}
-              onConfigure={onConfigure}
               measures={measures}
               rankedFieldName={rankedFieldName}
               dragHandle={dragHandle}
-              onRename={onRename}
+              onSave={onSave}
               viewerChoice={viewerFieldIds.includes(item.id)}
               onViewerChange={onViewerChange}
               onRemove={() => onRemove(item.id)}

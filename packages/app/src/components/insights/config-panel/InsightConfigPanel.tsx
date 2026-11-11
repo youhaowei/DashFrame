@@ -66,7 +66,11 @@ import {
   removeFromEncoding,
   type DeleteItemType,
 } from "./DeleteConfirmDialog";
-import { FieldsSection, withFieldGrouping } from "./FieldsSection";
+import {
+  FieldsSection,
+  withFieldGrouping,
+  type FieldSave,
+} from "./FieldsSection";
 import {
   applyFilterSave,
   stripFilterClientMetadata,
@@ -82,6 +86,7 @@ import {
   pruneRuntimeControls,
   stableValueSignature,
   withoutViewerField,
+  withViewerChoice,
 } from "./runtime-controls";
 import { SortSection } from "./SortSection";
 
@@ -399,30 +404,21 @@ export function InsightConfigPanel({
     [commitBatch, insight, rollbackRuntimeControls, stageRuntimeControls],
   );
 
-  const saveViewerChoices = async (
-    kind: "dimensions" | "measures",
-    ids: string[],
-  ) => {
-    // Build on the staged value so a change made before the last echo lands
-    // is not overwritten.
-    const controls = {
-      ...runtimeControlsRef.current,
-      [kind]: ids.length
-        ? { allowedIds: ids, maxSelected: Math.min(16, ids.length) }
-        : undefined,
-    };
-    if (!(await handleRuntimeControlsChange(controls)))
-      throw new Error("Could not save viewer choices.");
-  };
-  const setViewerChoice = (
+  const setViewerChoice = async (
     kind: "dimensions" | "measures",
     id: string,
     enabled: boolean,
   ) => {
-    const current = runtimeControlsRef.current?.[kind]?.allowedIds ?? [];
-    const next = current.filter((value) => value !== id);
-    if (enabled) next.push(id as UUID);
-    return saveViewerChoices(kind, next);
+    // Build on the staged value so a change made before the last echo lands
+    // is not overwritten.
+    const controls = withViewerChoice(
+      runtimeControlsRef.current,
+      kind,
+      id,
+      enabled,
+    );
+    if (!(await handleRuntimeControlsChange(controls)))
+      throw new Error("Could not save viewer choices.");
   };
 
   /**
@@ -526,21 +522,56 @@ export function InsightConfigPanel({
     [writeSelectedFields],
   );
 
-  const handleRenameField = useCallback(
-    async (field: CombinedField, newName: string) => {
-      // Update the display name in the source DataTable
-      // This only changes the user-facing name, not the underlying columnName
-      await commitBatch({
-        commands: [
-          cmd("UpdateField", {
-            nodeId: field.sourceTableId,
-            fieldId: field.id,
-            updates: { name: newName },
-          }),
-        ],
-      });
+  // One field editor save is one batch: the display name on the source table,
+  // the grouping, and the viewer choice commit together or not at all.
+  const handleSaveField = useCallback(
+    async (field: CombinedField, changes: FieldSave) => {
+      const current = latestInsightRef.current;
+      const updates: Partial<Omit<Insight, "id" | "createdAt">> = {};
+      if (changes.grouping) {
+        updates.reporting = withFieldGrouping(
+          current.reporting,
+          field.id,
+          changes.grouping,
+        );
+      }
+      // Build on the staged value so a change made before the last echo lands
+      // is not overwritten.
+      const runtimeControls =
+        changes.viewerChoice === undefined
+          ? undefined
+          : withViewerChoice(
+              runtimeControlsRef.current,
+              "dimensions",
+              field.id,
+              changes.viewerChoice,
+            );
+      if (runtimeControls) updates.runtimeControls = runtimeControls;
+      const commands = [
+        // Only the user-facing name changes, never the underlying columnName.
+        ...(changes.name === undefined
+          ? []
+          : [
+              cmd("UpdateField", {
+                nodeId: field.sourceTableId,
+                fieldId: field.id,
+                updates: { name: changes.name },
+              }),
+            ]),
+        ...buildInsightUpdateCommands(current.id, current, updates),
+      ];
+      if (commands.length === 0) return;
+      const signature = runtimeControls
+        ? stageRuntimeControls(runtimeControls)
+        : null;
+      try {
+        await commitBatch({ commands });
+      } catch (error) {
+        if (signature) rollbackRuntimeControls(signature);
+        throw error;
+      }
     },
-    [commitBatch],
+    [commitBatch, rollbackRuntimeControls, stageRuntimeControls],
   );
 
   // --- Metric handlers ---
@@ -644,17 +675,44 @@ export function InsightConfigPanel({
     [dataTable.id, dataTable.metrics, writeMetrics],
   );
 
+  // A viewer choice saved with the definition rides in the same batch, so the
+  // two commit together or not at all.
   const handleEditMetric = useCallback(
-    (updatedMetric: InsightMetric) =>
-      writeMetrics((metrics) => {
-        if (!metrics.some((metric) => metric.id === updatedMetric.id)) {
-          throw new Error("Metric no longer exists");
-        }
-        return metrics.map((metric) =>
-          metric.id === updatedMetric.id ? updatedMetric : metric,
-        );
-      }),
-    [writeMetrics],
+    (updatedMetric: InsightMetric, viewerChoice?: boolean) => {
+      let signature: string | null = null;
+      return writeMetrics(
+        (metrics) => {
+          if (!metrics.some((metric) => metric.id === updatedMetric.id)) {
+            throw new Error("Metric no longer exists");
+          }
+          return metrics.map((metric) =>
+            metric.id === updatedMetric.id ? updatedMetric : metric,
+          );
+        },
+        () => {
+          if (viewerChoice === undefined) return [];
+          // Built when the queued write runs, on the staged value, so an
+          // earlier viewer-control change is not overwritten.
+          const runtimeControls = withViewerChoice(
+            runtimeControlsRef.current,
+            "measures",
+            updatedMetric.id,
+            viewerChoice,
+          );
+          signature = stageRuntimeControls(runtimeControls);
+          return [
+            cmd("SetInsightRuntimeControls", {
+              id: latestInsightRef.current.id,
+              runtimeControls,
+            }),
+          ];
+        },
+      ).catch((error: unknown) => {
+        if (signature) rollbackRuntimeControls(signature);
+        throw error;
+      });
+    },
+    [rollbackRuntimeControls, stageRuntimeControls, writeMetrics],
   );
 
   // --- Filter handlers ---
@@ -1263,16 +1321,6 @@ export function InsightConfigPanel({
             <>
               <FieldsSection
                 reporting={insight.reporting}
-                onConfigure={async (fieldId, grouping) => {
-                  const current = latestInsightRef.current;
-                  await updateInsight(current.id, {
-                    reporting: withFieldGrouping(
-                      current.reporting,
-                      fieldId,
-                      grouping,
-                    ),
-                  });
-                }}
                 measures={insight.metrics}
                 selectedFields={selectedFields}
                 availableFields={availableFields}
@@ -1283,7 +1331,7 @@ export function InsightConfigPanel({
                 baseTableId={dataTable.id}
                 onReorder={handleFieldsReorder}
                 onRemove={handleRemoveField}
-                onRename={handleRenameField}
+                onSave={handleSaveField}
                 onAdd={handleAddField}
                 viewerFieldIds={
                   localRuntimeControls?.dimensions?.allowedIds ?? []

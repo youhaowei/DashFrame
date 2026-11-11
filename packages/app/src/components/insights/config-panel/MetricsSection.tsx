@@ -279,7 +279,14 @@ function MetricEditor({
   /** Result column labels, used only to name a metric's column. */
   columnDisplayNames?: ColumnDisplayNames;
   dragHandle?: ReactNode;
-  onSave: (metric: InsightMetric) => Promise<void> | void;
+  /**
+   * Saves the definition. A viewer choice passed with it is written in the
+   * same save, so the two are committed together or not at all.
+   */
+  onSave: (
+    metric: InsightMetric,
+    viewerChoice?: boolean,
+  ) => Promise<void> | void;
   onRemove?: () => void;
 }) {
   const [options, setOptions] = useState<MeasureOptions>({
@@ -353,6 +360,7 @@ function MetricEditor({
     }
     setIsSaving(true);
     setError(null);
+    const viewerChanged = metric !== undefined && viewer !== viewerChoice;
     try {
       if (!metric || definitionChanged) {
         const nextColumnName = metricColumnNameForSave(aggregation, columnName);
@@ -364,7 +372,7 @@ function MetricEditor({
           options.expression,
           inheritedContract,
         );
-        await onSave({
+        const definition: InsightMetric = {
           id: metric?.id ?? (crypto.randomUUID() as UUID),
           name: name.trim(),
           sourceTable: metric?.sourceTable ?? dataTable.id,
@@ -372,10 +380,11 @@ function MetricEditor({
           aggregation,
           ...(contract ? { contract } : {}),
           ...options,
-        });
-      }
-      if (metric && viewer !== viewerChoice)
+        };
+        await (viewerChanged ? onSave(definition, viewer) : onSave(definition));
+      } else if (viewerChanged) {
         await onViewerChange?.(metric.id, viewer);
+      }
       setOpen(false);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Unknown error";
@@ -695,7 +704,11 @@ export function MetricsSection({
   onReorder: (metrics: InsightMetric[]) => void;
   onRemove: (metricId: string) => void;
   onAdd: (metric: InsightMetric) => Promise<void> | void;
-  onEdit: (metric: InsightMetric) => Promise<void> | void;
+  /** Saves an edited metric, with its viewer choice when that changed too. */
+  onEdit: (
+    metric: InsightMetric,
+    viewerChoice?: boolean,
+  ) => Promise<void> | void;
 }) {
   const items: MetricSortableItem[] = metrics.map((metric) => ({
     id: metric.id,
