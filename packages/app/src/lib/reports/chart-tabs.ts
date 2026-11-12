@@ -460,7 +460,9 @@ export function deleteChartDescription(
     );
   }
   if (deletion.deletesInsight) {
-    sentences.push("Its insight will be deleted with it.");
+    sentences.push(
+      "Its insight will be deleted with it, unless something else starts using it first.",
+    );
   }
   sentences.push("This action cannot be undone.");
   return sentences.join(" ");

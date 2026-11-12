@@ -310,7 +310,7 @@ describe("ReportChartTab — a saved chart", () => {
 
     await openDelete(user);
     expect(screen.getByRole("dialog").textContent).toContain(
-      'Are you sure you want to delete "Revenue by region"? It will be removed from 2 reports, including this one. Its insight will be deleted with it. This action cannot be undone.',
+      'Are you sure you want to delete "Revenue by region"? It will be removed from 2 reports, including this one. Its insight will be deleted with it, unless something else starts using it first. This action cannot be undone.',
     );
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mockCommitBatch).not.toHaveBeenCalled();
