@@ -206,6 +206,27 @@ it("flags a report as losing tiles when a chart on it is deleted", async () => {
   expect(diff.tablesWritten).toContain("dashboards");
 });
 
+// The report is a direct node here, so it gets no downstream flag: its own
+// entry has to show the tiles the chart delete takes off it.
+it("shows the removed tiles on a report the same batch edits directly", async () => {
+  const visualizationId = await seedVisualization();
+  const reportId = await placeOnReport(visualizationId);
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [
+      cmd("RenameNode", { id: reportId, name: "Renamed" }),
+      cmd("DeleteNode", { id: visualizationId }),
+    ],
+  });
+
+  const report = diff.directNodes.find((n) => n.nodeId === reportId)!;
+  expect(report).toMatchObject({
+    change: "update",
+    proposedDefinition: { name: "Renamed", items: [] },
+  });
+  expect(downstreamFlags(diff)).toEqual([]);
+});
+
 it("flags a report as losing tiles when its chart goes with a deleted insight", async () => {
   const { insightId, visualizationId } = await seedChain();
   const reportId = await placeOnReport(visualizationId);

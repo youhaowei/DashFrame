@@ -435,6 +435,26 @@ export async function preview(
       break;
     }
   }
+  // A later command can change a report it does not name: deleting a chart
+  // takes its tiles off every report. Show a directly edited report's tiles
+  // as the whole batch leaves them, not as its own commands left them.
+  for (const [mapKey, node] of direct) {
+    if (node.kind !== "dashboard") continue;
+    const value = await graph.find("dashboards", node.nodeId);
+    if (!value) continue;
+    const base = await graph.baseline("dashboards", node.nodeId);
+    const items = record(redact(publicRow("dashboards", value))).items!;
+    const shown =
+      "items" in node.proposedDefinition
+        ? node.proposedDefinition.items
+        : (base?.layout ?? []);
+    if (stable(shown ?? null) === stable(items)) continue;
+    direct.set(mapKey, {
+      ...node,
+      change: base ? "update" : node.change,
+      proposedDefinition: { ...node.proposedDefinition, items },
+    });
+  }
   const downstream: PreviewDownstreamNode[] = [];
   for (const node of direct.values()) {
     if (node.change === "noop") continue;
