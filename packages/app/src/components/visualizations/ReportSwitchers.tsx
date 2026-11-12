@@ -10,6 +10,13 @@ import {
 } from "@wystack/ui-react";
 import { useState } from "react";
 
+function selectionHint(minimum: number, maximum: number): string {
+  if (minimum === 0) return `Choose up to ${maximum}.`;
+  return minimum === maximum
+    ? `Choose ${minimum}.`
+    : `Choose ${minimum}–${maximum}.`;
+}
+
 export function ReportSelectionMenu({
   label,
   options,
@@ -93,9 +100,7 @@ export function ReportSelectionMenu({
           </label>
         ))}
         <p className="text-xs text-neutral-fg-subtle">
-          {minimum > 0
-            ? `Choose ${minimum}–${maximum}.`
-            : `Choose up to ${maximum}.`}
+          {selectionHint(minimum, maximum)}
         </p>
         {error && (
           <p role="alert" className="text-xs text-palette-danger">
@@ -139,6 +144,7 @@ export function ReportSwitchers({
   if (!insight || (!dimensions && !measures)) return null;
   const savedMeasures =
     insight.reporting?.measureIds ?? insight.metrics.map((metric) => metric.id);
+  const fixedDimensions = fixedRuntimeIds(insight, "dimensions");
   return (
     <div
       className="flex shrink-0 flex-wrap items-center gap-2 px-2 py-2"
@@ -153,13 +159,15 @@ export function ReportSwitchers({
           selected={(runtime?.dimensions ?? insight.selectedFields).filter(
             (id) => dimensions.allowedIds.includes(id),
           )}
+          // Without a metric or a fixed field, no fields leaves nothing to show.
+          minimum={insight.metrics.length || fixedDimensions.length ? 0 : 1}
           maximum={dimensions.maxSelected}
           onApply={(ids) =>
             onChange({
               ...runtime,
               dimensions: withFixedIds(
                 insight.selectedFields,
-                fixedRuntimeIds(insight, "dimensions"),
+                fixedDimensions,
                 ids,
               ),
             })
