@@ -366,6 +366,7 @@ function VisualizationDisplayContent({
             insight,
             effectiveRuntime,
             instanceAwareFields,
+            activeViz.visualizationType,
           )
         : {},
     [activeViz, insight, effectiveRuntime, instanceAwareFields],
@@ -532,8 +533,13 @@ function VisualizationDisplayContent({
       }
       if (parsed?.type === "metric") {
         const metric = insight.metrics?.find((m) => m.id === parsed.id);
+        // A metric's column need not be one the chart draws, and a result
+        // field carries its alias as its column, so the source fields name it.
         return metric
-          ? getMetricDisplayLabel(metric, resolutionFields)
+          ? getMetricDisplayLabel(metric, [
+              ...switcherFields,
+              ...resolutionFields,
+            ])
           : (columnDisplayNames[resolvedValue] ?? resolvedValue);
       }
 
@@ -565,6 +571,7 @@ function VisualizationDisplayContent({
     columns,
     columnDisplayNames,
     instanceAwareFields,
+    switcherFields,
     chartStorageEncoding,
     chartPresentation,
   ]);

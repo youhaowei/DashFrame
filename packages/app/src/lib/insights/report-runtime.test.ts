@@ -4,6 +4,7 @@ import type { Field, Insight, VisualizationEncoding } from "@dashframe/types";
 import {
   currentViewerRuntime,
   reportEncoding,
+  reportPivotColor,
   reportPresentation,
 } from "./report-runtime";
 const insight: Insight = {
@@ -330,6 +331,47 @@ describe("reportEncoding with a pivot", () => {
         fields,
       ),
     ).toEqual({ x: "field:date", y: "metric:orders", color: "field:channel" });
+  });
+
+  it("colors by a pivot left on size once the chart stops being a scatter", () => {
+    const saved: VisualizationEncoding = {
+      x: "field:date",
+      y: "metric:orders",
+      size: "field:channel",
+    };
+    // A scatter draws the pivot as point size, so it needs no color.
+    expect(
+      reportEncoding(saved, insight, undefined, fields, "dot").color,
+    ).toBeUndefined();
+    // No other chart type draws size, so the pivot would not show at all.
+    for (const chartType of ["barY", "barX", "line", "areaY"] as const) {
+      expect(
+        reportEncoding(saved, insight, undefined, fields, chartType),
+      ).toEqual({ ...saved, color: "field:channel" });
+    }
+  });
+
+  it("leaves color free on a chart that fills by its own density", () => {
+    for (const chartType of ["hexbin", "heatmap", "raster"] as const) {
+      expect(
+        reportEncoding(
+          { x: "field:date", y: "metric:orders" },
+          insight,
+          undefined,
+          fields,
+          chartType,
+        ),
+      ).toEqual({ x: "field:date", y: "metric:orders" });
+      expect(
+        reportPivotColor(
+          { x: "field:date", y: "metric:orders" },
+          insight,
+          undefined,
+          fields,
+          chartType,
+        ),
+      ).toBeUndefined();
+    }
   });
 
   it("keeps a chosen color and a pivot already on an axis", () => {

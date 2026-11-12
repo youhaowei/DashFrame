@@ -32,6 +32,40 @@ describe("getMetricDisplayLabel", () => {
     );
   });
 
+  test("names the source column from the source table, not from a result frame", () => {
+    // A result frame's fields carry their alias as the column, and only the
+    // fields the chart draws, so they cannot name a metric's source column.
+    const resultFields = [field("f2", "Region", "field_f2")];
+    const revenue = metric("sum", "revenue_usd");
+    expect(getMetricDisplayLabel(revenue, resultFields)).toBe(
+      "Sum of revenue_usd",
+    );
+    expect(
+      getMetricDisplayLabel(revenue, [
+        field("f1", "Revenue", "revenue_usd"),
+        ...resultFields,
+      ]),
+    ).toBe("Sum of Revenue");
+  });
+
+  test("names the column of the table the metric reads when joined tables share it", () => {
+    const tableField = (tableId: string, name: string): Field =>
+      ({ ...field(tableId, name, "amount"), tableId }) as Field;
+    const fields = [
+      tableField("orders", "Order amount"),
+      tableField("refunds", "Refund amount"),
+    ];
+    const refunds = {
+      ...metric("sum", "amount"),
+      sourceTable: "refunds",
+    } as InsightMetric;
+    expect(getMetricDisplayLabel(refunds, fields)).toBe("Sum of Refund amount");
+    // A field list that leaves the metric's table out still names the column.
+    expect(getMetricDisplayLabel(refunds, fields.slice(0, 1))).toBe(
+      "Sum of Order amount",
+    );
+  });
+
   test("resolves source label via field.name match (raw column passthrough)", () => {
     const fields = [field("f1", "Revenue", "revenue_usd")];
     expect(getMetricDisplayLabel(metric("avg", "Revenue"), fields)).toBe(

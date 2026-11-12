@@ -34,12 +34,15 @@ export function getMetricDisplayLabel(
     return metric.name || "Count of rows";
   }
 
-  const sourceField = fields.find(
+  const matches = fields.filter(
     (field) =>
       field.columnName === metric.columnName ||
       field.name === metric.columnName ||
       fieldIdToColumnAlias(field.id) === metric.columnName,
   );
+  // Joined tables can share a column name; the metric says which it reads.
+  const sourceField =
+    matches.find((field) => field.tableId === metric.sourceTable) ?? matches[0];
   const mappedSourceLabel = metric.columnName
     ? columnDisplayNames[metric.columnName]
     : undefined;
