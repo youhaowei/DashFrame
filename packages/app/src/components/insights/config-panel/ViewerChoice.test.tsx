@@ -55,7 +55,7 @@ function fields(props: Partial<Parameters<typeof FieldsSection>[0]> = {}) {
       baseTableId={table.id}
       onReorder={vi.fn()}
       onRemove={vi.fn()}
-      onRename={vi.fn()}
+      onSave={vi.fn()}
       onAdd={vi.fn()}
       {...props}
     />
@@ -78,8 +78,8 @@ describe("viewer choices on chips", () => {
   it("offers a field to viewers from its editor", async () => {
     const user = userEvent.setup({ delay: null });
     const onViewerChange = vi.fn().mockResolvedValue(undefined);
-    const onRename = vi.fn();
-    render(fields({ onViewerChange, onRename }));
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(fields({ onViewerChange, onSave }));
 
     await user.click(screen.getByRole("button", { name: "Edit Amount" }));
     await user.click(
@@ -90,7 +90,7 @@ describe("viewer choices on chips", () => {
     await waitFor(() =>
       expect(onViewerChange).toHaveBeenCalledWith("field-1", true),
     );
-    expect(onRename).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("marks viewer fields and lists ones the report hides by default", async () => {

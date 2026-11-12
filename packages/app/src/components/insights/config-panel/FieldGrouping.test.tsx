@@ -36,7 +36,7 @@ function renderFields(props: Partial<Parameters<typeof FieldsSection>[0]>) {
       measures={measures}
       onReorder={vi.fn()}
       onRemove={vi.fn()}
-      onRename={vi.fn()}
+      onSave={vi.fn()}
       onAdd={vi.fn()}
       {...props}
     />,
@@ -75,9 +75,9 @@ describe("field grouping", () => {
 
   it("saves columns and a Top N from the field editor", async () => {
     const user = userEvent.setup({ delay: null });
-    const onConfigure = vi.fn().mockResolvedValue(undefined);
+    const onSave = vi.fn().mockResolvedValue(undefined);
     renderFields({
-      onConfigure,
+      onSave,
       reporting: {
         topN: {
           fieldId: "date",
@@ -108,20 +108,19 @@ describe("field grouping", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(onConfigure).toHaveBeenCalledWith("channel", {
-        grain: undefined,
-        pivot: true,
-        rank: { direction: "desc", count: 20, measureId: "revenue" },
+      expect(onSave).toHaveBeenCalledWith(channel, {
+        grouping: {
+          grain: undefined,
+          pivot: true,
+          rank: { direction: "desc", count: 20, measureId: "revenue" },
+        },
       }),
     );
   });
 
   it("shows the date grain label rather than its stored value", async () => {
     const user = userEvent.setup({ delay: null });
-    renderFields({
-      onConfigure: vi.fn(),
-      reporting: { dateGrains: { date: "quarter" } },
-    });
+    renderFields({ reporting: { dateGrains: { date: "quarter" } } });
     await user.click(screen.getByRole("button", { name: "Edit Date" }));
     expect(
       screen.getByRole("combobox", { name: "Group date by" }).textContent,
