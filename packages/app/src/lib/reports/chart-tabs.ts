@@ -1,8 +1,10 @@
 import type {
+  Command,
   Dashboard,
   DashboardItem,
   Insight,
   UUID,
+  Visualization,
   VisualizationType,
 } from "@dashframe/types";
 import { cmd, fieldEncoding, metricEncoding } from "@dashframe/types";
@@ -339,22 +341,142 @@ export function isReadyToLand(
   );
 }
 
+/** The item is a tile of this chart. */
+function isTileOf(item: DashboardItem, visualizationId: string): boolean {
+  return (
+    item.type === "visualization" && item.visualizationId === visualizationId
+  );
+}
+
 /** How many reports place this chart. */
 export function countReportsUsingChart(
   reports: readonly Pick<Dashboard, "items">[],
   visualizationId: string,
 ): number {
   return reports.filter((report) =>
-    report.items.some(
-      (item) =>
-        item.type === "visualization" &&
-        item.visualizationId === visualizationId,
-    ),
+    report.items.some((item) => isTileOf(item, visualizationId)),
   ).length;
 }
 
 export function reportsUsingChartLabel(count: number): string {
   return `Used in ${count} report${count === 1 ? "" : "s"}`;
+}
+
+type ChartRef = Pick<Visualization, "id" | "insightId">;
+
+/**
+ * A chart's insight goes with it only when the chart is all that is built on
+ * it: no other chart plots it and no other insight reads from it. An insight
+ * that is not listed is not deleted either; it may already be gone.
+ */
+function chartOwnsInsight(
+  chart: ChartRef,
+  visualizations: readonly ChartRef[],
+  insights: readonly Pick<Insight, "id" | "source">[],
+): boolean {
+  return (
+    insights.some((insight) => insight.id === chart.insightId) &&
+    !visualizations.some(
+      (other) => other.id !== chart.id && other.insightId === chart.insightId,
+    ) &&
+    !insights.some(
+      (other) =>
+        other.id !== chart.insightId &&
+        other.source.sourceType === "insight" &&
+        other.source.sourceId === chart.insightId,
+    )
+  );
+}
+
+/** The most commands the server takes in one batch (`execute`, in the engine). */
+const BATCH_COMMAND_LIMIT = 200;
+
+export interface ChartDeletion {
+  /** Tiles off every report, then the chart, then its insight if unused. */
+  commands: Command[];
+  /**
+   * The chart has more tiles than one batch can remove with it. The delete is
+   * not split across batches: a second chart saved on the insight in between
+   * would be deleted along with it.
+   */
+  tooManyTiles: boolean;
+  /** How many reports lose a tile. */
+  reportCount: number;
+  /** The report the chart is open in is one of them. */
+  onThisReport: boolean;
+  /** Nothing else is built on the chart's insight, so it is deleted too. */
+  deletesInsight: boolean;
+}
+
+/**
+ * Deletes a saved chart: its tiles on every report that places it, the chart,
+ * and its insight when nothing else is built on it. Deleting a chart on the
+ * server does not take its tiles with it, so they go first, in the same batch:
+ * no report is left holding a tile whose chart is gone.
+ */
+export function planChartDeletion(input: {
+  chart: ChartRef;
+  /** The report the chart is open in. */
+  reportId: string;
+  /** Every report. */
+  reports: readonly Pick<Dashboard, "id" | "items">[];
+  visualizations: readonly ChartRef[];
+  insights: readonly Pick<Insight, "id" | "source">[];
+}): ChartDeletion {
+  const { chart } = input;
+  const placements = input.reports.flatMap((report) =>
+    report.items
+      .filter((item) => isTileOf(item, chart.id))
+      .map((item) => ({ dashboardId: report.id, itemId: item.id })),
+  );
+  const deletesInsight = chartOwnsInsight(
+    chart,
+    input.visualizations,
+    input.insights,
+  );
+  const commands = [
+    ...placements.map((placement) => cmd("RemoveDashboardItem", placement)),
+    cmd("DeleteNode", { id: chart.id }),
+    ...(deletesInsight ? [cmd("DeleteNode", { id: chart.insightId })] : []),
+  ];
+  return {
+    commands,
+    tooManyTiles: commands.length > BATCH_COMMAND_LIMIT,
+    reportCount: new Set(placements.map((placement) => placement.dashboardId))
+      .size,
+    onThisReport: placements.some(
+      (placement) => placement.dashboardId === input.reportId,
+    ),
+    deletesInsight,
+  };
+}
+
+/** What confirming a chart's deletion removes, for the confirm dialog. */
+export function deleteChartDescription(
+  name: string,
+  deletion: Pick<
+    ChartDeletion,
+    "reportCount" | "onThisReport" | "deletesInsight"
+  >,
+): string {
+  const { reportCount, onThisReport } = deletion;
+  const sentences = [`Are you sure you want to delete "${name}"?`];
+  if (reportCount === 1 && onThisReport) {
+    sentences.push("It will be removed from this report.");
+  } else if (onThisReport) {
+    sentences.push(
+      `It will be removed from ${reportCount} reports, including this one.`,
+    );
+  } else if (reportCount > 0) {
+    sentences.push(
+      `It will be removed from ${reportCount} other report${reportCount === 1 ? "" : "s"}.`,
+    );
+  }
+  if (deletion.deletesInsight) {
+    sentences.push("Its insight will be deleted with it.");
+  }
+  sentences.push("This action cannot be undone.");
+  return sentences.join(" ");
 }
 
 /**

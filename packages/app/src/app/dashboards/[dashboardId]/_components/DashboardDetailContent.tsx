@@ -117,9 +117,11 @@ export default function DashboardDetailContent({
     isLoading: insightsLoading,
     isError: insightsLoadError,
   } = queryStatus(useArtifactList({ query: api.app.listInsights, args: {} }));
-  const { data: dataTables = [] } = queryStatus(
-    useArtifactList({ query: api.app.listDataTables, args: {} }),
-  );
+  const {
+    data: dataTables = [],
+    isLoading: dataTablesLoading,
+    isError: dataTablesLoadError,
+  } = queryStatus(useArtifactList({ query: api.app.listDataTables, args: {} }));
   const commitBatch = useMutation(api.app.commitBatch);
   const { createChartInsight } = useCreateInsight();
 
@@ -553,6 +555,7 @@ export default function DashboardDetailContent({
           insights={insights}
           insightsLoaded={!insightsLoading}
           dataTables={dataTables}
+          dataTablesLoaded={!dataTablesLoading && !dataTablesLoadError}
           onLanded={handleChartLanded}
         />
       </div>
