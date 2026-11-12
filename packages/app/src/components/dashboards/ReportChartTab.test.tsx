@@ -287,20 +287,12 @@ describe("ReportChartTab — a saved chart", () => {
       <ConfirmDialog />
     </>
   );
-<<<<<<< HEAD
   // The server takes the chart's tiles off its reports and keeps the insight
   // if something else is built on it by then; the client sends only these.
   const deleteChartAndUnusedInsight = [
     { path: "deleteNode", args: { id: "chart-1" } },
     { path: "deleteNode", args: { id: "insight-1", ifUnused: true } },
   ];
-=======
-  const removeTile = (reportId: string) => ({
-    path: "removeDashboardItemCmd",
-    args: { dashboardId: reportId, itemId: `${reportId}-tile` },
-  });
-  const deleteNode = (id: string) => ({ path: "deleteNode", args: { id } });
->>>>>>> origin/main
   const openDelete = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(
       screen.getByRole("button", { name: "More chart actions" }),
@@ -310,11 +302,7 @@ describe("ReportChartTab — a saved chart", () => {
     );
   };
 
-<<<<<<< HEAD
   it("deletes the chart and its unused insight, once confirmed", async () => {
-=======
-  it("deletes the chart, its tiles on every report, and its unused insight, once confirmed", async () => {
->>>>>>> origin/main
     const user = userEvent.setup();
     useReportChartTabs.getState().open("report-1", { id: "chart-1" });
     useReportChartTabs.getState().open("report-2", { id: "chart-1" });
@@ -331,16 +319,7 @@ describe("ReportChartTab — a saved chart", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(mockCommitBatch).toHaveBeenCalledWith({
-<<<<<<< HEAD
         commands: deleteChartAndUnusedInsight,
-=======
-        commands: [
-          removeTile("report-1"),
-          removeTile("report-2"),
-          deleteNode("chart-1"),
-          deleteNode("insight-1"),
-        ],
->>>>>>> origin/main
       }),
     );
     // No report keeps a tab for a chart that is gone.
@@ -375,16 +354,7 @@ describe("ReportChartTab — a saved chart", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(mockCommitBatch).toHaveBeenCalledWith({
-<<<<<<< HEAD
         commands: deleteChartAndUnusedInsight,
-=======
-        commands: [
-          removeTile("report-1"),
-          removeTile("report-2"),
-          deleteNode("chart-1"),
-          deleteNode("insight-1"),
-        ],
->>>>>>> origin/main
       }),
     );
   });
@@ -402,15 +372,7 @@ describe("ReportChartTab — a saved chart", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(mockCommitBatch).toHaveBeenCalledWith({
-<<<<<<< HEAD
         commands: deleteChartAndUnusedInsight,
-=======
-        commands: [
-          removeTile("report-1"),
-          deleteNode("chart-1"),
-          deleteNode("insight-1"),
-        ],
->>>>>>> origin/main
       }),
     );
   });
@@ -432,19 +394,11 @@ describe("ReportChartTab — a saved chart", () => {
     expect(deleteInPlace()).toBeNull();
   });
 
-<<<<<<< HEAD
   it("deletes a chart however many tiles it has", async () => {
     const user = userEvent.setup();
     const crowded = {
       id: "report-1",
       items: Array.from({ length: 500 }, (_, index) => ({
-=======
-  it("refuses, saying why, when the chart has more tiles than one batch removes", async () => {
-    const user = userEvent.setup();
-    const crowded = {
-      id: "report-1",
-      items: Array.from({ length: 199 }, (_, index) => ({
->>>>>>> origin/main
         id: `tile-${index}`,
         type: "visualization",
         visualizationId: "chart-1",
@@ -453,20 +407,12 @@ describe("ReportChartTab — a saved chart", () => {
     render(savedChart([crowded]));
 
     await openDelete(user);
-<<<<<<< HEAD
     await user.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(mockCommitBatch).toHaveBeenCalledWith({
         commands: deleteChartAndUnusedInsight,
       }),
     );
-=======
-    expect(toast.error).toHaveBeenCalledWith(
-      "This chart has too many tiles to delete at once. Remove some from its reports first.",
-    );
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(mockCommitBatch).not.toHaveBeenCalled();
->>>>>>> origin/main
   });
 
   it("closes its confirm dialog when the tab goes away", async () => {
