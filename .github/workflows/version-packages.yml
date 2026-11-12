@@ -40,3 +40,8 @@ jobs:
           title: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The action commits on `changeset-release/main` in the runner's only
+          # checkout. The pre-commit worktree guard refuses that for agents
+          # sharing a checkout; a runner has no one to share with. The hook
+          # still formats the staged files.
+          ALLOW_MAIN_CHECKOUT_COMMIT: "1"
