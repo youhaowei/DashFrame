@@ -4744,6 +4744,7 @@ describe("existing command behavior on native Convex", () => {
     const otherVizId = id();
     const dashId = id();
     const secondDashId = id();
+    const noteId = id();
     const [tileId, fannedTileId, otherTileId, secondTileId] = [
       id(),
       id(),
@@ -4794,6 +4795,20 @@ describe("existing command behavior on native Convex", () => {
       place(dashId, fannedTileId, vizId, 3),
       place(dashId, otherTileId, otherVizId, 6),
       place(secondDashId, secondTileId, vizId, 0),
+      // A text item that carries the chart's id is not a tile of that chart.
+      cmd("AddDashboardItem", {
+        dashboardId: secondDashId,
+        item: {
+          id: noteId,
+          type: "markdown",
+          content: "Note",
+          visualizationId: vizId,
+          x: 0,
+          y: 3,
+          width: 4,
+          height: 3,
+        },
+      }),
     );
 
     const result = await commit(cmd("DeleteNode", { id: vizId }));
@@ -4820,7 +4835,7 @@ describe("existing command behavior on native Convex", () => {
       );
     // The other chart's tile stays where it was.
     expect(await layoutOf(dashId)).toEqual([otherTileId]);
-    expect(await layoutOf(secondDashId)).toEqual([]);
+    expect(await layoutOf(secondDashId)).toEqual([noteId]);
   });
   it("should not list a dashboard as orphaned when a tile's chart is deleted (single tile)", async () => {
     const { tableId } = await makeTable();

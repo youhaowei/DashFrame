@@ -1361,7 +1361,10 @@ async function removeNode(
     )
       orphaned.push({ id: insight.id, kind: "insight" });
   }
+  // Only a chart tile shows its chart. A text item can carry a stale
+  // visualizationId, and must not lose its content to a chart delete.
   const showsDeletedChart = (item: ObjectValue) =>
+    item.type === "visualization" &&
     deletedViz.has(String(item.visualizationId));
   const tiled = deletedViz.size
     ? (await graph.scan("dashboards")).filter((dashboard) =>
