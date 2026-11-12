@@ -311,6 +311,8 @@ describe("viewer-transient: control turn does not mutate saved dashboard", () =>
     );
     expect(regionFilters).toHaveLength(1);
     expect(regionFilters[0]!.value).toBe("APAC");
+    // The report's saved default is left as it was.
+    expect(control.defaultValue).toBe("EU");
   });
 
   it("resolveControlValue returns transient value when present", () => {

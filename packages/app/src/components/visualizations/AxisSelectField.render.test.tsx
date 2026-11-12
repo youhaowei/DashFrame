@@ -520,3 +520,41 @@ it("uses an instance-aware display name for a metric source alias", () => {
     }),
   );
 });
+
+it("does not expose a repeat-join alias when its display name is unavailable", () => {
+  const metricId = "11111111-1111-4111-8111-111111111111" as UUID;
+  const sourceAlias = "field_22222222_2222_4222_8222_222222222222_j1";
+  render(
+    <AxisSelectField
+      label="Y Axis"
+      value={metricEncoding(metricId)}
+      onChange={vi.fn()}
+      axis="y"
+      chartType="barY"
+      columnAnalysis={[]}
+      availableFields={[]}
+      compiledInsight={{
+        ...baseCompiledInsight,
+        dimensions: [],
+        metrics: [
+          {
+            id: metricId,
+            name: "Total revenue",
+            aggregation: "sum",
+            columnName: sourceAlias,
+          },
+        ],
+      }}
+    />,
+  );
+
+  expect(capturedOptions).toContainEqual(
+    expect.objectContaining({
+      value: metricEncoding(metricId),
+      label: "Sum",
+    }),
+  );
+  expect(
+    capturedOptions.some((option) => option.label.includes(sourceAlias)),
+  ).toBe(false);
+});

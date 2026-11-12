@@ -110,6 +110,21 @@ describe("useConnectorForm", () => {
       expect(actionResult).toBeNull();
       expect(result.current.submitError).toBeNull();
     });
+
+    it("should not call action when validation fails", async () => {
+      const action = vi.fn().mockResolvedValue("success");
+      const connector = createMockConnector({
+        validateFn: () => ({ valid: false, errors: { field: "error" } }),
+      });
+
+      const { result } = renderHook(() => useConnectorForm(connector));
+
+      await act(async () => {
+        await result.current.execute(action);
+      });
+
+      expect(action).not.toHaveBeenCalled();
+    });
   });
 
   describe("execute - successful action", () => {
