@@ -157,6 +157,17 @@ export function DashboardItem({
                 className="h-6 w-6 hover:bg-neutral-bg/80"
               />
             )}
+            {/* Tile overrides sit with the other tile actions. Editors only:
+                the commands behind them persist, which viewers may not do. */}
+            {item.type === "visualization" && (
+              <OverridePopover
+                item={item}
+                dashboardId={dashboardId}
+                controls={controls}
+                effectiveOverrides={effectiveOverrides}
+                onEditChart={onEditChart}
+              />
+            )}
             <Button
               label="Remove item"
               variant="ghost"
@@ -193,28 +204,6 @@ export function DashboardItem({
             </div>
           )}
         </div>
-
-        {/* Customize button + override badge — visualization cells only, editor-mode only.
-            Hidden from non-editors: the underlying commitBatch commands persist
-            changes, which is not the intended v0.3 viewer scope.
-            Visible on hover or focus within, anchored bottom-right inside the surface. */}
-        {item.type === "visualization" && isEditable && (
-          <div
-            className={cn(
-              "absolute right-2 bottom-2 z-20 transition-opacity",
-              groupHoverAndFocusWithinReveal,
-            )}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <OverridePopover
-              item={item}
-              dashboardId={dashboardId}
-              controls={controls}
-              effectiveOverrides={effectiveOverrides}
-              onEditChart={onEditChart}
-            />
-          </div>
-        )}
       </Surface>
     </div>
   );

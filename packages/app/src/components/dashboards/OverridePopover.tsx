@@ -819,7 +819,7 @@ export function OverridePopover({
             type="button"
             aria-label="Customize cell overrides"
             className={cn(
-              "relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md p-0 text-neutral-fg-subtle transition-colors hover:bg-neutral-bg hover:text-neutral-fg",
+              "relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md p-0 text-neutral-fg transition-colors hover:bg-neutral-bg/80",
               overridePresent && "text-palette-primary",
             )}
           >
