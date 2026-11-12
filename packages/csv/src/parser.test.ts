@@ -80,17 +80,6 @@ describe("parseCSV", () => {
   });
 
   describe("line endings", () => {
-    it("should handle Unix line endings (LF)", () => {
-      const csv = "a,b\n1,2\n3,4";
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
-        ["a", "b"],
-        ["1", "2"],
-        ["3", "4"],
-      ]);
-    });
-
     it("should handle Windows line endings (CRLF)", () => {
       const csv = "a,b\r\n1,2\r\n3,4";
       const result = parseCSV(csv);

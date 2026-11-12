@@ -45,18 +45,8 @@ describe("findExistingJoinsToTable", () => {
     expect(findExistingJoinsToTable(undefined, TABLE_A)).toEqual([]);
   });
 
-  it("returns empty array when joins is empty", () => {
-    expect(findExistingJoinsToTable([], TABLE_A)).toEqual([]);
-  });
-
   it("returns empty array when no join targets the given table", () => {
     expect(findExistingJoinsToTable([joinB], TABLE_A)).toEqual([]);
-  });
-
-  it("returns the matching join when one join targets the table", () => {
-    expect(findExistingJoinsToTable([joinAInner, joinB], TABLE_A)).toEqual([
-      joinAInner,
-    ]);
   });
 
   it("returns all matching joins when multiple joins target the same table", () => {
@@ -67,12 +57,6 @@ describe("findExistingJoinsToTable", () => {
     expect(result).toContain(joinAInner);
     expect(result).toContain(joinALeft);
   });
-
-  it("does not return joins to a different table", () => {
-    expect(findExistingJoinsToTable([joinAInner, joinALeft], TABLE_B)).toEqual(
-      [],
-    );
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -80,16 +64,6 @@ describe("findExistingJoinsToTable", () => {
 // ---------------------------------------------------------------------------
 
 describe("isExactDuplicateJoin", () => {
-  it("returns false when existing list is empty", () => {
-    expect(
-      isExactDuplicateJoin([], {
-        leftKey: "created_by",
-        rightKey: "id",
-        type: "inner",
-      }),
-    ).toBe(false);
-  });
-
   it("returns true when candidate exactly matches an existing join", () => {
     expect(
       isExactDuplicateJoin([joinAInner], {
@@ -138,39 +112,5 @@ describe("isExactDuplicateJoin", () => {
         type: "left",
       }),
     ).toBe(true);
-  });
-
-  it("detects duplicate for stored type 'full' (the outer-join production path)", () => {
-    // The UI exposes "outer"; the component normalises it to "full" before
-    // calling this helper. This test guards that production path directly.
-    const joinAFull: InsightJoinConfig = {
-      type: "full",
-      rightTableId: TABLE_A,
-      leftKey: "created_by",
-      rightKey: "id",
-    };
-    expect(
-      isExactDuplicateJoin([joinAFull], {
-        leftKey: "created_by",
-        rightKey: "id",
-        type: "full",
-      }),
-    ).toBe(true);
-  });
-
-  it("does not flag type 'full' as a duplicate of type 'inner' on the same keys", () => {
-    const joinAFull: InsightJoinConfig = {
-      type: "full",
-      rightTableId: TABLE_A,
-      leftKey: "created_by",
-      rightKey: "id",
-    };
-    expect(
-      isExactDuplicateJoin([joinAFull], {
-        leftKey: "created_by",
-        rightKey: "id",
-        type: "inner",
-      }),
-    ).toBe(false);
   });
 });

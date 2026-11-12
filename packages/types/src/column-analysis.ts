@@ -208,63 +208,6 @@ export type DataFrameAnalysis = {
 };
 
 // ============================================================================
-// Privacy helpers
-// ============================================================================
-
-/**
- * Strip raw sample values from a DataFrameAnalysis before persisting.
- *
- * `sampleValues` are raw cell values that may contain PII. The privacy
- * floor is: the artifact DB (PGLite) holds zero raw cell values. This
- * helper enforces the floor at the write boundary — call it on any
- * DataFrameAnalysis before writing it to the DB.
- *
- * The returned object is safe to persist. In-memory callers (e.g. the
- * suggest-mode PII classifier) continue to use the original
- * object — do not call this helper before passing analysis to runtime-only
- * consumers.
- */
-export function stripSampleValues(
-  analysis: DataFrameAnalysis,
-): DataFrameAnalysis {
-  return {
-    ...analysis,
-    columns: analysis.columns.map((col) => ({ ...col, sampleValues: [] })),
-  };
-}
-
-// ============================================================================
-// Legacy Compatibility - ColumnCategory
-// ============================================================================
-
-/**
- * Legacy column category type for backward compatibility.
- * Maps to semantic types in the new discriminated union.
- *
- * @deprecated Use `ColumnAnalysis` discriminated union with `dataType` and `semantic` instead.
- */
-export type ColumnCategory =
-  | "identifier"
-  | "reference"
-  | "email"
-  | "url"
-  | "uuid"
-  | "categorical"
-  | "numerical"
-  | "temporal"
-  | "boolean"
-  | "text"
-  | "unknown";
-
-/**
- * Extract legacy category from new ColumnAnalysis type.
- * Useful during migration period.
- */
-export function getLegacyCategory(analysis: ColumnAnalysis): ColumnCategory {
-  return analysis.semantic as ColumnCategory;
-}
-
-// ============================================================================
 // Cardinality Thresholds
 // ============================================================================
 

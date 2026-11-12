@@ -4,7 +4,6 @@ import {
   hostQueryMock,
   hostMutationMock,
 } from "@/test/native-query-fixture";
-import { getFunctionName } from "convex/server";
 /**
  * Tests for the DashboardsPage create-dashboard handler.
  *
@@ -163,11 +162,6 @@ describe("DashboardsPage – handleCreate failure paths", () => {
 
     // Dialog is closed — the input is no longer in the document
     expect(screen.queryByPlaceholderText(/sales overview/i)).toBeNull();
-  });
-
-  it("uses the commitBatch registry path", async () => {
-    const { api } = await import("@dashframe/convex-backend/api");
-    expect(getFunctionName(api.app.commitBatch)).toBe("app:commitBatch");
   });
 });
 
@@ -691,6 +685,8 @@ describe("DashboardsPage – empty state", () => {
     screen.getByRole("heading", { name: "No reports yet" });
     expect(screen.queryByRole("button", { name: "Start report" })).toBeNull();
     expect(screen.queryByRole("link", { name: /connect data/ })).toBeNull();
+    // An empty question list is not a load failure.
+    expect(screen.queryByRole("alert")).toBeNull();
 
     await user.click(
       screen.getByRole("button", { name: "Create your first report" }),
@@ -721,14 +717,6 @@ describe("DashboardsPage – empty state", () => {
     );
     // The report itself does not depend on questions, so creating stays open.
     screen.getByRole("button", { name: "Create your first report" });
-  });
-
-  it("does not claim a load failure when the question list is empty", () => {
-    mockProject({});
-
-    render(<DashboardsPage />);
-
-    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("holds the cards until the tables that name them have loaded", () => {

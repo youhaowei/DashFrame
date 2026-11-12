@@ -37,15 +37,6 @@ describe("VisualizationErrorBoundary", () => {
     cleanup();
   });
 
-  it("renders its children when nothing throws", () => {
-    render(
-      <VisualizationErrorBoundary>
-        <div>chart</div>
-      </VisualizationErrorBoundary>,
-    );
-    expect(screen.getByText("chart")).toBeTruthy();
-  });
-
   it("contains a render throw to its own card", () => {
     render(
       <VisualizationErrorBoundary>

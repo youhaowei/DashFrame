@@ -98,7 +98,6 @@ export {
   buildInsightAvailableFields,
   buildInsightSQL,
   extractColumnAliasComponents,
-  extractUUIDFromColumnAlias,
   // UUID column naming utilities
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
@@ -125,12 +124,6 @@ export {
 // ============================================================================
 
 export { applyDateTransformToSql } from "./sql";
-
-// ============================================================================
-// Override Resolution (dashboard per-cell compile-time coalesce)
-// ============================================================================
-
-export { resolveEffectiveParams, type EffectiveParams } from "./sql";
 
 // ============================================================================
 // SQL Quoting Utilities

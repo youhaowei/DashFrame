@@ -7,7 +7,7 @@
  * A `DashboardControl` is an INPUT to the per-cell override slot (the
  * compile-time coalesce engine).  When a control has a current value, it
  * writes the cell's `DashboardItemOverrides.filters` for its field via
- * `resolveEffectiveParams`.
+ * `resolveDashboardRuntime`.
  *
  * Binding is EXPLICIT OPT-IN.  A control reaches ONLY cells explicitly listed
  * in `control.boundInstances`.  Source-schema eligibility (`isControlEligible`)
@@ -115,7 +115,7 @@ export function computeItemOverrides(
       // A bound-but-blank control is NOT the same as "no override": it must
       // WIDEN the cell to all values for its field, otherwise the insight's
       // own filter on that field would leak through (absence = inherit). Emit
-      // an explicit `cleared` override so `resolveEffectiveParams` removes the
+      // an explicit `cleared` override so `resolveDashboardRuntime` removes the
       // insight predicate for the field. `operator`/`value` are ignored when
       // `cleared` is set (engine contract) but the type still requires them.
       effectiveFilters.push({
@@ -139,7 +139,7 @@ export function computeItemOverrides(
   // (possibly `undefined`).  This keeps the `effectiveOverrides ?? item.overrides`
   // guard in DashboardItem from seeing a truthy-but-empty bag, which would
   // trigger a needless per-cell DuckDB view.  A `cleared` override DOES count
-  // as actionable: it must reach `resolveEffectiveParams` to widen the field,
+  // as actionable: it must reach `resolveDashboardRuntime` to widen the field,
   // even when this layer can't see whether the INSIGHT (not the cell) has a
   // predicate on it — dropping it here would silently fail to widen.
   const hasSortsOrLimit =

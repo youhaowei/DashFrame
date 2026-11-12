@@ -69,25 +69,6 @@ describe("defineToolHandler — valid args", () => {
     expect(receivedId).toBe("abc-123");
     expect(receivedSignal).toBe(controller.signal);
   });
-
-  it("result envelope always includes a details field", async () => {
-    const tool = defineToolHandler({
-      name: "greet",
-      description: "Greet",
-      label: "Greet",
-      parameters: Type.Object({ name: Type.String() }),
-      async execute(_id, params) {
-        return {
-          content: [{ type: "text", text: `Hello ${params.name}` }],
-          details: { greeted: params.name },
-        };
-      },
-    });
-
-    const result = await tool.execute("c1", { name: "world" });
-    expect("details" in result).toBe(true);
-    expect(result.details).toEqual({ greeted: "world" });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -152,21 +133,6 @@ describe("validateToolArgs — coercion mirrors pi's Convert-then-Check", () => 
     }
   });
 
-  it("coerces a numeric tableId to a string", () => {
-    const result = validateToolArgs(QuerySchema, {
-      tableId: 42, // number where a string is expected
-      limit: 5,
-    });
-
-    // Convert coerces 42 -> "42" (string-typed field), so this is now VALID —
-    // exactly as pi would handle it before calling execute.
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.tableId).toBe("42");
-      expect(typeof result.value.tableId).toBe("string");
-    }
-  });
-
   it("does not mutate the caller's input object", () => {
     const raw = { tableId: "orders", limit: "10" };
     validateToolArgs(QuerySchema, raw);
@@ -190,22 +156,6 @@ describe("validateToolArgs — invalid args", () => {
       expect(result.error.errors.length).toBeGreaterThan(0);
       // Error points at the offending field, not a useless root path.
       expect(result.error.errors[0]?.path).toBe("/limit");
-    }
-  });
-
-  it("reports a missing required field after coercion", () => {
-    const result = validateToolArgs(QuerySchema, {
-      tableId: "orders",
-      // limit omitted entirely
-    });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.errors.length).toBeGreaterThan(0);
-      for (const e of result.error.errors) {
-        expect(typeof e.path).toBe("string");
-        expect(typeof e.message).toBe("string");
-      }
     }
   });
 

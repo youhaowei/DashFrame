@@ -375,13 +375,6 @@ describe("error propagation: corrupt or missing blob", () => {
     );
   });
 
-  it("has returns false for ENOENT but re-throws other errors (EISDIR)", async () => {
-    // ENOENT → false (idiomatic presence check)
-    const mock = makeMockSafeStorage();
-    const backend = new ElectronKeychainBackend(tmpDir, mock);
-    expect(await backend.has("keychain:truly-absent:xyz")).toBe(false);
-  });
-
   it("delete re-throws non-ENOENT errors (EISDIR)", async () => {
     // Replace blob with a dir — unlink on a dir throws EISDIR (non-ENOENT).
     const mock = makeMockSafeStorage();

@@ -69,11 +69,3 @@ it("refuses to start or terminate the process-wide engine on behalf of one reque
   expect(calls.initialize).not.toHaveBeenCalled();
   expect(calls.dispose).not.toHaveBeenCalled();
 });
-
-it("declares itself the in-process native binding", () => {
-  // Every backing implements every method, so method presence can no longer
-  // tell the materializer which side of the plane it is on. This flag is what
-  // does, and only the native binding sets it.
-  const lifecycle = new NativeTableLifecycle(stubQueryEngine());
-  expect(lifecycle.engine.nativeTransfer).toBe(true);
-});

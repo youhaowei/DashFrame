@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   absoluteDateRange,
-  calculateChange,
   previousPeriod,
   previousYear,
   resolveRelativeDateRange,
@@ -197,23 +196,5 @@ describe("comparison periods", () => {
       "2023-02-28T08:30:00.000Z",
       "2023-03-01T08:30:00.000Z",
     );
-  });
-});
-
-describe("calculateChange", () => {
-  test("returns absolute and conventional baseline-relative percent change", () => {
-    expect(calculateChange(125, 100)).toEqual({ absolute: 25, percent: 25 });
-    expect(calculateChange(75, 100)).toEqual({ absolute: -25, percent: -25 });
-  });
-
-  test("returns a null percentage for zero or absent baselines", () => {
-    expect(calculateChange(5, 0)).toEqual({ absolute: 5, percent: null });
-    expect(calculateChange(5, null)).toEqual({ absolute: null, percent: null });
-    expect(calculateChange(null, 5)).toEqual({ absolute: null, percent: null });
-  });
-
-  test("rejects non-finite values even when the other value is absent", () => {
-    expect(() => calculateChange(Number.NaN, null)).toThrow();
-    expect(() => calculateChange(5, Number.POSITIVE_INFINITY)).toThrow();
   });
 });

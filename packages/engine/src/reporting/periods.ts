@@ -11,16 +11,6 @@ export interface AbsoluteDateRange {
 import type { RelativeDateRange } from "@dashframe/types";
 export type { RelativeDateRange } from "@dashframe/types";
 
-export interface Change {
-  /** Current value minus baseline, or `null` when either value is absent. */
-  readonly absolute: number | null;
-  /**
-   * `(current - baseline) / baseline * 100`, or `null` when either value is
-   * absent or the baseline is zero.
-   */
-  readonly percent: number | null;
-}
-
 const assertFiniteDate = (value: Date, name: string): void => {
   if (!Number.isFinite(value.getTime())) {
     throw new RangeError(`${name} must be a valid Date`);
@@ -217,36 +207,4 @@ export const previousYear = (range: AbsoluteDateRange): AbsoluteDateRange => {
     shiftPreviousUtcYear(validated.start),
     shiftPreviousUtcYear(validated.end),
   );
-};
-
-const assertFiniteMetric = (
-  value: number | null | undefined,
-  name: string,
-): void => {
-  if (value !== null && value !== undefined && !Number.isFinite(value)) {
-    throw new RangeError(`${name} must be finite when present`);
-  }
-};
-
-/** Calculates absolute and percentage change without inventing missing data. */
-export const calculateChange = (
-  current: number | null | undefined,
-  baseline: number | null | undefined,
-): Change => {
-  assertFiniteMetric(current, "current");
-  assertFiniteMetric(baseline, "baseline");
-  if (
-    current === null ||
-    current === undefined ||
-    baseline === null ||
-    baseline === undefined
-  ) {
-    return { absolute: null, percent: null };
-  }
-
-  const absolute = current - baseline;
-  return {
-    absolute,
-    percent: baseline === 0 ? null : (absolute / baseline) * 100,
-  };
 };

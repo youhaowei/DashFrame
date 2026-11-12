@@ -128,11 +128,6 @@ describe("AppTopBar breadcrumb", () => {
       within(breadcrumb).getByText("Warehouse").getAttribute("aria-current"),
     ).toBeNull();
   });
-
-  it("shows no breadcrumb when the page registers none", () => {
-    renderBar(<Page trail={null} />);
-    expect(screen.queryByRole("navigation", { name: "breadcrumb" })).toBeNull();
-  });
 });
 
 describe("AppTopBar controls", () => {

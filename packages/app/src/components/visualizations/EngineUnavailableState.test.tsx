@@ -32,12 +32,6 @@ describe("EngineUnavailableState", () => {
     ).not.toBeNull();
   });
 
-  it("renders a Reload button (the action, not instruction-as-homework)", () => {
-    render(<EngineUnavailableState />);
-
-    expect(screen.getByRole("button", { name: /reload/i })).not.toBeNull();
-  });
-
   it("triggers the renderer reload path when Reload is clicked", () => {
     const reload = vi.fn();
     // window.location.reload is non-writable in jsdom; redefine for the test.

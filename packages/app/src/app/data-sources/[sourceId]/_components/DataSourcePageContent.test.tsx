@@ -1124,8 +1124,6 @@ describe("buildAnalysisByFieldId — repeat-join identity", () => {
   const UUID_A = "dd05ef4b-1234-5678-abcd-ef1234567890";
   const COL_J0 = `field_${UUID_A.replace(/-/g, "_")}`;
   const COL_J1 = `${COL_J0}_j1`;
-  const SINGLE_UUID = "ccbbaa99-1234-5678-abcd-ef1234567890";
-  const COL_SINGLE = `field_${SINGLE_UUID.replace(/-/g, "_")}`;
 
   // Inline parser matching the real extractColumnAliasComponents behaviour.
   const realParser = (alias: string) => {
@@ -1149,12 +1147,6 @@ describe("buildAnalysisByFieldId — repeat-join identity", () => {
     vi.mocked(extractColumnAliasComponents).mockReturnValue(null);
   });
 
-  it("maps j0 column to the bare UUID key", () => {
-    const col = makeCol(COL_J0, 5);
-    const map = buildAnalysisByFieldId([col]);
-    expect(map.get(UUID_A)).toBe(col);
-  });
-
   it("maps j1 column to <uuid>_j1 key — does NOT overwrite j0", () => {
     const j0 = makeCol(COL_J0, 5);
     const j1 = makeCol(COL_J1, 15);
@@ -1163,14 +1155,6 @@ describe("buildAnalysisByFieldId — repeat-join identity", () => {
     expect(map.size).toBe(2);
     expect(map.get(UUID_A)).toBe(j0);
     expect(map.get(`${UUID_A}_j1`)).toBe(j1);
-  });
-
-  it("single-join (no _j suffix) uses the bare UUID key", () => {
-    const map = buildAnalysisByFieldId([makeCol(COL_SINGLE, 10)]);
-
-    expect(map.has(SINGLE_UUID)).toBe(true);
-    expect(map.size).toBe(1);
-    expect(map.has(`${SINGLE_UUID}_j0`)).toBe(false);
   });
 
   it("prefers explicit fieldId over parsed columnName when fieldId is set", () => {

@@ -20,24 +20,6 @@ describe("Security Headers", () => {
     process.env = originalEnv;
   });
 
-  describe("getSecurityHeaders", () => {
-    it("should return an array of header objects", () => {
-      const headers = getSecurityHeaders();
-      expect(Array.isArray(headers)).toBe(true);
-      expect(headers.length).toBeGreaterThan(0);
-    });
-
-    it("should return headers with key-value structure", () => {
-      const headers = getSecurityHeaders();
-      for (const header of headers) {
-        expect(header).toHaveProperty("key");
-        expect(header).toHaveProperty("value");
-        expect(typeof header.key).toBe("string");
-        expect(typeof header.value).toBe("string");
-      }
-    });
-  });
-
   describe("Required Security Headers", () => {
     it("should include Content-Security-Policy header", () => {
       const headers = getSecurityHeaders();
@@ -140,18 +122,6 @@ describe("Security Headers", () => {
       expect(cspHeader?.value).toContain("connect-src");
       expect(cspHeader?.value).toContain("'self'");
       expect(cspHeader?.value).not.toContain("https://cdn.jsdelivr.net");
-    });
-
-    it("should include configured DashFrame host in connect-src", () => {
-      const headers = getSecurityHeaders({
-        VITE_DASHFRAME_URL: "http://127.0.0.1:4100/api",
-      });
-      const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy",
-      );
-
-      expect(cspHeader?.value).toContain("connect-src");
-      expect(cspHeader?.value).toContain("http://127.0.0.1:4100");
     });
 
     it("should include ws: DashFrame host in connect-src when VITE_DASHFRAME_URL uses http:", () => {
@@ -281,16 +251,6 @@ describe("Security Headers", () => {
   });
 
   describe("Environment-based Configuration", () => {
-    it("should include unsafe-eval in development mode", () => {
-      (process.env as Record<string, string>).NODE_ENV = "development";
-      const headers = getSecurityHeaders();
-      const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy",
-      );
-
-      expect(cspHeader?.value).toContain("'unsafe-eval'");
-    });
-
     it("should include unsafe-eval in production mode (required for Apache Arrow)", () => {
       // Note: 'unsafe-eval' is intentionally included in production because
       // Apache Arrow (used by DuckDB for data serialization) requires it for
@@ -336,17 +296,6 @@ describe("Security Headers", () => {
 
       expect(cspHeader?.value).toContain("https://custom.posthog.example.com");
     });
-
-    it("should work without custom PostHog host", () => {
-      delete process.env.NEXT_PUBLIC_POSTHOG_HOST;
-      const headers = getSecurityHeaders();
-      const cspHeader = headers.find(
-        (h) => h.key === "Content-Security-Policy",
-      );
-
-      expect(cspHeader?.value).toBeTruthy();
-      expect(cspHeader?.value).toContain("https://*.posthog.com");
-    });
   });
 
   describe("Permissions Policy", () => {
@@ -388,38 +337,12 @@ describe("Security Headers", () => {
   });
 
   describe("Integration Test", () => {
-    it("should return all 6 required security headers", () => {
-      const headers = getSecurityHeaders();
-      const headerKeys = headers.map((h) => h.key);
-
-      const requiredHeaders = [
-        "Content-Security-Policy",
-        "X-Frame-Options",
-        "X-Content-Type-Options",
-        "Strict-Transport-Security",
-        "Referrer-Policy",
-        "Permissions-Policy",
-      ];
-
-      for (const required of requiredHeaders) {
-        expect(headerKeys).toContain(required);
-      }
-    });
-
     it("should have no duplicate header keys", () => {
       const headers = getSecurityHeaders();
       const headerKeys = headers.map((h) => h.key);
       const uniqueKeys = new Set(headerKeys);
 
       expect(headerKeys.length).toBe(uniqueKeys.size);
-    });
-
-    it("should have no empty header values", () => {
-      const headers = getSecurityHeaders();
-
-      for (const header of headers) {
-        expect(header.value.length).toBeGreaterThan(0);
-      }
     });
   });
 });

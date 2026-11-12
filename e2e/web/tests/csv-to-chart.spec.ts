@@ -23,6 +23,12 @@ test.describe("CSV to Chart", () => {
     await expect(page.getByText(/5 rows/).first()).toBeVisible({
       timeout: 30_000,
     });
+    // Column headers (each opens a column action menu)
+    for (const column of ["Date", "Product", "Category", "Sales", "Quantity"]) {
+      await expect(
+        page.getByRole("button", { name: `${column} column actions` }),
+      ).toBeVisible({ timeout: 10_000 });
+    }
 
     await buildCountChart(page, "Product");
     await waitForChart();
@@ -35,40 +41,5 @@ test.describe("CSV to Chart", () => {
       .click();
     await expect(page).toHaveURL(/\/dashboards\/[a-zA-Z0-9-]+$/);
     await waitForChart();
-  });
-
-  test("shows correct row count after upload", async ({
-    page,
-    homePage,
-    uploadFile,
-  }) => {
-    await homePage();
-    await uploadFile("sales_data.csv");
-    await expectNewChartTab(page);
-
-    // sales_data.csv has 5 rows
-    await expect(page.getByText(/5 rows/).first()).toBeVisible({
-      timeout: 15_000,
-    });
-  });
-
-  test("shows expected columns", async ({ page, homePage, uploadFile }) => {
-    await homePage();
-    await uploadFile("sales_data.csv");
-    await expectNewChartTab(page);
-
-    // Verify column headers (each opens a column action menu)
-    const expectedColumns = [
-      "Date",
-      "Product",
-      "Category",
-      "Sales",
-      "Quantity",
-    ];
-    for (const column of expectedColumns) {
-      await expect(
-        page.getByRole("button", { name: `${column} column actions` }),
-      ).toBeVisible({ timeout: 10_000 });
-    }
   });
 });

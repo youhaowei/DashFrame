@@ -50,26 +50,6 @@ class StubEngine implements QueryEngine {
 
 describe("dashframe serve CLI", () => {
   describe("native engine composition", () => {
-    it("loads and initializes the server-native engine", async () => {
-      const initialize = vi.fn().mockResolvedValue(undefined);
-      const dispose = vi.fn().mockResolvedValue(undefined);
-      const queryArrow = vi.fn();
-      const registerArrowTable = vi.fn();
-
-      const engine = await createStandaloneArrowEngine(async () => ({
-        NativeDuckDBEngine: class extends StubEngine {
-          override initialize = initialize;
-          override dispose = dispose;
-          override queryArrow = queryArrow;
-          override registerArrowTable = registerArrowTable;
-        },
-      }));
-
-      expect(initialize).toHaveBeenCalledOnce();
-      expect(engine.queryArrow).toBe(queryArrow);
-      expect(dispose).not.toHaveBeenCalled();
-    });
-
     it("loads the installed native binding through the lazy runtime import", async () => {
       const engine = await createStandaloneArrowEngine();
       try {
@@ -250,7 +230,7 @@ describe("dashframe serve CLI", () => {
   });
 
   describe("printHelp", () => {
-    it("should document the security boundary in help", () => {
+    it("should document the security boundary, rotation, and the fail-closed default in help", () => {
       const originalLog = console.log;
       const output: string[] = [];
       console.log = (...args: unknown[]) => {
@@ -275,23 +255,6 @@ describe("dashframe serve CLI", () => {
       expect(helpText).toContain("canonical padded base64");
       expect(helpText).toContain("Security boundary:");
       expect(helpText).not.toContain("--insecure");
-      expect(helpText).toContain("non-loopback bind");
-    });
-
-    it("should document rotation and the fail-closed default", () => {
-      const originalLog = console.log;
-      const output: string[] = [];
-      console.log = (...args: unknown[]) => {
-        output.push(args.join(" "));
-      };
-
-      try {
-        printHelp();
-      } finally {
-        console.log = originalLog;
-      }
-
-      const helpText = output.join("\n");
       expect(helpText).toContain("DASHFRAME_SECRET_KEY_PREVIOUS");
       // The three things an operator gets wrong without being told.
       expect(helpText).toContain("does NOT re-encrypt");

@@ -73,13 +73,11 @@ describe("DashboardGrid canonical layout persistence", () => {
     expect(mocks.gridProps?.onLayoutChange).toBeUndefined();
 
     act(() => {
-      expect(mocks.gridProps).toBeDefined();
       (mocks.gridProps!.onBreakpointChange as (breakpoint: string) => void)(
         "xs",
       );
     });
     act(() => {
-      expect(mocks.gridProps).toBeDefined();
       (mocks.gridProps!.onDragStop as (layout: unknown[]) => void)([
         { i: "first", x: 0, y: 0, w: 2, h: 4 },
       ]);
@@ -87,13 +85,11 @@ describe("DashboardGrid canonical layout persistence", () => {
     expect(mocks.updateItems).not.toHaveBeenCalled();
 
     act(() => {
-      expect(mocks.gridProps).toBeDefined();
       (mocks.gridProps!.onBreakpointChange as (breakpoint: string) => void)(
         "lg",
       );
     });
     act(() => {
-      expect(mocks.gridProps).toBeDefined();
       (mocks.gridProps!.onDragStop as (layout: unknown[]) => void)([
         { i: "first", x: 1, y: 2, w: 4, h: 4 },
         { i: "second", x: 7, y: 3, w: 4, h: 4 },

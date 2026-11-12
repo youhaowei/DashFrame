@@ -38,10 +38,10 @@ describe("useInsightView", () => {
     );
   });
 
-  it("clears the handle on failure so a stale chart cannot render", () => {
+  it("is not ready without a frame handle so a stale chart cannot render", () => {
     pagination.mockReturnValue({
       dataFrameId: null,
-      isReady: false,
+      isReady: true,
       error: "Frame fetch failed",
     });
 

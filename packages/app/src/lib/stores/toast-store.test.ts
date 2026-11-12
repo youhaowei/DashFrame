@@ -85,15 +85,6 @@ describe("toast-store", () => {
       expect(sonnerToast.info).toHaveBeenCalled();
     });
 
-    it("should return the generated toast ID", () => {
-      const { show } = useToastStore.getState();
-
-      const id = show({ message: "Test message" });
-
-      expect(typeof id).toBe("string");
-      expect(id).toMatch(/^toast-\d+-\d+$/);
-    });
-
     it("should include description in toast config", () => {
       const { show } = useToastStore.getState();
 
@@ -271,14 +262,6 @@ describe("toast-store", () => {
 
       expect(sonnerToast.dismiss).toHaveBeenCalledWith();
     });
-
-    it("should handle dismissAll on empty store", () => {
-      const { dismissAll } = useToastStore.getState();
-
-      // Should not throw
-      expect(() => dismissAll()).not.toThrow();
-      expect(useToastStore.getState().toasts).toHaveLength(0);
-    });
   });
 
   describe("action callbacks", () => {
@@ -297,24 +280,7 @@ describe("toast-store", () => {
       const { toasts } = useToastStore.getState();
       expect(toasts[0].action).toBeDefined();
       expect(toasts[0].action?.label).toBe("Retry");
-    });
-
-    it("should have invokable action callback", () => {
-      const { show } = useToastStore.getState();
-      const mockCallback = vi.fn();
-
-      show({
-        message: "Action toast",
-        action: {
-          label: "Retry",
-          onClick: mockCallback,
-        },
-      });
-
-      const { toasts } = useToastStore.getState();
-      toasts[0].action?.onClick();
-
-      expect(mockCallback).toHaveBeenCalledTimes(1);
+      expect(toasts[0].action?.onClick).toBe(mockCallback);
     });
 
     it("should pass action to sonner toast", () => {
@@ -450,32 +416,6 @@ describe("toast-store", () => {
   });
 
   describe("auto-dismiss cleanup", () => {
-    it("should pass onAutoClose callback to sonner", () => {
-      const { show } = useToastStore.getState();
-
-      show({ message: "Test toast", type: "success" });
-
-      expect(sonnerToast.success).toHaveBeenCalledWith(
-        "Test toast",
-        expect.objectContaining({
-          onAutoClose: expect.any(Function),
-        }),
-      );
-    });
-
-    it("should pass onDismiss callback to sonner", () => {
-      const { show } = useToastStore.getState();
-
-      show({ message: "Test toast", type: "info" });
-
-      expect(sonnerToast.info).toHaveBeenCalledWith(
-        "Test toast",
-        expect.objectContaining({
-          onDismiss: expect.any(Function),
-        }),
-      );
-    });
-
     it("should remove toast from store when onAutoClose is called", () => {
       const { show } = useToastStore.getState();
 

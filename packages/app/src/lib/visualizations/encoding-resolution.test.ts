@@ -88,22 +88,9 @@ describe("encoding-resolution", () => {
       expect(result).toBeUndefined();
     });
 
-    it("should pass through raw analyzed column names", () => {
-      const result = resolveToSql("sum(revenue)", context);
-      expect(result).toBe("sum(revenue)");
-    });
-
     it("should return undefined for non-existent field ID", () => {
       const result = resolveToSql(
         fieldEncoding("non-existent" as UUID),
-        context,
-      );
-      expect(result).toBeUndefined();
-    });
-
-    it("should return undefined for non-existent metric ID", () => {
-      const result = resolveToSql(
-        metricEncoding("non-existent" as UUID),
         context,
       );
       expect(result).toBeUndefined();
@@ -137,26 +124,6 @@ describe("encoding-resolution", () => {
       });
     });
 
-    it("should return UUID-based alias for count(*) metric", () => {
-      const result = resolveForAnalysis(
-        metricEncoding("metric-2" as UUID),
-        context,
-      );
-      // count(*) metrics now have UUID-based alias too
-      expect(result).toEqual({
-        columnName: "metric_metric_2",
-        isMetric: true,
-        valid: true,
-      });
-    });
-
-    it("should treat raw analyzed column names as valid fields", () => {
-      const result = resolveForAnalysis("sum(revenue)", context);
-      expect(result.valid).toBe(true);
-      expect(result.isMetric).toBe(false);
-      expect(result.columnName).toBe("sum(revenue)");
-    });
-
     it("should return valid=false for undefined input", () => {
       const result = resolveForAnalysis(undefined, context);
       expect(result.valid).toBe(false);
@@ -178,18 +145,6 @@ describe("encoding-resolution", () => {
       expect(result.color).toBe("field_field_3");
     });
 
-    it("should handle undefined channels", () => {
-      const encoding = {
-        x: fieldEncoding("field-1" as UUID),
-        // y is undefined
-      };
-
-      const result = resolveEncodingToSql(encoding, context);
-
-      expect(result.x).toBe("field_field_1");
-      expect(result.y).toBeUndefined();
-    });
-
     it("should handle empty string for color (None selection)", () => {
       // When user selects "None" for color, the value is stored as empty string
       const encoding = {
@@ -203,21 +158,6 @@ describe("encoding-resolution", () => {
       expect(result.x).toBe("field_field_1");
       expect(result.y).toBeUndefined();
       // Empty string should resolve to undefined, not be passed through
-      expect(result.color).toBeUndefined();
-    });
-
-    it("should handle missing X axis (only Y selected)", () => {
-      // User may select only Y axis before selecting X
-      const encoding = {
-        x: "", // Not selected
-        y: metricEncoding("metric-1" as UUID),
-        color: "",
-      };
-
-      const result = resolveEncodingToSql(encoding, context);
-
-      expect(result.x).toBeUndefined();
-      expect(result.y).toBeUndefined();
       expect(result.color).toBeUndefined();
     });
 

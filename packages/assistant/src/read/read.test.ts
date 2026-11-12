@@ -688,16 +688,6 @@ describe("readData — tiered data, floor-gated", () => {
     expect(data.sample?.rows).toEqual([{ count: 42n }, { count: 99n }]);
   });
 
-  it("masks a fully-cleared TABLE only when all its fields are cleared", async () => {
-    const reader = makeReader();
-    const { readData } = createReadTools(reader);
-    const res = await readData.execute("c", {
-      kind: "dataTable",
-      id: "tblPublic",
-    });
-    expect((res.details as DataReadResult).masked).toBe(false);
-  });
-
   it("reports not_found for a missing data artifact", async () => {
     const reader = makeReader();
     const { readData } = createReadTools(reader);

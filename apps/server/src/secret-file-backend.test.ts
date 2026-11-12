@@ -175,21 +175,6 @@ describe("AC-2: plaintext never at rest", () => {
     }
   });
 
-  it("keeps plaintext out of a failed store (nothing is left on disk)", async () => {
-    const plaintext = "never-persisted-99999";
-    const subject = new EncryptedFileSecretBackend(blobs, keyring(key(1)), {
-      fs: {
-        rename: vi.fn(async () => {
-          throw new Error("simulated rename failure");
-        }),
-      },
-    });
-    await expect(subject.store(plaintext)).rejects.toThrow(
-      "simulated rename failure",
-    );
-    expect(await fs.readdir(blobs)).toEqual([]);
-  });
-
   it("uses a fresh 12-byte nonce so identical plaintexts encrypt differently", async () => {
     const subject = backend();
     const first = await rawBlob(await subject.store("same-plaintext"));

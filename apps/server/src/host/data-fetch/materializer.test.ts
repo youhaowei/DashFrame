@@ -653,36 +653,36 @@ describe("immutable Insight materializer", () => {
     expect(h.publish).not.toHaveBeenCalled();
   });
 
+  // Each row fails the harness's own dependency, so `h.registered` and
+  // `h.bytes` are the maps the materializer has to clean.
   it.each([
     [
       "compile",
-      {
-        compile: () => {
+      (h: ReturnType<typeof harness>) => {
+        h.dependencies.compile = () => {
           throw new Error("compile");
-        },
+        };
       },
     ],
     [
       "query",
-      {
-        runtime: () => ({
-          ...harness().runtime,
-          queryArrow: async () => {
-            throw new Error("query");
-          },
-        }),
+      (h: ReturnType<typeof harness>) => {
+        h.runtime.queryArrow = async () => {
+          throw new Error("query");
+        };
       },
     ],
     [
       "inspect",
-      {
-        inspect: () => {
+      (h: ReturnType<typeof harness>) => {
+        h.dependencies.inspect = () => {
           throw new Error("malformed");
-        },
+        };
       },
     ],
-  ])("cleans every new frame when %s fails", async (_name, override) => {
-    const h = harness(override as Partial<InsightMaterializerDependencies>);
+  ])("cleans every new frame when %s fails", async (_name, fail) => {
+    const h = harness();
+    fail(h);
     const materializer = createInsightMaterializer(h.dependencies);
     await expect(
       materializer.materialize({

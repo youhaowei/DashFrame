@@ -19,22 +19,12 @@ test.describe("JSON to Chart", () => {
     await uploadFile("users_data.json");
 
     await expectNewChartTab(page);
-    await buildCountChart(page, "department");
-    await waitForChart();
-  });
-
-  test("shows correct row count for JSON", async ({
-    page,
-    homePage,
-    uploadFile,
-  }) => {
-    await homePage();
-    await uploadFile("users_data.json");
-    await expectNewChartTab(page);
-
     // users_data.json has 5 records
     await expect(page.getByText(/5 rows/).first()).toBeVisible({
       timeout: 15_000,
     });
+
+    await buildCountChart(page, "department");
+    await waitForChart();
   });
 });
