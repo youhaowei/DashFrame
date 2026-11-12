@@ -24,7 +24,9 @@ export type HostOperationName =
   | "getAccessCapabilities"
   | "listAccessCredentials"
   | "issueAccessCredential"
-  | "revokeAccessCredential";
+  | "revokeAccessCredential"
+  | "listAgentGrants"
+  | "revokeAgentGrant";
 
 type Handler<K extends HostOperationName> = (typeof hostOperations)[K]["run"];
 export type HostOperationArgs<K extends HostOperationName> = Parameters<
