@@ -1,4 +1,5 @@
 {
+  "shouldUpdateDescription": false,
   "files": [
     {
       "path": "PRODUCT.md",
