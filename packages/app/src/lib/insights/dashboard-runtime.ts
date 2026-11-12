@@ -13,6 +13,66 @@ export type DashboardRuntimeResolution = {
   error?: string;
 };
 
+export type RuntimeFilterDeclaration = NonNullable<
+  NonNullable<Insight["runtimeControls"]>["filters"]
+>[number];
+
+/** A field as a filter may name it: by column name, or by result-column alias. */
+export type NamedField = { id: string; name: string; columnName?: string };
+
+/**
+ * Whether a saved filter is on the field an override names.  An override names
+ * a field by column name; a saved filter may store its field that way or as
+ * the field's result-column alias.
+ */
+export function savedFilterIsOn(
+  savedField: string | undefined,
+  fieldName: string,
+  availableFields: readonly NamedField[],
+): boolean {
+  if (savedField === fieldName) return true;
+  const aliasedField = availableFields.find(
+    (field) => fieldIdToColumnAlias(field.id) === savedField,
+  );
+  return (aliasedField?.columnName ?? aliasedField?.name) === fieldName;
+}
+
+/**
+ * The declared runtime filter a tile filter override runs through, or
+ * undefined when none, or more than one, matches.
+ *
+ * An override that carries the saved filter's id names its declaration.  One
+ * without an id is matched by field and operator: shared controls target a
+ * field across Insights, whose saved filter ids differ, so only a unique
+ * declared predicate with the same semantics is taken.  A saved filter may
+ * name its field by column name or by result-column alias.
+ *
+ * The override popover asks this too, so a row never calls an override
+ * undeclared that the tile runs, or the reverse.
+ */
+export function resolveOverrideRuntimeFilter(
+  insight: Pick<Insight, "filters" | "runtimeControls">,
+  availableFields: readonly NamedField[],
+  override: Pick<
+    NonNullable<DashboardItemOverrides["filters"]>[number],
+    "id" | "field" | "operator" | "cleared"
+  >,
+): RuntimeFilterDeclaration | undefined {
+  const declarations = (insight.runtimeControls?.filters ?? []).filter(
+    (candidate) => {
+      if (override.id !== undefined) return candidate.filterId === override.id;
+      const filter = (insight.filters ?? []).find(
+        (saved) => saved.id === candidate.filterId,
+      );
+      return (
+        savedFilterIsOn(filter?.field, override.field, availableFields) &&
+        (override.cleared || filter?.operator === override.operator)
+      );
+    },
+  );
+  return declarations.length === 1 ? declarations[0] : undefined;
+}
+
 function resolveRuntimeFilters(
   insight: Insight,
   availableFields: ReturnType<typeof resolveInsightAvailableFields>,
@@ -20,28 +80,12 @@ function resolveRuntimeFilters(
 ): DashboardRuntimeResolution {
   const values: Record<string, unknown> = {};
   for (const override of overrides) {
-    // Shared controls target a field across Insights, whose saved filter IDs
-    // differ. Resolve only a unique declared predicate with the same semantics.
-    const declarations = (insight.runtimeControls?.filters ?? []).filter(
-      (candidate) => {
-        if (override.id !== undefined)
-          return candidate.filterId === override.id;
-        const filter = (insight.filters ?? []).find(
-          (saved) => saved.id === candidate.filterId,
-        );
-        const aliasedField = availableFields.find(
-          (field) => fieldIdToColumnAlias(field.id) === filter?.field,
-        );
-        return (
-          (filter?.field === override.field ||
-            (aliasedField?.columnName ?? aliasedField?.name) ===
-              override.field) &&
-          (override.cleared || filter?.operator === override.operator)
-        );
-      },
+    const declaration = resolveOverrideRuntimeFilter(
+      insight,
+      availableFields,
+      override,
     );
-    const declaration = declarations[0];
-    if (declarations.length !== 1 || !declaration) {
+    if (!declaration) {
       return { error: "This dashboard filter is not declared by the Insight." };
     }
     values[declaration.key] = override.cleared ? null : override.value;

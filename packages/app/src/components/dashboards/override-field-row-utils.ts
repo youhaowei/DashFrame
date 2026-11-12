@@ -11,42 +11,124 @@ import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import type {
   DashboardControl,
   DashboardItemOverrides,
+  Insight,
   InsightFilter,
   InsightFilterOverride,
   InsightRuntimeDeclaration,
   InsightSort,
 } from "@dashframe/types";
 
-/** Resolve the one declared runtime predicate represented by a field row. */
-export function resolveDeclaredRuntimeFilterId(
-  fieldName: string,
-  insightFilters: readonly InsightFilter[] | undefined,
-  runtimeFilters: InsightRuntimeDeclaration["filters"],
-): string | undefined {
-  const filtersById = new Map(
-    (insightFilters ?? []).flatMap((filter) =>
-      filter.id ? [[filter.id, filter] as const] : [],
-    ),
-  );
-  const candidates = (runtimeFilters ?? []).filter(
-    (control) => filtersById.get(control.filterId)?.field === fieldName,
-  );
-  return candidates.length === 1 ? candidates[0]?.filterId : undefined;
+import {
+  type NamedField,
+  resolveOverrideRuntimeFilter,
+  type RuntimeFilterDeclaration,
+  savedFilterIsOn,
+} from "@/lib/insights/dashboard-runtime";
+
+/** The declared runtime filter a row edits, with the saved filter it varies. */
+export interface DeclaredFilterRow {
+  declaration: RuntimeFilterDeclaration;
+  /** The Insight's saved filter: the authority for field and operator. */
+  filter: InsightFilter;
 }
 
-/** Preserve the declared predicate identity required by runtime-control lookup. */
-export function withDeclaredFilterId(
+/**
+ * What a filter row is declared as, or undefined when the Insight declares
+ * nothing the row can edit.
+ *
+ * `held` is the override the tile already runs for the field: its pinned or
+ * cleared entry, or the one a bound control writes (`computeItemOverrides`
+ * gives either).  It is resolved exactly
+ * as the tile runtime resolves it (`resolveOverrideRuntimeFilter`), so the row
+ * and the tile agree on whether it runs.  That includes a field with two
+ * declared filters, where the override's id or operator picks one.
+ *
+ * With nothing held, the row stands for the field's one declared filter.  A
+ * field with more than one gets no row to pin from: a tile stores one filter
+ * override per field, and the row does not guess which predicate it means.
+ *
+ * A saved filter names its field by column name or by result-column alias
+ * (`field_<id>`), and a row is keyed by column name, so `fields` lets a row
+ * find a filter stored under the alias.
+ */
+export function resolveFilterRow(
   fieldName: string,
-  filter: InsightFilterOverride,
-  insightFilters: readonly InsightFilter[] | undefined,
-  runtimeFilters: InsightRuntimeDeclaration["filters"],
-): InsightFilterOverride {
-  const declaredFilterId = resolveDeclaredRuntimeFilterId(
-    fieldName,
-    insightFilters,
-    runtimeFilters,
+  held: InsightFilterOverride | undefined,
+  insight: Pick<Insight, "filters" | "runtimeControls">,
+  fields: readonly NamedField[] = [],
+): DeclaredFilterRow | undefined {
+  const onField = (insight.runtimeControls?.filters ?? []).flatMap(
+    (declaration) => {
+      const filter = (insight.filters ?? []).find(
+        (saved) => saved.id === declaration.filterId,
+      );
+      return filter && savedFilterIsOn(filter.field, fieldName, fields)
+        ? [{ declaration, filter }]
+        : [];
+    },
   );
-  return declaredFilterId ? { ...filter, id: declaredFilterId } : filter;
+  if (!held) return onField.length === 1 ? onField[0] : undefined;
+  // An id may name a declared filter on another field; that is not this row's.
+  const running = resolveOverrideRuntimeFilter(insight, fields, held);
+  return onField.find((candidate) => candidate.declaration === running);
+}
+
+/**
+ * Whether a dashboard control can drive a row's declared filter.
+ *
+ * A bound control replaces the tile's own override for the field with one of
+ * two, neither carrying a saved-filter id: an equality when it has a value,
+ * and a clear when it is blank.  Both have to run through this declaration.
+ * So the saved filter is an equality the declaration lets a viewer clear, and
+ * no other declared filter on the field could take either override.
+ */
+export function controlCanDrive(
+  fieldName: string,
+  { declaration }: DeclaredFilterRow,
+  insight: Pick<Insight, "filters" | "runtimeControls">,
+  fields: readonly NamedField[] = [],
+): boolean {
+  if (declaration.allowClear !== true || declaration.required === true)
+    return false;
+  const sent = { field: fieldName, operator: "eq" as const, value: null };
+  return [sent, { ...sent, cleared: true }].every(
+    (override) =>
+      resolveOverrideRuntimeFilter(insight, fields, override) === declaration,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// What a tile is offered
+// ---------------------------------------------------------------------------
+
+/**
+ * What the popover shows for one control of a tile.
+ *
+ * - `editable`: the Insight declares the control for viewers, so an override
+ *   of it runs.
+ * - `resetOnly`: the Insight does not declare it, but the tile already holds
+ *   an override of it.  That override replaces the tile with an error until it
+ *   is removed, so the row stays, offering only the removal.
+ * - `hidden`: the Insight does not declare it and the tile holds nothing.  An
+ *   override saved here could not run, so the row is not shown.
+ */
+export type OverrideOffer = "editable" | "resetOnly" | "hidden";
+
+export function overrideOffer(declared: boolean, held: boolean): OverrideOffer {
+  if (declared) return "editable";
+  return held ? "resetOnly" : "hidden";
+}
+
+/**
+ * A row limit moved inside the range the Insight offers viewers.  The host
+ * refuses a limit outside it, so the limit row never saves one.
+ */
+export function clampLimit(
+  limit: number,
+  bounds: NonNullable<InsightRuntimeDeclaration["limit"]> | undefined,
+): number {
+  if (!bounds) return limit;
+  return Math.min(Math.max(limit, bounds.min), bounds.max);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,9 +373,9 @@ export interface SortFieldOptions {
  * tables share a column name.
  *
  * `allowedIds` is the Insight's declared viewer sort.  When given, only those
- * fields and metrics are offered, because the tile refuses any other.  When
- * the Insight declares no viewer sort, no choice can run, and all are offered
- * so that the tile can say so.
+ * fields and metrics are offered, because the tile refuses any other.  An
+ * Insight that declares no viewer sort gets no editable sort row (see
+ * `overrideOffer`), so the unrestricted list is used only to name stored keys.
  */
 export function buildSortFieldOptions(
   fields: readonly {

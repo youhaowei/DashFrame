@@ -1,7 +1,8 @@
 /**
  * Per-field override row rendered inside the OverridePopover.
  *
- * One row = one overrideable field in the 4-state machine:
+ * One row = one field whose filter the Insight declares for viewers, in the
+ * 4-state machine:
  *   inherit → pinned → cleared → bound
  *
  * The component is intentionally PURE — it receives a derived `state` object
@@ -25,12 +26,10 @@ import type {
 import {
   Button,
   Input,
-  Label,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
   cn,
 } from "@wystack/ui-react";
 import { CheckIcon, CloseIcon } from "@wystack/ui-react/icons";
@@ -41,32 +40,20 @@ import {
   type FieldOverrideState,
 } from "./override-field-row-utils";
 
-// ---------------------------------------------------------------------------
-// Operator options
-// ---------------------------------------------------------------------------
-
 type Operator = InsightFilter["operator"];
-
-const OPERATOR_OPTIONS: { value: Operator; label: string }[] = [
-  { value: "eq", label: "equals (=)" },
-  { value: "ne", label: "not equals (≠)" },
-  { value: "gt", label: "greater than (>)" },
-  { value: "gte", label: "greater than or equal (≥)" },
-  { value: "lt", label: "less than (<)" },
-  { value: "lte", label: "less than or equal (≤)" },
-  { value: "contains", label: "contains" },
-  { value: "between", label: "between" },
-  { value: "in", label: "in (list)" },
-];
 
 // ---------------------------------------------------------------------------
 // Draft helpers
 // ---------------------------------------------------------------------------
 
-function makeDraft(field: string, combinedField?: CombinedField): FilterDraft {
+function makeDraft(
+  field: string,
+  operator: Operator,
+  combinedField?: CombinedField,
+): FilterDraft {
   return {
     field,
-    operator: "eq",
+    operator,
     inputType: inputTypeForField(combinedField),
     scalarValue: "",
     betweenLow: "",
@@ -125,6 +112,18 @@ export interface OverrideFieldRowProps {
    * the state is `inherit` or `pinned`.  Hidden when empty.
    */
   eligibleControls?: DashboardControl[];
+  /**
+   * The operator of the Insight's saved filter for this field.  The tile runs
+   * that filter with the override's value in place of its own, so the row
+   * edits a value and never an operator: a value shaped for another operator
+   * would be refused when the tile loads.
+   */
+  operator: Operator;
+  /**
+   * Whether the Insight's runtime filter for this field allows clearing.  The
+   * host refuses a cleared value otherwise, so Clear is offered only when true.
+   */
+  canClear?: boolean;
 
   // Transition callbacks — the parent assembles the full overrides payload.
   /** Called with the new InsightFilterOverride when the user saves a pin. */
@@ -145,11 +144,14 @@ export interface OverrideFieldRowProps {
 
 function InlineFilterEditor({
   fieldName,
+  label,
   initialDraft,
   onSave,
   onCancel,
 }: {
   fieldName: string;
+  /** The field's display name, which names the value inputs. */
+  label: string;
   initialDraft: FilterDraft;
   onSave: (filter: InsightFilterOverride) => void;
   onCancel: () => void;
@@ -170,63 +172,41 @@ function InlineFilterEditor({
 
   return (
     <div className="mt-1.5 space-y-1.5 rounded-md bg-neutral-bg p-2">
-      {/* Operator select */}
+      {/* Value input(s), led by the saved filter's operator */}
       <div className="flex items-center gap-1.5">
-        <Label className="w-16 shrink-0 text-xs text-neutral-fg-subtle">
-          operator
-        </Label>
-        <Select
-          value={draft.operator}
-          onValueChange={(val) =>
-            setDraft((d) => ({ ...d, operator: val as Operator }))
-          }
-        >
-          <SelectTrigger className="h-7 flex-1 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {OPERATOR_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Value input(s) */}
-      {draft.operator === "between" ? (
-        <div className="flex items-center gap-1.5">
-          <Label className="w-16 shrink-0 text-xs text-neutral-fg-subtle">
-            range
-          </Label>
-          <Input
-            type={draft.inputType}
-            placeholder="low"
-            value={draft.betweenLow}
-            onChange={(e) =>
-              setDraft((d) => ({ ...d, betweenLow: e.target.value }))
-            }
-            className="h-7 flex-1 text-xs"
-          />
-          <span className="text-xs text-neutral-fg-subtle">–</span>
-          <Input
-            type={draft.inputType}
-            placeholder="high"
-            value={draft.betweenHigh}
-            onChange={(e) =>
-              setDraft((d) => ({ ...d, betweenHigh: e.target.value }))
-            }
-            className="h-7 flex-1 text-xs"
-          />
-        </div>
-      ) : (
-        <div className="flex items-center gap-1.5">
-          <Label className="w-16 shrink-0 text-xs text-neutral-fg-subtle">
-            {draft.operator === "in" ? "values" : "value"}
-          </Label>
+        <span className="w-16 shrink-0 text-xs text-neutral-fg-subtle">
+          {formatOperator(draft.operator)}
+        </span>
+        {draft.operator === "between" ? (
+          <>
+            <Input
+              type={draft.inputType}
+              aria-label={`${label} low`}
+              placeholder="low"
+              value={draft.betweenLow}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, betweenLow: e.target.value }))
+              }
+              className="h-7 flex-1 text-xs"
+            />
+            <span className="text-xs text-neutral-fg-subtle">–</span>
+            <Input
+              type={draft.inputType}
+              aria-label={`${label} high`}
+              placeholder="high"
+              value={draft.betweenHigh}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, betweenHigh: e.target.value }))
+              }
+              className="h-7 flex-1 text-xs"
+            />
+          </>
+        ) : (
           <Input
             type={draft.operator === "in" ? "text" : draft.inputType}
+            aria-label={
+              draft.operator === "in" ? `${label} values` : `${label} value`
+            }
             placeholder={draft.operator === "in" ? "a, b, c" : ""}
             value={draft.scalarValue}
             onChange={(e) =>
@@ -234,8 +214,8 @@ function InlineFilterEditor({
             }
             className="h-7 flex-1 text-xs"
           />
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Actions */}
       <div className="flex justify-end gap-1">
@@ -274,6 +254,8 @@ export function OverrideFieldRow({
   state,
   combinedField,
   eligibleControls = [],
+  operator,
+  canClear = false,
   onPin,
   onClear,
   onInherit,
@@ -295,11 +277,12 @@ export function OverrideFieldRow({
     onPin(filter);
   }
 
-  // Derive the initial draft for the inline editor.
+  // Derive the initial draft for the inline editor.  A pinned value saved
+  // under another operator has the wrong shape for this one, so it starts blank.
   const initialDraft =
-    state.type === "pinned"
+    state.type === "pinned" && state.filter.operator === operator
       ? draftFromFilter(state.filter, combinedField)
-      : makeDraft(fieldName, combinedField);
+      : makeDraft(fieldName, operator, combinedField);
 
   return (
     <div className="py-1.5">
@@ -331,8 +314,7 @@ export function OverrideFieldRow({
               onClick={startEditing}
               className="truncate text-left text-xs text-neutral-fg-subtle underline-offset-2 hover:underline"
             >
-              {formatOperator(state.filter.operator)}{" "}
-              {formatFilterValue(state.filter)}
+              {formatOperator(operator)} {formatFilterValue(state.filter)}
             </button>
           )}
           {state.type === "cleared" && (
@@ -395,7 +377,8 @@ export function OverrideFieldRow({
               )}
 
               {/* Clear button (available from inherit and pinned states) */}
-              {(state.type === "inherit" || state.type === "pinned") &&
+              {canClear &&
+                (state.type === "inherit" || state.type === "pinned") &&
                 !isEditing && (
                   <Button
                     label="Clear — remove insight filter for this field"
@@ -458,6 +441,7 @@ export function OverrideFieldRow({
       {isEditing && (
         <InlineFilterEditor
           fieldName={fieldName}
+          label={label}
           initialDraft={initialDraft}
           onSave={handlePinSave}
           onCancel={stopEditing}

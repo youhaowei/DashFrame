@@ -1188,6 +1188,169 @@ function tileSorts(item: ObjectValue): Json[] | undefined {
 function tileSortKeyLimit(keys: number): string {
   return `A tile sort override takes one key, not ${keys}. Send one { field, direction }.`;
 }
+/**
+ * A tile override runs through a control the tile's Insight declares for
+ * viewers (`runtimeControls`).  One the Insight does not declare would save
+ * and then replace the tile with an error every time it loads, so setting it
+ * is refused here, where the caller can still act on the reason.
+ *
+ * The checks follow what the tile runtime resolves (`resolveDashboardRuntime`
+ * in the app) and what the host then accepts.  They are a second statement of
+ * those rules, because this bundle cannot import either.
+ *
+ * Only `PatchDashboardItemOverride` asks this.  The commands that write whole
+ * items (`AddDashboardItem`, `SetDashboardLayout`, `FanOutDashboardItems`)
+ * send back overrides saved before the rule, and refusing those would stop an
+ * unrelated layout save.  Removing an override never comes here.
+ */
+async function requireDeclaredOverride(
+  graph: Graph,
+  item: ObjectValue,
+  patch: ObjectValue,
+) {
+  if (item.type !== "visualization" || typeof item.visualizationId !== "string")
+    throw new Error(
+      "Only a chart item takes a sort, limit, or filter override.",
+    );
+  const visualization = await graph.get("visualizations", item.visualizationId),
+    insight = await graph.get(
+      "insights",
+      str(visualization.insightId, "insightId"),
+    ),
+    def = definition(insight),
+    controls = def.runtimeControls ? record(def.runtimeControls) : {},
+    name = `The Insight "${insight.name}"`;
+  if (patch.kind === "limit") {
+    if (!controls.limit)
+      throw new Error(
+        `${name} does not offer viewers a limit, so this tile cannot take a limit override. Declare runtimeControls.limit on the Insight first.`,
+      );
+    const { min, max } = record(controls.limit),
+      limit = patch.value;
+    // Anything but a number is refused when the stored layout is parsed.
+    if (typeof limit !== "number") return;
+    // The host counts rows: it takes a whole number and nothing else.
+    if (!Number.isInteger(limit))
+      throw new Error(
+        `A limit override is a whole number of rows, not ${limit}.`,
+      );
+    if (
+      typeof min === "number" &&
+      typeof max === "number" &&
+      (limit < min || limit > max)
+    )
+      throw new Error(
+        `${name} offers viewers a limit of ${min} to ${max} rows, so this tile cannot take a limit override of ${limit}.`,
+      );
+    return;
+  }
+  const fields = await availableFields(graph, def);
+  if (patch.kind === "sorts")
+    requireDeclaredSort(name, def, controls, fields, patch);
+  else requireDeclaredFilter(name, def, controls, fields, record(patch.value));
+}
+function requireDeclaredSort(
+  name: string,
+  def: ObjectValue,
+  controls: ObjectValue,
+  fields: ObjectValue[],
+  patch: ObjectValue,
+) {
+  if (!controls.sort)
+    throw new Error(
+      `${name} does not offer viewers a sort, so this tile cannot take a sort override. Declare runtimeControls.sort on the Insight first.`,
+    );
+  const allowed = array(
+      record(controls.sort).allowedFieldIds,
+      "allowedFieldIds",
+    ),
+    metrics = objects(def.metrics, "metrics");
+  // A key names an allowed field or metric by its id, its result-column
+  // alias, or the name of its column.  Both alias forms are taken for every
+  // id: a column selected from an upstream insight keeps that insight's
+  // metric id but is aliased as a field.
+  const references = allowed.flatMap((allowedId) => {
+    const key = String(allowedId).replaceAll("-", "_"),
+      field = fields.find((f) => f.id === allowedId),
+      metric = metrics.find((m) => m.id === allowedId);
+    const named = field
+      ? [field.columnName ?? field.name]
+      : [metric?.name, metric?.columnName];
+    return [allowedId, `field_${key}`, `metric_${key}`, ...named];
+  });
+  for (const sort of objects(patch.value, "sorts")) {
+    const sortField = str(sort.field, "sort field");
+    if (!references.includes(sortField))
+      throw new Error(
+        `${name} does not offer viewers a sort by "${sortField}", so this tile cannot take that sort override. Sort by the id of a field or metric in runtimeControls.sort.allowedFieldIds.`,
+      );
+  }
+}
+function requireDeclaredFilter(
+  name: string,
+  def: ObjectValue,
+  controls: ObjectValue,
+  fields: ObjectValue[],
+  value: ObjectValue,
+) {
+  const field = str(value.field, "field"),
+    cleared = value.cleared === true,
+    saved = objects(def.filters ?? [], "filters"),
+    aliases = fields.flatMap((f) => {
+      const [column, alias] = fieldReferences(f);
+      return column === field ? [alias] : [];
+    }),
+    onField = (filter: ObjectValue) =>
+      filter.field === field ||
+      (typeof filter.field === "string" && aliases.includes(filter.field)),
+    declared = objects(controls.filters ?? [], "runtime filters").flatMap(
+      (control) => {
+        const filter = saved.find((f) => f.id === control.filterId);
+        return filter ? [{ control, filter }] : [];
+      },
+    ),
+    // An id names its declaration.  Without one the tile runtime takes the
+    // declared filter on the field, stored by column name or by alias, that
+    // has the override's operator; a clear has no operator to match.
+    matches =
+      value.id === undefined
+        ? declared.filter(
+            ({ filter }) =>
+              onField(filter) &&
+              (cleared || filter.operator === value.operator),
+          )
+        : declared.filter(({ control }) => control.filterId === value.id);
+  if (matches.length > 1)
+    throw new Error(
+      `${name} offers viewers more than one filter that matches "${field}". Send the override with the id of the saved filter it changes.`,
+    );
+  const match = matches[0];
+  if (!match) {
+    let missing = `the filter "${String(value.id)}"`;
+    if (value.id === undefined)
+      missing = cleared
+        ? `a filter on "${field}"`
+        : `a "${String(value.operator)}" filter on "${field}"`;
+    throw new Error(
+      `${name} does not offer viewers ${missing}, so this tile cannot take that filter override. Declare the filter in runtimeControls.filters on the Insight first.`,
+    );
+  }
+  // The saved filter stays the authority for field and operator: the tile
+  // runs it with the override's value, whatever the override itself says.
+  if (!onField(match.filter))
+    throw new Error(
+      `The filter "${String(value.id)}" of ${name} is on "${String(match.filter.field)}", not "${field}". Send the override for that field.`,
+    );
+  if (!cleared && match.filter.operator !== value.operator)
+    throw new Error(
+      `${name} offers viewers a "${String(match.filter.operator)}" filter on "${field}", so this tile cannot take a "${String(value.operator)}" override of it. Send the override with that operator.`,
+    );
+  // The tile sends a null value as a clear, whether or not it is flagged.
+  if ((cleared || value.value === null) && match.control.allowClear !== true)
+    throw new Error(
+      `${name} does not let viewers clear its filter on "${field}", so this tile cannot take a cleared filter override. Set allowClear on that filter in runtimeControls.filters first.`,
+    );
+}
 async function dashboardCommand(
   graph: Graph,
   p: string,
@@ -1270,6 +1433,7 @@ async function dashboardCommand(
       if (patch.value !== null) {
         const value = record(patch.value);
         if (value.field !== field) throw new Error("Filter field mismatch");
+        await requireDeclaredOverride(graph, item, patch);
         filters.push(value);
       }
       overrides.filters = filters;
@@ -1280,6 +1444,11 @@ async function dashboardCommand(
         patch.value.length > 1
       )
         throw new Error(tileSortKeyLimit(patch.value.length));
+      // An empty sort list removes the override, as null does.
+      const removes =
+        patch.value === null ||
+        (Array.isArray(patch.value) && patch.value.length === 0);
+      if (!removes) await requireDeclaredOverride(graph, item, patch);
       if (patch.value === null) delete overrides[patch.kind];
       else overrides[patch.kind] = patch.value!;
     } else throw new Error("Unknown override patch");

@@ -210,6 +210,7 @@ export function DashboardItem({
               item={item}
               dashboardId={dashboardId}
               controls={controls}
+              effectiveOverrides={effectiveOverrides}
               onEditChart={onEditChart}
             />
           </div>
