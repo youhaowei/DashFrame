@@ -93,3 +93,25 @@ export function withoutViewerField(
     ? next
     : undefined;
 }
+
+/**
+ * The viewer controls with one field or metric offered to viewers or
+ * withdrawn. The cap follows the number of choices, up to 16.
+ */
+export function withViewerChoice(
+  declaration: InsightRuntimeDeclaration | undefined,
+  kind: "dimensions" | "measures",
+  id: string,
+  enabled: boolean,
+): InsightRuntimeDeclaration {
+  const ids = (declaration?.[kind]?.allowedIds ?? []).filter(
+    (value) => value !== id,
+  );
+  if (enabled) ids.push(id as UUID);
+  return {
+    ...declaration,
+    [kind]: ids.length
+      ? { allowedIds: ids, maxSelected: Math.min(16, ids.length) }
+      : undefined,
+  };
+}

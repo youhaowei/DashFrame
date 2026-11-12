@@ -1,5 +1,5 @@
 import { resolveEncodingToResultFrame } from "@dashframe/engine";
-import { parseEncoding } from "@dashframe/types";
+import { chartTypeDraws, parseEncoding } from "@dashframe/types";
 import type {
   DateTransform,
   Insight,
@@ -30,7 +30,7 @@ export function buildChartPresentation(
   const transforms: Record<string, DateTransform> = {};
   const seen = new Map<string, string>();
   for (const channel of ["x", "y", "color", "size"] as const) {
-    if (channel === "size" && chartType !== "dot") continue;
+    if (channel === "size" && !chartTypeDraws(chartType, "size")) continue;
     const parsed = parseEncoding(encoding[channel]);
     if (parsed?.type !== "field") continue;
     const active = channelDateTransform(encoding, channel);
@@ -54,8 +54,9 @@ export function resolveReportChartEncoding(
   presentationApplied: boolean,
   chartType: VisualizationType = "dot",
 ) {
-  const supported =
-    chartType === "dot" ? encoding : { ...encoding, size: undefined };
+  const supported = chartTypeDraws(chartType, "size")
+    ? encoding
+    : { ...encoding, size: undefined };
   return resolveEncodingToResultFrame(
     presentationApplied
       ? { ...supported, xTransform: undefined, yTransform: undefined }

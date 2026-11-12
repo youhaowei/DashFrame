@@ -117,7 +117,7 @@ export type {
   VisualizationType,
 } from "./visualizations";
 
-export { CHART_TYPE_METADATA } from "./visualizations";
+export { CHART_TYPE_METADATA, chartTypeDraws } from "./visualizations";
 
 // =============================================================================
 // Encoding Helpers

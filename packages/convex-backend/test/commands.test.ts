@@ -1172,6 +1172,76 @@ describe("existing command behavior on native Convex", () => {
     expect(sources).toHaveLength(0);
     expect(tables).toHaveLength(0);
   });
+  it("should commit a field rename and its viewer controls together or not at all", async () => {
+    const { tableId } = await makeTable();
+    const fieldId = id();
+    const insightId = id();
+    await commit(
+      cmd("AddField", {
+        nodeId: tableId,
+        field: {
+          id: fieldId,
+          name: "Region",
+          tableId,
+          columnName: "region",
+          type: "string",
+        },
+      }),
+      cmd("CreateInsight", {
+        id: insightId,
+        name: "I",
+        source: { sourceType: "dataTable", sourceId: tableId },
+        selectedFields: [fieldId],
+      }),
+    );
+    const rename = cmd("UpdateField", {
+      nodeId: tableId,
+      fieldId,
+      updates: { name: "Area" },
+    });
+    const fieldName = async () => {
+      const [row] = await tablesById(tableId);
+      const fields = row?.fields as { name: string }[] | undefined;
+      return fields?.[0]?.name;
+    };
+    const runtimeControls = async () => {
+      const [row] = await insightsById(insightId);
+      // Anti-vacuity: a missing insight must not read as "no viewer controls".
+      expect(row).toBeDefined();
+      const definition = row?.definition as
+        | { runtimeControls?: unknown }
+        | undefined;
+      return definition?.runtimeControls;
+    };
+
+    // The rename is valid on its own; the viewer controls after it are not.
+    await expect(
+      commit(
+        rename,
+        cmd("SetInsightRuntimeControls", {
+          id: insightId,
+          runtimeControls: {
+            filters: [
+              { key: "missing", filterId: "missing", label: "Missing" },
+            ],
+          },
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(await fieldName()).toBe("Region");
+    expect(await runtimeControls()).toBeUndefined();
+
+    const dimensions = { allowedIds: [fieldId], maxSelected: 1 };
+    await commit(
+      rename,
+      cmd("SetInsightRuntimeControls", {
+        id: insightId,
+        runtimeControls: { dimensions },
+      }),
+    );
+    expect(await fieldName()).toBe("Area");
+    expect(await runtimeControls()).toEqual({ dimensions });
+  });
   it("should create an insight over a DataTable source", async () => {
     const { tableId } = await makeTable();
     const insightId = id();

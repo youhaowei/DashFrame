@@ -343,9 +343,77 @@ describe("Insight presentation requests", () => {
     });
     expect(execute).not.toHaveBeenCalled();
   });
+
+  it("refuses an empty field selection for an insight with no metrics", async () => {
+    const insightId = "00000000-0000-4000-8000-000000000001";
+    const context = {
+      principal: { kind: "user", userId: "user" },
+      metadata: {
+        getInsight: async () => ({
+          id: insightId,
+          name: "Saved",
+          createdAt: 0,
+          definition: {
+            source: { sourceType: "dataTable", sourceId: "table-1" },
+            selectedFields: [productFieldId, countryFieldId],
+            metrics: [],
+            runtimeControls: {
+              dimensions: {
+                allowedIds: [productFieldId, countryFieldId],
+                maxSelected: 2,
+              },
+            },
+          },
+        }),
+      },
+    } as unknown as HostContext;
+    const execute = vi.fn();
+    const { runInsight } = createDataFetchFunctions(execute);
+
+    const result = await runInsight(context, {
+      insightId,
+      runtime: { dimensions: [] },
+    });
+
+    // Running it would select every raw row of the table.
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "RUNTIME_SELECTION_EMPTY",
+      message:
+        "This chart has no metrics, so it needs at least one field. Choose a field.",
+      retryable: false,
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
 });
 
 describe("applyInsightRuntime", () => {
+  it("lets a viewer hide every field only when a metric remains to show", () => {
+    const open: Insight = {
+      ...insight,
+      runtimeControls: {
+        dimensions: { allowedIds: ["region", "date"], maxSelected: 2 },
+      },
+    };
+    expect(() => applyInsightRuntime(open, { dimensions: [] })).toThrow(
+      "RUNTIME_SELECTION_EMPTY",
+    );
+    const withMetric: Insight = {
+      ...open,
+      metrics: [
+        {
+          id: "orders",
+          name: "Orders",
+          sourceTable: "table-1",
+          aggregation: "count",
+        },
+      ],
+    };
+    expect(
+      applyInsightRuntime(withMetric, { dimensions: [] }).selectedFields,
+    ).toEqual([]);
+  });
+
   it("switches declared dimensions and measures without dropping calculation dependencies or mutating the report", () => {
     const saved: Insight = {
       ...insight,

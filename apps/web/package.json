@@ -72,5 +72,5 @@
     "test:coverage": "vp test run --coverage",
     "typecheck": "bunx tsc --noEmit"
   },
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

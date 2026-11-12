@@ -156,7 +156,7 @@ describe("insight config popover saves", () => {
         baseTableId={table.id}
         onReorder={vi.fn()}
         onRemove={vi.fn()}
-        onRename={rejectedSave}
+        onSave={rejectedSave}
         onAdd={vi.fn()}
       />,
     );
@@ -180,7 +180,7 @@ describe("insight config popover saves", () => {
         baseTableId={table.id}
         onReorder={vi.fn()}
         onRemove={vi.fn()}
-        onRename={vi.fn()}
+        onSave={vi.fn()}
         onAdd={vi.fn()}
       />,
     );
@@ -206,7 +206,7 @@ describe("insight config popover saves", () => {
         baseTableId={table.id}
         onReorder={vi.fn()}
         onRemove={vi.fn()}
-        onRename={vi.fn()}
+        onSave={vi.fn()}
         onAdd={onAdd}
       />,
     );
@@ -236,7 +236,7 @@ describe("insight config popover saves", () => {
         baseTableId={upstreamInsightTable.id}
         onReorder={vi.fn()}
         onRemove={vi.fn()}
-        onRename={vi.fn()}
+        onSave={vi.fn()}
         onAdd={onAdd}
       />,
     );
@@ -379,7 +379,7 @@ describe("insight config popover saves", () => {
 
   it("ignores Escape while a field rename is in flight", async () => {
     let release: () => void = () => undefined;
-    const onRename = vi.fn(
+    const onSave = vi.fn(
       () =>
         new Promise<void>((resolve) => {
           release = resolve;
@@ -393,7 +393,7 @@ describe("insight config popover saves", () => {
         baseTableId={table.id}
         onReorder={vi.fn()}
         onRemove={vi.fn()}
-        onRename={onRename}
+        onSave={onSave}
         onAdd={vi.fn()}
       />,
     );
@@ -402,7 +402,7 @@ describe("insight config popover saves", () => {
       target: { value: "Revenue" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onRename).toHaveBeenCalled());
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
     fireEvent.keyDown(document.activeElement ?? document.body, {
       key: "Escape",
       code: "Escape",
@@ -412,6 +412,39 @@ describe("insight config popover saves", () => {
     await waitFor(() =>
       expect(screen.queryByLabelText("Display name")).toBeNull(),
     );
+  });
+
+  it("starts one field save when Enter is pressed again mid-save", async () => {
+    let release: () => void = () => undefined;
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    render(
+      <FieldsSection
+        selectedFields={[field]}
+        availableFields={[]}
+        tables={[table]}
+        baseTableId={table.id}
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onSave={onSave}
+        onAdd={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit Amount" }));
+    const input = screen.getByLabelText("Display name");
+    fireEvent.change(input, { target: { value: "Revenue" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    release();
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Display name")).toBeNull(),
+    );
+    expect(onSave).toHaveBeenCalledOnce();
   });
 
   it("leaves the column empty after switching from Count back to Sum", async () => {

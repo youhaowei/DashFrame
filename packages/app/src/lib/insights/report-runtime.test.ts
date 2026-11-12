@@ -4,6 +4,7 @@ import type { Field, Insight, VisualizationEncoding } from "@dashframe/types";
 import {
   currentViewerRuntime,
   reportEncoding,
+  reportPivotColor,
   reportPresentation,
 } from "./report-runtime";
 const insight: Insight = {
@@ -244,9 +245,12 @@ describe("currentViewerRuntime", () => {
     });
   });
 
-  it("keeps a viewer's choice to hide every field", () => {
+  it("keeps a viewer's choice to hide every field while a metric shows", () => {
     const report = {
       ...saved,
+      metrics: [
+        { id: "a", name: "A", sourceTable: "source", aggregation: "count" },
+      ],
       runtimeControls: {
         dimensions: { allowedIds: ["region", "date"], maxSelected: 2 },
       },
@@ -254,6 +258,11 @@ describe("currentViewerRuntime", () => {
     expect(currentViewerRuntime(report, { dimensions: [] })).toEqual({
       dimensions: [],
     });
+    // The author has since removed the metric, so nothing would be left.
+    const withoutMetrics = { ...report, metrics: [] } as Insight;
+    expect(currentViewerRuntime(withoutMetrics, { dimensions: [] })).toEqual(
+      {},
+    );
   });
 
   it("drops picks that are no longer viewer choices", () => {
@@ -320,6 +329,175 @@ describe("reportEncoding with fixed selections", () => {
   });
 });
 
+describe("reportEncoding with a field the viewer added", () => {
+  const report = {
+    id: "report",
+    name: "Report",
+    source: { sourceType: "dataTable", sourceId: "source" },
+    selectedFields: ["date", "channel"],
+    metrics: [
+      {
+        id: "orders",
+        name: "Orders",
+        sourceTable: "source",
+        aggregation: "count",
+      },
+    ],
+    // Date always shows; Country and Product are offered to viewers only.
+    runtimeControls: {
+      dimensions: {
+        allowedIds: ["channel", "country", "product"],
+        maxSelected: 3,
+      },
+    },
+    createdAt: 0,
+  } as unknown as Insight;
+  const chart: VisualizationEncoding = {
+    x: "field:date",
+    xType: "temporal",
+    y: "metric:orders",
+  };
+
+  it("colors the chart by a viewer-only field picked with no other change", () => {
+    expect(
+      reportEncoding(
+        chart,
+        report,
+        { dimensions: ["date", "channel", "country"] },
+        fields,
+      ),
+    ).toEqual({ ...chart, color: "field:country" });
+    // The saved selection alone leaves the chart as the author drew it.
+    expect(
+      reportEncoding(chart, report, { dimensions: ["date", "channel"] }, fields)
+        .color,
+    ).toBeUndefined();
+  });
+
+  it("takes the color of another viewer choice, and the newest pick wins", () => {
+    const colored = { ...chart, color: "field:channel" };
+    expect(
+      reportEncoding(
+        colored,
+        report,
+        { dimensions: ["date", "channel", "country"] },
+        fields,
+      ).color,
+    ).toBe("field:country");
+    expect(
+      reportEncoding(
+        colored,
+        report,
+        { dimensions: ["date", "channel", "country", "product"] },
+        fields,
+      ).color,
+    ).toBe("field:product");
+  });
+
+  it("keeps a color the author fixed", () => {
+    const runtime = { dimensions: ["date", "channel", "country"] };
+    expect(
+      reportEncoding({ ...chart, color: "field:date" }, report, runtime, fields)
+        .color,
+    ).toBe("field:date");
+    expect(
+      reportEncoding(
+        { ...chart, color: "metric:orders" },
+        report,
+        runtime,
+        fields,
+      ).color,
+    ).toBe("metric:orders");
+  });
+
+  it("leaves color alone when the added field replaced a removed axis", () => {
+    expect(
+      reportEncoding(
+        { x: "field:channel", xType: "nominal", y: "metric:orders" },
+        report,
+        { dimensions: ["date", "country"] },
+        fields,
+      ),
+    ).toEqual({
+      x: "field:country",
+      xType: "nominal",
+      xTransform: undefined,
+      y: "metric:orders",
+    });
+  });
+
+  it("gives a removed size field its replacement before coloring", () => {
+    const dots: VisualizationEncoding = {
+      x: "metric:orders",
+      y: "metric:orders",
+      size: "field:channel",
+    };
+    expect(
+      reportEncoding(dots, report, { dimensions: ["date", "country"] }, fields),
+    ).toEqual({ ...dots, size: "field:country" });
+  });
+
+  it("colors by a second added field once size has its replacement", () => {
+    const dots: VisualizationEncoding = {
+      x: "metric:orders",
+      y: "metric:orders",
+      size: "field:channel",
+    };
+    expect(
+      reportEncoding(
+        dots,
+        report,
+        { dimensions: ["date", "country", "product"] },
+        fields,
+      ),
+    ).toEqual({ ...dots, size: "field:country", color: "field:product" });
+  });
+
+  it("ignores a size left over from a scatter on a chart that draws none", () => {
+    const bars: VisualizationEncoding = { ...chart, size: "field:channel" };
+    const runtime = { dimensions: ["date", "country"] };
+    expect(reportEncoding(bars, report, runtime, fields, "barY")).toEqual({
+      ...bars,
+      color: "field:country",
+    });
+    expect(reportEncoding(bars, report, runtime, fields, "dot")).toEqual({
+      ...bars,
+      size: "field:country",
+    });
+  });
+
+  it.each(["hexbin", "heatmap", "raster"] as const)(
+    "leaves a %s chart alone, since its fill is computed",
+    (chartType) => {
+      const runtime = { dimensions: ["date", "channel", "country"] };
+      expect(reportEncoding(chart, report, runtime, fields, chartType)).toEqual(
+        chart,
+      );
+      expect(reportEncoding(chart, report, runtime, fields, "barY").color).toBe(
+        "field:country",
+      );
+    },
+  );
+
+  it("colors by the added field ahead of a pivot", () => {
+    const pivoted = {
+      ...report,
+      reporting: { pivotFields: ["channel"] },
+    } as Insight;
+    expect(reportEncoding(chart, pivoted, undefined, fields).color).toBe(
+      "field:channel",
+    );
+    expect(
+      reportEncoding(
+        chart,
+        pivoted,
+        { dimensions: ["date", "channel", "country"] },
+        fields,
+      ).color,
+    ).toBe("field:country");
+  });
+});
+
 describe("reportEncoding with a pivot", () => {
   it("splits the chart by the pivot when color is free", () => {
     expect(
@@ -330,6 +508,47 @@ describe("reportEncoding with a pivot", () => {
         fields,
       ),
     ).toEqual({ x: "field:date", y: "metric:orders", color: "field:channel" });
+  });
+
+  it("colors by a pivot left on size once the chart stops being a scatter", () => {
+    const saved: VisualizationEncoding = {
+      x: "field:date",
+      y: "metric:orders",
+      size: "field:channel",
+    };
+    // A scatter draws the pivot as point size, so it needs no color.
+    expect(
+      reportEncoding(saved, insight, undefined, fields, "dot").color,
+    ).toBeUndefined();
+    // No other chart type draws size, so the pivot would not show at all.
+    for (const chartType of ["barY", "barX", "line", "areaY"] as const) {
+      expect(
+        reportEncoding(saved, insight, undefined, fields, chartType),
+      ).toEqual({ ...saved, color: "field:channel" });
+    }
+  });
+
+  it("leaves color free on a chart that fills by its own density", () => {
+    for (const chartType of ["hexbin", "heatmap", "raster"] as const) {
+      expect(
+        reportEncoding(
+          { x: "field:date", y: "metric:orders" },
+          insight,
+          undefined,
+          fields,
+          chartType,
+        ),
+      ).toEqual({ x: "field:date", y: "metric:orders" });
+      expect(
+        reportPivotColor(
+          { x: "field:date", y: "metric:orders" },
+          insight,
+          undefined,
+          fields,
+          chartType,
+        ),
+      ).toBeUndefined();
+    }
   });
 
   it("keeps a chosen color and a pivot already on an axis", () => {
