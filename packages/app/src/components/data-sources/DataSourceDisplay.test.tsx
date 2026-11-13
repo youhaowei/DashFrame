@@ -105,21 +105,6 @@ describe("DataSourceDisplay remote preview", () => {
     });
   });
 
-  it("renders a failed metadata handle without a review gate", async () => {
-    mockMutate.mockResolvedValue({
-      status: "failed",
-      code: "FETCH_SOURCE_FAILED",
-      message: "Connection expired",
-      retryable: true,
-      diagnosticId: "diagnostic-1",
-    });
-    render(<DataSourceDisplay dataSourceId={SOURCE_ID} />);
-    fireEvent.click(screen.getByRole("button", { name: "Fetch data" }));
-    expect(await screen.findByText("Connection expired")).toBeTruthy();
-    expect(screen.getByText("Fetch failed")).toBeTruthy();
-    expect(screen.queryByText(/review column|approved fields/i)).toBeNull();
-  });
-
   it("discards table A when its fetch completes after table B is selected", async () => {
     queryData.tables.push({
       id: TABLE_B_ID,

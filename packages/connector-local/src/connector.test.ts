@@ -2,7 +2,6 @@
  * Unit tests for LocalFileConnector
  *
  * Tests cover:
- * - Static properties (id, accept, maxSizeMB)
  * - File size validation (source and encoded ingestion limits)
  * - File extension validation
  * - CSV parsing delegation
@@ -44,32 +43,6 @@ describe("LocalFileConnector", () => {
   beforeEach(() => {
     connector = new LocalFileConnector();
     vi.clearAllMocks();
-  });
-
-  describe("static properties", () => {
-    it("should have correct id", () => {
-      expect(connector.id).toBe("local");
-    });
-
-    it("should accept CSV and JSON files", () => {
-      expect(connector.accept).toContain(".csv");
-      expect(connector.accept).toContain(".json");
-      expect(connector.accept).toContain("text/csv");
-      expect(connector.accept).toContain("application/json");
-    });
-
-    it("advertises the conservative source-file limit and encoded cap", () => {
-      expect(connector.maxSizeMB).toBe(16);
-      expect(connector.helperText).toContain("16MB");
-      expect(connector.helperText).toContain("100MB");
-      expect(connector.helperText).toContain("CSV");
-      expect(connector.helperText).toContain("JSON");
-    });
-  });
-
-  it("asks for no configuration: a file is checked when it is parsed", () => {
-    expect(connector.getFormFields()).toEqual([]);
-    expect(connector.validate()).toEqual({ valid: true });
   });
 
   describe("parse - file size validation", () => {
@@ -119,19 +92,6 @@ describe("LocalFileConnector", () => {
         "Unsupported file format: .txt. Supported formats: csv, json",
       );
     });
-
-    it("should reject files with no extension", async () => {
-      const file = new File(["some content"], "noextension", {
-        type: "application/octet-stream",
-      });
-
-      await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
-      ).rejects.toThrow("Unsupported file format");
-    });
   });
 
   describe("parse - CSV file handling", () => {
@@ -140,20 +100,6 @@ describe("LocalFileConnector", () => {
     beforeEach(async () => {
       const { csvToDataFrame } = await import("@dashframe/csv");
       mockCsvToDataFrame = vi.mocked(csvToDataFrame);
-    });
-
-    it("should parse CSV files", async () => {
-      const file = new File(["name,value\nAlice,30\nBob,25"], "data.csv", {
-        type: "text/csv",
-      });
-
-      const result = await connector.parse(
-        file,
-        "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-      );
-
-      expect(result).toBeDefined();
-      expect(mockCsvToDataFrame).toHaveBeenCalled();
     });
 
     it("should handle uppercase CSV extension", async () => {

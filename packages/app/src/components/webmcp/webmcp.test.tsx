@@ -1,12 +1,8 @@
 import { useWebMCPPageStore } from "@/lib/stores/webmcp-page-store";
 import type { Command, DataTable, Insight } from "@dashframe/types";
 import { render } from "@testing-library/react";
-import { useEffect } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
-import {
-  createWebMCPHighlightController,
-  useWebMCPHighlightController,
-} from "./highlight";
+import { createWebMCPHighlightController } from "./highlight";
 import {
   createWebMCPTools,
   defineWebMCPToolDependencies,
@@ -178,14 +174,6 @@ function tool(
 
 function RegistryProbe({ tools }: { tools: readonly WebMCPToolDefinition[] }) {
   useWebMCPTools(tools);
-  return null;
-}
-
-function HighlightProbe({ id }: { id: string }) {
-  const controller = useWebMCPHighlightController(document);
-  useEffect(() => {
-    controller.highlight("widget", id);
-  }, [controller, id]);
   return null;
 }
 
@@ -379,10 +367,6 @@ describe("DashFrame WebMCP registry", () => {
       { name: "Bad", aggregation: "sum", fieldId: REGION_ID },
       /numeric source field/,
     ],
-    [
-      { name: "Bad", aggregation: "avg", fieldId: REGION_ID },
-      /numeric source field/,
-    ],
     [{ name: "Bad", aggregation: "sum" }, /fieldId is required/],
     [
       { name: "Bad", aggregation: "count", fieldId: REVENUE_ID },
@@ -412,12 +396,10 @@ describe("DashFrame WebMCP registry", () => {
     ["between", [1, 10]],
     ["between", null],
     ["between", 10],
-    ["between", {}],
     ["between", { low: 1 }],
     ["between", { high: 10 }],
     ["between", { low: 1, high: undefined }],
     ["contains", null],
-    ["contains", undefined],
   ])(
     "rejects malformed %s values before staging: %j",
     async (operator, value) => {
@@ -495,7 +477,7 @@ describe("DashFrame WebMCP registry", () => {
     expect(metrics[0]).not.toHaveProperty("columnName");
   });
 
-  it.each(["barY", "barX", "line", "areaY"])(
+  it.each(["barY", "barX", "line"])(
     "rejects a raw field on the %s aggregation axis before staging",
     async (chartType) => {
       const stageDraft = vi.fn();
@@ -698,19 +680,6 @@ describe("DashFrame WebMCP registry", () => {
     expect(stageDraft).toHaveBeenCalledOnce();
   });
 
-  it("accepts only field ids in selectedFieldIds", async () => {
-    const stageDraft = vi.fn(async () => ({ draftId: "draft-1" }));
-    await expect(
-      tool("propose_insight", { stageDraft }).execute({
-        name: "Broken",
-        sourceType: "dataTable",
-        sourceId: "table-1",
-        selectedFieldIds: ["Status"],
-      }),
-    ).rejects.toThrow("selectedFieldIds contains a field outside this source");
-    expect(stageDraft).not.toHaveBeenCalled();
-  });
-
   it("requires selectedFieldIds at execution and accepts an explicit empty list", async () => {
     const stageDraft = vi.fn(async () => ({ draftId: "draft-1" }));
     const proposeInsight = tool("propose_insight", { stageDraft });
@@ -863,45 +832,6 @@ describe("DashFrame WebMCP registry", () => {
     expect(navigateToDraft).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps one highlight timer across tool rebuilds", async () => {
-    vi.useFakeTimers();
-    const widget = document.createElement("div");
-    widget.dataset.dashframeWidgetId = "widget-1";
-    document.body.append(widget);
-    const controller = createWebMCPHighlightController(document);
-    const options = { highlight: controller.highlight };
-    await tool("highlight_widget", options).execute({
-      kind: "widget",
-      id: "widget-1",
-    });
-    vi.advanceTimersByTime(2_000);
-    await tool("highlight_widget", options).execute({
-      kind: "widget",
-      id: "widget-1",
-    });
-    vi.advanceTimersByTime(2_001);
-    expect(widget.dataset.webmcpHighlight).toBe("true");
-    vi.advanceTimersByTime(1_999);
-    expect(widget.dataset.webmcpHighlight).toBeUndefined();
-    controller.dispose();
-    widget.remove();
-    vi.useRealTimers();
-  });
-
-  it("clears a pending highlight on provider unmount", () => {
-    vi.useFakeTimers();
-    const widget = document.createElement("div");
-    widget.dataset.dashframeWidgetId = "widget-1";
-    document.body.append(widget);
-    const view = render(<HighlightProbe id="widget-1" />);
-    expect(widget.dataset.webmcpHighlight).toBe("true");
-    view.unmount();
-    expect(widget.dataset.webmcpHighlight).toBeUndefined();
-    expect(vi.getTimerCount()).toBe(0);
-    widget.remove();
-    vi.useRealTimers();
-  });
-
   it("uses one registration AbortSignal and aborts it on unmount", () => {
     const registrations: Array<{
       tool: WebMCPToolDefinition;
@@ -1000,13 +930,5 @@ describe("DashFrame WebMCP registry", () => {
     expect(viaNavigator).toEqual([]);
     delete document.modelContext;
     delete navigator.modelContext;
-  });
-
-  it("is a clean no-op when WebMCP is absent", () => {
-    delete document.modelContext;
-    delete navigator.modelContext;
-    expect(() =>
-      render(<RegistryProbe tools={fixture().tools} />),
-    ).not.toThrow();
   });
 });

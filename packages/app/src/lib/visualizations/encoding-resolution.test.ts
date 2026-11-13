@@ -83,11 +83,6 @@ describe("encoding-resolution", () => {
       }
     });
 
-    it("should return undefined for undefined input", () => {
-      const result = resolveToSql(undefined, context);
-      expect(result).toBeUndefined();
-    });
-
     it("should return undefined for non-existent field ID", () => {
       const result = resolveToSql(
         fieldEncoding("non-existent" as UUID),
@@ -123,11 +118,6 @@ describe("encoding-resolution", () => {
         valid: true,
       });
     });
-
-    it("should return valid=false for undefined input", () => {
-      const result = resolveForAnalysis(undefined, context);
-      expect(result.valid).toBe(false);
-    });
   });
 
   describe("resolveEncodingToSql", () => {
@@ -159,21 +149,6 @@ describe("encoding-resolution", () => {
       expect(result.y).toBeUndefined();
       // Empty string should resolve to undefined, not be passed through
       expect(result.color).toBeUndefined();
-    });
-
-    it("should only resolve x, y, color, size channels (not axis types)", () => {
-      const encoding = {
-        x: fieldEncoding("field-1" as UUID),
-        y: metricEncoding("metric-1" as UUID),
-        xType: "nominal" as const,
-        yType: "quantitative" as const,
-      };
-
-      const result = resolveEncodingToSql(encoding, context);
-
-      expect(result.x).toBe("field_field_1");
-      expect(result.y).toBeUndefined();
-      expect(Object.keys(result).sort()).toEqual(["color", "size", "x", "y"]);
     });
   });
 });

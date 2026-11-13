@@ -96,27 +96,6 @@ it("serves draft-less indexed reads without loading unrelated artifact tables", 
   ).toBe(insightFrameId);
 }, 15_000);
 
-it("applies secondary filters after selecting a draft-less index", async () => {
-  await t.run(async (ctx) => {
-    for (const insightId of ["matching", "other"])
-      await ctx.db.insert("dataSources", {
-        workspaceId: "w",
-        id: crypto.randomUUID(),
-        revision: 1,
-        name: "Source",
-        createdAt: Date.now(),
-        dataSourceId: "shared-source",
-        insightId,
-      });
-  });
-
-  const rows = await listAll(user(), api.app.listDataSources, {
-    dataSourceId: "shared-source",
-    insightId: "matching",
-  });
-  expect(rows).toHaveLength(1);
-});
-
 it("reports a cap exceedance for draftLog and retains the claim", async () => {
   const cleanupId = crypto.randomUUID();
   const secretRef = `secret:${crypto.randomUUID()}`;

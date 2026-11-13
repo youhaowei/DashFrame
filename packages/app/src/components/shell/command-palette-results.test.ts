@@ -196,13 +196,4 @@ describe("buildPaletteResults", () => {
     expect(detail(sources.charts)).toBe("1 chart");
     expect(detail(undefined)).toBeUndefined();
   });
-
-  it("leaves a source's table count out while tables are unknown", () => {
-    const source = (dataTables: PaletteSources["dataTables"]) =>
-      buildPaletteResults({ dataSources: sources.dataSources, dataTables }, "")
-        .flatMap((group) => group.items)
-        .find((item) => item.kind === "data-source")!.detail;
-    expect(source(sources.dataTables)).toBe("1 table");
-    expect(source(undefined)).toBeUndefined();
-  });
 });

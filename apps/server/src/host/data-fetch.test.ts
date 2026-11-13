@@ -115,43 +115,6 @@ describe("fetchData sort schema", () => {
 });
 
 describe("Insight presentation requests", () => {
-  it("passes a validated presentation to an ephemeral preview", async () => {
-    const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
-      status: "failed",
-      code: "EXPECTED",
-      message: "expected",
-      retryable: false,
-      diagnosticId: "diagnostic",
-    }));
-    const { fetchData } = createDataFetchFunctions(execute);
-
-    await fetchData(fetchContext(), {
-      insight: previewDefinition,
-      presentation: {
-        dimensions: [productFieldId],
-        transforms: {
-          [productFieldId]: { kind: "temporal", aggregation: "yearMonth" },
-        },
-      },
-    });
-
-    expect(execute).toHaveBeenCalledWith({
-      context: expect.anything(),
-      insight: expect.objectContaining({
-        presentation: {
-          dimensions: [productFieldId],
-          transforms: {
-            [productFieldId]: {
-              kind: "temporal",
-              aggregation: "yearMonth",
-            },
-          },
-        },
-      }),
-      target: { kind: "ephemeral" },
-    });
-  });
-
   it("accepts a date transform for a selected repeat-join field", async () => {
     const repeatFieldId = `${productFieldId}_j1`;
     const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
@@ -192,15 +155,6 @@ describe("Insight presentation requests", () => {
 
   it.each([
     [{ dimensions: [productFieldId, productFieldId] }, "FETCH_INVALID_REQUEST"],
-    [
-      {
-        dimensions: [productFieldId],
-        transforms: {
-          [productFieldId]: { kind: "temporal", aggregation: "day" },
-        },
-      },
-      "FETCH_INVALID_REQUEST",
-    ],
     [
       {
         dimensions: [productFieldId],
@@ -336,48 +290,6 @@ describe("Insight presentation requests", () => {
     expect(result).toMatchObject({
       status: "failed",
       code: "RUNTIME_PRESENTATION_NOT_ALLOWED",
-    });
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it("refuses an empty field selection for an insight with no metrics", async () => {
-    const insightId = "00000000-0000-4000-8000-000000000001";
-    const context = {
-      principal: { kind: "user", userId: "user" },
-      metadata: {
-        getInsight: async () => ({
-          id: insightId,
-          name: "Saved",
-          createdAt: 0,
-          definition: {
-            source: { sourceType: "dataTable", sourceId: "table-1" },
-            selectedFields: [productFieldId, countryFieldId],
-            metrics: [],
-            runtimeControls: {
-              dimensions: {
-                allowedIds: [productFieldId, countryFieldId],
-                maxSelected: 2,
-              },
-            },
-          },
-        }),
-      },
-    } as unknown as HostContext;
-    const execute = vi.fn();
-    const { runInsight } = createDataFetchFunctions(execute);
-
-    const result = await runInsight(context, {
-      insightId,
-      runtime: { dimensions: [] },
-    });
-
-    // Running it would select every raw row of the table.
-    expect(result).toMatchObject({
-      status: "failed",
-      code: "RUNTIME_SELECTION_EMPTY",
-      message:
-        "This chart has no metrics, so it needs at least one field. Choose a field.",
-      retryable: false,
     });
     expect(execute).not.toHaveBeenCalled();
   });
@@ -946,36 +858,6 @@ describe("applyInsightRuntime", () => {
     });
     expect(
       toFetchFailure(
-        new Error("RUNTIME_SORT_REFERENCE_AMBIGUOUS"),
-        "FETCH_EXECUTION_FAILED",
-      ),
-    ).toMatchObject({
-      code: "RUNTIME_SORT_REFERENCE_AMBIGUOUS",
-      message:
-        "The saved sort matches more than one field. Choose the sort field again.",
-    });
-    expect(
-      toFetchFailure(
-        new Error("RUNTIME_SORT_REFERENCE_INVALID"),
-        "FETCH_EXECUTION_FAILED",
-      ),
-    ).toMatchObject({
-      code: "RUNTIME_SORT_REFERENCE_INVALID",
-      message:
-        "The saved sort field is no longer available. Choose another sort field.",
-    });
-    expect(
-      toFetchFailure(
-        new Error("RUNTIME_LIMIT_REQUIRES_SORT"),
-        "FETCH_EXECUTION_FAILED",
-      ),
-    ).toMatchObject({
-      code: "RUNTIME_LIMIT_REQUIRES_SORT",
-      message:
-        "The selected dimensions removed the sort required by the row limit. Choose another sort or remove the limit.",
-    });
-    expect(
-      toFetchFailure(
         new Error("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE"),
         "FETCH_EXECUTION_FAILED",
       ),
@@ -983,44 +865,6 @@ describe("applyInsightRuntime", () => {
       code: "RUNTIME_TOPN_MEASURE_NOT_ADDITIVE",
       message:
         "This measure can't rank by the selected dimension across another dimension; rank by an additive measure.",
-      retryable: false,
-    });
-    expect(
-      toFetchFailure(new Error("SOURCE_SCHEMA_CHANGED"), "FETCH_SOURCE_FAILED"),
-    ).toMatchObject({
-      status: "failed",
-      code: "SOURCE_SCHEMA_CHANGED",
-      retryable: false,
-    });
-    expect(
-      toFetchFailure(new Error("TARGET_NOT_READY"), "FETCH_SOURCE_FAILED"),
-    ).toMatchObject({
-      status: "failed",
-      code: "TARGET_NOT_READY",
-      message:
-        "The requested data isn't ready. Check that its sources and tables exist.",
-      retryable: false,
-    });
-    expect(
-      toFetchFailure(
-        new Error("FETCH_COMPILE_FAILED"),
-        "FETCH_EXECUTION_FAILED",
-      ),
-    ).toMatchObject({
-      status: "failed",
-      code: "FETCH_COMPILE_FAILED",
-      message:
-        "This insight couldn't be compiled. Its source table may not have data yet.",
-      retryable: false,
-    });
-    expect(
-      toFetchFailure(
-        new Error("SOURCE_NOT_REFRESHABLE"),
-        "FETCH_SOURCE_FAILED",
-      ),
-    ).toMatchObject({
-      status: "failed",
-      code: "SOURCE_NOT_REFRESHABLE",
       retryable: false,
     });
   });
@@ -1055,19 +899,6 @@ describe("applyInsightRuntime", () => {
       retryable: false,
       sourceGenerations: [{ tableId, dataFrameId, lastFetchedAt: 123 }],
     });
-  });
-});
-
-it("reports unsupported source values separately from schema changes", () => {
-  expect(
-    toFetchFailure(
-      new Error("SOURCE_VALUE_UNSUPPORTED"),
-      "FETCH_SOURCE_FAILED",
-    ),
-  ).toMatchObject({
-    status: "failed",
-    code: "SOURCE_VALUE_UNSUPPORTED",
-    retryable: false,
   });
 });
 

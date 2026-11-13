@@ -1,6 +1,5 @@
 /**
- * Dashboard controls — broadcast logic, source-schema eligibility, and
- * transient-overlay state.
+ * Dashboard controls — broadcast logic and transient-overlay state.
  *
  * ## Architecture
  *
@@ -10,9 +9,7 @@
  * `resolveDashboardRuntime`.
  *
  * Binding is EXPLICIT OPT-IN.  A control reaches ONLY cells explicitly listed
- * in `control.boundInstances`.  Source-schema eligibility (`isControlEligible`)
- * limits which cells may be bound: a control on field F can only target cells
- * whose insight source table has F — even if F is dropped by GROUP BY.
+ * in `control.boundInstances`.
  *
  * Viewer turns are VIEW-LOCAL by default.  `applyControlTransient` accepts a
  * transient value map that layers on top of the saved `defaultValue` without
@@ -24,38 +21,9 @@ import type {
   DashboardControl,
   DashboardItem,
   DashboardItemOverrides,
-  DataTable,
   InsightFilter,
   InsightFilterOverride,
 } from "@dashframe/types";
-
-// ---------------------------------------------------------------------------
-// Source-schema eligibility
-// ---------------------------------------------------------------------------
-
-/**
- * Whether a control on `fieldName` may be bound to a cell whose visualization
- * is backed by `sourceTable`.
- *
- * Eligibility = the field name appears in the table's `fields` array
- * (user-defined fields, which always trace back to a source column).
- *
- * A control on field F is eligible even when F is dropped from the GROUP BY
- * result — the filter applies pre-aggregation (WHERE), so the column must
- * exist in the SOURCE table, not necessarily the result set.
- *
- * Returns `false` when `sourceTable` is undefined (e.g. insight not yet
- * loaded) so callers can guard safely.
- */
-export function isControlEligible(
-  fieldName: string,
-  sourceTable: DataTable | undefined,
-): boolean {
-  if (!sourceTable) return false;
-  return (sourceTable.fields ?? []).some(
-    (f) => (f.columnName ?? f.name) === fieldName,
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Override computation

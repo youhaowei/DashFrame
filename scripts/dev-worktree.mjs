@@ -25,7 +25,7 @@ function git(args, cwd) {
   }).trim();
 }
 
-export function sanitizeHostnameLabel(value) {
+function sanitizeHostnameLabel(value) {
   return value
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")

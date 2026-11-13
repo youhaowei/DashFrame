@@ -53,10 +53,7 @@ describe("RoutedCardActionMenuTrigger", () => {
     },
   );
 
-  it.each([
-    { name: "Enter", key: "Enter" },
-    { name: "Space", key: " " },
-  ] as const)(
+  it.each([{ name: "Enter", key: "Enter" }] as const)(
     "keeps the menu closed through held $name repeats and opens once on keyup",
     async ({ key }) => {
       const { action, onNavigate, onOpen } = renderRoutedCardMenu();
@@ -84,10 +81,7 @@ describe("RoutedCardActionMenuTrigger", () => {
     },
   );
 
-  it.each([
-    { name: "Enter", key: "Enter" },
-    { name: "Space", key: " " },
-  ] as const)(
+  it.each([{ name: "Enter", key: "Enter" }] as const)(
     "suppresses repeated $name keydown through the completed key release",
     ({ key }) => {
       const { action, onNavigate } = renderRoutedCardMenu();

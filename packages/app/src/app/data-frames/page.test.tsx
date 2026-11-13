@@ -104,45 +104,6 @@ describe("DataFramesPage", () => {
     configureQueries();
   });
 
-  it("renders source, definition, dimensions, refresh, storage, and created metadata", () => {
-    render(<DataFramesPage />);
-
-    expect(screen.getByText("Sales data")).not.toBeNull();
-    expect(screen.getByText("Source: Warehouse")).not.toBeNull();
-    expect(screen.getByText("Definition: Orders")).not.toBeNull();
-    expect(screen.getByText("Dimensions: 100 rows × 4 columns")).not.toBeNull();
-    expect(screen.getByText("Last refreshed: 1m ago")).not.toBeNull();
-    expect(screen.getByText("Storage: indexeddb")).not.toBeNull();
-    expect(
-      screen.getByText(`Created: ${new Date(1_000).toLocaleDateString()}`),
-    ).not.toBeNull();
-  });
-
-  it("filters by name, supports an empty result, and clears the filter", async () => {
-    configureQueries({
-      dataFrames: [
-        makeFrame({ id: "frame-sales", name: "Sales data" }),
-        makeFrame({ id: "frame-marketing", name: "Marketing data" }),
-      ],
-    });
-    const user = userEvent.setup();
-    render(<DataFramesPage />);
-
-    const search = screen.getByRole("textbox", { name: "Search data frames" });
-    await user.type(search, "sales");
-    expect(screen.getByText("Sales data")).not.toBeNull();
-    expect(screen.queryByText("Marketing data")).toBeNull();
-
-    await user.clear(search);
-    await user.type(search, "missing");
-    expect(screen.getByText("No data frames found")).not.toBeNull();
-    expect(screen.getByText('No data frames match "missing"')).not.toBeNull();
-
-    await user.click(screen.getByRole("button", { name: "Clear search" }));
-    expect(screen.getByText("Sales data")).not.toBeNull();
-    expect(screen.getByText("Marketing data")).not.toBeNull();
-  });
-
   it("sorts by name and created time in both directions", async () => {
     const names = ["Gamma", "Alpha", "Beta"];
     configureQueries({

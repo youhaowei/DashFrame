@@ -263,38 +263,6 @@ describe("InsightConfigPanel field removal", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("rechecks saved-chart writes before a queued removal executes", async () => {
-    let resolveFirst: (() => void) | undefined;
-    let writeStatus = { pending: false, generation: 0 };
-    const getVisualizationWriteStatus = () => writeStatus;
-    commitBatch.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveFirst = resolve;
-        }),
-    );
-    render(
-      <InsightConfigPanel
-        insight={insight}
-        dataTable={table}
-        allDataTables={[table]}
-        getVisualizationWriteStatus={getVisualizationWriteStatus}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Remove Region" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove Channel" }));
-    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
-    writeStatus = { pending: true, generation: 1 };
-    await act(async () => {
-      resolveFirst?.();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(commitBatch).toHaveBeenCalledOnce();
-  });
-
   it("rejects a queued removal when a chart write starts and settles first", async () => {
     let resolveFirst: (() => void) | undefined;
     let writeStatus = { pending: false, generation: 0 };

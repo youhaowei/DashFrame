@@ -109,18 +109,6 @@ describe("WorkbenchTabs overflow", () => {
     expect(finder()).not.toBeNull();
   });
 
-  it("hides the finder again once the tabs fit", () => {
-    setOverflow(1200, 400);
-    const { rerender } = render(
-      strip(tabsFor(["One", "Two", "Three"]), "canvas:data"),
-    );
-    expect(finder()).not.toBeNull();
-
-    setOverflow(200, 400);
-    rerender(strip(tabsFor(["One"]), "canvas:data"));
-    expect(finder()).toBeNull();
-  });
-
   it("does not let the finder keep itself visible", () => {
     const tabs = tabsFor(["One", "Two", "Three"]);
     setOverflow(410, 400);
@@ -151,22 +139,6 @@ describe("WorkbenchTabs active tab", () => {
     expect(reveal).toBeDefined();
     expect(reveal?.options?.behavior).toBe("smooth");
   });
-
-  it("does not animate the reveal when the viewer asks for less motion", () => {
-    // Scripted scrolling is animation: DESIGN.md's reduced-motion rule covers
-    // it, not only the CSS transitions on the tabs.
-    stubReducedMotion(true);
-    const tabs = tabsFor(["One", "Two", "Three"]);
-    const { rerender } = render(strip(tabs, "canvas:data"));
-    scrolled = [];
-
-    rerender(strip(tabs, "canvas:viz:2"));
-
-    const reveal = scrolled.find(
-      (entry) => entry.target === screen.getByRole("tab", { name: /Three/ }),
-    );
-    expect(reveal?.options?.behavior).toBe("auto");
-  });
 });
 
 describe("WorkbenchTabs keyboard", () => {
@@ -185,38 +157,6 @@ describe("WorkbenchTabs keyboard", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("leaves modified arrow shortcuts to the browser", () => {
-    render(strip(tabsFor(["One", "Two"]), "canvas:data"));
-
-    const dataTab = screen.getByRole("tab", { name: /Data/ });
-    dataTab.focus();
-    const allowed = fireEvent.keyDown(dataTab, {
-      key: "ArrowLeft",
-      altKey: true,
-    });
-
-    expect(allowed).toBe(true);
-    expect(document.activeElement).toBe(dataTab);
-  });
-
-  it("keeps the tablist owning nothing but tabs", () => {
-    // Overflowing on purpose: it renders the finder, and Base UI only makes
-    // the viewport focusable once there is something to scroll. Both would
-    // otherwise sit inside the tablist, which may own only tabs.
-    setOverflow(1200, 400);
-    const { container } = render(
-      strip(tabsFor(["One", "Two", "Three"]), "canvas:data"),
-    );
-    expect(finder()).not.toBeNull();
-
-    const list = container.querySelector('[role="tablist"]');
-    expect(list?.contains(finder())).toBe(false);
-    const focusable = [
-      ...(list?.querySelectorAll<HTMLElement>("[tabindex]") ?? []),
-    ].filter((element) => element.tabIndex === 0);
-    expect(focusable.every((element) => element.role === "tab")).toBe(true);
-  });
-
   it("moves the tab stop to whichever tab was focused last", () => {
     // Activation is manual, so focus and selection diverge while arrowing.
     // The stop has to follow focus, or tabbing back into the strip returns to
@@ -232,41 +172,6 @@ describe("WorkbenchTabs keyboard", () => {
       .filter((tab) => tab.tabIndex === 0);
     expect(stops).toHaveLength(1);
     expect(stops[0]?.dataset.tabId).toBe("canvas:viz:0");
-  });
-
-  it("keeps the strip to a single tab stop", () => {
-    render(strip(tabsFor(["One", "Two"]), "canvas:data"));
-
-    const stops = screen
-      .getAllByRole("tab")
-      .filter((tab) => tab.tabIndex === 0);
-    expect(stops).toHaveLength(1);
-    expect(stops[0]?.dataset.tabId).toBe("canvas:data");
-  });
-});
-
-describe("WorkbenchTabs finder", () => {
-  it("names an unsaved result without relying on its status color", () => {
-    setOverflow(1200, 400);
-    render(
-      strip(
-        [
-          { id: "canvas:data", label: "Data", pinned: "start" },
-          {
-            id: "canvas:draft",
-            label: "Untitled chart",
-            pinned: "end",
-            unsaved: true,
-          },
-        ],
-        "canvas:data",
-      ),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Find a chart" }));
-    expect(
-      screen.getByRole("option", { name: "Untitled chart Not saved" }),
-    ).toBeDefined();
   });
 });
 

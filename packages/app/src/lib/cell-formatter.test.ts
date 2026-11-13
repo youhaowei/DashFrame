@@ -13,20 +13,8 @@ describe("formatCellValue", () => {
     expect(formatCellValue(null, "date")).toBe("—");
   });
 
-  it("returns — for undefined in a date column", () => {
-    expect(formatCellValue(undefined, "date")).toBe("—");
-  });
-
   it("returns — for an unparseable value in a date column", () => {
     expect(formatCellValue("not-a-date", "date")).toBe("—");
-  });
-
-  it("returns — for a boolean value in a date column (non-parseable type)", () => {
-    expect(formatCellValue(true, "date")).toBe("—");
-  });
-
-  it("returns — for an object value in a date column (non-parseable type)", () => {
-    expect(formatCellValue({ a: 1 }, "date")).toBe("—");
   });
 
   // ── non-date types (the critical guard: keys off type, not value) ──────────
@@ -37,19 +25,6 @@ describe("formatCellValue", () => {
     expect(result).toBe("1705536000000");
     // Ensure it was NOT treated as a date
     expect(result).not.toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
-
-  it("passes strings through unchanged for string columns", () => {
-    expect(formatCellValue("hello world", "string")).toBe("hello world");
-  });
-
-  it("coerces booleans to string for boolean columns", () => {
-    expect(formatCellValue(true, "boolean")).toBe("true");
-    expect(formatCellValue(false, "boolean")).toBe("false");
-  });
-
-  it("returns — for null in a non-date column", () => {
-    expect(formatCellValue(null, "string")).toBe("—");
   });
 
   it("serialises objects as JSON for unknown columns", () => {

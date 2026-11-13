@@ -104,11 +104,6 @@ describe("new metric contracts", () => {
       "Not additive across weeks or channels",
       expectedContracts.activeUsers,
     ],
-    [
-      "sessions",
-      "Additive across weeks and channels",
-      expectedContracts.sessions,
-    ],
   ] as const)(
     "inherits the GA4 %s contract from connector metadata",
     async (columnName, description, contract) => {

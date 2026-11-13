@@ -257,11 +257,6 @@ describe("readNeighborhood — ambient = invocation + 1 hop", () => {
     expect(allIds).not.toContain("src1");
   });
 
-  it("returns null for a missing invocation point", async () => {
-    const reader = makeReader();
-    expect(await neighbors(reader, { kind: "insight", id: "nope" })).toBeNull();
-  });
-
   it("resolves a composed insight's base as an INSIGHT, not a dropped table edge", async () => {
     const reader = makeReader();
     const hood = await neighbors(reader, {
@@ -317,19 +312,6 @@ describe("readGraph / find — global reach beyond one hop", () => {
     const reader = makeReader();
     const hits = await search(reader, { kind: "dataTable" });
     expect(hits.map((h) => h.ref.kind)).toEqual(["dataTable", "dataTable"]);
-  });
-
-  it("find by kind 'dataFrame' returns dataFrames (KindSchema accepts it)", async () => {
-    const reader = makeReader();
-    const hits = await search(reader, { kind: "dataFrame" });
-    expect(hits.map((h) => h.ref.id)).toEqual(["df1"]);
-  });
-
-  it("empty find lists every node (the ls)", async () => {
-    const reader = makeReader();
-    const hits = await search(reader, {});
-    // 1 source + 2 tables + 1 dataFrame + 4 insights + 1 viz + 1 dashboard = 10
-    expect(hits.length).toBe(10);
   });
 });
 

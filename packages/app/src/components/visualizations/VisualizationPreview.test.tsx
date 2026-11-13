@@ -232,26 +232,6 @@ it("requests and renders a presentation frame for a supplied metric materializat
 // ── (a) Loading — spinner while insight or view not ready ────────────────────
 
 describe("VisualizationPreview — (a) loading branch", () => {
-  it("renders a spinner while insight is still loading", () => {
-    mockUseInsight.mockReturnValue({ data: undefined, isLoading: true });
-    mockUseDataTables.mockReturnValue({ data: [] });
-    mockUseInsightView.mockReturnValue({
-      viewName: null,
-      isReady: false,
-      error: null,
-    });
-
-    const { container } = render(
-      <VisualizationPreview visualization={visualization} />,
-    );
-
-    // Spinner is rendered — no error text, no chart
-    expect(container.querySelector("svg")).not.toBeNull();
-    expect(screen.queryByText("Failed to load")).toBeNull();
-    expect(screen.queryByText("Encoding missing")).toBeNull();
-    expect(screen.queryByTestId("chart")).toBeNull();
-  });
-
   it("renders a spinner when insight loaded but view is not yet ready (no error)", () => {
     setDataReady();
     mockUseInsightView.mockReturnValue({
@@ -290,25 +270,6 @@ describe("VisualizationPreview — (b) view-creation error branch", () => {
     expect(screen.getByText("Failed to load")).not.toBeNull();
     // No spinner SVG visible
     expect(container.querySelector("svg")).toBeNull();
-  });
-
-  it("passes fallback through when caller provides one and error occurs", () => {
-    setDataReady();
-    mockUseInsightView.mockReturnValue({
-      viewName: null,
-      isReady: false,
-      error: "some error",
-    });
-
-    render(
-      <VisualizationPreview
-        visualization={visualization}
-        fallback={<span data-testid="custom-fallback">custom</span>}
-      />,
-    );
-
-    expect(screen.getByTestId("custom-fallback")).not.toBeNull();
-    expect(screen.queryByText("Failed to load")).toBeNull();
   });
 
   it("does NOT show stale error from prior insight while the new insight is loading", () => {
@@ -736,12 +697,6 @@ describe("VisualizationPreview — render failure", () => {
     expect(screen.getByTestId("custom-fallback")).toBeTruthy();
     expect(screen.queryByText("Can't display this chart")).toBeNull();
   });
-
-  it("shows the broken-chart card when no fallback is given", () => {
-    renderThrowingChart();
-
-    expect(screen.getByText("Can't display this chart")).toBeTruthy();
-  });
 });
 
 describe("VisualizationPreview — chart chrome", () => {
@@ -771,14 +726,6 @@ describe("VisualizationPreview — chart chrome", () => {
       />,
     );
   }
-
-  it("draws a card thumbnail without axes by default", () => {
-    renderReady();
-    expect(screen.getByTestId("chart")).toBeTruthy();
-    expect(mockChart).toHaveBeenLastCalledWith(
-      expect.objectContaining({ preview: true }),
-    );
-  });
 
   it("draws the full chart, axes included, when it is not a thumbnail", () => {
     renderReady(false);

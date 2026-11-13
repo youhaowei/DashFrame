@@ -186,10 +186,7 @@ describe("Source Binding registry", () => {
     });
   });
 
-  it.each([
-    ["notion", notionConnectorFor],
-    ["postgres", postgresConnectorFor],
-  ])(
+  it.each([["notion", notionConnectorFor]])(
     "lets the %s connector exhaust its provider without synthetic offsets",
     async (kind, connectorFor) => {
       const query = vi

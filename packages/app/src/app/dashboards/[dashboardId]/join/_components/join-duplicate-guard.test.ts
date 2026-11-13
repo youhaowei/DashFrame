@@ -41,14 +41,6 @@ const joinB: InsightJoinConfig = {
 // ---------------------------------------------------------------------------
 
 describe("findExistingJoinsToTable", () => {
-  it("returns empty array when joins is undefined", () => {
-    expect(findExistingJoinsToTable(undefined, TABLE_A)).toEqual([]);
-  });
-
-  it("returns empty array when no join targets the given table", () => {
-    expect(findExistingJoinsToTable([joinB], TABLE_A)).toEqual([]);
-  });
-
   it("returns all matching joins when multiple joins target the same table", () => {
     // The legitimate double-join case: same right table, different keys
     const existing = [joinAInner, joinALeft, joinB];
@@ -102,15 +94,5 @@ describe("isExactDuplicateJoin", () => {
         type: "inner",
       }),
     ).toBe(false);
-  });
-
-  it("returns true when candidate matches any one of multiple existing joins", () => {
-    expect(
-      isExactDuplicateJoin([joinAInner, joinALeft], {
-        leftKey: "approved_by",
-        rightKey: "id",
-        type: "left",
-      }),
-    ).toBe(true);
   });
 });

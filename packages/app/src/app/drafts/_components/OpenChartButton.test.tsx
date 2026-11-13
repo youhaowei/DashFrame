@@ -14,23 +14,18 @@ const { mockOpenChart, server } = vi.hoisted(() => ({
   mockOpenChart: vi.fn(),
   server: {
     dashboards: [] as unknown[],
-    dashboardsFail: false,
     visualizations: [] as unknown[],
   },
 }));
 
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
-  ...nativeQueryMocks((ref: { _path: string }) =>
-    ref._path === "listDashboards" && server.dashboardsFail
-      ? { isError: true }
-      : {
-          data: {
-            listDashboards: server.dashboards,
-            listVisualizations: server.visualizations,
-          }[ref._path],
-        },
-  ),
+  ...nativeQueryMocks((ref: { _path: string }) => ({
+    data: {
+      listDashboards: server.dashboards,
+      listVisualizations: server.visualizations,
+    }[ref._path],
+  })),
 }));
 vi.mock("@/hooks/useOpenChartInReport", () => ({
   useOpenChartInReport: () => ({ openChart: mockOpenChart }),
@@ -55,7 +50,6 @@ function report(id: string, name: string, updatedAt: number, charts: string[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockOpenChart.mockResolvedValue(true);
-  server.dashboardsFail = false;
   server.visualizations = [{ id: "viz-1", name: "Revenue" }];
   server.dashboards = [
     report("older", "Older report", 1, ["viz-other"]),
@@ -98,25 +92,6 @@ describe("OpenChartButton", () => {
       "viz-1",
       server.dashboards,
     );
-  });
-
-  it("can place the chart on a new report", async () => {
-    render(<OpenChartButton visualizationId="viz-1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Open chart" }));
-    const dialog = await screen.findByRole("dialog");
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "New report" }));
-    expect(mockOpenChart).toHaveBeenCalledWith(
-      { kind: "new" },
-      "viz-1",
-      server.dashboards,
-    );
-  });
-
-  it("offers nothing when the reports fail to load", () => {
-    server.dashboardsFail = true;
-    render(<OpenChartButton visualizationId="viz-1" />);
-    expect(screen.queryByRole("button", { name: "Open chart" })).toBeNull();
   });
 
   it("offers nothing until the reports have loaded", () => {

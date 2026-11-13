@@ -166,14 +166,6 @@ class PostHogEventQueue {
   getQueue(): QueuedEvent[] {
     return [...this.queue];
   }
-
-  /**
-   * Reset the queue state. Primarily useful for testing.
-   */
-  reset(): void {
-    this.queue = [];
-    this.flushed = false;
-  }
 }
 
 // Singleton instance for the application
@@ -182,21 +174,11 @@ let eventQueueInstance: PostHogEventQueue | null = null;
 /**
  * Get the singleton PostHog event queue instance.
  */
-export function getEventQueue(): PostHogEventQueue {
+function getEventQueue(): PostHogEventQueue {
   if (!eventQueueInstance) {
     eventQueueInstance = new PostHogEventQueue();
   }
   return eventQueueInstance;
-}
-
-/**
- * Reset the event queue instance. Primarily useful for testing.
- */
-export function resetEventQueue(): void {
-  if (eventQueueInstance) {
-    eventQueueInstance.reset();
-  }
-  eventQueueInstance = null;
 }
 
 /**

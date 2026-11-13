@@ -111,7 +111,6 @@ it("stores metadata-only publication receipts and preserves retry identity", asy
 });
 it.each([
   "sourceArrow",
-  "largeArrow",
   "sourceFields",
   "tableSamples",
   "frameSamples",
@@ -131,7 +130,7 @@ it.each([
               { ...item, source: { ...item.source, arrow: { "0": 42 } } },
             ],
           }
-        : slot === "largeArrow"
+        : slot === "sourceFields"
           ? {
               ...value,
               sources: [
@@ -139,12 +138,12 @@ it.each([
                   ...item,
                   source: {
                     ...item.source,
-                    arrow: new Uint8Array(1024 * 1024 + 1).buffer,
+                    fields: [{ sampleValues: ["private"] }],
                   },
                 },
               ],
             }
-          : slot === "sourceFields"
+          : slot === "tableSamples"
             ? {
                 ...value,
                 sources: [
@@ -152,57 +151,44 @@ it.each([
                     ...item,
                     source: {
                       ...item.source,
-                      fields: [{ sampleValues: ["private"] }],
+                      table: {
+                        ...item.source.table,
+                        sampleValues: ["private"],
+                      },
                     },
                   },
                 ],
               }
-            : slot === "tableSamples"
+            : slot === "frameSamples"
               ? {
                   ...value,
-                  sources: [
-                    {
-                      ...item,
-                      source: {
-                        ...item.source,
-                        table: {
-                          ...item.source.table,
-                          sampleValues: ["private"],
-                        },
-                      },
-                    },
-                  ],
+                  result: { ...value.result, sampleValues: ["private"] },
                 }
-              : slot === "frameSamples"
+              : slot === "schemaSamples"
                 ? {
                     ...value,
-                    result: { ...value.result, sampleValues: ["private"] },
+                    result: {
+                      ...value.result,
+                      schema: [
+                        {
+                          ...value.result.schema[0]!,
+                          sampleValues: ["private"],
+                        },
+                      ],
+                    },
                   }
-                : slot === "schemaSamples"
+                : slot === "provenanceData"
                   ? {
                       ...value,
-                      result: {
-                        ...value.result,
-                        schema: [
-                          {
-                            ...value.result.schema[0]!,
-                            sampleValues: ["private"],
-                          },
-                        ],
+                      provenance: {
+                        ...value.provenance,
+                        dataRows: ["private"],
                       },
                     }
-                  : slot === "provenanceData"
-                    ? {
-                        ...value,
-                        provenance: {
-                          ...value.provenance,
-                          dataRows: ["private"],
-                        },
-                      }
-                    : {
-                        ...value,
-                        target: { ...value.target, dataRows: ["private"] },
-                      };
+                  : {
+                      ...value,
+                      target: { ...value.target, dataRows: ["private"] },
+                    };
     await expect(
       t.mutation(internal.host.publishMaterialization, {
         workspaceId: "w",

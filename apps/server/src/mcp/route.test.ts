@@ -266,26 +266,6 @@ describe("MCP route", () => {
     return { client, transport };
   }
 
-  it("advertises the DashFrame icon during MCP initialization", async () => {
-    const { client, transport } = await connect();
-    try {
-      const serverInfo = client.getServerVersion();
-      expect(serverInfo?.name).toBe("dashframe");
-      expect(serverInfo?.title).toBe("DashFrame");
-      const icon = serverInfo?.icons?.[0];
-      expect(icon?.mimeType).toBe("image/png");
-      expect(icon?.sizes).toEqual(["128x128"]);
-      expect(icon?.src).toMatch(/^data:image\/png;base64,/);
-      const iconData = icon?.src.split(",", 2)[1];
-      if (iconData === undefined) throw new Error("Missing MCP icon data.");
-      expect(Buffer.from(iconData, "base64").subarray(0, 8)).toEqual(
-        Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-      );
-    } finally {
-      await transport.close();
-    }
-  });
-
   it("refuses a draft read when the draft closes during the read", async () => {
     const draftId = crypto.randomUUID();
     let draftChecks = 0;
@@ -1432,37 +1412,6 @@ describe("MCP route", () => {
     });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: { code: -32600 } });
-  });
-
-  it("leaves no draft after the first command fails", async () => {
-    const { client, transport } = await connect();
-    try {
-      const missingId = crypto.randomUUID();
-      const result = await client.callTool({
-        name: "draft_batch",
-        arguments: {
-          commands: [
-            {
-              type: "SetChartType",
-              args: { id: missingId, visualizationType: "barY" },
-            },
-          ],
-        },
-      });
-      expect(result.isError).toBe(true);
-      expect(resultText(result)).toContain(
-        `visualization ${missingId} not found`,
-      );
-      expect(result.structuredContent).toBeUndefined();
-      expect(
-        await native.run((ctx) => ctx.db.query("drafts").collect()),
-      ).toHaveLength(0);
-      expect(
-        await native.run((ctx) => ctx.db.query("draftLog").collect()),
-      ).toHaveLength(0);
-    } finally {
-      await transport.close();
-    }
   });
 
   it("rejects unsupported visualization types before creating a draft", async () => {

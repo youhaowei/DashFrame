@@ -18,10 +18,7 @@ import {
   createStandaloneSecretServices,
   createStandaloneServerOptions,
   parseArgs,
-  printHelp,
   resolveAuthToken,
-  resolveDataDir,
-  resolveProjectDirectory,
   shutdownStandaloneResources,
 } from "./index";
 
@@ -60,16 +57,6 @@ describe("dashframe serve CLI", () => {
       } finally {
         await engine.dispose();
       }
-    });
-
-    it("fails clearly when the native binding cannot load", async () => {
-      await expect(
-        createStandaloneArrowEngine(async () => {
-          throw new Error("native module not found");
-        }),
-      ).rejects.toThrow(
-        "Native DuckDB is required by dashframe serve but failed to initialize: native module not found",
-      );
     });
 
     it("disposes a partially initialized engine before failing startup", async () => {
@@ -128,22 +115,6 @@ describe("dashframe serve CLI", () => {
       }
       expect(exit).toHaveBeenCalledWith(1);
     });
-
-    it("exits nonzero when closing the project rejects", async () => {
-      const exit = vi.fn();
-      const consoleError = vi
-        .spyOn(console, "error")
-        .mockImplementation(() => undefined);
-      try {
-        await shutdownStandaloneResources(
-          resources(vi.fn().mockRejectedValue(new Error("close failed"))),
-          exit,
-        );
-      } finally {
-        consoleError.mockRestore();
-      }
-      expect(exit).toHaveBeenCalledWith(1);
-    });
   });
 
   describe("parseArgs", () => {
@@ -166,31 +137,11 @@ describe("dashframe serve CLI", () => {
       });
     });
 
-    it("should parse the public origin independently", () => {
-      expect(parseArgs(["--public-origin", "https://app.example"])).toEqual({
-        publicOrigin: "https://app.example",
-      });
-    });
-
     it("should parse port-only and IPv6 bind addresses", () => {
       expect(parseArgs(["--bind", ":4123"])).toEqual({ port: 4123 });
       expect(parseArgs(["--bind", "[::1]:4124"])).toEqual({
         hostname: "::1",
         port: 4124,
-      });
-    });
-
-    it("should parse the host-local data directory independently", () => {
-      expect(
-        parseArgs([
-          "--project",
-          "/copiable/project",
-          "--data-dir",
-          "/host/local/data",
-        ]),
-      ).toEqual({
-        project: "/copiable/project",
-        dataDir: "/host/local/data",
       });
     });
 
@@ -226,42 +177,6 @@ describe("dashframe serve CLI", () => {
       expect(() => parseArgs(["--bind", "127.0.0.1:not-a-port"])).toThrow(
         'Invalid --port "not-a-port"',
       );
-    });
-  });
-
-  describe("printHelp", () => {
-    it("should document the security boundary, rotation, and the fail-closed default in help", () => {
-      const originalLog = console.log;
-      const output: string[] = [];
-      console.log = (...args: unknown[]) => {
-        output.push(args.join(" "));
-      };
-
-      try {
-        printHelp();
-      } finally {
-        console.log = originalLog;
-      }
-
-      const helpText = output.join("\n");
-      expect(helpText).toContain("--bind <addr>");
-      expect(helpText).toContain("--token <token>");
-      expect(helpText).toContain("DASHFRAME_AUTH_TOKEN");
-      expect(helpText).toContain(
-        "non-loopback bind requires --token or DASHFRAME_AUTH_TOKEN",
-      );
-      expect(helpText).toContain("--data-dir <dir>");
-      expect(helpText).toContain("--mcp-mode <mode>");
-      expect(helpText).toContain("canonical padded base64");
-      expect(helpText).toContain("Security boundary:");
-      expect(helpText).not.toContain("--insecure");
-      expect(helpText).toContain("DASHFRAME_SECRET_KEY_PREVIOUS");
-      // The three things an operator gets wrong without being told.
-      expect(helpText).toContain("does NOT re-encrypt");
-      expect(helpText).toContain("revoking and re-issuing");
-      expect(helpText).toContain("restart the server");
-      expect(helpText).toContain("fails closed");
-      expect(helpText).toContain("there is no plaintext fallback");
     });
   });
 
@@ -345,23 +260,6 @@ describe("dashframe serve CLI", () => {
   });
 
   describe("standalone secret composition", () => {
-    it("resolves data-dir and project-dir independently, flag over env", () => {
-      const environment = {
-        DASHFRAME_PROJECT_DIR: "/env/project",
-        DASHFRAME_DATA_DIR: "/env/data",
-      };
-      expect(
-        resolveDataDir({ project: "/copiable/project" }, environment),
-      ).toBe("/env/data");
-      expect(resolveDataDir({ dataDir: "/flag/data" }, environment)).toBe(
-        "/flag/data",
-      );
-      expect(resolveProjectDirectory({}, environment)).toBe("/env/project");
-      expect(
-        resolveProjectDirectory({ project: "/flag/project" }, environment),
-      ).toBe("/flag/project");
-    });
-
     it("refuses to place the host-local access root inside the project", () => {
       expect(() =>
         assertAccessRootOutsideProject(

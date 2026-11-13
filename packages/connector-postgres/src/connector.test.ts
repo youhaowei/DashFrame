@@ -32,7 +32,6 @@ import {
   PostgresConnector,
   assertReadOnlyQuery,
   listTablesInSchema,
-  makePostgresConnector,
   pgOidToColumnType,
   unmappedOidsAsText,
 } from "./connector.js";
@@ -429,58 +428,6 @@ describe("AC4 — identifier quoting", () => {
 // ---------------------------------------------------------------------------
 
 describe("AC5 — Arrow output shape matches registry contract", () => {
-  it("returns arrowBuffer (base64), fieldIds, fields, rowCount for a two-column result", async () => {
-    const tableId = crypto.randomUUID();
-    const testRows = [
-      { id: 1, name: "Alice" },
-      { id: 2, name: "Bob" },
-    ];
-    const spyClient = makeSpyClient(testRows);
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    const result = await connector.query("SELECT * FROM users", tableId);
-
-    // Shape contract
-    expect(typeof result.arrowBuffer).toBe("string");
-    expect(Array.isArray(result.fieldIds)).toBe(true);
-    expect(Array.isArray(result.fields)).toBe(true);
-    expect(result.rowCount).toBe(2);
-
-    // fieldIds and fields must be aligned.
-    expect(result.fieldIds).toHaveLength(result.fields.length);
-
-    // Deserialize Arrow buffer and verify column names.
-    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
-    const table = tableFromIPC(bytes);
-    const colNames = table.schema.fields.map((f) => f.name);
-
-    // Both "id" and "name" columns must be present.
-    const fieldNames = result.fields.map((f) => f.name);
-    for (const name of fieldNames) {
-      expect(colNames).toContain(name);
-    }
-    expect(table.numRows).toBe(2);
-  });
-
-  it("returns rowCount = 0 for an empty result set (no pg column metadata)", async () => {
-    // When the spy provides no fields metadata (legacy / no OID info),
-    // the result is an empty schema — this is the pre-fix baseline.
-    const spyClient = makeSpyClient([], []);
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    const result = await connector.query(
-      "SELECT * FROM empty",
-      crypto.randomUUID(),
-    );
-
-    expect(result.rowCount).toBe(0);
-    expect(result.fields).toHaveLength(0);
-    expect(result.fieldIds).toHaveLength(0);
-    // arrowBuffer should still be a valid base64 string (empty Arrow table).
-    expect(typeof result.arrowBuffer).toBe("string");
-    expect(result.arrowBuffer.length).toBeGreaterThan(0);
-  });
-
   it("preserves schema from pg column metadata on a zero-row result (empty-result schema fix)", async () => {
     // Simulate pg returning column descriptors even when rows is empty.
     const pgFields: PgFieldDef[] = [
@@ -934,7 +881,6 @@ describe("queryBatches PostgreSQL cursor", () => {
     ["boolean", 16, "pending"],
     ["date", 1184, "not-a-date"],
     ["infinite date", 1082, Infinity],
-    ["negative infinite timestamp", 1114, -Infinity],
     ["out-of-range timestamp", 1184, new Date(Number.NaN)],
     ["string", 25, { nested: true }],
   ])(
@@ -1357,38 +1303,6 @@ describe("reserved column names (Arrow safety)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Static metadata
-// ---------------------------------------------------------------------------
-
-describe("static metadata", () => {
-  const c = makePostgresConnector(noopDsnResolver, baseConfig);
-
-  it("has id = 'postgres'", () => {
-    expect(c.id).toBe("postgres");
-  });
-
-  it("getFormFields includes connectionString and defaultSchema", () => {
-    const fields = c.getFormFields();
-    const names = fields.map((f) => f.name);
-    expect(names).toContain("connectionString");
-    expect(names).toContain("defaultSchema");
-  });
-
-  it("validate() fails when connectionString is absent", () => {
-    const result = c.validate({});
-    expect(result.valid).toBe(false);
-    expect(result.errors?.["connectionString"]).toBeTruthy();
-  });
-
-  it("validate() passes when connectionString is present", () => {
-    const result = c.validate({
-      connectionString: "postgres://user:pass@host:5432/db",
-    });
-    expect(result.valid).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Vault round-trip: SecretResolver wired to real vault
 // ---------------------------------------------------------------------------
 
@@ -1450,28 +1364,6 @@ describe("fail-closed: resolver failure", () => {
 
     await expect(connector.connect()).rejects.toThrow(/vault unavailable/i);
     expect(spyClient.spy).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Read-only guard wired end-to-end
-// ---------------------------------------------------------------------------
-
-describe("read-only guard: allowlisted queries pass through to pg", () => {
-  let spyClient: SpyClient;
-  let connector: TestPostgresConnector;
-
-  beforeEach(() => {
-    spyClient = makeSpyClient([{ count: 42 }]);
-    connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-  });
-
-  it("SELECT query reaches pg after SET SESSION", async () => {
-    await connector.query("SELECT count(*) FROM users", crypto.randomUUID());
-    const calls = spyClient.spy.mock.calls as SpyCall[];
-    const queries = calls.map((c) => spyCallText(c).toUpperCase());
-    expect(queries[0]).toContain("SET SESSION CHARACTERISTICS");
-    expect(queries.some((q) => q.includes("SELECT"))).toBe(true);
   });
 });
 

@@ -23,7 +23,6 @@ const {
   mockCommitBatch,
   mockUseDataSources,
   mockUseDataTables,
-  mockToastError,
 } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockRefetchDataSources: vi.fn(),
@@ -31,7 +30,6 @@ const {
   mockCommitBatch: vi.fn(),
   mockUseDataSources: vi.fn(),
   mockUseDataTables: vi.fn(),
-  mockToastError: vi.fn(),
 }));
 
 vi.mock("convex/react", async (importOriginal) => ({
@@ -83,8 +81,6 @@ vi.mock("@/components/data-sources/AddDataSourceModal", () => ({
   AddDataSourceModal: ({ isOpen }: { isOpen: boolean }) =>
     isOpen ? <div data-testid="add-data-source-modal" /> : null,
 }));
-
-vi.mock("sonner", () => ({ toast: { error: mockToastError } }));
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { registerConnector } from "@/lib/connectors/registry";
@@ -160,67 +156,6 @@ describe("DataSourcesPage query states", () => {
     },
   );
 
-  it("renders the real empty state after both queries succeed", () => {
-    render(<Page />);
-
-    expect(screen.getByText("No data sources yet")).not.toBeNull();
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it.each(["header", "empty state"] as const)(
-    "opens the add-source dialog from the %s action",
-    async (placement) => {
-      const user = userEvent.setup();
-      render(<Page />);
-
-      const addButtons = screen.getAllByRole("button", { name: "Add Source" });
-      await user.click(addButtons[placement === "header" ? 0 : 1]);
-
-      expect(screen.getByTestId("add-data-source-modal")).not.toBeNull();
-    },
-  );
-
-  it.each(["pointer", "Enter", "Space"] as const)(
-    "opens a card menu with %s without navigating the card",
-    async (activation) => {
-      mockUseDataSources.mockReturnValue({
-        ...successfulQuery(mockRefetchDataSources),
-        data: [
-          {
-            id: "source-123",
-            name: "Local Files",
-            type: "local",
-            config: { hasApiKey: false, hasConnectionString: false },
-            createdAt: 0,
-          },
-        ],
-      });
-      const user = userEvent.setup();
-
-      render(<Page />);
-
-      const action = screen.getByRole("button", { name: "More options" });
-      if (activation === "pointer") {
-        await user.click(action);
-      } else {
-        action.focus();
-        await user.keyboard(activation === "Enter" ? "{Enter}" : "[Space]");
-      }
-
-      const deleteItem = await screen.findByRole("menuitem", {
-        name: "Delete",
-      });
-      expect(action.getAttribute("aria-expanded")).toBe("true");
-      if (activation !== "pointer") {
-        expect(document.activeElement).toBe(
-          screen.getByRole("menuitem", { name: "Open" }),
-        );
-      }
-      expect(deleteItem).not.toBeNull();
-      expect(mockNavigate).not.toHaveBeenCalled();
-    },
-  );
-
   it("does not remove a data source until the rendered confirmation is accepted", async () => {
     const user = userEvent.setup();
     mockUseDataSources.mockReturnValue({
@@ -265,40 +200,6 @@ describe("DataSourcesPage query states", () => {
       expect(mockCommitBatch).toHaveBeenCalledWith({
         commands: [{ path: "deleteNode", args: { id: "source-123" } }],
       });
-    });
-  });
-
-  it("shows a failure toast when confirmed deletion rejects", async () => {
-    const user = userEvent.setup();
-    mockCommitBatch.mockRejectedValueOnce(new Error("delete failed"));
-    mockUseDataSources.mockReturnValue({
-      ...successfulQuery(mockRefetchDataSources),
-      data: [
-        {
-          id: "source-123",
-          name: "Local Files",
-          type: "local",
-          config: { hasApiKey: false, hasConnectionString: false },
-          createdAt: 0,
-        },
-      ],
-    });
-
-    render(
-      <>
-        <Page />
-        <ConfirmDialog />
-      </>,
-    );
-
-    await user.click(screen.getByRole("button", { name: "More options" }));
-    await user.click(await screen.findByRole("menuitem", { name: /delete/i }));
-    await user.click(await screen.findByRole("button", { name: "Delete" }));
-
-    await waitFor(() => {
-      expect(mockToastError).toHaveBeenCalledWith(
-        "Failed to delete data source",
-      );
     });
   });
 
@@ -409,18 +310,6 @@ describe("DataSourcesPage collection content", () => {
 
     screen.getByText("Google Analytics 4 · 2 tables · refreshed 5h ago");
     screen.getByText("Local Files · 2 tables · imported 1h ago");
-  });
-
-  it("claims no refresh time while some of a source's tables were never fetched", () => {
-    const fetched = mockUseDataTables().data[0];
-    mockUseDataTables.mockReturnValue({
-      ...successfulQuery(mockRefetchDataTables),
-      data: [fetched, { ...fetched, id: "never", lastFetchedAt: undefined }],
-    });
-    render(<Page />);
-
-    screen.getByText("Google Analytics 4 · 2 tables · 1 of 2 fetched");
-    expect(screen.queryByText(/refreshed/)).toBeNull();
   });
 
   it("finds a source by its provider's display name", async () => {

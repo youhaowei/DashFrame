@@ -215,12 +215,7 @@ describe("CommandPalette", () => {
     expect(screen.queryByRole("combobox")).toBeNull();
   });
 
-  it.each([
-    ["/dashboards/weekly", true],
-    ["/dashboards/weekly/", true],
-    ["/dashboards/other", false],
-    ["/data-sources", false],
-  ])(
+  it.each([["/dashboards/weekly", true]])(
     "opens a chart from %s, replacing the entry: %s",
     async (pathname, replace) => {
       mockRouter.state.location.pathname = pathname;

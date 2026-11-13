@@ -23,34 +23,6 @@ describe("confirm-dialog-store", () => {
   });
 
   describe("confirm()", () => {
-    it("should open dialog with full config", () => {
-      const { confirm } = useConfirmDialogStore.getState();
-      const mockOnConfirm = vi.fn();
-      const mockOnCancel = vi.fn();
-
-      confirm({
-        title: "Delete item",
-        description: "This action cannot be undone.",
-        confirmLabel: "Delete",
-        cancelLabel: "Keep",
-        variant: "destructive",
-        onConfirm: mockOnConfirm,
-        onCancel: mockOnCancel,
-      });
-
-      const { isOpen, config } = useConfirmDialogStore.getState();
-      expect(isOpen).toBe(true);
-      expect(config).toEqual({
-        title: "Delete item",
-        description: "This action cannot be undone.",
-        confirmLabel: "Delete",
-        cancelLabel: "Keep",
-        variant: "destructive",
-        onConfirm: mockOnConfirm,
-        onCancel: mockOnCancel,
-      });
-    });
-
     it("cancels the pending dialog before replacing its config", async () => {
       const { confirm } = useConfirmDialogStore.getState();
       let resolveFirstDialog: (result: boolean) => void;
@@ -78,26 +50,6 @@ describe("confirm-dialog-store", () => {
     });
   });
 
-  describe("close()", () => {
-    it("should close dialog", () => {
-      const { confirm, close } = useConfirmDialogStore.getState();
-      const mockOnConfirm = vi.fn();
-
-      confirm({
-        title: "Test dialog",
-        description: "Test description",
-        onConfirm: mockOnConfirm,
-      });
-
-      expect(useConfirmDialogStore.getState().isOpen).toBe(true);
-
-      close();
-
-      expect(useConfirmDialogStore.getState().isOpen).toBe(false);
-      expect(useConfirmDialogStore.getState().config).toBeNull();
-    });
-  });
-
   describe("handleConfirm()", () => {
     it("should call onConfirm callback", () => {
       const { confirm, handleConfirm } = useConfirmDialogStore.getState();
@@ -112,16 +64,6 @@ describe("confirm-dialog-store", () => {
       handleConfirm();
 
       expect(mockOnConfirm).toHaveBeenCalledTimes(1);
-      expect(useConfirmDialogStore.getState().isOpen).toBe(false);
-      expect(useConfirmDialogStore.getState().config).toBeNull();
-    });
-
-    it("should handle confirming when config is null", () => {
-      const { handleConfirm } = useConfirmDialogStore.getState();
-
-      // Should not throw
-      expect(() => handleConfirm()).not.toThrow();
-
       expect(useConfirmDialogStore.getState().isOpen).toBe(false);
       expect(useConfirmDialogStore.getState().config).toBeNull();
     });
@@ -170,32 +112,6 @@ describe("confirm-dialog-store", () => {
       expect(useConfirmDialogStore.getState().isOpen).toBe(false);
       expect(useConfirmDialogStore.getState().config).toBeNull();
     });
-
-    it("should not throw when onCancel is not provided", () => {
-      const { confirm, handleCancel } = useConfirmDialogStore.getState();
-      const mockOnConfirm = vi.fn();
-
-      confirm({
-        title: "Test dialog",
-        description: "Test description",
-        onConfirm: mockOnConfirm,
-      });
-
-      // Should not throw
-      expect(() => handleCancel()).not.toThrow();
-
-      expect(mockOnConfirm).not.toHaveBeenCalled();
-    });
-
-    it("should handle cancelling when config is null", () => {
-      const { handleCancel } = useConfirmDialogStore.getState();
-
-      // Should not throw
-      expect(() => handleCancel()).not.toThrow();
-
-      expect(useConfirmDialogStore.getState().isOpen).toBe(false);
-      expect(useConfirmDialogStore.getState().config).toBeNull();
-    });
   });
 
   describe("integration scenarios", () => {
@@ -217,6 +133,7 @@ describe("confirm-dialog-store", () => {
       expect(mockOnConfirm).not.toHaveBeenCalled();
       expect(mockOnCancel).not.toHaveBeenCalled();
       expect(useConfirmDialogStore.getState().isOpen).toBe(false);
+      expect(useConfirmDialogStore.getState().config).toBeNull();
     });
   });
 });

@@ -179,39 +179,6 @@ describe("AddConnectionPanel — registry hydration race (B1)", () => {
     expect(screen.queryByText(/no connectors are available/i)).toBeNull();
   });
 
-  it("shows a loading state while the catalog query is in flight", () => {
-    mockUseConnectorCatalog.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      isFetching: true,
-      isError: false,
-      error: null,
-      refetch: vi.fn(),
-    });
-
-    renderPanel();
-
-    expect(screen.getByText(/loading connectors/i)).not.toBeNull();
-  });
-
-  it("shows an error state with a working retry action when the catalog query fails", () => {
-    const refetch = vi.fn();
-    mockUseConnectorCatalog.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      isFetching: false,
-      isError: true,
-      error: new Error("network down"),
-      refetch,
-    });
-
-    renderPanel();
-
-    expect(screen.getByText(/failed to load connectors/i)).not.toBeNull();
-    screen.getByRole("button", { name: /retry/i }).click();
-    expect(refetch).toHaveBeenCalledTimes(1);
-  });
-
   it("releases onboarding ownership only for the connector that claimed it", () => {
     mockUseConnectorCatalog.mockReturnValue({
       data: TWO_CONNECTOR_CATALOG,

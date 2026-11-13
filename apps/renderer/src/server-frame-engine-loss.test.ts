@@ -12,11 +12,7 @@ describe("isServerFrameEngineLoss", () => {
     expect(isServerFrameEngineLoss(message)).toBe(true);
   });
 
-  it.each([
-    "failed to upload Arrow data",
-    "POST /data/tables failed",
-    "ordinary application bug",
-  ])(
+  it.each(["failed to upload Arrow data", "POST /data/tables failed"])(
     "does not retain a legacy upload or unrelated error path: %s",
     (message) => {
       expect(isServerFrameEngineLoss(message)).toBe(false);

@@ -175,20 +175,6 @@ export function getConnectorById(id: string): AnyConnector | undefined {
 }
 
 /**
- * Check whether a connector id has been registered.
- */
-export function hasConnector(id: string): boolean {
-  return connectorMap.has(id);
-}
-
-/**
- * Get all registered connector ids, in insertion order.
- */
-export function getConnectorIds(): string[] {
-  return Array.from(connectorMap.keys());
-}
-
-/**
  * Get all registered file source connectors.
  */
 export function getFileConnectors(

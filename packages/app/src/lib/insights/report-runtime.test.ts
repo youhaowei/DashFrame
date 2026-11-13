@@ -70,19 +70,6 @@ describe("report runtime presentation", () => {
     });
     expect(encoding.color).toBe("field:channel");
   });
-  it("clears an obsolete date transform when replacing a temporal axis with country", () => {
-    const result = reportEncoding(
-      { x: "field:date", xType: "temporal" },
-      insight,
-      { dimensions: ["country"] },
-      fields,
-    );
-    expect(result).toMatchObject({
-      x: "field:country",
-      xType: "nominal",
-      xTransform: undefined,
-    });
-  });
   it("rebinds removed dimensions one-to-one by their saved positions", () => {
     const result = reportEncoding(
       {

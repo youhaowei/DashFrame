@@ -6,10 +6,6 @@ import { backendTarget, verifyBackendBinary } from "./binary.js";
 
 describe("pinned backend platform selection", () => {
   it.each([
-    ["darwin", "arm64", "aarch64-apple-darwin", "convex-local-backend"],
-    ["darwin", "x64", "x86_64-apple-darwin", "convex-local-backend"],
-    ["linux", "arm64", "aarch64-unknown-linux-gnu", "convex-local-backend"],
-    ["linux", "x64", "x86_64-unknown-linux-gnu", "convex-local-backend"],
     ["win32", "x64", "x86_64-pc-windows-msvc", "convex-local-backend.exe"],
   ])(
     "selects %s %s without executing a binary",

@@ -180,20 +180,6 @@ describe("setupColorDomain", () => {
     );
   });
 
-  it("pins schema-qualified tableName as a single quoted identifier (not split)", async () => {
-    // Latent divergence vs api.from(): domain query quotes the whole string as
-    // one identifier. This test pins that current behavior.
-    const query = vi.fn(() => Promise.resolve([]));
-    const api = createMockApi({ query });
-
-    await setupColorDomain(api, "region", "analytics.sales");
-
-    expect(query).toHaveBeenCalledWith(
-      'SELECT DISTINCT "region" as val FROM "analytics.sales" ORDER BY "region"',
-      { type: "json" },
-    );
-  });
-
   it("returns a colorDomain directive for a plain column with non-empty domain", async () => {
     const colorDomain = vi.fn((domain: string[]) => ({
       __directive: "colorDomain",

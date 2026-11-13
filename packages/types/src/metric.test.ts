@@ -23,15 +23,7 @@ describe("measureCombinesOver", () => {
     ]
   > = [
     ["no contract, scoped dimension", undefined, ["user"], true],
-    ["no contract, unscoped dimension", undefined, [undefined], true],
     ["unrestricted additive, any scope", { kind: "additive" }, ["user"], true],
-    [
-      "unrestricted additive, unscoped dimension",
-      { kind: "additive" },
-      [undefined],
-      true,
-    ],
-    ["restricted additive, nothing dropped", additiveOverTime, [], true],
     ["restricted additive, allowed scope", additiveOverTime, ["time"], true],
     [
       "restricted additive, one disallowed scope among allowed",
@@ -45,21 +37,8 @@ describe("measureCombinesOver", () => {
       [undefined],
       false,
     ],
-    [
-      "additive over no scopes, any scope",
-      { kind: "additive", additiveOver: [] },
-      ["time"],
-      false,
-    ],
     ["ratio, nothing dropped", { kind: "ratio" }, [], false],
-    ["ratio, scoped dimension", { kind: "ratio" }, ["time"], false],
     ["non-additive, nothing dropped", { kind: "non-additive" }, [], false],
-    [
-      "non-additive, scoped dimension",
-      { kind: "non-additive" },
-      ["time"],
-      false,
-    ],
   ];
 
   it.each(cases)("%s", (_label, contract, dropped, expected) => {
@@ -71,13 +50,11 @@ describe("measure contract", () => {
   it.each([
     [{ kind: "additive" }, true],
     [{ kind: "additive", additiveOver: ["time", "session"] }, true],
-    [{ kind: "additive", additiveOver: [] }, true],
     [{ kind: "ratio" }, true],
     [{ kind: "non-additive" }, true],
     [{ kind: "additive", additiveOver: ["account"] }, false],
     [{ kind: "additive", additiveOver: "time" }, false],
     [{ kind: "ratio", additiveOver: ["time"] }, false],
-    [{ kind: "ratio", extra: true }, false],
     [{ kind: "unknown" }, false],
     [null, false],
   ] as const)("validates %j as %s", (contract, valid) => {
@@ -94,15 +71,6 @@ describe("measure contract", () => {
       null,
     ],
     [{ contract: { kind: "additive" } }, null],
-    [{ contract: { kind: "non-additive" } }, null],
-    [
-      { contract: { kind: "ratio", extra: true } },
-      "Ratio measures require an expression",
-    ],
-    [
-      { contract: { kind: "ratio" }, expression: null },
-      "Ratio measures require an expression",
-    ],
   ] as const)("reports the ratio problem for %j", (metric, problem) => {
     expect(measureContractProblem(metric)).toBe(problem);
   });

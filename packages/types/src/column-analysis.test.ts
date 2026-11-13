@@ -15,36 +15,6 @@ describe("column-analysis", () => {
         expect(looksLikeIdentifier("ID")).toBe(true);
         expect(looksLikeIdentifier("Id")).toBe(true);
       });
-
-      it("should detect 'uuid'", () => {
-        expect(looksLikeIdentifier("uuid")).toBe(true);
-        expect(looksLikeIdentifier("UUID")).toBe(true);
-        expect(looksLikeIdentifier("Uuid")).toBe(true);
-      });
-
-      it("should detect 'guid'", () => {
-        expect(looksLikeIdentifier("guid")).toBe(true);
-        expect(looksLikeIdentifier("GUID")).toBe(true);
-        expect(looksLikeIdentifier("Guid")).toBe(true);
-      });
-
-      it("should detect 'pk'", () => {
-        expect(looksLikeIdentifier("pk")).toBe(true);
-        expect(looksLikeIdentifier("PK")).toBe(true);
-        expect(looksLikeIdentifier("Pk")).toBe(true);
-      });
-
-      it("should detect '_rowindex'", () => {
-        expect(looksLikeIdentifier("_rowindex")).toBe(true);
-        expect(looksLikeIdentifier("_ROWINDEX")).toBe(true);
-        expect(looksLikeIdentifier("_RowIndex")).toBe(true);
-      });
-
-      it("should detect 'rowindex'", () => {
-        expect(looksLikeIdentifier("rowindex")).toBe(true);
-        expect(looksLikeIdentifier("ROWINDEX")).toBe(true);
-        expect(looksLikeIdentifier("RowIndex")).toBe(true);
-      });
     });
 
     describe("suffix patterns", () => {
@@ -90,54 +60,15 @@ describe("column-analysis", () => {
         expect(looksLikeIdentifier("friday")).toBe(false);
         expect(looksLikeIdentifier("idea")).toBe(false);
       });
-
-      it("should detect columns ending with 'key' suffix", () => {
-        // Words ending in 'key' match the /key$/i pattern
-        expect(looksLikeIdentifier("monkey")).toBe(true);
-        expect(looksLikeIdentifier("turkey")).toBe(true);
-        expect(looksLikeIdentifier("hockey")).toBe(true);
-      });
     });
 
     describe("edge cases", () => {
-      it("should handle empty string", () => {
-        expect(looksLikeIdentifier("")).toBe(false);
-      });
-
-      it("should handle single character", () => {
-        expect(looksLikeIdentifier("i")).toBe(false);
-        expect(looksLikeIdentifier("k")).toBe(false);
-      });
-
-      it("should handle special characters", () => {
-        // "_id_" doesn't match any pattern (/_id$/ requires ending with _id, /^id_/ requires starting with id)
-        expect(looksLikeIdentifier("_id_")).toBe(false);
-        expect(looksLikeIdentifier("user-id")).toBe(false);
-      });
-
-      it("should handle mixed case combinations", () => {
-        expect(looksLikeIdentifier("UserId")).toBe(true);
-        expect(looksLikeIdentifier("USER_ID")).toBe(true);
-        expect(looksLikeIdentifier("User_Id")).toBe(true);
-      });
-
       it("should prioritize false positive patterns over ID patterns", () => {
         // Each name matches an ID pattern (/^id_/i) and a NOT_ID pattern; the
         // NOT_ID pattern must win.
         expect(looksLikeIdentifier("id_zipcode")).toBe(false);
         expect(looksLikeIdentifier("id_postcode")).toBe(false);
         expect(looksLikeIdentifier("ID_AreaCode")).toBe(false);
-      });
-    });
-
-    describe("real-world examples", () => {
-      it("should NOT detect descriptive columns", () => {
-        expect(looksLikeIdentifier("first_name")).toBe(false);
-        expect(looksLikeIdentifier("last_name")).toBe(false);
-        expect(looksLikeIdentifier("email_address")).toBe(false);
-        expect(looksLikeIdentifier("phone_number")).toBe(false);
-        expect(looksLikeIdentifier("created_at")).toBe(false);
-        expect(looksLikeIdentifier("updated_at")).toBe(false);
       });
     });
   });

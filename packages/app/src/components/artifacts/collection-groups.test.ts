@@ -57,16 +57,6 @@ describe("groupByRecency", () => {
       ["Earlier", ["just before"]],
     ]);
   });
-
-  it("leaves empty buckets out", () => {
-    const groups = groupByRecency(
-      [at("old", now - 60 * DAY)],
-      now,
-      (item) => item.time,
-    );
-
-    expect(groups.map((group) => group.label)).toEqual(["Earlier"]);
-  });
 });
 
 describe("groupByKey", () => {

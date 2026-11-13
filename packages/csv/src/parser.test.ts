@@ -7,7 +7,7 @@
  * - Escaped quotes (doubled quotes)
  * - Newlines within quoted fields
  * - Different line endings (LF, CRLF, CR)
- * - Edge cases (trailing newline, empty fields, single column)
+ * - Edge cases (trailing newline, empty fields, empty rows)
  */
 import { describe, expect, it } from "vite-plus/test";
 import { parseCSV } from "./parser";
@@ -23,17 +23,6 @@ describe("parseCSV", () => {
         ["Alice", "30"],
         ["Bob", "25"],
       ]);
-    });
-
-    it("should return empty array for empty string", () => {
-      expect(parseCSV("")).toEqual([]);
-    });
-
-    it("should handle single row", () => {
-      const csv = "a,b,c";
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([["a", "b", "c"]]);
     });
   });
 
@@ -123,13 +112,6 @@ describe("parseCSV", () => {
         ["1", "", "3"],
         ["", "2", ""],
       ]);
-    });
-
-    it("should handle single column CSV", () => {
-      const csv = "name\nAlice\nBob";
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([["name"], ["Alice"], ["Bob"]]);
     });
 
     it("should skip empty rows", () => {

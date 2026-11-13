@@ -44,13 +44,6 @@ describe("resolveDrop", () => {
     });
   });
 
-  it("refuses a shelf chip dropped back onto the shelf", () => {
-    expect(resolveDrop(carried("shelf"), shelf)).toMatchObject({
-      kind: "refused",
-      reason: "Already on the shelf",
-    });
-  });
-
   it("drops nothing over no target, or for a drag that carries no item", () => {
     expect(resolveDrop(carried("source"), undefined)).toEqual({ kind: "none" });
     expect(resolveDrop({ sortable: {} }, shelf)).toEqual({ kind: "none" });

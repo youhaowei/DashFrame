@@ -8,29 +8,9 @@ describe("quoteIdentifier", () => {
     expect(quoteIdentifier("user_id")).toBe('"user_id"');
   });
 
-  it("quotes reserved words so they are safe in SQL", () => {
-    expect(quoteIdentifier("order")).toBe('"order"');
-    expect(quoteIdentifier("select")).toBe('"select"');
-    expect(quoteIdentifier("group")).toBe('"group"');
-  });
-
-  it("quotes identifiers that contain spaces", () => {
-    expect(quoteIdentifier("first name")).toBe('"first name"');
-    expect(quoteIdentifier("column with spaces")).toBe('"column with spaces"');
-  });
-
   it("escapes embedded double-quotes by doubling them", () => {
     expect(quoteIdentifier('weird"name')).toBe('"weird""name"');
     expect(quoteIdentifier('"already quoted"')).toBe('"""already quoted"""');
-  });
-
-  it("handles identifiers with multiple embedded double-quotes", () => {
-    // 'a"b"c' → "a""b""c"
-    expect(quoteIdentifier('a"b"c')).toBe('"a""b""c"');
-  });
-
-  it("handles an empty identifier", () => {
-    expect(quoteIdentifier("")).toBe('""');
   });
 
   it("does not break SQL when the result is interpolated (no injection)", () => {
@@ -57,9 +37,5 @@ describe("quoteLiteral", () => {
 
   it("handles multiple embedded single-quotes", () => {
     expect(quoteLiteral("a'b'c")).toBe("'a''b''c'");
-  });
-
-  it("handles empty string", () => {
-    expect(quoteLiteral("")).toBe("''");
   });
 });

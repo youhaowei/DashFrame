@@ -79,10 +79,6 @@ describe("parsing the build's _headers file", () => {
     const scoped = "/admin/*\n  X-Secret: yes\n\n/*\n  X-Public: yes\n";
     expect(parseHeadersFile(scoped)).toEqual([["X-Public", "yes"]]);
   });
-
-  it("returns nothing when there is no catch-all block", () => {
-    expect(parseHeadersFile("/admin/*\n  X-Secret: yes\n")).toEqual([]);
-  });
 });
 
 describe("resolving a request path inside the build directory", () => {

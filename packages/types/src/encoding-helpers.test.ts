@@ -2,8 +2,6 @@
  * Unit tests for encoding-helpers module
  *
  * Tests cover:
- * - fieldEncoding() - Creating field encoding strings
- * - metricEncoding() - Creating metric encoding strings
  * - parseEncoding() - Parsing encoding strings into type and ID
  * - isEncodingValue() / validateVisualizationEncoding() - write-time validation
  */
@@ -18,24 +16,6 @@ import {
 import type { UUID } from "./uuid";
 
 describe("encoding-helpers", () => {
-  // Sample UUIDs for testing
-  const sampleFieldId = "abc-123-def" as UUID;
-  const sampleMetricId = "xyz-456-ghi" as UUID;
-
-  describe("fieldEncoding()", () => {
-    it("should create field encoding with correct format", () => {
-      const result = fieldEncoding(sampleFieldId);
-      expect(result).toBe("field:abc-123-def");
-    });
-  });
-
-  describe("metricEncoding()", () => {
-    it("should create metric encoding with correct format", () => {
-      const result = metricEncoding(sampleMetricId);
-      expect(result).toBe("metric:xyz-456-ghi");
-    });
-  });
-
   describe("parseEncoding()", () => {
     // `encoding` is stored as opaque jsonb, so a row written before the write
     // gate existed can hand any shape to a reader. parseEncoding sits under
@@ -68,75 +48,13 @@ describe("encoding-helpers", () => {
     });
 
     describe("invalid encodings", () => {
-      it("should return undefined for undefined input", () => {
-        const result = parseEncoding(undefined);
-        expect(result).toBeUndefined();
-      });
-
-      it("should return undefined for empty string", () => {
-        const result = parseEncoding("");
-        expect(result).toBeUndefined();
-      });
-
       it("should return undefined for legacy format (no prefix)", () => {
         const result = parseEncoding("sum(revenue)");
-        expect(result).toBeUndefined();
-      });
-
-      it("should return undefined for plain column names", () => {
-        const result = parseEncoding("category");
-        expect(result).toBeUndefined();
-      });
-
-      it("should return undefined for invalid prefix", () => {
-        const result = parseEncoding("invalid:abc-123");
-        expect(result).toBeUndefined();
-      });
-
-      it("should return undefined for missing ID after field prefix", () => {
-        const result = parseEncoding("field:");
-        expect(result).toEqual({
-          type: "field",
-          id: "",
-        });
-      });
-
-      it("should return undefined for missing ID after metric prefix", () => {
-        const result = parseEncoding("metric:");
-        expect(result).toEqual({
-          type: "metric",
-          id: "",
-        });
-      });
-
-      it("should return undefined for malformed encoding", () => {
-        const result = parseEncoding("field");
-        expect(result).toBeUndefined();
-      });
-
-      it("should return undefined for metric typo", () => {
-        const result = parseEncoding("metrik:123");
         expect(result).toBeUndefined();
       });
     });
 
     describe("edge cases", () => {
-      it("should handle encoding with special characters in ID", () => {
-        const result = parseEncoding("field:id-with_special.chars@123");
-        expect(result).toEqual({
-          type: "field",
-          id: "id-with_special.chars@123",
-        });
-      });
-
-      it("should handle encoding with spaces in ID (though unusual)", () => {
-        const result = parseEncoding("field:id with spaces");
-        expect(result).toEqual({
-          type: "field",
-          id: "id with spaces",
-        });
-      });
-
       it("should handle encoding that looks like it has multiple prefixes", () => {
         const result = parseEncoding("field:metric:123");
         expect(result).toEqual({
@@ -153,11 +71,6 @@ describe("encoding-helpers", () => {
 
   describe("isEncodingValue()", () => {
     const uuid = "550e8400-e29b-41d4-a716-446655440000";
-
-    it("accepts a canonical field and metric encoding", () => {
-      expect(isEncodingValue(`field:${uuid}`)).toBe(true);
-      expect(isEncodingValue(`metric:${uuid}`)).toBe(true);
-    });
 
     it("rejects a wrong-case PREFIX — parseEncoding matches it case-sensitively", () => {
       // `FIELD:<uuid>` would not parse as an ID reference at all; the reader

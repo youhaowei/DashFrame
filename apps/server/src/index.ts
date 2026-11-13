@@ -53,7 +53,7 @@ const DEFAULT_WEB_PROJECT_DIR = path.join(
   "web-project",
 );
 const DEFAULT_DATA_DIR = path.join(homedir(), ".DashFrame", "data");
-export function printHelp(): void {
+function printHelp(): void {
   console.log(`dashframe serve
 
 Options:
@@ -314,14 +314,14 @@ export async function createStandaloneArrowEngine(
 }
 
 /** Resolve host-local storage independently from the copiable project path. */
-export function resolveDataDir(
+function resolveDataDir(
   opts: CliOptions,
   environment: NodeJS.ProcessEnv = process.env,
 ): string {
   return opts.dataDir ?? environment.DASHFRAME_DATA_DIR ?? DEFAULT_DATA_DIR;
 }
 
-export function resolveProjectDirectory(
+function resolveProjectDirectory(
   opts: CliOptions,
   environment: NodeJS.ProcessEnv = process.env,
 ): string {

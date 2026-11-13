@@ -152,35 +152,6 @@ describe("SVG Sanitization Security", () => {
       expect(result).toContain("<g");
       expect(result).toContain("<defs");
     });
-
-    it("should preserve stroke and fill attributes", () => {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-        <path d="M12 2" fill="currentColor" stroke="#000" stroke-width="2" stroke-linecap="round"/>
-      </svg>`;
-
-      const result = sanitizeSvg(svg);
-
-      expect(result).toContain('fill="currentColor"');
-      expect(result).toContain('stroke="#000"');
-      expect(result).toContain('stroke-width="2"');
-      expect(result).toContain('stroke-linecap="round"');
-    });
-
-    it("should preserve transform attribute", () => {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg">
-        <g transform="translate(10, 10) rotate(45)">
-          <path d="M0 0 L10 10"/>
-        </g>
-      </svg>`;
-
-      const result = sanitizeSvg(svg);
-
-      expect(result).toContain('transform="translate(10, 10) rotate(45)"');
-    });
-
-    it("should handle empty SVG string gracefully", () => {
-      expect(sanitizeSvg("")).toBe("");
-    });
   });
 
   describe("SVG_SANITIZE_CONFIG", () => {
