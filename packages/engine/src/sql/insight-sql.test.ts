@@ -647,8 +647,12 @@ describe("buildInsightSQL — operators", () => {
 
   it("maps each scalar operator to the right SQL comparison operator", () => {
     const cases: Array<[InsightFilter["operator"], string]> = [
+      ["eq", "="],
       ["ne", "<>"],
+      ["gt", ">"],
+      ["gte", ">="],
       ["lt", "<"],
+      ["lte", "<="],
     ];
 
     for (const [operator, sqlOp] of cases) {
@@ -979,9 +983,21 @@ describe("buildInsightSQL — sink guards: LIMIT/OFFSET must be non-negative int
     );
   });
 
+  it("throws when limit is a non-integer float", () => {
+    expect(() =>
+      build(groupedInsight(), { mode: "query", limit: 1.5 }),
+    ).toThrow("invalid limit");
+  });
+
   it("throws when offset is NaN", () => {
     expect(() =>
       build(groupedInsight(), { mode: "query", offset: NaN }),
+    ).toThrow("invalid offset");
+  });
+
+  it("throws when offset is negative", () => {
+    expect(() =>
+      build(groupedInsight(), { mode: "query", offset: -5 }),
     ).toThrow("invalid offset");
   });
 
@@ -1172,40 +1188,42 @@ describe("buildInsightSQL — COALESCE for RIGHT/FULL join key", () => {
 
   const leftKeyAlias = fieldIdToColumnAlias(EMP_DEPT_ID_FIELD.id);
 
-  it("emits COALESCE for the join key on a FULL join", () => {
-    const insight: Insight = {
-      id: "yw305000-0000-0000-0000-000000000001" as UUID,
-      name: "Employees full join departments",
-      source: { sourceType: "dataTable", sourceId: EMP_TABLE_ID },
-      selectedFields: [EMP_ID_FIELD.id, EMP_DEPT_ID_FIELD.id],
-      metrics: [],
-      joins: [
-        {
-          type: "full",
-          rightTableId: DEPT_TABLE_ID,
-          leftKey: "dept_id",
-          rightKey: "dept_id",
-        },
-      ],
-      createdAt: 0,
-    };
+  for (const joinType of ["right", "full"] as const) {
+    it(`emits COALESCE for the join key on a ${joinType.toUpperCase()} join`, () => {
+      const insight: Insight = {
+        id: "yw305000-0000-0000-0000-000000000001" as UUID,
+        name: `Employees ${joinType} join departments`,
+        source: { sourceType: "dataTable", sourceId: EMP_TABLE_ID },
+        selectedFields: [EMP_ID_FIELD.id, EMP_DEPT_ID_FIELD.id],
+        metrics: [],
+        joins: [
+          {
+            type: joinType,
+            rightTableId: DEPT_TABLE_ID,
+            leftKey: "dept_id",
+            rightKey: "dept_id",
+          },
+        ],
+        createdAt: 0,
+      };
 
-    const sql = buildInsightSQL(
-      empTable,
-      new Map([[DEPT_TABLE_ID, deptTable]]),
-      insight,
-      { mode: "query" },
-    );
-    expect(sql).not.toBeNull();
+      const sql = buildInsightSQL(
+        empTable,
+        new Map([[DEPT_TABLE_ID, deptTable]]),
+        insight,
+        { mode: "query" },
+      );
+      expect(sql).not.toBeNull();
 
-    // Single scoped assertion: the exact COALESCE projection. A bare
-    // `toContain("dept_id")` would pass in the bug state too (it appears in
-    // the ON clause); this substring only holds when the join key is
-    // projected via COALESCE(left_alias, right_table.right_col).
-    expect(sql!).toContain(
-      `COALESCE("${leftKeyAlias}", "departments"."dept_id")`,
-    );
-  });
+      // Single scoped assertion: the exact COALESCE projection. A bare
+      // `toContain("dept_id")` would pass in the bug state too (it appears in
+      // the ON clause); this substring only holds when the join key is
+      // projected via COALESCE(left_alias, right_table.right_col).
+      expect(sql!).toContain(
+        `COALESCE("${leftKeyAlias}", "departments"."dept_id")`,
+      );
+    });
+  }
 });
 
 describe("buildInsightSQL — identifier quoting: embedded double-quotes in display names", () => {

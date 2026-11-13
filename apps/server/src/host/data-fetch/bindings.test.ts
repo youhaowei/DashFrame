@@ -30,6 +30,7 @@ vi.mock("../connectors", () => ({
 
 import {
   fetchGa4Binding,
+  fetchNotionBinding,
   fetchLocalBinding,
   fetchSourceBinding,
   resolveSourceBinding,
@@ -311,6 +312,41 @@ describe("Source Binding registry", () => {
     ).toBe(10_002);
   });
 
+  it.each([
+    ["googleAnalytics", ga4ConnectorFor, fetchGa4Binding],
+    ["notion", notionConnectorFor, fetchNotionBinding],
+  ] as const)(
+    "cancels a pending native %s provider request",
+    async (kind, factory, fetchBinding) => {
+      const abort = new AbortController();
+      const ctx = context({ table, source: { ...source, kind } });
+      Object.assign(ctx, { requestSignal: abort.signal });
+      let started!: () => void;
+      const pendingProvider = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const query = vi.fn(
+        (_table: string, _id: string, options?: { signal?: AbortSignal }) => {
+          started();
+          return new Promise<ReturnType<typeof page>>((_resolve, reject) => {
+            options?.signal?.addEventListener(
+              "abort",
+              () => reject(options.signal?.reason),
+              { once: true },
+            );
+          });
+        },
+      );
+      factory.mockResolvedValue({ query });
+      const binding = await resolveSourceBinding(ctx, table.id);
+      const pending = fetchBinding(ctx, binding);
+      await pendingProvider;
+      abort.abort(new Error("FETCH_DEADLINE_EXCEEDED"));
+      await expect(pending).rejects.toThrow("FETCH_EXECUTION_FAILED");
+      expect(query.mock.calls[0]?.[2]?.signal).toBe(abort.signal);
+    },
+  );
+
   it("bounds hosted GA4 to one sentinel window and rejects a prefix", async () => {
     const query = vi
       .fn()
@@ -428,6 +464,23 @@ describe("Source Binding registry", () => {
 });
 
 describe("PostgreSQL streaming binding", () => {
+  it("preserves the unsupported-value error from the connector", async () => {
+    postgresConnectorFor.mockResolvedValue({
+      queryBatches: async function* () {
+        yield await Promise.reject(new Error("SOURCE_VALUE_UNSUPPORTED"));
+      },
+    });
+    const binding = {
+      connectorKind: "postgres",
+      sourceBindingVersion: "v1",
+      dataSourceId: "source-1",
+      table,
+    };
+    await expect(
+      streamPostgresBinding(context({ table }), binding as never).next(),
+    ).rejects.toThrow("SOURCE_VALUE_UNSUPPORTED");
+  });
+
   it("applies a custom batch byte ceiling before decoding", async () => {
     const batch = page([1, 2]);
     const bytes = Buffer.byteLength(batch.arrowBuffer, "base64");

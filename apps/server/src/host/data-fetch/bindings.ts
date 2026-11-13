@@ -301,7 +301,7 @@ export async function fetchGa4AcquisitionBinding(
   );
 }
 
-async function fetchNotionBinding(
+export async function fetchNotionBinding(
   ctx: HostContext,
   binding: SourceBinding,
 ): Promise<LiveSourceResult> {

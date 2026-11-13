@@ -2,7 +2,7 @@
  * Unit tests for Notion converter
  *
  * Tests cover:
- * - Property value extraction, one case per conversion path
+ * - Property value extraction for all Notion property types
  * - Type mapping from Notion to DataFrame
  * - Data conversion from Notion to DataFrame format
  */
@@ -115,6 +115,55 @@ describe("extractPropertyValue", () => {
     });
   });
 
+  describe("rich_text property", () => {
+    it("should extract rich text content", () => {
+      const property = {
+        id: "description",
+        type: "rich_text" as const,
+        rich_text: [
+          {
+            type: "text" as const,
+            text: { content: "Description text", link: null },
+            annotations: {
+              bold: false,
+              italic: false,
+              strikethrough: false,
+              underline: false,
+              code: false,
+              color: "default" as const,
+            },
+            plain_text: "Description text",
+            href: null,
+          },
+        ],
+      };
+
+      expect(extractPropertyValue(property)).toBe("Description text");
+    });
+
+    it("should return null for empty rich text", () => {
+      const property = {
+        id: "description",
+        type: "rich_text" as const,
+        rich_text: [],
+      };
+
+      expect(extractPropertyValue(property)).toBeNull();
+    });
+  });
+
+  describe("number property", () => {
+    it("should extract number value", () => {
+      const property = {
+        id: "amount",
+        type: "number" as const,
+        number: 42.5,
+      };
+
+      expect(extractPropertyValue(property)).toBe(42.5);
+    });
+  });
+
   describe("select property", () => {
     it("should extract select value name", () => {
       const property = {
@@ -204,6 +253,92 @@ describe("extractPropertyValue", () => {
     });
   });
 
+  describe("url property", () => {
+    it("should extract URL value", () => {
+      const property = {
+        id: "website",
+        type: "url" as const,
+        url: "https://example.com",
+      };
+
+      expect(extractPropertyValue(property)).toBe("https://example.com");
+    });
+  });
+
+  describe("email property", () => {
+    it("should extract email value", () => {
+      const property = {
+        id: "contact",
+        type: "email" as const,
+        email: "user@example.com",
+      };
+
+      expect(extractPropertyValue(property)).toBe("user@example.com");
+    });
+  });
+
+  describe("phone_number property", () => {
+    it("should extract phone number", () => {
+      const property = {
+        id: "phone",
+        type: "phone_number" as const,
+        phone_number: "+1-555-1234",
+      };
+
+      expect(extractPropertyValue(property)).toBe("+1-555-1234");
+    });
+  });
+
+  describe("status property", () => {
+    it("should extract status name", () => {
+      const property = {
+        id: "workflow",
+        type: "status" as const,
+        status: {
+          id: "1",
+          name: "In Progress",
+          color: "yellow" as const,
+        },
+      };
+
+      expect(extractPropertyValue(property)).toBe("In Progress");
+    });
+
+    it("should return null for null status", () => {
+      const property = {
+        id: "workflow",
+        type: "status" as const,
+        status: null,
+      };
+
+      expect(extractPropertyValue(property)).toBeNull();
+    });
+  });
+
+  describe("created_time property", () => {
+    it("should extract created time", () => {
+      const property = {
+        id: "created",
+        type: "created_time" as const,
+        created_time: "2024-01-15T10:00:00.000Z",
+      };
+
+      expect(extractPropertyValue(property)).toBe("2024-01-15T10:00:00.000Z");
+    });
+  });
+
+  describe("last_edited_time property", () => {
+    it("should extract last edited time", () => {
+      const property = {
+        id: "modified",
+        type: "last_edited_time" as const,
+        last_edited_time: "2024-01-16T15:30:00.000Z",
+      };
+
+      expect(extractPropertyValue(property)).toBe("2024-01-16T15:30:00.000Z");
+    });
+  });
+
   describe("people property", () => {
     it("should extract and join people names", () => {
       const property = {
@@ -249,6 +384,76 @@ describe("extractPropertyValue", () => {
 
       expect(extractPropertyValue(property)).toBe("user-1");
     });
+
+    it("should return null for empty people", () => {
+      const property = {
+        id: "assignees",
+        type: "people" as const,
+        people: [],
+      };
+
+      expect(extractPropertyValue(property)).toBeNull();
+    });
+  });
+
+  describe("files property", () => {
+    it("should extract and join file names", () => {
+      const property = {
+        id: "attachments",
+        type: "files" as const,
+        files: [
+          {
+            name: "document.pdf",
+            type: "file" as const,
+            file: {
+              url: "https://example.com/document.pdf",
+              expiry_time: "2024-12-31T00:00:00.000Z",
+            },
+          },
+          {
+            name: "image.png",
+            type: "external" as const,
+            external: { url: "https://example.com/image.png" },
+          },
+        ],
+      };
+
+      expect(extractPropertyValue(property)).toBe("document.pdf, image.png");
+    });
+
+    it("should return null for empty files", () => {
+      const property = {
+        id: "attachments",
+        type: "files" as const,
+        files: [],
+      };
+
+      expect(extractPropertyValue(property)).toBeNull();
+    });
+  });
+
+  describe("relation property", () => {
+    it("should extract and join relation IDs", () => {
+      const property = {
+        id: "related",
+        type: "relation" as const,
+        relation: [{ id: "page-1" }, { id: "page-2" }],
+        has_more: false,
+      };
+
+      expect(extractPropertyValue(property)).toBe("page-1, page-2");
+    });
+
+    it("should return null for empty relation", () => {
+      const property = {
+        id: "related",
+        type: "relation" as const,
+        relation: [],
+        has_more: false,
+      };
+
+      expect(extractPropertyValue(property)).toBeNull();
+    });
   });
 
   describe("formula property", () => {
@@ -263,6 +468,32 @@ describe("extractPropertyValue", () => {
       };
 
       expect(extractPropertyValue(property)).toBe("Result");
+    });
+
+    it("should extract number formula result", () => {
+      const property = {
+        id: "calculated",
+        type: "formula" as const,
+        formula: {
+          type: "number" as const,
+          number: 123,
+        },
+      };
+
+      expect(extractPropertyValue(property)).toBe(123);
+    });
+
+    it("should extract boolean formula result", () => {
+      const property = {
+        id: "calculated",
+        type: "formula" as const,
+        formula: {
+          type: "boolean" as const,
+          boolean: true,
+        },
+      };
+
+      expect(extractPropertyValue(property)).toBe(true);
     });
 
     it("should extract date formula result", () => {
@@ -281,6 +512,19 @@ describe("extractPropertyValue", () => {
 
       expect(extractPropertyValue(property)).toBe("2024-01-15");
     });
+
+    it("should return null for null date formula", () => {
+      const property = {
+        id: "calculated",
+        type: "formula" as const,
+        formula: {
+          type: "date" as const,
+          date: null,
+        },
+      };
+
+      expect(extractPropertyValue(property)).toBeNull();
+    });
   });
 
   describe("rollup property", () => {
@@ -296,6 +540,24 @@ describe("extractPropertyValue", () => {
       };
 
       expect(extractPropertyValue(property)).toBe(456);
+    });
+
+    it("should extract date rollup result", () => {
+      const property = {
+        id: "latest",
+        type: "rollup" as const,
+        rollup: {
+          type: "date" as const,
+          date: {
+            start: "2024-01-20",
+            end: null,
+            time_zone: null,
+          },
+          function: "latest_date" as const,
+        },
+      };
+
+      expect(extractPropertyValue(property)).toBe("2024-01-20");
     });
 
     it("should return array length for array rollup", () => {
@@ -545,6 +807,44 @@ describe("convertNotionToDataFrame", () => {
       // Key presence: every field name must be an own key (Arrow needs it)
       expect(Object.hasOwn(row, "Status")).toBe(true);
       expect(Object.hasOwn(row, "Count")).toBe(true);
+    });
+
+    it("row has exactly as many keys as there are fields (no extras, no missing)", () => {
+      const response = {
+        object: "list" as const,
+        results: [
+          {
+            object: "page" as const,
+            id: "page-check",
+            created_time: "2024-01-15T00:00:00.000Z",
+            last_edited_time: "2024-01-15T00:00:00.000Z",
+            created_by: { object: "user" as const, id: "user-1" },
+            last_edited_by: { object: "user" as const, id: "user-1" },
+            cover: null,
+            icon: null,
+            parent: { type: "database_id" as const, database_id: "db-1" },
+            archived: false,
+            in_trash: false,
+            properties: {},
+            url: "https://notion.so/page-check",
+            public_url: null,
+          },
+        ] as PageObjectResponse[],
+        next_cursor: null,
+        has_more: false,
+        type: "page_or_database" as const,
+        page_or_database: {},
+        request_id: "req-1",
+      };
+
+      const result = convertNotionToDataFrame(response, fields);
+      const row = result.rows[0];
+
+      // Exactly fields.length keys — no extras, no missing
+      expect(Object.keys(row!)).toHaveLength(fields.length);
+      for (const field of fields) {
+        expect(Object.hasOwn(row, field.name)).toBe(true);
+      }
     });
 
     it("all-missing-properties page serialises cleanly to Arrow without throwing", () => {

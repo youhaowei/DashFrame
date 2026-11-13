@@ -31,7 +31,14 @@ describe("suggestSensitivityFromName", () => {
   it.each([
     ["email", "email addresses"],
     ["name", "personal names"],
+    ["phone_number", "phone numbers"],
     ["home_address", "physical addresses"],
+    ["ssn", "government identifiers"],
+    ["date_of_birth", "dates of birth"],
+    ["salary", "financial details"],
+    ["password", "credentials or secrets"],
+    ["gender", "demographic attributes"],
+    ["ip_address", "IP addresses"],
   ])("should flag %s", (name, reasonFragment) => {
     const reasons = suggestSensitivityFromName(name);
     expect(reasons.length).toBeGreaterThan(0);

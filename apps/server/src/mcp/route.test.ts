@@ -1545,6 +1545,27 @@ describe("MCP route", () => {
     }
   });
 
+  it("serializes concurrent first stateful writes onto one draft", async () => {
+    await start("stateful");
+    const { client, transport } = await connect();
+    try {
+      const [first, second] = await Promise.all([
+        writeDashboard(client, "Concurrent first"),
+        writeDashboard(client, "Concurrent second"),
+      ]);
+      const firstId = (first.structuredContent as { draftId: string }).draftId;
+      expect(second.structuredContent).toMatchObject({ draftId: firstId });
+      expect(
+        await native.run((ctx) => ctx.db.query("drafts").collect()),
+      ).toHaveLength(1);
+      expect(
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
+      ).toHaveLength(2);
+    } finally {
+      await transport.close();
+    }
+  });
+
   it("evicts stateful sessions at capacity and after idle expiry", async () => {
     await start("stateful", { mcpMaxStatefulSessions: 1 });
     const first = await connect();

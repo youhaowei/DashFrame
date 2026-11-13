@@ -365,6 +365,52 @@ describe("GA4 report queries", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("debits the response budget by transport-measured bytes", async () => {
+    const response: RunReportResponse = {
+      dimensionHeaders: [{ name: "date" }],
+      metricHeaders: [{ name: "sessions" }],
+      rowCount: 250_001,
+      rows: [
+        {
+          dimensionValues: [{ value: "20260901" }],
+          metricValues: [{ value: "1" }],
+        },
+      ],
+    };
+    const minifiedBytes = new TextEncoder().encode(
+      JSON.stringify(response),
+    ).byteLength;
+    const request = vi.fn(async () => response);
+    const requestMeasured = vi.fn(async () => ({
+      body: response,
+      byteLength: minifiedBytes + 64,
+    }));
+
+    await expect(
+      runReport(
+        "123",
+        {
+          dimensions: ["date"],
+          metrics: ["sessions"],
+          grain: "day",
+          dateRange: {
+            kind: "absolute",
+            start: "2026-09-01",
+            end: "2026-09-23",
+          },
+        },
+        { request, requestMeasured },
+        {
+          tableId: crypto.randomUUID(),
+          now: NOW,
+          maxResponseBytes: minifiedBytes + 63,
+        },
+      ),
+    ).rejects.toThrow("SOURCE_RESULT_TOO_LARGE");
+    expect(requestMeasured).toHaveBeenCalledTimes(1);
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("rejects a byte budget when the client cannot measure transport bytes", async () => {
     const response: RunReportResponse = {
       dimensionHeaders: [{ name: "date" }],

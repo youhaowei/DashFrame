@@ -157,6 +157,26 @@ describe("queryDataFrame", () => {
       expect(runtime.unregisterTable).toHaveBeenCalledWith(tableName);
     });
 
+    it("reports a file deleted after exists() but before registration as FRAME_NOT_FOUND", async () => {
+      const { ctx, runtime } = contextWith(async () => row);
+      const exists = vi
+        .spyOn(storage, "exists")
+        .mockResolvedValueOnce(true)
+        .mockResolvedValue(false);
+
+      try {
+        const result = await queryDataFrame(ctx, { dataFrameId: id });
+
+        expect(result).toMatchObject({
+          status: "failed",
+          code: "FRAME_NOT_FOUND",
+        });
+        expect(runtime.unregisterTable).toHaveBeenCalledWith(tableName);
+      } finally {
+        exists.mockRestore();
+      }
+    });
+
     it("still reports a genuine fault on a live frame as QUERY_EXECUTION_FAILED", async () => {
       // Ownership holds throughout, so the failure is a real execution fault
       // and must not be laundered into a not-found.
