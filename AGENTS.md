@@ -223,7 +223,10 @@ source files are executable-change territory and do not qualify.
 >
 > For each finding, give its severity (`critical`, `high`, `medium`, or `low`),
 > evidence as `path:startLine-endLine`, reasoning, reproduction, recommendation,
-> why existing tests miss it, a regression test, and the minimum fix scope.
+> why existing tests miss it, the smallest test change that would catch it (an
+> assertion or row in an existing case where one fits, following **Tests**), and
+> the minimum fix scope. Report a new test that breaks the rules under **Tests**,
+> and name the fix: fold it into an existing case, delete it, or keep one layer.
 >
 > Do not report these repository conventions as findings:
 >
@@ -266,6 +269,31 @@ Do not run unfiltered `turbo lint`: `@wystack/*` uses `oxlint`, which is not
 installed here. `@dashframe/ui` intentionally runs unit tests with
 `vp test run --project=unit`; its Storybook project needs Playwright browsers
 that the check job does not install, so it has no current gate.
+
+## Tests
+
+Write a test only when it catches a defect that no existing test catches. The
+suite was pruned twice for breaking these rules; do not grow it back.
+
+- Test behavior that can break: the command and draft engine, query and SQL
+  semantics, auth and isolation, secrets, persistence and migrations, parsing
+  of external formats and protocols, races, data loss, and the logic a bug fix
+  changed. Leave out what types or a schema already guarantee, trivial logic,
+  copy text, smoke runs, mock-call mirrors, callback wiring, and props rendered
+  to markup.
+- Extend before you add. When an existing test or table covers the behavior,
+  add a row or an assertion there. Write a new `it` only when no case fits, and
+  do not add a row that takes the same branch with different literals.
+- Test a rule at one layer: the lowest that can see it, plus at most one wiring
+  test above. Do not repeat it in the hook, the component, and the page.
+- A new test must fail when the code it guards is broken. A bug fix gets the
+  fewest tests that fail on `main` for that reason, at the lowest layer. A
+  purely visual fix gets screenshots and no test.
+- Do not test an export that nothing calls. Delete the export.
+- Do not assert on elapsed wall-clock time.
+- A pull request does not cite its test count as evidence of quality. In
+  review, ask for a test only when it would catch a real regression, never one
+  assertion per constant, label, or `switch` case.
 
 ## Lint policy
 
