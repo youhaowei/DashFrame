@@ -22,8 +22,13 @@ it("keeps accepted shared work independent of any caller cancellation", async ()
     unregisterTable: vi.fn(async () => {}),
   };
   const engine = stubQueryEngine(calls);
-  const first = createHostedQueryRuntime(engine).queryArrow("select 1", []);
-  const sibling = createHostedQueryRuntime(engine).queryArrow("select 2", []);
+  const firstRuntime = createHostedQueryRuntime(engine);
+  const siblingRuntime = createHostedQueryRuntime(engine);
+  // Sibling requests share materialization only through this identity.
+  expect(firstRuntime.coalescingIdentity).toBe(engine);
+  expect(siblingRuntime.coalescingIdentity).toBe(engine);
+  const first = firstRuntime.queryArrow("select 1", []);
+  const sibling = siblingRuntime.queryArrow("select 2", []);
   pending[0]!.resolve(new Uint8Array([1]));
   pending[1]!.resolve(new Uint8Array([2]));
   await expect(first).resolves.toEqual(new Uint8Array([1]));

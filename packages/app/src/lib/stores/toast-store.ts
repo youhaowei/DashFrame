@@ -59,20 +59,6 @@ interface ToastActions {
     message: string,
     options?: Omit<ShowToastConfig, "message" | "type">,
   ) => string;
-  /** Show a warning toast */
-  showWarning: (
-    message: string,
-    options?: Omit<ShowToastConfig, "message" | "type">,
-  ) => string;
-  /** Show an info toast */
-  showInfo: (
-    message: string,
-    options?: Omit<ShowToastConfig, "message" | "type">,
-  ) => string;
-  /** Dismiss a specific toast by ID */
-  dismiss: (id: string) => void;
-  /** Dismiss all toasts */
-  dismissAll: () => void;
 }
 
 /** Default duration for auto-dismiss in milliseconds */
@@ -192,26 +178,6 @@ export const useToastStore = create<ToastState & ToastActions>()(
 
     showError: (message, options) => {
       return get().show({ ...options, message, type: "error" });
-    },
-
-    showWarning: (message, options) => {
-      return get().show({ ...options, message, type: "warning" });
-    },
-
-    showInfo: (message, options) => {
-      return get().show({ ...options, message, type: "info" });
-    },
-
-    dismiss: (id) => {
-      set((state) => ({
-        toasts: state.toasts.filter((t) => t.id !== id),
-      }));
-      sonnerToast.dismiss(id);
-    },
-
-    dismissAll: () => {
-      set({ toasts: [] });
-      sonnerToast.dismiss();
     },
   }),
 );

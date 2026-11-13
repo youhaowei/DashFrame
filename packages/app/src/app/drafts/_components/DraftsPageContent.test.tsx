@@ -408,6 +408,30 @@ describe("DraftsPageContent — panes", () => {
 });
 
 describe("DraftsPageContent — centre and lifecycle", () => {
+  it("removes a step from the draft after confirmation", async () => {
+    givenDrafts([NEWER]);
+    render(<Page />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Revenue by region/ }),
+    );
+    await userEvent.click(
+      within(
+        screen.getByRole("listitem", { name: "Update filters" }),
+      ).getByRole("button", { name: "Remove" }),
+    );
+    screen.getByText("Remove this change from the draft?");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove change" }),
+    );
+
+    expect(mockRevise).toHaveBeenCalledWith({
+      draftId: NEWER.draftId,
+      expectedLogSignature: "sig-newer",
+      ops: [{ type: "removeCommand", commandIndex: 1 }],
+    });
+  });
+
   it("shows a rejected revision instead of reporting it applied", async () => {
     givenDrafts([NEWER]);
     mockRevise.mockRejectedValue(new Error("changed since review"));

@@ -141,21 +141,6 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
     [connector, form, formFields],
   );
 
-  /**
-   * Clear the submit error.
-   */
-  const clearError = useCallback(() => {
-    setSubmitError(null);
-  }, []);
-
-  /**
-   * Reset the form to default values and clear errors.
-   */
-  const reset = useCallback(() => {
-    form.reset();
-    setSubmitError(null);
-  }, [form]);
-
   return {
     /** TanStack Form instance for rendering fields */
     form,
@@ -169,10 +154,6 @@ export function useConnectorForm<T extends BaseConnector>(connector: T) {
     isSubmitting,
     /** Error message from the last failed action */
     submitError,
-    /** Clear the submit error */
-    clearError,
-    /** Reset the form to default values */
-    reset,
   };
 }
 

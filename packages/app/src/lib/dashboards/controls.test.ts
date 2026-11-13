@@ -3,7 +3,7 @@
  *
  * Named contracts:
  * - A control bound to N cells broadcasts its value → those cells' effective params reflect it.
- * - Binding is opt-in: an eligible-but-unbound cell is NOT affected.
+ * - Binding is opt-in: an unbound cell is NOT affected.
  * - defaultValue applies on load (computeItemOverrides with no transient).
  * - Bound control value (binding = delegation): wins over the cell's own pinned value.
  * - Viewer-transient: a viewer's turn wins over the saved default, and setting it returns a new map.
