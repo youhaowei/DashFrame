@@ -48,17 +48,6 @@ export interface ToolArgValidationError {
 /** Union of error detail shapes produced by defineToolHandler. */
 export type ToolHandlerErrorDetails = ToolArgValidationError;
 
-/** Discriminant for checking the details payload on a validation-failure result. */
-export function isValidationError(
-  details: unknown,
-): details is ToolArgValidationError {
-  return (
-    typeof details === "object" &&
-    details !== null &&
-    (details as ToolArgValidationError).kind === "validation_error"
-  );
-}
-
 // ---------------------------------------------------------------------------
 // defineToolHandler config
 // ---------------------------------------------------------------------------

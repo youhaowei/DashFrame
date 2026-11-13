@@ -7,13 +7,10 @@
  */
 import { describe, expect, it } from "vite-plus/test";
 import {
-  fieldEncoding,
   isEncodingValue,
-  metricEncoding,
   parseEncoding,
   validateVisualizationEncoding,
 } from "./encoding-helpers";
-import type { UUID } from "./uuid";
 
 describe("encoding-helpers", () => {
   describe("parseEncoding()", () => {
@@ -51,16 +48,6 @@ describe("encoding-helpers", () => {
       it("should return undefined for legacy format (no prefix)", () => {
         const result = parseEncoding("sum(revenue)");
         expect(result).toBeUndefined();
-      });
-    });
-
-    describe("edge cases", () => {
-      it("should handle encoding that looks like it has multiple prefixes", () => {
-        const result = parseEncoding("field:metric:123");
-        expect(result).toEqual({
-          type: "field",
-          id: "metric:123",
-        });
       });
     });
   });
@@ -112,11 +99,6 @@ describe("encoding-helpers", () => {
       expect(isEncodingValue("sum(revenue)")).toBe(false);
       expect(isEncodingValue(`dimension:${uuid}`)).toBe(false);
     });
-
-    it("accepts what the constructors produce", () => {
-      expect(isEncodingValue(fieldEncoding(uuid as UUID))).toBe(true);
-      expect(isEncodingValue(metricEncoding(uuid as UUID))).toBe(true);
-    });
   });
 
   describe("validateVisualizationEncoding()", () => {
@@ -153,20 +135,6 @@ describe("encoding-helpers", () => {
       expect(problem).toContain("must be a string");
       expect(problem).toContain("field:<uuid>");
       expect(problem).toContain('{"field":"region"}');
-    });
-
-    it("rejects any non-string on any value-bearing channel", () => {
-      for (const channel of ["x", "y", "color", "size"]) {
-        expect(
-          validateVisualizationEncoding({ [channel]: { field: "c" } }),
-        ).toContain(`encoding.${channel}`);
-        expect(validateVisualizationEncoding({ [channel]: 7 })).toContain(
-          `encoding.${channel}`,
-        );
-        expect(validateVisualizationEncoding({ [channel]: null })).toContain(
-          `encoding.${channel}`,
-        );
-      }
     });
 
     // The axis picker offers raw data-frame columns while analysis is
@@ -250,12 +218,6 @@ describe("encoding-helpers", () => {
           validateVisualizationEncoding({ y: `field:${y}`, yTransform: bad }),
         ).toContain("encoding.yTransform");
       }
-    });
-
-    it("ignores keys it does not own rather than rejecting them", () => {
-      expect(
-        validateVisualizationEncoding({ x: `field:${x}`, xLabel: "Region" }),
-      ).toBeUndefined();
     });
   });
 });

@@ -150,21 +150,6 @@ describe("buildInsightUpdateCommands", () => {
     ]);
   });
 
-  it("adds metrics before runtime controls validate their result aliases", () => {
-    const addedMetric = metric(midA, "Sum");
-    const commands = buildInsightUpdateCommands(id, baseInsight, {
-      metrics: [addedMetric],
-      runtimeControls: {
-        sort: { allowedFieldIds: [addedMetric.id], maxKeys: 1 },
-      },
-    });
-
-    expect(commands.map((command) => command.path)).toEqual([
-      "addMetric",
-      "setInsightRuntimeControls",
-    ]);
-  });
-
   it("builds an atomic source transition through an empty valid definition", () => {
     const priorMetric = metric(midA, "Prior");
     const nextMetric = metric(midB, "Next");

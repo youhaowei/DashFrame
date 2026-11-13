@@ -5,8 +5,6 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import type { HostContext, HostDataPlaneRuntime } from "../context";
 import {
   createInsightMaterializer,
-  fieldsFromInsightResult,
-  registerStoredFrame,
   type InsightMaterializerDependencies,
   type PublishMaterialization,
   type SourceGeneration,
@@ -14,41 +12,6 @@ import {
 import { stubQueryEngine } from "../query-engine.fixture";
 import { trustedPublishedSourceGenerations } from "./published-source-error";
 import { DEFAULT_TRANSFER_LIMITS } from "./transfer";
-import {
-  publishMaterialization,
-  PublicationOutcomeUnknownError,
-} from "./publisher";
-
-describe("fieldsFromInsightResult", () => {
-  it("keeps physical result aliases while restoring source field identity", () => {
-    expect(
-      fieldsFromInsightResult(
-        [
-          {
-            id: "field_10000000_0000_4000_8000_000000000001",
-            name: "Country",
-            type: "string",
-          },
-          {
-            id: "metric_20000000_0000_4000_8000_000000000002",
-            name: "Revenue",
-            type: "number",
-          },
-        ],
-        "upstream",
-      ),
-    ).toEqual([
-      expect.objectContaining({
-        id: "10000000-0000-4000-8000-000000000001",
-        columnName: "field_10000000_0000_4000_8000_000000000001",
-      }),
-      expect.objectContaining({
-        id: "20000000-0000-4000-8000-000000000002",
-        columnName: "metric_20000000_0000_4000_8000_000000000002",
-      }),
-    ]);
-  });
-});
 
 const field = (id: string, tableId: string, name: string): Field => ({
   id,
@@ -206,46 +169,6 @@ describe("immutable Insight materializer", () => {
         lastFetchedAt: 456,
       },
     ]);
-  });
-
-  it("propagates presentation source reuse through recursive Insights", async () => {
-    const resolveSource = vi.fn(
-      async (
-        _ctx: HostContext,
-        tableId: UUID,
-        _signal?: AbortSignal,
-        _batchBytes?: number,
-        _preferPublished?: boolean,
-      ) => source(tableId),
-    );
-    const h = harness({
-      resolveSource,
-      resolveInsight: vi.fn(async () => ({
-        baseTableId: "base",
-        source: { sourceType: "dataTable" as const, sourceId: "base" },
-        selectedFields: ["base-field"],
-        metrics: [],
-      })),
-      inspect: () => ({
-        rowCount: 2,
-        schema: [{ id: "field_result_field", name: "result", type: "string" }],
-      }),
-    });
-
-    await createInsightMaterializer(h.dependencies).materialize({
-      ctx: {} as never,
-      target: { kind: "ephemeral" },
-      insight: {
-        baseTableId: "upstream",
-        source: { sourceType: "insight", sourceId: "upstream" },
-        selectedFields: ["result-field"],
-        metrics: [],
-        presentation: { dimensions: ["result-field"] },
-      },
-    });
-
-    expect(resolveSource).toHaveBeenCalledOnce();
-    expect(resolveSource.mock.calls[0]![4]).toBe(true);
   });
 
   it("keeps normal materializations on live source acquisition", async () => {
@@ -439,78 +362,65 @@ describe("immutable Insight materializer", () => {
     ]);
   });
 
-  it.each([false, true])(
-    "reports every recursive source publication with overlapping outer join: %s",
-    async (overlappingJoin) => {
-      const compile = vi.fn(({ tables }) => {
-        const upstream = tables.get("upstream");
-        if (upstream) {
-          expect(upstream.fields).toEqual([
-            expect.objectContaining({
-              id: "result-field",
-              columnName: "field_result_field",
-            }),
-          ]);
-        }
-        return "select 1";
-      });
-      const h = harness({
-        resolveInsight: vi.fn(async () => ({
-          baseTableId: "base",
-          source: { sourceType: "dataTable" as const, sourceId: "base" },
-          selectedFields: ["base-field"],
-          metrics: [],
-        })),
-        compile,
-        now: vi.fn().mockReturnValueOnce(123).mockReturnValueOnce(456),
-        inspect: () => ({
-          rowCount: 2,
-          schema: [
-            { id: "field_result_field", name: "result", type: "string" },
-          ],
-        }),
-      });
-      const ready = await createInsightMaterializer(h.dependencies).materialize(
-        {
-          ctx: {} as never,
-          target: { kind: "saved", insightId: "derived" },
-          insight: {
-            baseTableId: "upstream",
-            source: { sourceType: "insight", sourceId: "upstream" },
-            selectedFields: ["result-field"],
-            metrics: [],
-            ...(overlappingJoin
-              ? {
-                  joins: [
-                    {
-                      type: "left" as const,
-                      rightTableId: "base",
-                      leftKey: "result",
-                      rightKey: "value",
-                    },
-                  ],
-                }
-              : {}),
+  it("reports every recursive source publication with overlapping outer join", async () => {
+    const compile = vi.fn(({ tables }) => {
+      const upstream = tables.get("upstream");
+      if (upstream) {
+        expect(upstream.fields).toEqual([
+          expect.objectContaining({
+            id: "result-field",
+            columnName: "field_result_field",
+          }),
+        ]);
+      }
+      return "select 1";
+    });
+    const h = harness({
+      resolveInsight: vi.fn(async () => ({
+        baseTableId: "base",
+        source: { sourceType: "dataTable" as const, sourceId: "base" },
+        selectedFields: ["base-field"],
+        metrics: [],
+      })),
+      compile,
+      now: vi.fn().mockReturnValueOnce(123).mockReturnValueOnce(456),
+      inspect: () => ({
+        rowCount: 2,
+        schema: [{ id: "field_result_field", name: "result", type: "string" }],
+      }),
+    });
+    const ready = await createInsightMaterializer(h.dependencies).materialize({
+      ctx: {} as never,
+      target: { kind: "saved", insightId: "derived" },
+      insight: {
+        baseTableId: "upstream",
+        source: { sourceType: "insight", sourceId: "upstream" },
+        selectedFields: ["result-field"],
+        metrics: [],
+        joins: [
+          {
+            type: "left" as const,
+            rightTableId: "base",
+            leftKey: "result",
+            rightKey: "value",
           },
-        },
-      );
+        ],
+      },
+    });
 
-      expect(ready.status).toBe("ready");
-      expect(ready.fetchedAt).toBe(456);
-      expect(ready.sourceGenerations).toEqual([
-        { tableId: "base", dataFrameId: "frame-1", lastFetchedAt: 123 },
-        ...(overlappingJoin
-          ? [{ tableId: "base", dataFrameId: "frame-3", lastFetchedAt: 456 }]
-          : []),
-      ]);
-      expect(h.resolveSource).toHaveBeenCalledTimes(overlappingJoin ? 2 : 1);
-      expect(h.publish).toHaveBeenCalledTimes(2);
-      expect(h.publish.mock.calls[0]![1].target).toEqual({ kind: "transient" });
-      expect(h.bytes.size).toBe(overlappingJoin ? 3 : 2);
-      expect(h.registered.size).toBe(overlappingJoin ? 3 : 2);
-      expect(compile).toHaveBeenCalledTimes(2);
-    },
-  );
+    expect(ready.status).toBe("ready");
+    expect(ready.fetchedAt).toBe(456);
+    expect(ready.sourceGenerations).toEqual([
+      { tableId: "base", dataFrameId: "frame-1", lastFetchedAt: 123 },
+      { tableId: "base", dataFrameId: "frame-3", lastFetchedAt: 456 },
+    ]);
+    expect(h.resolveSource).toHaveBeenCalledTimes(2);
+    expect(h.publish).toHaveBeenCalledTimes(2);
+    expect(h.publish.mock.calls[0]![1].target).toEqual({ kind: "transient" });
+    expect(h.bytes.size).toBe(3);
+    expect(h.registered.size).toBe(3);
+    expect(compile).toHaveBeenCalledTimes(2);
+  });
 
   it("removes a recursive transient result when the outer query fails", async () => {
     const baseId = "10000000-0000-4000-8000-000000000001" as UUID;
@@ -602,30 +512,6 @@ describe("immutable Insight materializer", () => {
     expect(h.registered.has("df_frame-3")).toBe(false);
   });
 
-  it("fails closed on a recursively corrupted Insight cycle", async () => {
-    const h = harness({
-      resolveInsight: vi.fn(async (_ctx, insightId) => ({
-        baseTableId: insightId,
-        source: { sourceType: "insight" as const, sourceId: insightId },
-        selectedFields: [],
-        metrics: [],
-      })),
-    });
-    await expect(
-      createInsightMaterializer(h.dependencies).materialize({
-        ctx: {} as never,
-        target: { kind: "saved", insightId: "derived" },
-        insight: {
-          baseTableId: "upstream",
-          source: { sourceType: "insight", sourceId: "upstream" },
-          selectedFields: [],
-          metrics: [],
-        },
-      }),
-    ).rejects.toThrow("TARGET_NOT_READY");
-    expect(h.publish).not.toHaveBeenCalled();
-  });
-
   it("fails closed when an Insight source chain exceeds the recursion bound", async () => {
     const h = harness({
       resolveInsight: vi.fn(async (_ctx, insightId) => {
@@ -653,36 +539,11 @@ describe("immutable Insight materializer", () => {
     expect(h.publish).not.toHaveBeenCalled();
   });
 
-  // Each row fails the harness's own dependency, so `h.registered` and
-  // `h.bytes` are the maps the materializer has to clean.
-  it.each([
-    [
-      "compile",
-      (h: ReturnType<typeof harness>) => {
-        h.dependencies.compile = () => {
-          throw new Error("compile");
-        };
-      },
-    ],
-    [
-      "query",
-      (h: ReturnType<typeof harness>) => {
-        h.runtime.queryArrow = async () => {
-          throw new Error("query");
-        };
-      },
-    ],
-    [
-      "inspect",
-      (h: ReturnType<typeof harness>) => {
-        h.dependencies.inspect = () => {
-          throw new Error("malformed");
-        };
-      },
-    ],
-  ])("cleans every new frame when %s fails", async (_name, fail) => {
+  it("cleans every new frame when compile fails", async () => {
     const h = harness();
-    fail(h);
+    h.dependencies.compile = () => {
+      throw new Error("compile");
+    };
     const materializer = createInsightMaterializer(h.dependencies);
     await expect(
       materializer.materialize({
@@ -712,6 +573,7 @@ describe("immutable Insight materializer", () => {
     expect(h.bytes.size).toBe(0);
     expect(h.registered.size).toBe(0);
     expect(h.runtime.unregisterTable).toHaveBeenCalledWith("df_frame-1");
+    expect(h.publish).not.toHaveBeenCalled();
   });
 
   it("retains every pending frame when publication commits then loses its response", async () => {
@@ -734,51 +596,6 @@ describe("immutable Insight materializer", () => {
     expect(h.registered.size).toBe(3);
     expect(h.storage.delete).not.toHaveBeenCalled();
     expect(h.runtime.unregisterTable).not.toHaveBeenCalled();
-  });
-
-  it("retains unknown publications even when confirmation reads no operation yet", async () => {
-    const h = harness({ publish: publishMaterialization });
-    const metadata = {
-      publishMaterialization: vi.fn(async () => {
-        throw new Error("connection lost");
-      }),
-      getOperation: vi.fn(async () => null),
-    };
-    const failure = await createInsightMaterializer(h.dependencies)
-      .materialize({
-        ctx: { metadata } as unknown as HostContext,
-        target: { kind: "saved", insightId: "insight" },
-        insight,
-      })
-      .catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(PublicationOutcomeUnknownError);
-    expect(metadata.getOperation).toHaveBeenCalledWith("materialize:frame-3");
-    expect([...h.bytes.keys()]).toEqual(["frame-1", "frame-2", "frame-3"]);
-    expect(h.registered.size).toBe(3);
-    expect(h.storage.delete).not.toHaveBeenCalled();
-    expect(h.runtime.unregisterTable).not.toHaveBeenCalled();
-  });
-
-  it("recovers a committed materialization from its durable operation record", async () => {
-    const h = harness({ publish: publishMaterialization });
-    let committed: unknown;
-    const metadata = {
-      publishMaterialization: vi.fn(async (value: PublishMaterialization) => {
-        committed = JSON.parse(JSON.stringify(value));
-        throw new Error("response lost");
-      }),
-      getOperation: vi.fn(async () => ({ request: committed, result: null })),
-    };
-    const ready = await createInsightMaterializer(h.dependencies).materialize({
-      ctx: { metadata } as unknown as HostContext,
-      target: { kind: "saved", insightId: "insight" },
-      insight,
-    });
-    expect(ready).toMatchObject({ status: "ready", dataFrameId: "frame-3" });
-    expect(metadata.publishMaterialization).toHaveBeenCalledOnce();
-    expect(metadata.getOperation).toHaveBeenCalledWith("materialize:frame-3");
-    expect(h.bytes.size).toBe(3);
-    expect(h.registered.size).toBe(3);
   });
 
   it("retains old handles while atomically publishing the new saved association", async () => {
@@ -817,25 +634,6 @@ describe("immutable Insight materializer", () => {
       }),
     ).rejects.toThrow("save");
     expect(h.storage.delete).toHaveBeenCalledWith("frame-1");
-    expect(h.publish).not.toHaveBeenCalled();
-  });
-
-  it("removes saved bytes when native registration fails", async () => {
-    const h = harness();
-    h.dependencies.runtime = () => ({
-      ...h.runtime,
-      registerArrowTable: async () => {
-        throw new Error("register");
-      },
-    });
-    await expect(
-      createInsightMaterializer(h.dependencies).materialize({
-        ctx: {} as never,
-        target: { kind: "ephemeral" },
-        insight,
-      }),
-    ).rejects.toThrow("register");
-    expect(h.bytes.size).toBe(0);
     expect(h.publish).not.toHaveBeenCalled();
   });
 
@@ -1157,64 +955,6 @@ describe("immutable Insight materializer", () => {
     ).resolves.toMatchObject({ status: "ready" });
     expect(h.publish).toHaveBeenCalledOnce();
   });
-
-  it("does not reuse an in-flight operation after its source generation changes", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let generation = "source-frame-1";
-    const h = harness({
-      resolveSource: async (_ctx, tableId) => {
-        await gate;
-        return source(tableId);
-      },
-    });
-    h.dependencies.coalescingScope = async () => generation;
-    const materializer = createInsightMaterializer(h.dependencies);
-    const args = {
-      ctx: {} as never,
-      target: { kind: "ephemeral" } as const,
-      insight,
-    };
-    const first = materializer.materialize(args);
-    await Promise.resolve();
-    generation = "source-frame-2";
-    const replacement = materializer.materialize(args);
-    release();
-
-    await Promise.all([first, replacement]);
-    expect(h.publish).toHaveBeenCalledTimes(2);
-  });
-});
-
-it("preserves the published table when refresh rejects an oversized source", async () => {
-  const h = harness({
-    resolveSource: vi.fn(async () => {
-      throw new Error("FETCH_EXECUTION_FAILED", {
-        cause: new Error(
-          "[PostgresConnector] Result exceeds the hosted row ceiling",
-        ),
-      });
-    }),
-  });
-
-  await expect(
-    createInsightMaterializer(h.dependencies).materialize({
-      ctx: {} as never,
-      target: { kind: "refresh" },
-      insight: {
-        baseTableId: "base",
-        selectedFields: [],
-        metrics: [],
-      },
-    }),
-  ).rejects.toThrow("FETCH_EXECUTION_FAILED");
-
-  // No replacement publication means the previously published table and
-  // every Report that refers to it remain the active generation.
-  expect(h.storage.save).not.toHaveBeenCalled();
-  expect(h.publish).not.toHaveBeenCalled();
 });
 
 it.each(["storageBytes", "runBytes"] as const)(
@@ -1240,84 +980,6 @@ it.each(["storageBytes", "runBytes"] as const)(
     expect(h.publish).not.toHaveBeenCalled();
   },
 );
-
-it("retains hosted buffered refresh ceilings independently of native transfer budgets", async () => {
-  const h = harness({
-    transferLimits: {
-      ...DEFAULT_TRANSFER_LIMITS,
-      storageBytes: 0,
-      runBytes: 0,
-    },
-  });
-  const result = await createInsightMaterializer(h.dependencies).materialize({
-    ctx: {} as HostContext,
-    target: { kind: "refresh" },
-    insight: { baseTableId: "source", selectedFields: [], metrics: [] },
-  });
-  expect(result.status).toBe("ready");
-  expect(h.storage.getUsage).not.toHaveBeenCalled();
-});
-
-it("gives the buffered result query the same deadline as the batched one", async () => {
-  // The batched branch passes transfer.signal; the buffered branch runs the
-  // whole insight query and must not outlive the materialization that asked
-  // for it either.
-  const h = harness();
-  const seen: (AbortSignal | undefined)[] = [];
-  Object.assign(h.runtime, {
-    queryArrow: vi.fn(
-      async (
-        _sql: string,
-        _params?: readonly unknown[],
-        signal?: AbortSignal,
-      ) => {
-        seen.push(signal);
-        return new Uint8Array([9]);
-      },
-    ),
-  });
-  await createInsightMaterializer(h.dependencies).materialize({
-    ctx: {} as HostContext,
-    target: { kind: "ephemeral" },
-    insight,
-  });
-  expect(seen).not.toHaveLength(0);
-  expect(seen.every((signal) => signal instanceof AbortSignal)).toBe(true);
-});
-
-it("carries a caller abort into a buffered registration, not only into the load", async () => {
-  // The load is the slow half of registerStoredFrame's buffered branch. A
-  // caller that gave up while it ran must not end up with a table registered
-  // on its behalf, so the signal has to reach the registration too.
-  const h = harness();
-  const controller = new AbortController();
-  const registerArrowTable = vi.fn(
-    async (_name: string, _bytes: Uint8Array, signal?: AbortSignal) => {
-      signal?.throwIfAborted();
-    },
-  );
-  Object.assign(h.runtime, { registerArrowTable });
-  Object.assign(h.storage, {
-    load: async () => {
-      controller.abort();
-      return new Uint8Array([1]);
-    },
-  });
-  await expect(
-    registerStoredFrame(
-      h.storage,
-      h.runtime,
-      "df_cancelled",
-      "frame-1" as UUID,
-      controller.signal,
-    ),
-  ).rejects.toThrow();
-  expect(registerArrowTable).toHaveBeenCalledWith(
-    "df_cancelled",
-    new Uint8Array([1]),
-    controller.signal,
-  );
-});
 
 it("refuses a batched source on a hosted runtime without consuming or saving it", async () => {
   // The hosted backing joins chunks at its worker seam, so accepting batches

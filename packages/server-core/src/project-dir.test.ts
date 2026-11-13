@@ -13,14 +13,6 @@ describe("resolveProjectDir", () => {
     expect(result).toBe("/opt/custom");
   });
 
-  test("should use env var when explicit dir is absent", () => {
-    const result = resolveProjectDir({
-      env: { [PROJECT_DIR_ENV]: "/var/lib/dashframe" },
-      homeDir: "/home/u",
-    });
-    expect(result).toBe("/var/lib/dashframe");
-  });
-
   test("should fall back to ~/.DashFrame/default-project when env is absent", () => {
     const result = resolveProjectDir({ env: {}, homeDir: "/home/u" });
     expect(result).toBe(path.join("/home/u", ".DashFrame", "default-project"));

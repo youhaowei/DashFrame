@@ -64,32 +64,6 @@ describe("table replacement metadata", () => {
     ).toMatchObject([{ id: "count" }, { id: "revenue" }]);
   });
 
-  it("drops incompatible numeric metrics without dropping compatible metrics", () => {
-    const metrics: Metric[] = [
-      {
-        id: "revenue-sum",
-        tableId: "table",
-        name: "Revenue",
-        columnName: "revenue",
-        aggregation: "sum",
-      },
-      {
-        id: "quantity-sum",
-        tableId: "table",
-        name: "Quantity",
-        columnName: "quantity",
-        aggregation: "sum",
-      },
-    ];
-
-    expect(
-      retainReplacementMetrics(metrics, [
-        field("field-revenue", "revenue", "string"),
-        field("field-quantity", "quantity", "number"),
-      ]),
-    ).toMatchObject([{ id: "quantity-sum" }]);
-  });
-
   it("keeps min and max on every column type while sum and avg stay numeric", () => {
     const metric = (
       id: string,

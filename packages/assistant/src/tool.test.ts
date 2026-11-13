@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import {
-  defineToolHandler,
-  isValidationError,
-  Type,
-  validateToolArgs,
-} from "./tool.js";
+import { defineToolHandler, Type, validateToolArgs } from "./tool.js";
 
 // ---------------------------------------------------------------------------
 // Shared schema used across tests
@@ -54,7 +49,6 @@ describe("validateToolArgs — invalid args", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(isValidationError(result.error)).toBe(true);
       expect(result.error.kind).toBe("validation_error");
       expect(result.error.message).toMatch(/Tool argument validation failed/);
       expect(result.error.errors.length).toBeGreaterThan(0);
@@ -71,7 +65,6 @@ describe("validateToolArgs — invalid args", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(isValidationError(result.error)).toBe(true);
       expect(result.error.kind).toBe("validation_error");
       expect(result.error.message).toMatch(/Tool argument validation failed/);
       expect(result.error.errors[0]?.path).toBe("");

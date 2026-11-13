@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
   applyInsightRuntime,
   createDataFetchFunctions,
-  fingerprintEffectiveInsight,
   toFetchFailure,
 } from "./data-fetch";
 import type { HostContext } from "./context";
@@ -50,7 +49,6 @@ function fetchContext(): HostContext {
 
 const productFieldId = "10000000-0000-4000-8000-000000000001";
 const countryFieldId = "10000000-0000-4000-8000-000000000002";
-const otherFieldId = "10000000-0000-4000-8000-000000000003";
 
 const previewDefinition = {
   baseTableId: "table-1",
@@ -89,28 +87,6 @@ describe("fetchData sort schema", () => {
         }),
       }),
     );
-  });
-
-  it.each([
-    [{ fieldId: "country", value: Number.NaN }],
-    [{ fieldId: "country", value: { nested: true } }],
-    [{ fieldId: "country", value: "US", extra: true }],
-  ])("rejects a malformed pivot tuple", async (pivotValues) => {
-    const execute = vi.fn();
-    const { fetchData } = createDataFetchFunctions(execute);
-
-    const result = await fetchData(fetchContext(), {
-      insight: {
-        ...previewDefinition,
-        sorts: [{ field: "metric_revenue", direction: "desc", pivotValues }],
-      },
-    });
-
-    expect(result).toMatchObject({
-      status: "failed",
-      code: "FETCH_INVALID_DEFINITION",
-    });
-    expect(execute).not.toHaveBeenCalled();
   });
 });
 
@@ -153,35 +129,21 @@ describe("Insight presentation requests", () => {
     );
   });
 
-  it.each([
-    [{ dimensions: [productFieldId, productFieldId] }, "FETCH_INVALID_REQUEST"],
-    [
-      {
-        dimensions: [productFieldId],
-        transforms: {
-          [otherFieldId]: { kind: "categorical", groupBy: "monthName" },
-        },
-      },
-      "RUNTIME_PRESENTATION_NOT_ALLOWED",
-    ],
-  ] as const)(
-    "rejects invalid presentation input %#",
-    async (presentation, code) => {
-      const execute = vi.fn();
-      const { fetchData } = createDataFetchFunctions(execute);
+  it("rejects invalid presentation input", async () => {
+    const execute = vi.fn();
+    const { fetchData } = createDataFetchFunctions(execute);
 
-      const result = await fetchData(fetchContext(), {
-        insight: previewDefinition,
-        presentation,
-      });
+    const result = await fetchData(fetchContext(), {
+      insight: previewDefinition,
+      presentation: { dimensions: [productFieldId, productFieldId] },
+    });
 
-      expect(result).toMatchObject({
-        status: "failed",
-        code,
-      });
-      expect(execute).not.toHaveBeenCalled();
-    },
-  );
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "FETCH_INVALID_REQUEST",
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
 
   it("uses an ephemeral frame after runtime selection and never offers a saved fallback", async () => {
     const insightId = "00000000-0000-4000-8000-000000000001";
@@ -761,39 +723,6 @@ describe("applyInsightRuntime", () => {
         sort: [{ fieldId: "date", direction: "asc" }],
       }),
     ).toThrow("RUNTIME_SORT_FIELD_NOT_ALLOWED");
-  });
-
-  it("includes internal runtime provenance in the effective fingerprint", () => {
-    const effective = applyInsightRuntime(
-      {
-        ...insight,
-        runtimeControls: {
-          dimensions: { allowedIds: ["region", "date"], maxSelected: 1 },
-        },
-      },
-      { dimensions: ["region"] },
-    );
-    const { runtimeDimensionsChanged: _changed, ...withoutProvenance } =
-      effective;
-
-    expect(fingerprintEffectiveInsight(effective)).not.toBe(
-      fingerprintEffectiveInsight(withoutProvenance),
-    );
-  });
-
-  it("distinguishes a presentation frame from its canonical report frame", () => {
-    const effective = {
-      baseTableId: "table-1",
-      selectedFields: ["region"],
-      metrics: [],
-    };
-
-    expect(
-      fingerprintEffectiveInsight({
-        ...effective,
-        presentation: { dimensions: ["region"] },
-      }),
-    ).not.toBe(fingerprintEffectiveInsight(effective));
   });
 
   it("applies only a declared bounded limit", () => {

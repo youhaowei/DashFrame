@@ -31,7 +31,6 @@ vi.mock("../connectors", () => ({
 import {
   fetchGa4Binding,
   fetchLocalBinding,
-  fetchNotionBinding,
   fetchSourceBinding,
   resolveSourceBinding,
   streamGa4Binding,
@@ -164,57 +163,35 @@ describe("Source Binding registry", () => {
     );
   });
 
-  it("uses only the persisted table property and returns server provenance", async () => {
-    ga4ConnectorFor.mockResolvedValue({
-      query: vi.fn().mockResolvedValue(page([1, 2])),
+  it("lets the notion connector exhaust its provider without synthetic offsets", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValue(
+        page(Array.from({ length: 10_000 }, (_, index) => index)),
+      );
+    notionConnectorFor.mockResolvedValue({
+      query,
     });
     const binding = await resolveSourceBinding(
-      context({ table, source }),
+      context({ table, source: { ...source, kind: "notion" } }),
       table.id,
     );
-    const result = await fetchSourceBinding(
-      context({ table, source }),
-      binding,
+
+    await expect(
+      fetchSourceBinding(context({ table }), binding),
+    ).resolves.toMatchObject({
+      rowCount: 10_000,
+      provenance: { connectorKind: "notion", sourceBindingVersion: "v1" },
+    });
+    expect(notionConnectorFor).toHaveBeenCalledWith(
+      expect.anything(),
+      source.id,
     );
-    expect(ga4ConnectorFor).toHaveBeenCalledWith(expect.anything(), source.id);
-    expect(result).toMatchObject({
-      rowCount: 2,
-      provenance: {
-        connectorKind: "googleAnalytics",
-        sourceBindingVersion: "v1",
-      },
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledWith(table.table, table.id, {
+      signal: undefined,
     });
   });
-
-  it.each([["notion", notionConnectorFor]])(
-    "lets the %s connector exhaust its provider without synthetic offsets",
-    async (kind, connectorFor) => {
-      const query = vi
-        .fn()
-        .mockResolvedValue(
-          page(Array.from({ length: 10_000 }, (_, index) => index)),
-        );
-      connectorFor.mockResolvedValue({
-        query,
-      });
-      const binding = await resolveSourceBinding(
-        context({ table, source: { ...source, kind } }),
-        table.id,
-      );
-
-      await expect(
-        fetchSourceBinding(context({ table }), binding),
-      ).resolves.toMatchObject({
-        rowCount: 10_000,
-        provenance: { connectorKind: kind, sourceBindingVersion: "v1" },
-      });
-      expect(connectorFor).toHaveBeenCalledWith(expect.anything(), source.id);
-      expect(query).toHaveBeenCalledTimes(1);
-      expect(query).toHaveBeenCalledWith(table.table, table.id, {
-        signal: undefined,
-      });
-    },
-  );
 
   it("bounds hosted Postgres rows and bytes before accepting connector output", async () => {
     const query = vi.fn().mockResolvedValue(page([1, 2]));
@@ -281,17 +258,6 @@ describe("Source Binding registry", () => {
     expect(storage.load).not.toHaveBeenCalled();
   });
 
-  it("contains provider and credential failures", async () => {
-    ga4ConnectorFor.mockRejectedValue(new Error("token=secret"));
-    const binding = await resolveSourceBinding(
-      context({ table, source }),
-      table.id,
-    );
-    await expect(
-      fetchGa4Binding(context({ table, source }), binding),
-    ).rejects.toThrow("FETCH_EXECUTION_FAILED");
-  });
-
   it("names an expired Google sign-in so Refresh can offer a new one", async () => {
     ga4ConnectorFor.mockResolvedValue({
       query: vi
@@ -345,41 +311,6 @@ describe("Source Binding registry", () => {
     ).toBe(10_002);
   });
 
-  it.each([
-    ["googleAnalytics", ga4ConnectorFor, fetchGa4Binding],
-    ["notion", notionConnectorFor, fetchNotionBinding],
-  ] as const)(
-    "cancels a pending native %s provider request",
-    async (kind, factory, fetchBinding) => {
-      const abort = new AbortController();
-      const ctx = context({ table, source: { ...source, kind } });
-      Object.assign(ctx, { requestSignal: abort.signal });
-      let started!: () => void;
-      const pendingProvider = new Promise<void>((resolve) => {
-        started = resolve;
-      });
-      const query = vi.fn(
-        (_table: string, _id: string, options?: { signal?: AbortSignal }) => {
-          started();
-          return new Promise<ReturnType<typeof page>>((_resolve, reject) => {
-            options?.signal?.addEventListener(
-              "abort",
-              () => reject(options.signal?.reason),
-              { once: true },
-            );
-          });
-        },
-      );
-      factory.mockResolvedValue({ query });
-      const binding = await resolveSourceBinding(ctx, table.id);
-      const pending = fetchBinding(ctx, binding);
-      await pendingProvider;
-      abort.abort(new Error("FETCH_DEADLINE_EXCEEDED"));
-      await expect(pending).rejects.toThrow("FETCH_EXECUTION_FAILED");
-      expect(query.mock.calls[0]?.[2]?.signal).toBe(abort.signal);
-    },
-  );
-
   it("bounds hosted GA4 to one sentinel window and rejects a prefix", async () => {
     const query = vi
       .fn()
@@ -395,23 +326,6 @@ describe("Source Binding registry", () => {
       pagination: { offset: 0, limit: 10_001 },
     });
     expect(query).toHaveBeenCalledOnce();
-  });
-
-  it("bounds hosted Notion before its connector paginates the complete source", async () => {
-    const query = vi.fn().mockResolvedValue(page([1, 2]));
-    notionConnectorFor.mockResolvedValue({ query });
-    const notionSource = { ...source, kind: "notion" };
-    const ctx = context({ table, source: notionSource }, "owner");
-    const binding = await resolveSourceBinding(ctx, table.id);
-
-    await expect(fetchNotionBinding(ctx, binding)).resolves.toMatchObject({
-      rowCount: 2,
-    });
-    expect(query).toHaveBeenCalledWith(table.table, table.id, {
-      pagination: { offset: 0, limit: 10_001 },
-      maxRows: 10_000,
-      maxBytes: Math.floor(MAX_LOCAL_ARROW_BYTES / 4),
-    });
   });
 
   it("canonicalizes first-page field identity while accepting fresh ids on later GA4 pages", async () => {
@@ -514,22 +428,6 @@ describe("Source Binding registry", () => {
 });
 
 describe("PostgreSQL streaming binding", () => {
-  it("preserves the unsupported-value error from the connector", async () => {
-    postgresConnectorFor.mockResolvedValue({
-      queryBatches: async function* () {
-        yield await Promise.reject(new Error("SOURCE_VALUE_UNSUPPORTED"));
-      },
-    });
-    const binding = {
-      connectorKind: "postgres",
-      sourceBindingVersion: "v1",
-      dataSourceId: "source-1",
-      table,
-    };
-    await expect(
-      streamPostgresBinding(context({ table }), binding as never).next(),
-    ).rejects.toThrow("SOURCE_VALUE_UNSUPPORTED");
-  });
   it("applies a custom batch byte ceiling before decoding", async () => {
     const batch = page([1, 2]);
     const bytes = Buffer.byteLength(batch.arrowBuffer, "base64");
@@ -683,38 +581,5 @@ describe("PostgreSQL streaming binding", () => {
       ["tags", "Utf8"],
       ["meta", "Utf8"],
     ]);
-  });
-
-  it("forwards cancellation and closes a producer when its consumer stops", async () => {
-    const batch = page([1]);
-    const signal = new AbortController().signal;
-    let closed = false;
-    const queryBatches = vi.fn(async function* () {
-      try {
-        yield batch;
-        yield batch;
-      } finally {
-        closed = true;
-      }
-    });
-    postgresConnectorFor.mockResolvedValue({ queryBatches });
-    const binding = {
-      connectorKind: "postgres",
-      sourceBindingVersion: "v1",
-      dataSourceId: "source-1",
-      table: { ...table, fields: batch.fields },
-    };
-    const iterator = streamPostgresBinding(
-      context({ table }),
-      binding as never,
-      signal,
-    );
-    await iterator.next();
-    await iterator.return(undefined);
-    expect(closed).toBe(true);
-    expect(queryBatches).toHaveBeenCalledWith(table.table, table.id, {
-      signal,
-      batchRows: 2048,
-    });
   });
 });

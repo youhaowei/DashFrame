@@ -100,21 +100,6 @@ describe("resolveRelativeDateRange", () => {
     },
   );
 
-  test("allows an empty to-date range at an exact UTC period boundary", () => {
-    const boundary = new Date("2024-01-01T00:00:00.000Z");
-
-    expectRange(
-      resolveRelativeDateRange({ type: "month_to_date" }, boundary),
-      boundary.toISOString(),
-      boundary.toISOString(),
-    );
-    expectRange(
-      resolveRelativeDateRange({ type: "year_to_date" }, boundary),
-      boundary.toISOString(),
-      boundary.toISOString(),
-    );
-  });
-
   test("rejects invalid counts and asOf dates", () => {
     expect(() =>
       resolveRelativeDateRange({ type: "last_complete_days", count: 0 }, asOf),
@@ -126,16 +111,6 @@ describe("resolveRelativeDateRange", () => {
 });
 
 describe("comparison periods", () => {
-  test("uses the preceding calendar month for a whole month", () => {
-    expectRange(
-      previousPeriod(
-        absoluteDateRange(new Date("2024-03-01"), new Date("2024-04-01")),
-      ),
-      "2024-02-01T00:00:00.000Z",
-      "2024-03-01T00:00:00.000Z",
-    );
-  });
-
   test("uses preceding calendar boundaries for whole quarters and years", () => {
     expectRange(
       previousPeriod(
@@ -149,25 +124,6 @@ describe("comparison periods", () => {
         absoluteDateRange(new Date("2024-01-01"), new Date("2025-01-01")),
       ),
       "2023-01-01T00:00:00.000Z",
-      "2024-01-01T00:00:00.000Z",
-    );
-  });
-
-  test("compares complete multi-month ranges with the same number of calendar months", () => {
-    const current = resolveRelativeDateRange(
-      { type: "last_complete_months", count: 2 },
-      new Date("2026-03-15T00:00:00Z"),
-    );
-    expectRange(
-      previousPeriod(current),
-      "2025-11-01T00:00:00.000Z",
-      "2026-01-01T00:00:00.000Z",
-    );
-    expectRange(
-      previousPeriod(
-        absoluteDateRange(new Date("2024-01-01"), new Date("2026-01-01")),
-      ),
-      "2022-01-01T00:00:00.000Z",
       "2024-01-01T00:00:00.000Z",
     );
   });

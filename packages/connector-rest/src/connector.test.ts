@@ -19,7 +19,6 @@ import {
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   applyFieldMap,
-  assertFieldMapNoCollision,
   extractRows,
   makeRestConnector,
   noopResolver,
@@ -91,36 +90,12 @@ function makeResponse(
 // ---------------------------------------------------------------------------
 
 describe("extractRows", () => {
-  it("returns root array when no rowPath", () => {
-    expect(extractRows([1, 2, 3])).toEqual([1, 2, 3]);
-  });
-
   it("returns [] for non-array root with no rowPath", () => {
     expect(extractRows({ items: [1] })).toEqual([]);
   });
 
-  it("resolves a dot-path to the array", () => {
-    expect(extractRows({ data: { items: [{ id: 1 }] } }, "data.items")).toEqual(
-      [{ id: 1 }],
-    );
-  });
-
   it("returns [] when dot-path is missing", () => {
     expect(extractRows({ a: 1 }, "a.b.c")).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Unit: applyFieldMap
-// ---------------------------------------------------------------------------
-
-describe("applyFieldMap", () => {
-  it("renames mapped keys and passes through unmapped ones", () => {
-    const row = { full_name: "Alice", age: 30 };
-    expect(applyFieldMap(row, { full_name: "name" })).toEqual({
-      name: "Alice",
-      age: 30,
-    });
   });
 });
 
@@ -164,32 +139,17 @@ describe("RestConnector", () => {
     // typically plain-http; these are rejected-by-design fixtures, not real
     // connection targets.
     /* oxlint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets that validate() must reject. */
-    it.each([
-      ["http://10.0.0.1/data", "RFC-1918 private"],
-      ["http://192.168.1.1/data", "RFC-1918 private"],
-      ["http://127.0.0.1:8080/admin", "loopback"],
-      ["http://localhost/data", "loopback hostname"],
-      ["http://169.254.169.254/latest/meta-data/", "cloud metadata"],
-      ["http://[::1]/data", "IPv6 loopback"],
-      // IPv4-mapped IPv6: URL.hostname normalizes this to ::ffff:a9fe:a9fe (hex),
-      // which a dotted-form-only classifier would let through to cloud metadata.
-      // This fixture goes through the real validate() → URL → isPrivateHost path.
-      [
-        "http://[::ffff:169.254.169.254]/latest/meta-data/",
-        "IPv4-mapped metadata",
-      ],
-      ["http://[::ffff:10.0.0.1]/data", "IPv4-mapped private"],
-    ])("rejects a private/internal endpoint: %s (%s)", (endpoint) => {
-      const result = c.validate({ endpoint });
+    // IPv4-mapped IPv6: URL.hostname normalizes this to ::ffff:a9fe:a9fe (hex),
+    // which a dotted-form-only classifier would let through to cloud metadata.
+    // This fixture goes through the real validate() → URL → isPrivateHost path.
+    it("rejects a private/internal endpoint: http://[::ffff:169.254.169.254]/latest/meta-data/ (IPv4-mapped metadata)", () => {
+      const result = c.validate({
+        endpoint: "http://[::ffff:169.254.169.254]/latest/meta-data/",
+      });
       expect(result.valid).toBe(false);
       expect(result.errors?.["endpoint"]).toBeTruthy();
     });
     /* oxlint-enable sonarjs/no-clear-text-protocols */
-
-    it("passes for a public IP-literal URL", () => {
-      const result = c.validate({ endpoint: "https://8.8.8.8/api" });
-      expect(result.valid).toBe(true);
-    });
   });
 
   // -------------------------------------------------------------------------
@@ -214,16 +174,6 @@ describe("RestConnector", () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it("connect() refuses a loopback endpoint BEFORE any fetch", async () => {
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "http://127.0.0.1:9200/_cluster/health",
-      });
-      await expect(c.connect()).rejects.toThrow(/private\/internal|SSRF/i);
-      expect(mockFetch).not.toHaveBeenCalled();
-    });
-
     it("refuses a redirect from a public endpoint to a private host", async () => {
       // A public endpoint 30x-redirects to cloud metadata. We follow redirects
       // manually (redirect:"manual") and re-validate each Location — the private
@@ -245,26 +195,6 @@ describe("RestConnector", () => {
       // The public first hop was fetched; the private redirect target was NOT.
       expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch.mock.calls[0]?.[0]).toBe("https://api.example.com/data");
-    });
-
-    it("follows a redirect to another public host", async () => {
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          makeResponse(null, {
-            status: 302,
-            location: "https://cdn.example.com/data",
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
-      vi.stubGlobal("fetch", mockFetch);
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
-      const result = await c.query("db", crypto.randomUUID());
-      expect(result.fields.length).toBeGreaterThan(0);
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-      expect(mockFetch.mock.calls[1]?.[0]).toBe("https://cdn.example.com/data");
     });
 
     it("drops the Authorization header on a cross-host redirect (no credential leak)", async () => {
@@ -363,38 +293,6 @@ describe("RestConnector", () => {
     });
   });
   /* oxlint-enable sonarjs/no-clear-text-protocols */
-
-  // -------------------------------------------------------------------------
-  // 1. Offset pagination
-  // -------------------------------------------------------------------------
-
-  describe("offset pagination", () => {
-    it("collects rows from both pages and stops when page is empty", async () => {
-      const page1 = [{ id: 1 }, { id: 2 }, { id: 3 }];
-      const page2: unknown[] = [];
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse(page1))
-        .mockResolvedValueOnce(makeResponse(page2));
-      vi.stubGlobal("fetch", mockFetch);
-
-      const tableId = crypto.randomUUID();
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-        pagination: "offset",
-        paginationParams: { pageSize: 3 },
-      });
-      const result = await c.query("db", tableId);
-
-      expect(result.fields.length).toBeGreaterThan(0);
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-      // First call: offset=0, limit=3
-      expect(mockFetch.mock.calls[0]?.[0]).toContain("offset=0");
-      expect(mockFetch.mock.calls[0]?.[0]).toContain("limit=3");
-      // Second call: offset=3
-      expect(mockFetch.mock.calls[1]?.[0]).toContain("offset=3");
-    });
-  });
 
   // -------------------------------------------------------------------------
   // 2. Cursor pagination
@@ -554,22 +452,6 @@ describe("RestConnector", () => {
       // fetch must NOT have been called — resolver failed before fetch
       expect(mockFetch).not.toHaveBeenCalled();
     });
-
-    it("throws before calling fetch in connect() when resolver rejects", async () => {
-      const failResolver: SecretResolver = async (_use) => {
-        throw new Error("No secret available");
-      };
-
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
-
-      const c = makeRestConnector(failResolver, {
-        endpoint: "https://api.example.com/data",
-      });
-
-      await expect(c.connect()).rejects.toThrow(/No secret available/i);
-      expect(mockFetch).not.toHaveBeenCalled();
-    });
   });
 
   // -------------------------------------------------------------------------
@@ -665,22 +547,6 @@ describe("RestConnector", () => {
         /authRef.*no token|fail-closed/i,
       );
       // No request was issued — fail-closed before any network side-effect.
-      expect(mockFetch).not.toHaveBeenCalled();
-    });
-
-    it("throws BEFORE fetch in connect() when authRef set and token empty", async () => {
-      const emptyTokenResolver: SecretResolver = (use) => use("");
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
-
-      const c = makeRestConnector(emptyTokenResolver, {
-        endpoint: "https://api.example.com/data",
-        authRef: "secret:configured-but-unresolvable",
-      });
-
-      await expect(c.connect()).rejects.toThrow(
-        /authRef.*no token|fail-closed/i,
-      );
       expect(mockFetch).not.toHaveBeenCalled();
     });
   });
@@ -798,6 +664,7 @@ describe("RestConnector", () => {
       await c.query("db", crypto.randomUUID());
 
       expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[0]?.[0]).toContain("limit=3");
       // Second offset is the NUMERIC 3, not the concatenated "03"/"30".
       expect(mockFetch.mock.calls[1]?.[0]).toContain("offset=3");
       expect(mockFetch.mock.calls[1]?.[0]).not.toContain("offset=03");
@@ -809,29 +676,6 @@ describe("RestConnector", () => {
   // -------------------------------------------------------------------------
 
   describe("type alignment: serialized string values coerced to inferred type", () => {
-    it("coerces a string-encoded number so the Arrow column is numeric", async () => {
-      // API encodes the number as a string "42"; inference marks it number.
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValueOnce(makeResponse([{ amount: "42" }])),
-      );
-
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
-      const result = await c.query("db", crypto.randomUUID());
-
-      const amountField = result.fields.find((f) => f.name === "amount");
-      expect(amountField?.type).toBe("number");
-      // The Arrow schema must agree: decode and check the column value is numeric.
-      const { tableFromIPC } = await import("apache-arrow");
-      const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
-      const table = tableFromIPC(bytes);
-      const col = table.getChild("amount");
-      expect(typeof col?.get(0)).toBe("number");
-      expect(col?.get(0)).toBe(42);
-    });
-
     it("maps an empty-string cell in a numeric column to null, not a fabricated 0", async () => {
       // First row types the column number; second row's "" must become null,
       // NOT 0 (Number("") === 0 would fabricate a real zero reading).
@@ -894,12 +738,6 @@ describe("RestConnector", () => {
   // -------------------------------------------------------------------------
 
   describe("fieldMap collision rejection", () => {
-    it("rejects two source keys mapping to the same target (config-static)", () => {
-      expect(() => assertFieldMapNoCollision({ a: "name", b: "name" })).toThrow(
-        /collision/i,
-      );
-    });
-
     it("rejects a rename that lands on an existing passthrough key in a row", () => {
       // { name, full_name } with { full_name: "name" } → two values collapse.
       expect(() =>

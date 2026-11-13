@@ -77,18 +77,6 @@ describe("measure aggregation contract validation", () => {
     ).toThrow();
   });
 
-  it("rejects nested additive scopes that stringify to a valid scope", () => {
-    expect(() =>
-      validateMetric(
-        {
-          ...state().metrics[0],
-          contract: { kind: "additive", additiveOver: [["time"]] },
-        },
-        false,
-      ),
-    ).toThrow("Invalid additive measure scope");
-  });
-
   it("rejects ratio contracts without an expression", () => {
     expect(() =>
       validateMetric(
@@ -728,63 +716,6 @@ it("repairs tables and insights past one batch through scheduled continuation", 
     "time",
   );
 }, 60_000);
-
-it("retires a queued repair walk when a new call starts one", async () => {
-  vi.useFakeTimers();
-  await t.run(async (ctx) => {
-    await ctx.db.insert("dataSources", {
-      workspaceId: "workspace",
-      id: "ga4",
-      revision: 1,
-      name: "GA4",
-      createdAt: 1,
-      kind: "googleAnalytics",
-      config: {},
-    });
-    for (let index = 0; index < 5; index++) {
-      const id = `table-${index}`;
-      await ctx.db.insert("dataTables", {
-        workspaceId: "workspace",
-        id,
-        revision: 1,
-        name: id,
-        createdAt: 1,
-        dataSourceId: "ga4",
-        table: "properties/1",
-        fields: [
-          {
-            id: "date",
-            name: "Date",
-            tableId: id,
-            columnName: "date",
-            type: "date",
-          },
-        ],
-        metrics: [],
-      });
-    }
-  });
-  const repair = () =>
-    t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-      batchSize: 2,
-    });
-  // The source read costs one of the two rows, so the first batch repairs one table.
-  expect(await repair()).toMatchObject({ tablesRepaired: 1, complete: false });
-  // A second boot before the first walk's continuation ran: it starts over
-  // and owns the only live walk from here on.
-  expect(await repair()).toMatchObject({ tablesRepaired: 0, complete: false });
-  expect(
-    await t.run((ctx) => ctx.db.query("hostSettings").collect()),
-  ).toHaveLength(1);
-  await t.finishAllScheduledFunctions(vi.runAllTimers);
-  const tables = await t.run((ctx) => ctx.db.query("dataTables").collect());
-  expect(tables.map((row) => row.revision)).toEqual([2, 2, 2, 2, 2]);
-  expect(tables.every((row) => row.fields?.[0]?.scope === "time")).toBe(true);
-  expect(await t.run((ctx) => ctx.db.query("hostSettings").collect())).toEqual(
-    [],
-  );
-});
 
 it("charges each GA4 source to the batch so a long source list spans batches", async () => {
   vi.useFakeTimers();

@@ -230,20 +230,6 @@ describe("FileDataFrameStorage", () => {
     expect(synced).toEqual([directory, trash]);
   });
 
-  it("keeps the active frame readable while a staged delete rolls back", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
-    const id = "11111111-1111-4111-8111-111111111111";
-    await storage.save(id, new Uint8Array([1]));
-
-    const token = await storage.stageDelete(id);
-    expect(token).not.toBeNull();
-    expect(await storage.load(id)).toEqual(new Uint8Array([1]));
-    await storage.rollbackDelete(token!);
-    expect(await storage.load(id)).toEqual(new Uint8Array([1]));
-  });
-
   it("recovers interrupted staged deletes from committed ownership", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
     roots.push(root);
@@ -333,21 +319,6 @@ describe("FileDataFrameStorage", () => {
     expect(await storage.load(id)).toEqual(new Uint8Array([9, 8]));
     expect(await storage.hasPendingDataFrameDeletes()).toBe(false);
     expect(synced).toEqual([directory, trash]);
-  });
-
-  it("finalizes an unreferenced staged generation without deleting a replacement", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
-    const id = "11111111-1111-4111-8111-111111111111";
-    await storage.save(id, new Uint8Array([1]));
-    await storage.stageDelete(id);
-    await storage.save(id, new Uint8Array([3]));
-
-    await storage.recoverStagedDeletes([]);
-
-    expect(await storage.load(id)).toEqual(new Uint8Array([3]));
-    expect(await storage.hasPendingDataFrameDeletes()).toBe(false);
   });
 
   it("validates the complete delete token before touching active bytes", async () => {

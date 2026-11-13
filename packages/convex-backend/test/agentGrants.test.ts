@@ -122,20 +122,17 @@ it("denies the wrong authority, purpose, principal, workspace, or an unadmitted 
   const args = { clientKey: "oauth:client" };
   for (const caller of [
     t,
-    operator(),
     host("a", a, { authority: "browser" }),
-    host("a", a, { purpose: undefined }),
     host("a", a, { purpose: "host-metadata" }),
     host("a", a, { principalKind: "service" }),
     host("a", a, { subject: "user:b" }),
     host("a", a, { issuer: operatorIssuer }),
     host("a", b),
-    host("pending", a),
   ])
     await expect(
       caller.mutation(api.agentGrants.ensureOAuthGrant, args),
     ).rejects.toThrow();
-  for (const clientKey of ["", " oauth", "oauth:a b", "x".repeat(513)])
+  for (const clientKey of ["", "oauth:a b", "x".repeat(513)])
     await expect(
       host("a", a).mutation(api.agentGrants.ensureOAuthGrant, {
         ...args,

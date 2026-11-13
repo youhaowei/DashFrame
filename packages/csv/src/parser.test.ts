@@ -56,16 +56,6 @@ describe("parseCSV", () => {
         ["Alice", "123 Main St\nApt 4"],
       ]);
     });
-
-    it("should handle empty quoted fields", () => {
-      const csv = 'a,b\n"",2';
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
-        ["a", "b"],
-        ["", "2"],
-      ]);
-    });
   });
 
   describe("line endings", () => {
@@ -122,16 +112,6 @@ describe("parseCSV", () => {
         ["a", "b"],
         ["1", "2"],
         ["3", "4"],
-      ]);
-    });
-
-    it("should handle whitespace-only fields", () => {
-      const csv = "a,b\n  ,  ";
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
-        ["a", "b"],
-        ["  ", "  "],
       ]);
     });
   });

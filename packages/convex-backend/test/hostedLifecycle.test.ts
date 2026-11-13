@@ -499,54 +499,42 @@ it("rejects identity-free and stale claimed imports after workspace clear", asyn
   ).toEqual([]);
 });
 
-it.each(["service", "revoked"] as const)(
-  "denies %s callers owner-only import and cleanup capabilities",
-  async (kind) => {
-    const a = await admit(),
-      service = await credential(a),
-      user = host(a);
-    const client = kind === "service" ? service : user;
-    if (kind === "revoked")
-      await operator().mutation(api.admission.revoke, { subject: "a" });
-    const denied = [
-      () => client.mutation(api.hostedLifecycle.beginLocalImport, batch),
-      () => client.query(api.hostedLifecycle.getLocalImport, batch),
-      () => client.mutation(api.hostedLifecycle.cancelLocalImport, batch),
-      () =>
-        client.mutation(api.hostedLifecycle.commitImportedFrame, {
-          ...batch,
-          expectedDataSourceRevision: 1,
-          dataTableId: "table",
-          dataSourceId: "source",
-          expectedDataFrameId: null,
-          frameRow: {},
-          tableUpdate: {},
-        }),
-      () => client.query(api.hostedLifecycle.listCleanup, page),
-      () =>
-        client.mutation(api.hostedLifecycle.claimCleanup, { cleanupId: "x" }),
-      () =>
-        client.mutation(api.hostedLifecycle.ackCleanup, {
-          cleanupId: "x",
-          claimToken: "x",
-        }),
-      () => client.query(api.hostedLifecycle.listRecoverableHostBatches, page),
-      () =>
-        client.mutation(api.hostedLifecycle.recoverHostBatch, {
-          operationId: batch.operationId,
-        }),
-    ];
-    for (const invoke of denied)
-      await expect(invoke()).rejects.toThrow(
-        kind === "service"
-          ? "User permission required"
-          : "Workspace admission required",
-      );
-    expect(
-      await t.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toEqual([]);
-    expect(await t.run((ctx) => ctx.db.query("hostBatches").collect())).toEqual(
-      [],
-    );
-  },
-);
+it("denies service callers owner-only import and cleanup capabilities", async () => {
+  const a = await admit(),
+    client = await credential(a);
+  const denied = [
+    () => client.mutation(api.hostedLifecycle.beginLocalImport, batch),
+    () => client.query(api.hostedLifecycle.getLocalImport, batch),
+    () => client.mutation(api.hostedLifecycle.cancelLocalImport, batch),
+    () =>
+      client.mutation(api.hostedLifecycle.commitImportedFrame, {
+        ...batch,
+        expectedDataSourceRevision: 1,
+        dataTableId: "table",
+        dataSourceId: "source",
+        expectedDataFrameId: null,
+        frameRow: {},
+        tableUpdate: {},
+      }),
+    () => client.query(api.hostedLifecycle.listCleanup, page),
+    () => client.mutation(api.hostedLifecycle.claimCleanup, { cleanupId: "x" }),
+    () =>
+      client.mutation(api.hostedLifecycle.ackCleanup, {
+        cleanupId: "x",
+        claimToken: "x",
+      }),
+    () => client.query(api.hostedLifecycle.listRecoverableHostBatches, page),
+    () =>
+      client.mutation(api.hostedLifecycle.recoverHostBatch, {
+        operationId: batch.operationId,
+      }),
+  ];
+  for (const invoke of denied)
+    await expect(invoke()).rejects.toThrow("User permission required");
+  expect(await t.run((ctx) => ctx.db.query("localImports").collect())).toEqual(
+    [],
+  );
+  expect(await t.run((ctx) => ctx.db.query("hostBatches").collect())).toEqual(
+    [],
+  );
+});

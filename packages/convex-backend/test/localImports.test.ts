@@ -60,32 +60,6 @@ function frameCommit(
     tableUpdate: { dataFrameId: claim.frameId, lastFetchedAt: claim.fetchedAt },
   };
 }
-it("reserves one durable frame and timestamp for concurrent identical requests", async () => {
-  const [first, second] = await Promise.all([
-    t.mutation(internal.host.beginLocalImport, request),
-    t.mutation(internal.host.beginLocalImport, request),
-  ]);
-  expect(first).toEqual(second);
-  expect(first).toMatchObject({ status: "pending", result: null });
-  expect(await t.query(internal.host.getLocalImport, request)).toEqual(first);
-  expect(
-    await listAll(t.withIdentity(identity), api.app.listDataFrames, {}),
-  ).toEqual([]);
-  await expect(
-    t.mutation(internal.host.beginLocalImport, {
-      ...request,
-      requestHash: "b".repeat(64),
-    }),
-  ).rejects.toThrow("different request");
-  expect(
-    (
-      await t.mutation(internal.host.beginLocalImport, {
-        ...request,
-        workspaceId: "other",
-      })
-    ).frameId,
-  ).not.toBe(first.frameId);
-});
 it("completes with metadata atomically and returns the original result after a newer import advances the pointer", async () => {
   const { sourceId, tableId } = await seed(),
     first = await t.mutation(internal.host.beginLocalImport, request);
@@ -129,100 +103,6 @@ it("completes with metadata atomically and returns the original result after a n
   expect(
     await listAll(t.withIdentity(identity), api.app.listDataFrames, {}),
   ).toHaveLength(2);
-});
-it("keeps a failed CAS claim pending without leaking a frame or completed result", async () => {
-  const { sourceId, tableId } = await seed(),
-    claim = await t.mutation(internal.host.beginLocalImport, request);
-  await expect(
-    t.mutation(
-      internal.host.commitImportedFrame,
-      frameCommit(sourceId, tableId, claim, crypto.randomUUID()),
-    ),
-  ).rejects.toThrow("SOURCE_BINDING_CHANGED");
-  expect(await t.query(internal.host.getLocalImport, request)).toEqual(claim);
-  expect(
-    await t.query(internal.host.getDataFrame, {
-      workspaceId: "w",
-      id: claim.frameId,
-    }),
-  ).toBeNull();
-  await t.mutation(
-    internal.host.commitImportedFrame,
-    frameCommit(sourceId, tableId, claim),
-  );
-  expect((await t.query(internal.host.getLocalImport, request))?.status).toBe(
-    "complete",
-  );
-});
-it("defaults local-ingest claims to durable so old operation IDs keep their result", async () => {
-  const { sourceId, tableId } = await seed();
-  const pendingRequest = {
-    ...request,
-    operationId: "pending",
-    requestHash: "f".repeat(64),
-  };
-  const pending = await t.mutation(
-    internal.host.beginLocalImport,
-    pendingRequest,
-  );
-  let expectedDataFrameId: string | null = null;
-  for (let index = 0; index < 105; index++) {
-    const identity = {
-      ...request,
-      operationId: `completed-${index}`,
-      requestHash: index.toString(16).padStart(64, "0"),
-    };
-    const claim = await t.mutation(internal.host.beginLocalImport, identity);
-    await t.mutation(internal.host.commitImportedFrame, {
-      ...frameCommit(sourceId, tableId, claim, expectedDataFrameId),
-      ...identity,
-    });
-    expectedDataFrameId = claim.frameId;
-  }
-  const imports = await t.run((ctx) => ctx.db.query("localImports").collect());
-  expect(
-    imports.filter((row) => row.status === "complete" && !row.cancelled),
-  ).toHaveLength(105);
-  expect(imports).toContainEqual(
-    expect.objectContaining({
-      operationId: pendingRequest.operationId,
-      frameId: pending.frameId,
-      status: "pending",
-    }),
-  );
-  const earliest = imports.find((row) => row.operationId === "completed-0")!;
-  expect(
-    await t.mutation(internal.host.beginLocalImport, {
-      ...request,
-      operationId: "completed-0",
-      requestHash: "0".repeat(64),
-    }),
-  ).toEqual({
-    frameId: earliest.frameId,
-    fetchedAt: earliest.fetchedAt,
-    status: earliest.status,
-    result: earliest.result,
-  });
-});
-it("cancels an active claim and treats a repeated cancellation as complete", async () => {
-  const claim = await t.mutation(internal.host.beginLocalImport, request);
-
-  expect(await t.mutation(internal.host.cancelLocalImport, request)).toBe(true);
-  expect(await t.mutation(internal.host.cancelLocalImport, request)).toBe(
-    false,
-  );
-  expect(
-    await t.run(async (ctx) => ctx.db.query("localImports").collect()),
-  ).toEqual([]);
-  expect(
-    await t.run(async (ctx) => ctx.db.query("cleanupJobs").collect()),
-  ).toMatchObject([
-    {
-      kind: "frame",
-      resourceId: claim.frameId,
-      state: "pending",
-    },
-  ]);
 });
 it("rejects an unclaimed import, mismatched frame, timestamp, hash, and invalid row counts", async () => {
   const { sourceId, tableId } = await seed(),

@@ -46,7 +46,6 @@ export {
   inferStringColumnType,
   isFileConnector,
   isRemoteApiConnector,
-  supportsDefinitions,
   parsePrimitiveBoolean,
   parsePrimitiveValueByType,
   parseStringValueByType,

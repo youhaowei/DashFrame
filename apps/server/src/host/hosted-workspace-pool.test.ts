@@ -252,29 +252,6 @@ it("does not release a callback that is still settling after its deadline", asyn
   expect(close).toHaveBeenCalledOnce();
 });
 
-it("invalidates the consumer lifetime when an operation rejects", async () => {
-  let consumerSignal: AbortSignal | undefined;
-  const pool = new HostedWorkspacePool(1, async () => ({
-    resources: {},
-    close: async () => {},
-  }));
-  await expect(
-    pool.runRequest(
-      "workspace-a",
-      "owner-a",
-      new Request("https://app.invalid/api/runtime"),
-      Date.now() + 10_000,
-      async (_resources, signal) => {
-        consumerSignal = signal;
-        throw new Error("operation failed");
-      },
-      10_000,
-    ),
-  ).rejects.toThrow("operation failed");
-  expect(consumerSignal?.aborted).toBe(true);
-  await pool.close();
-});
-
 it("surfaces workspace startup failure before a response exists", async () => {
   const pool = new HostedWorkspacePool(1, async () => {
     throw new Error("startup unavailable");

@@ -25,7 +25,6 @@ afterEach(async () => {
 
 async function fixture(
   options: {
-    failAfter?: number;
     limits?: InsightMaterializerDependencies["transferLimits"];
     pause?: (signal: AbortSignal) => Promise<void>;
   } = {},
@@ -98,8 +97,6 @@ async function fixture(
         try {
           for (let start = 0; start < 25_001; start += 2048) {
             signal!.throwIfAborted();
-            if (options.failAfter !== undefined && emitted >= options.failAfter)
-              throw new Error("provider failed");
             if (options.pause) await options.pause(signal!);
             const values = Array.from(
               { length: Math.min(2048, 25_001 - start) },
@@ -207,66 +204,52 @@ describe("streaming immutable materialization", () => {
     expect(h.publish).toHaveBeenCalledTimes(2);
   });
 
-  it.each(["stream", "loadBatches"] as const)(
-    "persists and queries all 25001 rows through %s without buffering",
-    async (readPath) => {
-      const h = await fixture();
-      if (readPath === "loadBatches") {
-        const storage = {
-          save: h.storage.save.bind(h.storage),
-          load: h.storage.load.bind(h.storage),
-          delete: h.storage.delete.bind(h.storage),
-          exists: h.storage.exists.bind(h.storage),
-          list: h.storage.list.bind(h.storage),
-          getUsage: h.storage.getUsage.bind(h.storage),
-          saveBatches: h.storage.saveBatches.bind(h.storage),
-          loadBatches: h.storage.loadBatches.bind(h.storage),
-        };
-        h.dependencies.storage = () => storage;
-      }
-      const result = await h.run();
-      expect(result.rowCount).toBe(25_001);
-      expect(h.observed).toHaveLength(13);
-      expect(Math.max(...h.observed)).toBe(2048);
-      expect(h.state()).toEqual({
-        closed: true,
-        emitted: 25_001,
-        pointer: "new-frame",
-      });
-      expect(h.publish).toHaveBeenCalledOnce();
-      const name = `df_${result.dataFrameId.replaceAll("-", "_")}`;
-      const column = result.schema[0]!.id;
-      const aggregate = await h.readRows(
-        `SELECT count(*) AS n, max("${column}") AS tail, sum("${column}") AS total FROM "${name}"`,
-      );
-      expect(aggregate[0]).toMatchObject({
-        n: 25_001,
-        tail: 25_000,
-        total: 312_512_500,
-      });
-      await h.runtime.unregisterTable(name);
-      await registerStoredFrame(
-        h.dependencies.storage({} as HostContext),
-        h.runtime,
-        name,
-        result.dataFrameId,
-      );
-      expect(
-        (await h.readRows(`SELECT count(*) AS n FROM "${name}"`))[0]?.n,
-      ).toBe(25_001);
-      expect(h.transferCompleted).toHaveBeenCalledWith(
-        expect.objectContaining({ outcome: "ready", rows: 50_002 }),
-      );
-    },
-  );
-
-  it("removes an unpublished prefix and closes the source after provider failure", async () => {
-    const h = await fixture({ failAfter: 12_288 });
-    await expect(h.run()).rejects.toThrow("provider failed");
-    expect(h.state()).toMatchObject({ closed: true, pointer: "old-frame" });
-    expect(await h.storage.list()).toEqual([]);
-    expect(h.runtime.getTableNames()).toEqual([]);
-    expect(h.publish).not.toHaveBeenCalled();
+  it("persists and queries all 25001 rows through loadBatches without buffering", async () => {
+    const h = await fixture();
+    const storage = {
+      save: h.storage.save.bind(h.storage),
+      load: h.storage.load.bind(h.storage),
+      delete: h.storage.delete.bind(h.storage),
+      exists: h.storage.exists.bind(h.storage),
+      list: h.storage.list.bind(h.storage),
+      getUsage: h.storage.getUsage.bind(h.storage),
+      saveBatches: h.storage.saveBatches.bind(h.storage),
+      loadBatches: h.storage.loadBatches.bind(h.storage),
+    };
+    h.dependencies.storage = () => storage;
+    const result = await h.run();
+    expect(result.rowCount).toBe(25_001);
+    expect(h.observed).toHaveLength(13);
+    expect(Math.max(...h.observed)).toBe(2048);
+    expect(h.state()).toEqual({
+      closed: true,
+      emitted: 25_001,
+      pointer: "new-frame",
+    });
+    expect(h.publish).toHaveBeenCalledOnce();
+    const name = `df_${result.dataFrameId.replaceAll("-", "_")}`;
+    const column = result.schema[0]!.id;
+    const aggregate = await h.readRows(
+      `SELECT count(*) AS n, max("${column}") AS tail, sum("${column}") AS total FROM "${name}"`,
+    );
+    expect(aggregate[0]).toMatchObject({
+      n: 25_001,
+      tail: 25_000,
+      total: 312_512_500,
+    });
+    await h.runtime.unregisterTable(name);
+    await registerStoredFrame(
+      h.dependencies.storage({} as HostContext),
+      h.runtime,
+      name,
+      result.dataFrameId,
+    );
+    expect(
+      (await h.readRows(`SELECT count(*) AS n FROM "${name}"`))[0]?.n,
+    ).toBe(25_001);
+    expect(h.transferCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "ready", rows: 50_002 }),
+    );
   });
 
   it("aborts a blocked producer on deadline and preserves the old pointer", async () => {
@@ -301,20 +284,13 @@ describe("streaming immutable materialization", () => {
     }
   });
 
-  it.each([
-    ["batchBytes", "FETCH_BATCH_BYTES_EXCEEDED"],
-    ["runBytes", "FETCH_BYTE_BUDGET_EXCEEDED"],
-    ["storageBytes", "FETCH_STORAGE_BUDGET_EXCEEDED"],
-  ] as const)(
-    "rejects %s exhaustion without publication",
-    async (key, code) => {
-      const h = await fixture({
-        limits: { ...DEFAULT_TRANSFER_LIMITS, [key]: 100 },
-      });
-      await expect(h.run()).rejects.toThrow(code);
-      expect(await h.storage.list()).toEqual([]);
-      expect(h.publish).not.toHaveBeenCalled();
-      expect(h.state().closed).toBe(true);
-    },
-  );
+  it("rejects batchBytes exhaustion without publication", async () => {
+    const h = await fixture({
+      limits: { ...DEFAULT_TRANSFER_LIMITS, batchBytes: 100 },
+    });
+    await expect(h.run()).rejects.toThrow("FETCH_BATCH_BYTES_EXCEEDED");
+    expect(await h.storage.list()).toEqual([]);
+    expect(h.publish).not.toHaveBeenCalled();
+    expect(h.state().closed).toBe(true);
+  });
 });

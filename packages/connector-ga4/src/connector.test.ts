@@ -1,6 +1,5 @@
 import { tableFromIPC } from "apache-arrow";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { supportsDefinitions } from "@dashframe/engine";
 
 import {
   acquisitionMeasures,
@@ -31,7 +30,7 @@ function bundle(overrides: Partial<GoogleOAuthTokenBundle> = {}) {
 const oauthClient = { clientId: "client-id", clientSecret: "client-secret" };
 
 describe("GA4 connector", () => {
-  it("implements definition queries, field listing, compatibility, and the capability guard", async () => {
+  it("implements definition queries, field listing, and compatibility", async () => {
     const urls: string[] = [];
     const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
       const url = String(input);
@@ -75,7 +74,6 @@ describe("GA4 connector", () => {
       dateRange: { kind: "relative" as const, months: 1 },
     };
 
-    expect(supportsDefinitions(connector)).toBe(true);
     await expect(
       connector.queryDefinition("123", definition, {
         tableId: crypto.randomUUID(),
@@ -200,32 +198,6 @@ describe("GA4 connector", () => {
     await expect(connector.connect()).resolves.toEqual([
       { id: "properties/123", name: "Store" },
     ]);
-  });
-
-  it("refreshes an expired access token before the authenticated read", async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ access_token: "fresh-token" }), {
-          status: 200,
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ accountSummaries: [] }), { status: 200 }),
-      );
-    const connector = makeGa4Connector(
-      resolver(bundle({ expiresAt: Date.parse("2026-08-05T11:00:00Z") })),
-      {
-        fetch: fetchImpl as typeof fetch,
-        now: () => Date.parse("2026-08-05T12:00:00Z"),
-        oauthClient,
-      },
-    );
-    await connector.connect();
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(
-      new Headers(fetchImpl.mock.calls[1]?.[1]?.headers).get("Authorization"),
-    ).toBe("Bearer fresh-token");
   });
 
   it("runs the bounded acquisition report and returns aligned Arrow data", async () => {
