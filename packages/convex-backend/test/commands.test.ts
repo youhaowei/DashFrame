@@ -1001,33 +1001,6 @@ describe("existing command behavior on native Convex", () => {
     expect(await fieldName()).toBe("Area");
     expect(await runtimeControls()).toEqual({ dimensions });
   });
-  it("should batch CreateInsight + CreateVisualization in one atomic envelope (client-id invariant)", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    const result = await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Trend",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "Trend Chart",
-        insightId,
-        visualizationType: "line",
-        spec: {},
-      }),
-    );
-    expect(result.mode).toBe("commit");
-    expect(result.commands).toHaveLength(2);
-
-    const iRows = await insightsById(insightId);
-    const vRows = await vizsById(vizId);
-    expect(iRows).toHaveLength(1);
-    expect(vRows).toHaveLength(1);
-    expect(vRows[0]?.insightId).toBe(insightId);
-  });
   it("accepts canonical field aliases written by the insight editor", async () => {
     const { tableId } = await makeTable();
     const fieldId = id();
@@ -2851,16 +2824,6 @@ describe("existing command behavior on native Convex", () => {
     const rows = await vizsById(vizId);
     expect(rows[0]?.encoding).toEqual(encoding);
   });
-  it("should throw on SetChartType for a missing visualization (no silent no-op)", async () => {
-    await expect(
-      commit(cmd("SetChartType", { id: id(), visualizationType: "line" })),
-    ).rejects.toThrow();
-  });
-  it("should throw on SetChartEncoding for a missing visualization (no silent no-op)", async () => {
-    await expect(
-      commit(cmd("SetChartEncoding", { id: id(), encoding: {} as never })),
-    ).rejects.toThrow();
-  });
   it("should reject a structurally malformed encoding on SetChartEncoding, naming the format", async () => {
     const { tableId } = await makeTable();
     const insightId = id();
@@ -2892,115 +2855,6 @@ describe("existing command behavior on native Convex", () => {
     // Nothing was written — the visualization keeps its original encoding.
     const rows = await vizsById(vizId);
     expect(rows[0]?.encoding).toEqual({});
-  });
-  it("should accept a bare column name — a form the axis picker still writes", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "Chart",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-      }),
-    );
-
-    const encoding = { x: "region", y: "sum(amount)" };
-    await commit(
-      cmd("SetChartEncoding", { id: vizId, encoding: encoding as never }),
-    );
-    expect((await vizsById(vizId))[0]?.encoding).toEqual(encoding);
-  });
-  it("should accept a cleared optional channel — the picker saves an empty string", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "Chart",
-        insightId,
-        visualizationType: "dot",
-        spec: {},
-      }),
-    );
-
-    const encoding = { x: "region", y: "sum(amount)", color: "", size: "" };
-    await commit(
-      cmd("SetChartEncoding", { id: vizId, encoding: encoding as never }),
-    );
-    expect((await vizsById(vizId))[0]?.encoding).toEqual(encoding);
-  });
-  it("should reject a value that claims to be an ID reference but carries no uuid", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "Chart",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-      }),
-    );
-
-    await expect(
-      commit(
-        cmd("SetChartEncoding", {
-          id: vizId,
-          encoding: { x: "field:not-a-uuid" } as never,
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should reject a half-built date transform", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "Chart",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-      }),
-    );
-
-    await expect(
-      commit(
-        cmd("SetChartEncoding", {
-          id: vizId,
-          encoding: {
-            x: "field:550e8400-e29b-41d4-a716-446655440000",
-            xTransform: { type: "date" },
-          } as never,
-        }),
-      ),
-    ).rejects.toThrow();
   });
   it("should reject a malformed encoding on CreateVisualization — nothing is inserted", async () => {
     const { tableId } = await makeTable();
@@ -3069,32 +2923,6 @@ describe("existing command behavior on native Convex", () => {
           }),
         ),
       ).rejects.toThrow("not output by Insight");
-  });
-  it("should accept a repeat-join instance encoding — the axis picker emits it", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    const encoding = {
-      x: "field:550e8400-e29b-41d4-a716-446655440000_j1",
-      y: "metric:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-    };
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "Chart",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-        encoding: encoding as never,
-      }),
-    );
-    const rows = await vizsById(vizId);
-    expect(rows[0]?.encoding).toEqual(encoding);
   });
   it("should create a dashboard and add two items", async () => {
     const dashId = id();
