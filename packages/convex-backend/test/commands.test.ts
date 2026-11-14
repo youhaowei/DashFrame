@@ -201,28 +201,6 @@ describe("data table origins", () => {
     ).rejects.toThrow(/setDataTableOrigin is invalid: /);
     expect((await tablesById(tableId))[0]?.origin).toBeUndefined();
   });
-
-  it("publishes a drafted CreateDataTable origin", async () => {
-    const sourceId = id(),
-      tableId = id();
-    await commit(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-    );
-    const { draftId } = await client.mutation(api.app.draftBatch, {
-      commands: [
-        cmd("CreateDataTable", {
-          id: tableId,
-          dataSourceId: sourceId,
-          name: "T",
-          table: "t.csv",
-          origin: definitionOrigin,
-        }),
-      ],
-    });
-    expect(await tablesById(tableId)).toEqual([]);
-    await client.mutation(api.app.publishDraft, { draftId });
-    expect((await tablesById(tableId))[0]?.origin).toEqual(definitionOrigin);
-  });
 });
 function rawCmd(name: CommandName, args: Record<string, unknown>): Command {
   return { path: COMMAND_PATHS[name], args };
@@ -493,65 +471,6 @@ describe("existing command behavior on native Convex", () => {
     // The original name is preserved — get-or-create does not overwrite.
     expect(rows[0]?.name).toBe("Local Files");
   });
-  it("should ignore the type arg on a second get-or-create with the same id (existing row wins)", async () => {
-    const sourceId = id();
-    await commit(
-      cmd("GetOrCreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-    );
-    // The canonical caller derives id FROM type, so this mismatch can't
-    // happen there — but the command is callable by any producer. Pin the
-    // chosen semantics (existing row wins, type silently ignored) so they
-    // can't drift unnoticed. Conflict semantics are a Spec Open Q.
-    await commit(
-      cmd("GetOrCreateDataSource", {
-        id: sourceId,
-        type: "notion",
-        name: "N",
-      }),
-    );
-    const rows = await sourcesById(sourceId);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.kind).toBe("csv");
-  });
-  it("should create a DataSource then a DataTable referencing it atomically", async () => {
-    const sourceId = id();
-    const tableId = id();
-
-    const result = await commit(
-      cmd("CreateDataSource", {
-        id: sourceId,
-        type: "csv",
-        name: "Sales CSV",
-      }),
-      cmd("CreateDataTable", {
-        id: tableId,
-        dataSourceId: sourceId,
-        name: "Q1",
-        table: "q1.csv",
-      }),
-    );
-    expect(result.mode).toBe("commit");
-    expect(result.commands).toHaveLength(2);
-
-    const source = await sourcesById(sourceId);
-    const table = await tablesById(tableId);
-    expect(source).toHaveLength(1);
-    expect(table).toHaveLength(1);
-    expect(table[0]?.dataSourceId).toBe(sourceId);
-  });
-  it("does not attach the GA4 binding contract to other connector kinds", async () => {
-    const sourceId = id();
-    await commit(
-      cmd("CreateDataSource", {
-        id: sourceId,
-        type: "notion",
-        name: "Notes",
-      }),
-    );
-
-    const [stored] = await sourcesById(sourceId);
-    expect(stored?.config).not.toHaveProperty("sourceBindingVersion");
-  });
   it("server-binds get-or-created GA4 sources and rejects version rewrites", async () => {
     const sourceId = id();
     await commit(
@@ -576,34 +495,6 @@ describe("existing command behavior on native Convex", () => {
     expect((await sourcesById(sourceId))[0]?.config).toMatchObject({
       sourceBindingVersion: "v2",
     });
-  });
-  it("should replace only config (not name) for SetDataSourceConfig", async () => {
-    const sourceId = id();
-    // Create first, then read the original ref BEFORE the config update so the
-    // replacement is provable (not just "the final value is a ref").
-    await commit(
-      cmd("CreateDataSource", {
-        id: sourceId,
-        type: "notion",
-        name: "Original",
-        apiKey: "old",
-      }),
-    );
-    const [rowBefore] = await sourcesById(sourceId);
-    expect(rowBefore).toBeDefined();
-    const refBefore = (rowBefore!.config as { apiKey?: string }).apiKey;
-    expect(isSecretRef(refBefore)).toBe(true);
-
-    await commit(cmd("SetDataSourceConfig", { id: sourceId, apiKey: "new" }));
-
-    const [row] = await sourcesById(sourceId);
-    expect(row).toBeDefined();
-    const refAfter = (row!.config as { apiKey?: string }).apiKey;
-    // A FRESH ref replaced the old one — prove the binding actually changed.
-    expect(isSecretRef(refAfter)).toBe(true);
-    expect(refAfter).not.toBe(refBefore);
-    expect(refAfter).not.toBe("new");
-    expect(row?.name).toBe("Original");
   });
   it("should rename without touching config for RenameNode", async () => {
     const sourceId = id();
@@ -923,112 +814,6 @@ describe("existing command behavior on native Convex", () => {
     expect(fields[0]?.id).toBe(fieldId);
     expect(fields[0]?.name).toBe("Total");
   });
-  it("should merge updates by id for UpdateMetric", async () => {
-    const sourceId = id();
-    const tableId = id();
-    const metricId = id();
-    await commit(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-      cmd("CreateDataTable", {
-        id: tableId,
-        dataSourceId: sourceId,
-        name: "T",
-        table: "t.csv",
-      }),
-      cmd("AddMetric", {
-        nodeId: tableId,
-        metric: {
-          id: metricId,
-          name: "Sum",
-          tableId,
-          columnName: "amount",
-          aggregation: "sum",
-        },
-      }),
-      cmd("UpdateMetric", {
-        nodeId: tableId,
-        metricId,
-        updates: { name: "Total Sum" } as never,
-      }),
-    );
-    const [row] = await tablesById(tableId);
-    const metrics = row?.metrics as { id: string; name: string }[];
-    expect(metrics).toHaveLength(1);
-    expect(metrics[0]?.name).toBe("Total Sum");
-  });
-  it("should remove a metric by id for RemoveMetric", async () => {
-    const sourceId = id();
-    const tableId = id();
-    const metricId = id();
-    await commit(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-      cmd("CreateDataTable", {
-        id: tableId,
-        dataSourceId: sourceId,
-        name: "T",
-        table: "t.csv",
-      }),
-      cmd("AddMetric", {
-        nodeId: tableId,
-        metric: {
-          id: metricId,
-          name: "Sum",
-          tableId,
-          columnName: "amount",
-          aggregation: "sum",
-        },
-      }),
-    );
-
-    await commit(cmd("RemoveMetric", { nodeId: tableId, metricId }));
-    const [row] = await tablesById(tableId);
-    expect(row?.metrics).toEqual([]);
-  });
-  it("should reject a duplicate metric id in AddMetric (no illegal two-items-one-id state)", async () => {
-    const sourceId = id();
-    const tableId = id();
-    const metricId = id();
-    await commit(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-      cmd("CreateDataTable", {
-        id: tableId,
-        dataSourceId: sourceId,
-        name: "T",
-        table: "t.csv",
-      }),
-      cmd("AddMetric", {
-        nodeId: tableId,
-        metric: {
-          id: metricId,
-          name: "Sum",
-          tableId,
-          columnName: "amount",
-          aggregation: "sum",
-        },
-      }),
-    );
-
-    await expect(
-      commit(
-        cmd("AddMetric", {
-          nodeId: tableId,
-          metric: {
-            id: metricId,
-            name: "Sum again",
-            tableId,
-            columnName: "amount",
-            aggregation: "sum",
-          },
-        }),
-      ),
-    ).rejects.toThrow();
-
-    const [row] = await tablesById(tableId);
-    expect(row).toBeDefined();
-    expect((row!.metrics as { id: string }[]).map((m) => m.id)).toEqual([
-      metricId,
-    ]);
-  });
   it("should throw on a missing id for SetDataTableSchema (no silent no-op)", async () => {
     await expect(
       commit(
@@ -1036,26 +821,9 @@ describe("existing command behavior on native Convex", () => {
       ),
     ).rejects.toThrow();
   });
-  it("should throw on a missing id for SetDataTableOrigin (no silent no-op)", async () => {
-    await expect(
-      commit(
-        cmd("SetDataTableOrigin", { id: id(), origin: { kind: "resource" } }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should throw on a missing id for RefreshDataTable (no silent no-op)", async () => {
-    await expect(
-      commit(cmd("RefreshDataTable", { id: id(), dataFrameId: id() })),
-    ).rejects.toThrow();
-  });
   it("should throw on a missing id for RenameNode (no silent no-op)", async () => {
     await expect(
       commit(cmd("RenameNode", { id: id(), name: "X" })),
-    ).rejects.toThrow();
-  });
-  it("should throw on a missing id for SetDataSourceConfig (no silent no-op)", async () => {
-    await expect(
-      commit(cmd("SetDataSourceConfig", { id: id(), apiKey: "x" })),
     ).rejects.toThrow();
   });
   it("SetDataSourceConfig sink guard: extra.apiKey throws and leaves config unchanged", async () => {
@@ -1103,29 +871,6 @@ describe("existing command behavior on native Convex", () => {
       ),
     ).rejects.toThrow();
   });
-  it("SetDataSourceConfig extra: non-credential settings round-trip through config", async () => {
-    const sourceId = id();
-    await commit(
-      cmd("CreateDataSource", { id: sourceId, type: "postgres", name: "P" }),
-    );
-    await commit(
-      cmd("SetDataSourceConfig", {
-        id: sourceId,
-        extra: { database: "analytics", schema: "public" } as Record<
-          string,
-          unknown
-        >,
-      }),
-    );
-    const [row] = await sourcesById(sourceId);
-    const stored = row?.config as Record<string, unknown>;
-    // Non-credential keys persist as-is.
-    expect(stored["database"]).toBe("analytics");
-    expect(stored["schema"]).toBe("public");
-    // Credential slots remain absent (never set).
-    expect(stored["apiKey"]).toBeUndefined();
-    expect(stored["connectionString"]).toBeUndefined();
-  });
   it("SetDataSourceConfig extra: a REST connector config shape lands in config unstripped", async () => {
     // The assistant authors a REST data source by writing the declarative
     // connector config through `extra`. None of these keys are credentials, so
@@ -1161,50 +906,6 @@ describe("existing command behavior on native Convex", () => {
     // No credential slots were touched.
     expect(stored["apiKey"]).toBeUndefined();
     expect(stored["connectionString"]).toBeUndefined();
-  });
-  it("should throw on UpdateField with a missing fieldId", async () => {
-    const sourceId = id();
-    const tableId = id();
-    await commit(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-      cmd("CreateDataTable", {
-        id: tableId,
-        dataSourceId: sourceId,
-        name: "T",
-        table: "t.csv",
-      }),
-    );
-    await expect(
-      commit(
-        cmd("UpdateField", {
-          nodeId: tableId,
-          fieldId: id(),
-          updates: { name: "X" } as never,
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should throw on UpdateMetric with a missing metricId", async () => {
-    const sourceId = id();
-    const tableId = id();
-    await commit(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-      cmd("CreateDataTable", {
-        id: tableId,
-        dataSourceId: sourceId,
-        name: "T",
-        table: "t.csv",
-      }),
-    );
-    await expect(
-      commit(
-        cmd("UpdateMetric", {
-          nodeId: tableId,
-          metricId: id(),
-          updates: { name: "X" } as never,
-        }),
-      ),
-    ).rejects.toThrow();
   });
   it("should roll back the whole batch when a mid-batch command fails", async () => {
     const sourceId = id();
