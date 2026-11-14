@@ -514,7 +514,7 @@ describe("VisualizationPreview — report cell overrides", () => {
   ) {
     mockUseInsightView.mockClear();
     mockUseInsight.mockReturnValue({
-      data: { ...insight, runtimeControls: { limit: { max: 100 } } },
+      data: { ...insight, runtimeControls: { limit: { min: 1, max: 100 } } },
       isLoading: false,
     });
     mockUseDataTables.mockReturnValue({ data: [dataTable] });
@@ -550,17 +550,16 @@ describe("VisualizationPreview — report cell overrides", () => {
     );
   });
 
-  it("shows the fallback, and runs nothing, for an undeclared override", () => {
+  it("runs the chart without an override the Insight does not declare", () => {
     renderWithOverrides({ sorts: [{ field: "Sales", direction: "desc" }] });
 
     expect(mockUseInsightView).toHaveBeenLastCalledWith(
-      null,
-      expect.anything(),
+      expect.objectContaining({ id: "ins-1" }),
+      expect.objectContaining({ runtime: {} }),
     );
     expect(mockUseInsightPagination).toHaveBeenLastCalledWith(
-      expect.objectContaining({ enabled: false }),
+      expect.objectContaining({ enabled: true }),
     );
-    expect(screen.getByTestId("custom-fallback")).toBeTruthy();
   });
 });
 

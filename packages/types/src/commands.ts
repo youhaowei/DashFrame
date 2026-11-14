@@ -127,6 +127,7 @@ export interface DashboardItemFilterOverride {
 /** Override bag for a dashboard item (instrument-level overrides). */
 export interface DashboardItemOverridesInput {
   filters?: DashboardItemFilterOverride[];
+  /** One key: a tile runs one runtime sort key, so a longer list is rejected. */
   sorts?: { field: string; direction: "asc" | "desc" }[];
   limit?: number;
 }

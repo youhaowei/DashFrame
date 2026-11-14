@@ -390,6 +390,7 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     notes:
       "Rejects a duplicate item id. " +
       "overrides is optional — omit for a plain panel; supply to pin filters/sorts/limit at the item level. " +
+      "overrides.sorts takes one key; a longer list is rejected. " +
       "Use FanOutDashboardItems to batch-create N items with distinct field-value pins.",
   },
   {
@@ -410,7 +411,8 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     group: "dashboard",
     summary: "Replace-all the dashboard layout (bulk rearrange).",
     args: { dashboardId: "UUID", items: "DashboardItemInput[]" },
-    notes: "Rejects duplicate item ids.",
+    notes:
+      "Rejects duplicate item ids, and an item whose overrides.sorts gains more than one key.",
   },
   {
     name: "RemoveDashboardItem",
@@ -428,10 +430,20 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       dashboardId: "UUID",
       itemId: "UUID",
       patch:
-        "{ kind:'filter', field, value } | { kind:'sorts', value } | { kind:'limit', value }",
+        "{ kind:'filter', field, value } | { kind:'sorts', value: [{ field, direction:'asc'|'desc' }] | null } | { kind:'limit', value }",
     },
     notes:
-      "Null clears the selected override without replacing sibling overrides.",
+      "Null clears the selected override without replacing sibling overrides, and is always accepted. " +
+      "Setting an override is rejected unless the item's Insight declares that control for viewers: " +
+      "runtimeControls.sort for a sort, runtimeControls.limit for a limit inside its min and max, " +
+      "and an entry in runtimeControls.filters for a filter (with allowClear for a cleared one). " +
+      "Declare it with SetInsightRuntimeControls first. " +
+      "A filter override supplies a value for the Insight's saved filter, so it keeps that filter's field and operator; " +
+      "send the saved filter's id when the Insight declares more than one filter on the field. " +
+      "Its value has to fit the saved filter: a list of the same value types for 'in', a { low, high } range for 'between', otherwise one value of the saved value's type. " +
+      "A sort override takes one key, because a tile runs one runtime sort key; a longer list is rejected. " +
+      "Its field is the id of a field or metric the Insight's viewer controls allow sorting by. " +
+      "On a pivoted Insight, a metric qualifies only when the Insight's own sort names one of its pivot cells.",
   },
   {
     name: "SetDashboardControls",
@@ -454,7 +466,8 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     notes:
       "Source item must be a visualization. All placement ids must be unique and not already in the layout. " +
       "width/height default to the source item's dimensions if omitted. " +
-      "The source item and insight definition are never mutated — only DashboardItem.overrides is written.",
+      "The source item and insight definition are never mutated — only DashboardItem.overrides is written. " +
+      "A source whose sort override has more than one key is refused; patch it to one key first.",
   },
   // --- Cross-cutting (polymorphic over artifact kinds) ---
   {

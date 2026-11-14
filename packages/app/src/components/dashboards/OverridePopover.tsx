@@ -13,21 +13,35 @@ import { useArtifactList } from "@/data/artifact-lists";
  * - Bind to control → `SetDashboardControls` through `commitBatch` (replace whole array)
  * - Unbind         → the same command, removing item.id from boundInstances
  *
- * Fields shown = union of:
- *   • Fields with an insight-level filter (inherit or override)
- *   • Fields with a cell-level override (already shown above)
- *   • Fields on a bound control targeting this cell
- *   • (Additive "add filter" row for other eligible fields — not in this PR)
+ * A tile override runs through a control the chart's Insight declares for
+ * viewers (`runtimeControls`), so a row can edit only a declared control:
+ *   • Sort, when the Insight declares a viewer sort; otherwise the row is
+ *     disabled and says where to change that
+ *   • Limit, when it declares a viewer limit
+ *   • A filter row per field with one declared runtime filter
+ * The tile ignores an override the Insight does not declare, so a tile that
+ * already holds one keeps that row with only its removal.  When the Insight
+ * declares no limit or filter, the popover says so and points at the chart
+ * editor.
  */
 
+import { computeItemOverrides } from "@/lib/dashboards/controls";
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
+import {
+  resolveTileSort,
+  tileLimitRuns,
+  tileSortRuns,
+} from "@/lib/insights/dashboard-runtime";
 import { api } from "@dashframe/convex-backend/api";
 import {
   type DashboardControl,
   type DashboardItem,
   type DashboardItemOverridePatch,
-  type InsightFilter,
+  type DashboardItemOverrides,
+  type DataTable,
+  type Insight,
   type InsightFilterOverride,
+  type InsightRuntimeDeclaration,
   type InsightSort,
   cmd,
   type UUID,
@@ -50,14 +64,22 @@ import {
   cn,
 } from "@wystack/ui-react";
 import { EditIcon, SettingsIcon } from "@wystack/ui-react/icons";
-import { useMemo, useState } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
+  buildSortFieldOptions,
+  clampLimit,
   computeNewOverridesOnClear,
+  controlCanDrive,
   deriveFieldState,
+  formatSortKeys,
   hasOverrides,
-  resolveDeclaredRuntimeFilterId,
-  withDeclaredFilterId,
+  ignoredFilterReason,
+  type OverrideOffer,
+  overrideOffer,
+  resolveFilterRow,
+  type SortFieldOptions,
+  sortKeyToPin,
 } from "./override-field-row-utils";
 import { OverrideFieldRow } from "./OverrideFieldRow";
 
@@ -70,6 +92,13 @@ interface OverridePopoverProps {
   dashboardId: string;
   /** Dashboard-level controls (from dashboard.controls ?? []). */
   controls: DashboardControl[];
+  /**
+   * What the tile runs right now: its overrides with each bound control's
+   * current value in place of the field it drives, including a value a viewer
+   * typed and did not save.  Absent, it is worked out from the controls' saved
+   * defaults.
+   */
+  effectiveOverrides?: DashboardItemOverrides;
   /** Opens the tile's chart for editing, as a tab in the report. */
   onEditChart?: (visualizationId: string) => void;
 }
@@ -78,64 +107,85 @@ interface OverridePopoverProps {
 // Sort row
 // ---------------------------------------------------------------------------
 
-function SortOverrideRow({
+/**
+ * Edits the tile's sort override, which holds one key: the tile runtime sends
+ * it to the host as a runtime sort, and the host runs one.  Every edit
+ * therefore saves a one-key list, including over a longer list saved before
+ * writes started rejecting those.
+ */
+export function SortOverrideRow({
   insightSorts,
   overrideSorts,
-  availableFields,
+  fields,
   onChange,
 }: {
   insightSorts?: InsightSort[];
   overrideSorts?: InsightSort[];
-  availableFields: string[];
+  /** What the field select offers, and how stored references map to it. */
+  fields: SortFieldOptions;
   onChange: (sorts: InsightSort[] | undefined) => void;
 }) {
-  const current: InsightSort | undefined =
-    overrideSorts?.[0] ?? insightSorts?.[0];
+  const { options, byReference } = fields;
   const isPinned = overrideSorts !== undefined;
+  const pinned = overrideSorts?.[0];
+  const pinnedOption = pinned && byReference.get(pinned.field);
+  const keyToPin = sortKeyToPin(insightSorts, fields);
 
   return (
     <div className="py-1.5">
       <div className="flex items-center gap-2">
-        <div className="flex flex-1 flex-col gap-0.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-xs font-medium text-neutral-fg">Sort</span>
-          {!isPinned && current && (
-            <span className="text-xs text-neutral-fg-subtle">
-              default: {current.field} {current.direction}
+          {!isPinned && insightSorts && insightSorts.length > 0 && (
+            <span className="text-xs break-words text-neutral-fg-subtle">
+              default: {formatSortKeys(insightSorts, byReference)}
             </span>
           )}
         </div>
 
         {isPinned ? (
           <div className="flex items-center gap-1">
-            {/* Field select */}
+            {/* Field select.  A reference stored in another form (a column
+                name, an alias) selects the option it names.  `items` only
+                labels the trigger, so it also carries a pinned field that is
+                no longer offered. */}
             <Select
-              value={overrideSorts![0]?.field ?? ""}
+              items={
+                pinnedOption && !options.includes(pinnedOption)
+                  ? [...options, pinnedOption]
+                  : options
+              }
+              value={pinnedOption?.value ?? pinned?.field ?? ""}
               onValueChange={(field) => {
                 if (!field) return;
-                onChange([
-                  { field, direction: overrideSorts![0]?.direction ?? "asc" },
-                ]);
+                // Only the direction carries over: `pivotValues` name a cell
+                // of the old field.
+                onChange([{ field, direction: pinned?.direction ?? "asc" }]);
               }}
             >
               <SelectTrigger className="h-6 w-28 text-xs">
                 <SelectValue placeholder="field" />
               </SelectTrigger>
               <SelectContent>
-                {availableFields.map((f) => (
-                  <SelectItem key={f} value={f} className="text-xs">
-                    {f}
+                {options.map((option) => (
+                  <SelectItem
+                    key={option.value}
+                    value={option.value}
+                    className="text-xs"
+                  >
+                    {option.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {/* Direction toggle */}
             <Select
-              value={overrideSorts![0]?.direction ?? "asc"}
-              onValueChange={(dir) =>
+              value={pinned?.direction ?? "asc"}
+              onValueChange={(direction) =>
                 onChange([
                   {
-                    field: overrideSorts![0]?.field ?? availableFields[0] ?? "",
-                    direction: dir as "asc" | "desc",
+                    ...(pinned ?? { field: options[0]?.value ?? "" }),
+                    direction: direction as InsightSort["direction"],
                   },
                 ])
               }
@@ -169,15 +219,8 @@ function SortOverrideRow({
             variant="ghost"
             size="sm"
             className="h-6 px-1.5 text-xs"
-            onClick={() =>
-              onChange([
-                {
-                  field: current?.field ?? availableFields[0] ?? "",
-                  direction: current?.direction ?? "asc",
-                },
-              ])
-            }
-            disabled={availableFields.length === 0}
+            onClick={() => keyToPin && onChange([keyToPin])}
+            disabled={!keyToPin}
           >
             Pin
           </Button>
@@ -191,24 +234,82 @@ function SortOverrideRow({
 // Limit row
 // ---------------------------------------------------------------------------
 
-function LimitOverrideRow({
+interface LimitDraft {
+  /** What the input shows. */
+  text: string;
+  /** True while `text` holds typing that has not been committed. */
+  dirty: boolean;
+  /** The `overrideLimit` this draft was last reconciled with. */
+  limit: number | undefined;
+}
+
+export function LimitOverrideRow({
   insightLimit,
   overrideLimit,
+  bounds,
   onChange,
 }: {
   insightLimit?: number;
   overrideLimit?: number;
-  onChange: (limit: number | undefined) => void;
+  /**
+   * The range the Insight offers viewers.  The host refuses a limit outside
+   * it, so Pin and typed numbers are moved inside it before they are saved.
+   */
+  bounds?: InsightRuntimeDeclaration["limit"];
+  /** Resolves `false` when the save failed, so the draft can stop claiming it. */
+  onChange: (limit: number | undefined) => Promise<boolean> | void;
 }) {
   const isPinned = overrideLimit !== undefined;
   // Local draft so that typing "100" doesn't fire three separate DB mutations.
   // The mutation only fires on blur / Enter.
-  const [draft, setDraft] = useState(overrideLimit?.toString() ?? "");
+  const [draft, setDraft] = useState<LimitDraft>({
+    text: overrideLimit?.toString() ?? "",
+    dirty: false,
+    limit: overrideLimit,
+  });
+
+  // The saved limit can change while this editor stays open (another tab, an
+  // agent's published draft, an undo).  Follow it unless the user is mid-edit:
+  // their typing wins until they commit it.  Losing the override unmounts the
+  // input, so nothing is mid-edit then.
+  if (draft.limit !== overrideLimit) {
+    setDraft(
+      draft.dirty && overrideLimit !== undefined
+        ? { ...draft, limit: overrideLimit }
+        : {
+            text: overrideLimit?.toString() ?? "",
+            dirty: false,
+            limit: overrideLimit,
+          },
+    );
+  }
 
   function commitDraft() {
-    const n = parseInt(draft, 10);
-    if (!isNaN(n) && n > 0) onChange(n);
-    else if (overrideLimit !== undefined) setDraft(overrideLimit.toString());
+    // Blur and Enter also fire on an editor the user only looked at.  Writing
+    // its text back would overwrite a newer saved limit with a stale one.
+    if (!draft.dirty) return;
+    const n = parseInt(draft.text, 10);
+    if (isNaN(n) || n <= 0) {
+      setDraft({ ...draft, text: draft.limit?.toString() ?? "", dirty: false });
+      return;
+    }
+    const limit = clampLimit(n, bounds);
+    const committed = limit.toString();
+    setDraft({ ...draft, text: committed, dirty: false });
+    // Typed text is always written, even when it equals the saved limit: an
+    // earlier save may still be in flight, and this one has to land after it.
+    //
+    // A failed save must not leave the input claiming the rejected number:
+    // show the saved limit again, unless the input has moved on since.
+    const showSavedLimit = () =>
+      setDraft((latest) =>
+        latest.dirty || latest.text !== committed
+          ? latest
+          : { ...latest, text: latest.limit?.toString() ?? "" },
+      );
+    Promise.resolve(onChange(limit)).then((saved) => {
+      if (saved === false) showSavedLimit();
+    }, showSavedLimit);
   }
 
   return (
@@ -221,15 +322,23 @@ function LimitOverrideRow({
               default: {insightLimit} rows
             </span>
           )}
+          {bounds && (
+            <span className="text-xs text-neutral-fg-subtle">
+              {bounds.min}–{bounds.max} rows
+            </span>
+          )}
         </div>
 
         {isPinned ? (
           <div className="flex items-center gap-1">
             <Input
               type="number"
-              min={1}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              min={bounds?.min ?? 1}
+              max={bounds?.max}
+              value={draft.text}
+              onChange={(e) =>
+                setDraft({ ...draft, text: e.target.value, dirty: true })
+              }
               onBlur={commitDraft}
               onKeyDown={(e) => {
                 if (e.key === "Enter") commitDraft();
@@ -241,7 +350,7 @@ function LimitOverrideRow({
               variant="ghost"
               size="sm"
               className="h-6 px-1.5 text-xs"
-              onClick={() => onChange(undefined)}
+              onClick={() => void onChange(undefined)}
             >
               ×
             </Button>
@@ -252,17 +361,212 @@ function LimitOverrideRow({
             variant="ghost"
             size="sm"
             className="h-6 px-1.5 text-xs"
-            onClick={() => {
-              const initial = insightLimit ?? 100;
-              setDraft(initial.toString());
-              onChange(initial);
-            }}
+            onClick={() =>
+              void onChange(clampLimit(insightLimit ?? 100, bounds))
+            }
           >
             Pin
           </Button>
         )}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Reset-only row
+// ---------------------------------------------------------------------------
+
+/**
+ * The row for a control the chart's Insight does not declare for viewers.
+ * The tile ignores an override of it, and any value saved here would be
+ * ignored too, so the row carries no editing control.  It says why, and when
+ * the tile still holds an override, offers its removal.  Without one, the row
+ * shows the control it stands for, disabled.
+ */
+export function ResetOnlyRow({
+  name,
+  reason,
+  action = "Reset",
+  actionLabel,
+  onReset,
+}: {
+  /** What the override is on: "Sort", "Limit", or a field's display name. */
+  name: string;
+  /** One sentence saying the chart no longer offers this to viewers. */
+  reason: string;
+  /** The button's text. */
+  action?: string;
+  /** The button's accessible name, which says what it does. */
+  actionLabel: string;
+  /** Removes the held override; absent, the button is shown disabled. */
+  onReset?: () => void;
+}) {
+  // The reason says why the button is disabled, or what it removes.
+  const reasonId = useId();
+  return (
+    <div className="flex items-start gap-2 py-1.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-xs font-medium text-neutral-fg">{name}</span>
+        <span id={reasonId} className="text-xs text-neutral-fg-subtle">
+          {reason}
+        </span>
+      </div>
+      <Button
+        label={action}
+        aria-label={actionLabel}
+        aria-describedby={reasonId}
+        variant="ghost"
+        size="sm"
+        className="h-6 shrink-0 px-1.5 text-xs"
+        onClick={onReset}
+        disabled={!onReset}
+      />
+    </div>
+  );
+}
+
+/**
+ * The sort row of a tile whose Insight does not let viewers sort: the Pin it
+ * would offer, disabled, or the removal of a sort the tile still holds.
+ */
+function UndeclaredSortRow({
+  held,
+  onReset,
+}: {
+  held: boolean;
+  onReset: () => void;
+}) {
+  const reason =
+    "This Insight doesn't allow sorting. Change it on the Insight.";
+  return held ? (
+    <ResetOnlyRow
+      name="Sort"
+      reason={reason}
+      actionLabel="Reset sort to inherit"
+      onReset={onReset}
+    />
+  ) : (
+    <ResetOnlyRow
+      name="Sort"
+      reason={reason}
+      action="Pin"
+      actionLabel="Pin sort override"
+    />
+  );
+}
+
+/**
+ * What the popover offers for a tile's sort and limit.  Whether the tile runs
+ * what it holds is the tile runtime's own answer, so a row never shows an
+ * override as active that the tile ignores.
+ */
+function sortAndLimitOffers(
+  insight: Insight,
+  dataTables: readonly DataTable[],
+  overrides: DashboardItemOverrides | undefined,
+): { sort: OverrideOffer; limit: OverrideOffer } {
+  const sorts = overrides?.sorts;
+  const limit = overrides?.limit;
+  const controls = insight.runtimeControls;
+  return {
+    sort: overrideOffer(
+      controls?.sort !== undefined,
+      sorts !== undefined,
+      sorts !== undefined &&
+        resolveTileSort(insight, dataTables, sorts) !== undefined,
+    ),
+    limit: overrideOffer(
+      controls?.limit !== undefined,
+      limit !== undefined,
+      limit !== undefined && tileLimitRuns(insight, limit),
+    ),
+  };
+}
+
+/**
+ * The sort row for what the popover offers: the editor; the row of an Insight
+ * that does not let viewers sort; or, when the Insight changed its sort
+ * choices after the tile's sort was saved, that sort's removal.
+ */
+function TileSortRow({
+  offer,
+  declared,
+  onChange,
+  ...editor
+}: {
+  offer: OverrideOffer;
+  declared: boolean;
+  insightSorts?: InsightSort[];
+  overrideSorts?: InsightSort[];
+  fields: SortFieldOptions;
+  onChange: (sorts: InsightSort[] | undefined) => void;
+}) {
+  if (offer === "editable")
+    return <SortOverrideRow {...editor} onChange={onChange} />;
+  if (!declared)
+    return (
+      <UndeclaredSortRow
+        held={offer === "resetOnly"}
+        onReset={() => onChange(undefined)}
+      />
+    );
+  return (
+    <ResetOnlyRow
+      name="Sort"
+      reason="The chart changed its sort choices, so the tile ignores the sort saved here."
+      actionLabel="Reset sort to inherit"
+      onReset={() => onChange(undefined)}
+    />
+  );
+}
+
+/**
+ * The limit row for what the popover offers: the editor, or the removal of a
+ * limit the tile ignores, because the Insight no longer offers a limit or no
+ * longer offers this one.
+ */
+function TileLimitRow({
+  offer,
+  bounds,
+  overrideLimit,
+  onChange,
+}: {
+  offer: OverrideOffer;
+  bounds?: InsightRuntimeDeclaration["limit"];
+  overrideLimit?: number;
+  onChange: (limit: number | undefined) => Promise<boolean>;
+}) {
+  if (offer === "editable")
+    return (
+      // insightLimit: the Insight type has no row-limit field (v0.3).
+      // The "default: N rows" hint is intentionally absent for now.
+      <LimitOverrideRow
+        insightLimit={undefined}
+        overrideLimit={overrideLimit}
+        bounds={bounds}
+        onChange={onChange}
+      />
+    );
+  return (
+    <ResetOnlyRow
+      name="Limit"
+      reason={
+        bounds
+          ? `The chart now offers ${bounds.min}–${bounds.max} rows, so the tile ignores the limit saved here.`
+          : "The chart no longer offers a limit to viewers."
+      }
+      actionLabel="Reset limit to inherit"
+      onReset={() => void onChange(undefined)}
+    />
+  );
+}
+
+function SectionHeading({ children }: { children: ReactNode }) {
+  return (
+    <p className="mb-1 text-xs font-medium tracking-wide text-neutral-fg-subtle uppercase">
+      {children}
+    </p>
   );
 }
 
@@ -274,19 +578,28 @@ export function OverridePopover({
   item,
   dashboardId,
   controls,
+  effectiveOverrides,
   onEditChart,
 }: OverridePopoverProps) {
   const commitBatch = useMutation(api.app.commitBatch);
 
   // Self-fetch visualization → insight → data table (same pattern as VisualizationDisplay).
-  const { data: visualizations = [] } = queryStatus(
+  const visualizationList = queryStatus(
     useArtifactList({ query: api.app.listVisualizations, args: {} }),
   );
-  const { data: insights = [] } = queryStatus(
+  const insightList = queryStatus(
     useArtifactList({ query: api.app.listInsights, args: {} }),
   );
-  const { data: dataTables = [] } = queryStatus(
+  const dataTableList = queryStatus(
     useArtifactList({ query: api.app.listDataTables, args: {} }),
+  );
+  const { data: visualizations = [] } = visualizationList;
+  const { data: insights = [] } = insightList;
+  const { data: dataTables = [] } = dataTableList;
+  // A list stays pending until its last page is in, so once all three have
+  // data, a chart or Insight that is not found is gone, not still loading.
+  const listsLoaded = [visualizationList, insightList, dataTableList].every(
+    (list) => list.data !== undefined,
   );
 
   const visualization = useMemo(
@@ -342,13 +655,6 @@ export function OverridePopover({
     return names;
   }, [insight?.filters, item.overrides?.filters, boundControls]);
 
-  // Insight filter lookup by field name (for inherit state display).
-  const insightFilterByField = useMemo(() => {
-    const map = new Map<string, InsightFilter>();
-    for (const f of insight?.filters ?? []) map.set(f.field, f);
-    return map;
-  }, [insight?.filters]);
-
   // Eligible controls per field (controls whose field matches AND cell's source table has the field).
   function getEligibleControls(fieldName: string): DashboardControl[] {
     return controls.filter(
@@ -363,8 +669,11 @@ export function OverridePopover({
   // Mutation handlers
   // ---------------------------------------------------------------------------
 
-  function persistOverride(patch: DashboardItemOverridePatch) {
-    commitBatch({
+  /** Resolves `true` once the patch is saved, `false` when it was rejected. */
+  function persistOverride(
+    patch: DashboardItemOverridePatch,
+  ): Promise<boolean> {
+    return commitBatch({
       commands: [
         cmd("PatchDashboardItemOverride", {
           dashboardId: dashboardId as UUID,
@@ -372,31 +681,31 @@ export function OverridePopover({
           patch,
         }),
       ],
-    }).catch((error: unknown) => {
-      console.error("Failed to save dashboard override:", error);
-      toast.error("Failed to save dashboard override");
-    });
+    }).then(
+      () => true,
+      (error: unknown) => {
+        console.error("Failed to save dashboard override:", error);
+        toast.error("Failed to save dashboard override");
+        return false;
+      },
+    );
   }
 
-  function handlePin(fieldName: string, filter: InsightFilterOverride) {
+  // Pin and Clear are offered only on a row with a declared runtime filter,
+  // and store its saved-filter id so the tile runtime finds that declaration.
+  function handlePin(
+    fieldName: string,
+    filter: InsightFilterOverride,
+    declaredFilterId: string,
+  ) {
     persistOverride({
       kind: "filter",
       field: fieldName,
-      value: withDeclaredFilterId(
-        fieldName,
-        filter,
-        insight?.filters,
-        insight?.runtimeControls?.filters,
-      ),
+      value: { ...filter, id: declaredFilterId },
     });
   }
 
-  function handleClear(fieldName: string) {
-    const declaredFilterId = resolveDeclaredRuntimeFilterId(
-      fieldName,
-      insight?.filters,
-      insight?.runtimeControls?.filters,
-    );
+  function handleClear(fieldName: string, declaredFilterId: string) {
     const next = computeNewOverridesOnClear(
       fieldName,
       item.overrides,
@@ -427,7 +736,7 @@ export function OverridePopover({
   }
 
   function handleLimitChange(limit: number | undefined) {
-    persistOverride({
+    return persistOverride({
       kind: "limit",
       value: limit ?? null,
     });
@@ -480,13 +789,159 @@ export function OverridePopover({
     }
   }
 
-  // Available field names for the sort row.
-  const availableFieldNames = useMemo(
-    () => combinedFields.map((field) => field.columnName ?? field.name),
-    [combinedFields],
+  const sortFields = useMemo(
+    () =>
+      buildSortFieldOptions(
+        combinedFields,
+        insight?.metrics ?? [],
+        insight?.runtimeControls?.sort?.allowedFieldIds,
+        (id) => !insight || tileSortRuns(insight, id),
+      ),
+    [combinedFields, insight],
   );
 
   const overridePresent = hasOverrides(item.overrides);
+  // The report keeps a tile whose chart was deleted; there is nothing to edit.
+  const chartDeleted = listsLoaded && !insight;
+
+  // What the Insight offers decides which rows exist.  Until it and the
+  // tables its fields come from are loaded nothing is known, so nothing is
+  // shown: neither a control that may not run, nor a claim that the chart
+  // offers none, nor a held override called undeclared for want of a field.
+  const known = listsLoaded ? insight : null;
+  const runtimeControls = known?.runtimeControls;
+  // What the tile runs: its own overrides, with a bound control's in place of
+  // the field it drives.
+  const effectiveFilters =
+    (effectiveOverrides ?? computeItemOverrides(item, controls))?.filters ?? [];
+  const offers = known
+    ? sortAndLimitOffers(known, dataTables, item.overrides)
+    : undefined;
+  const limitOffer = offers?.limit ?? "hidden";
+  const filterRows = known
+    ? fieldNames.flatMap((fieldName) => {
+        const held = effectiveFilters.find(
+          (filter) => filter.field === fieldName,
+        );
+        const declared = resolveFilterRow(
+          fieldName,
+          held,
+          known,
+          combinedFields,
+        );
+        if (!declared && !held) return [];
+        // The default a row shows is the declared filter's, which is the one
+        // a pin replaces; the field may carry other saved filters too.
+        const state = deriveFieldState(
+          fieldName,
+          item.id,
+          item.overrides,
+          controls,
+          declared?.filter,
+        );
+        const canBind =
+          declared !== undefined &&
+          controlCanDrive(fieldName, declared, known, combinedFields);
+        const ignoredReason = ignoredFilterReason(held, known, combinedFields);
+        return [{ fieldName, state, declared, canBind, ignoredReason }];
+      })
+    : [];
+
+  const sections: { key: string; content: ReactNode }[] = [];
+  if (filterRows.length > 0)
+    sections.push({
+      key: "filters",
+      content: (
+        <>
+          <SectionHeading>Filters</SectionHeading>
+          {filterRows.map(
+            ({ fieldName, state, declared, canBind, ignoredReason }) => {
+              const combinedField = combinedFieldByName.get(fieldName);
+              const displayName = combinedField?.displayName ?? fieldName;
+              if (!declared)
+                return (
+                  <ResetOnlyRow
+                    key={fieldName}
+                    name={displayName}
+                    reason={ignoredReason}
+                    {...(state.type === "bound"
+                      ? {
+                          action: "Unbind",
+                          actionLabel: `Unbind ${displayName} from control`,
+                          onReset: () => handleUnbind(state.control.id),
+                        }
+                      : {
+                          actionLabel: `Reset ${displayName} filter to inherit`,
+                          onReset: () => handleInherit(fieldName),
+                        })}
+                  />
+                );
+              return (
+                <OverrideFieldRow
+                  key={fieldName}
+                  fieldName={fieldName}
+                  displayName={displayName}
+                  state={state}
+                  combinedField={combinedField}
+                  eligibleControls={
+                    canBind ? getEligibleControls(fieldName) : []
+                  }
+                  operator={declared.filter.operator}
+                  canClear={declared.declaration.allowClear === true}
+                  onPin={(filter) =>
+                    handlePin(fieldName, filter, declared.declaration.filterId)
+                  }
+                  onClear={() =>
+                    handleClear(fieldName, declared.declaration.filterId)
+                  }
+                  onInherit={() => handleInherit(fieldName)}
+                  onBind={(controlId) => handleBind(controlId)}
+                  onUnbind={
+                    state.type === "bound"
+                      ? () => handleUnbind(state.control.id)
+                      : undefined
+                  }
+                />
+              );
+            },
+          )}
+        </>
+      ),
+    });
+  // Sort is always shown once the Insight is known: disabled, with where to
+  // change it, when the Insight does not let viewers sort.
+  if (known)
+    sections.push({
+      key: "sort",
+      content: (
+        <>
+          <SectionHeading>Sort</SectionHeading>
+          <TileSortRow
+            offer={offers?.sort ?? "hidden"}
+            declared={runtimeControls?.sort !== undefined}
+            insightSorts={known.sorts}
+            overrideSorts={item.overrides?.sorts}
+            fields={sortFields}
+            onChange={handleSortChange}
+          />
+        </>
+      ),
+    });
+  if (limitOffer !== "hidden")
+    sections.push({
+      key: "limit",
+      content: (
+        <>
+          <SectionHeading>Limit</SectionHeading>
+          <TileLimitRow
+            offer={limitOffer}
+            bounds={runtimeControls?.limit}
+            overrideLimit={item.overrides?.limit}
+            onChange={handleLimitChange}
+          />
+        </>
+      ),
+    });
 
   return (
     <Popover>
@@ -496,7 +951,7 @@ export function OverridePopover({
             type="button"
             aria-label="Customize cell overrides"
             className={cn(
-              "relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md p-0 text-neutral-fg-subtle transition-colors hover:bg-neutral-bg hover:text-neutral-fg",
+              "relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md p-0 text-neutral-fg transition-colors hover:bg-neutral-bg/80",
               overridePresent && "text-palette-primary",
             )}
           >
@@ -528,7 +983,7 @@ export function OverridePopover({
                 active
               </Badge>
             )}
-            {onEditChart && item.visualizationId && (
+            {onEditChart && item.visualizationId && !chartDeleted && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -542,71 +997,26 @@ export function OverridePopover({
 
         <ScrollArea className="max-h-96">
           <div className="px-3 py-2">
-            {/* Filter rows */}
-            {fieldNames.length > 0 && (
-              <>
-                <p className="mb-1 text-xs font-medium text-neutral-fg-subtle uppercase tracking-wide">
-                  Filters
-                </p>
-                {fieldNames.map((fieldName) => {
-                  const state = deriveFieldState(
-                    fieldName,
-                    item.id,
-                    item.overrides,
-                    controls,
-                    insightFilterByField.get(fieldName),
-                  );
-                  const combinedField = combinedFieldByName.get(fieldName);
-                  const eligible = getEligibleControls(fieldName);
-
-                  return (
-                    <OverrideFieldRow
-                      key={fieldName}
-                      fieldName={fieldName}
-                      displayName={combinedField?.displayName ?? fieldName}
-                      state={state}
-                      combinedField={combinedField}
-                      eligibleControls={eligible}
-                      onPin={(filter) => handlePin(fieldName, filter)}
-                      onClear={() => handleClear(fieldName)}
-                      onInherit={() => handleInherit(fieldName)}
-                      onBind={(controlId) => handleBind(controlId)}
-                      onUnbind={
-                        state.type === "bound"
-                          ? () => handleUnbind(state.control.id)
-                          : undefined
-                      }
-                    />
-                  );
-                })}
-                <Separator className="my-2" />
-              </>
+            {sections.map((section, index) => (
+              <div key={section.key}>
+                {index > 0 && <Separator className="my-2" />}
+                {section.content}
+              </div>
+            ))}
+            {known && filterRows.length === 0 && limitOffer === "hidden" && (
+              <p className="py-1 text-xs text-neutral-fg-subtle">
+                {runtimeControls?.filters?.length
+                  ? // The Insight declares filters, but more than one on a
+                    // field, and a tile holds one filter override per field.
+                    "This chart's viewer filters share a field, so a tile can't pin one."
+                  : "This chart offers viewers no limit or filter choices. Turn them on in the chart editor."}
+              </p>
             )}
-
-            {/* Sort row */}
-            <p className="mb-1 text-xs font-medium text-neutral-fg-subtle uppercase tracking-wide">
-              Sort
-            </p>
-            <SortOverrideRow
-              insightSorts={insight?.sorts}
-              overrideSorts={item.overrides?.sorts}
-              availableFields={availableFieldNames}
-              onChange={handleSortChange}
-            />
-
-            <Separator className="my-2" />
-
-            {/* Limit row */}
-            <p className="mb-1 text-xs font-medium text-neutral-fg-subtle uppercase tracking-wide">
-              Limit
-            </p>
-            {/* insightLimit: the Insight type has no row-limit field (v0.3).
-                The "default: N rows" hint is intentionally absent for now. */}
-            <LimitOverrideRow
-              insightLimit={undefined}
-              overrideLimit={item.overrides?.limit}
-              onChange={handleLimitChange}
-            />
+            {chartDeleted && (
+              <p className="py-1 text-xs text-neutral-fg-subtle">
+                This tile&apos;s chart was deleted.
+              </p>
+            )}
           </div>
         </ScrollArea>
       </PopoverContent>

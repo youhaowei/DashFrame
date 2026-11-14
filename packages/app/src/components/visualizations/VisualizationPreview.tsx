@@ -309,10 +309,10 @@ function VisualizationPreviewContent({
       ),
     [insight, encoding, visualization.visualizationType],
   );
-  const { viewName, isReady, error } = useInsightView(
-    dashboardRuntime.error ? null : insight,
-    { presentation, runtime: dashboardRuntime.runtime },
-  );
+  const { viewName, isReady, error } = useInsightView(insight, {
+    presentation,
+    runtime: dashboardRuntime.runtime,
+  });
 
   // Resolve instance-qualified fields for repeat-join insights so that
   // field:<uuid>_j1 encodings resolve to their SQL alias correctly. It runs
@@ -322,7 +322,7 @@ function VisualizationPreviewContent({
       insightForView ??
       ({ source: { sourceType: "dataTable", sourceId: "" } } as Insight),
     showModelPreview: false,
-    enabled: !!insightForView && !dashboardRuntime.error,
+    enabled: !!insightForView,
     runtime: dashboardRuntime.runtime,
     presentation,
   });
@@ -345,7 +345,7 @@ function VisualizationPreviewContent({
         // never becomes ready: show the terminal state, not a spinner.
         !isLoadingInsight && !insight
           ? "This chart's data is no longer available."
-          : (dashboardRuntime.error ?? error)
+          : error
       }
       isLoadingInsight={isLoadingInsight}
       presentationApplied={Boolean(presentation)}

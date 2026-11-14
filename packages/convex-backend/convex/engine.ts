@@ -14,6 +14,7 @@ import {
   isMeasureContract,
   isMeasureExpression,
   measureContractProblem,
+  runtimeFilterValueProblem,
   validateVisualizationEncoding,
   type VisualizationEncoding,
 } from "@dashframe/types";
@@ -1179,6 +1180,224 @@ async function run(
   }
   throw new Error(`Unimplemented command ${p}`);
 }
+/** A tile's sort override list, when it has one. */
+function tileSorts(item: ObjectValue): Json[] | undefined {
+  const overrides = item.overrides;
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides))
+    return undefined;
+  return Array.isArray(overrides.sorts) ? overrides.sorts : undefined;
+}
+/**
+ * A tile's sort override runs as the Insight's runtime sort, which the host
+ * limits to one key (`maxKeys` in `insightCodec.ts`).  A longer list would
+ * save and then fail every time the tile loads.
+ */
+function tileSortKeyLimit(keys: number): string {
+  return `A tile sort override takes one key, not ${keys}. Send one { field, direction }.`;
+}
+/**
+ * A tile override runs through a control the tile's Insight declares for
+ * viewers (`runtimeControls`).  One the Insight does not declare would save
+ * and then replace the tile with an error every time it loads, so setting it
+ * is refused here, where the caller can still act on the reason.
+ *
+ * The checks follow what the tile runtime resolves (`resolveDashboardRuntime`
+ * in the app) and what the host then accepts.  They are a second statement of
+ * those rules, because this bundle cannot import either.
+ *
+ * Only `PatchDashboardItemOverride` asks this.  The commands that write whole
+ * items (`AddDashboardItem`, `SetDashboardLayout`, `FanOutDashboardItems`)
+ * send back overrides saved before the rule, and refusing those would stop an
+ * unrelated layout save.  Removing an override never comes here.
+ */
+async function requireDeclaredOverride(
+  graph: Graph,
+  item: ObjectValue,
+  patch: ObjectValue,
+) {
+  if (item.type !== "visualization" || typeof item.visualizationId !== "string")
+    throw new Error(
+      "Only a chart item takes a sort, limit, or filter override.",
+    );
+  const visualization = await graph.get("visualizations", item.visualizationId),
+    insight = await graph.get(
+      "insights",
+      str(visualization.insightId, "insightId"),
+    ),
+    def = definition(insight),
+    controls = def.runtimeControls ? record(def.runtimeControls) : {},
+    name = `The Insight "${insight.name}"`;
+  if (patch.kind === "limit") {
+    if (!controls.limit)
+      throw new Error(
+        `${name} does not offer viewers a limit, so this tile cannot take a limit override. Declare runtimeControls.limit on the Insight first.`,
+      );
+    const { min, max } = record(controls.limit),
+      limit = patch.value;
+    // Anything but a number is refused when the stored layout is parsed.
+    if (typeof limit !== "number") return;
+    // The host counts rows: it takes a whole number and nothing else.
+    if (!Number.isInteger(limit))
+      throw new Error(
+        `A limit override is a whole number of rows, not ${limit}.`,
+      );
+    if (
+      typeof min === "number" &&
+      typeof max === "number" &&
+      (limit < min || limit > max)
+    )
+      throw new Error(
+        `${name} offers viewers a limit of ${min} to ${max} rows, so this tile cannot take a limit override of ${limit}.`,
+      );
+    return;
+  }
+  const fields = await availableFields(graph, def);
+  if (patch.kind === "sorts")
+    requireDeclaredSort(name, def, controls, fields, patch);
+  else requireDeclaredFilter(name, def, controls, fields, record(patch.value));
+}
+function requireDeclaredSort(
+  name: string,
+  def: ObjectValue,
+  controls: ObjectValue,
+  fields: ObjectValue[],
+  patch: ObjectValue,
+) {
+  if (!controls.sort)
+    throw new Error(
+      `${name} does not offer viewers a sort, so this tile cannot take a sort override. Declare runtimeControls.sort on the Insight first.`,
+    );
+  const allowed = array(
+      record(controls.sort).allowedFieldIds,
+      "allowedFieldIds",
+    ),
+    metrics = objects(def.metrics, "metrics");
+  // A key names an allowed field or metric by its id, its result-column
+  // alias, or the name of its column.  Both alias forms are taken for every
+  // id: a column selected from an upstream insight keeps that insight's
+  // metric id but is aliased as a field.  The first allowed id a key names is
+  // the one the tile sorts by.
+  const references = (allowedId: Json) => {
+    const key = String(allowedId).replaceAll("-", "_"),
+      field = fields.find((f) => f.id === allowedId),
+      metric = metrics.find((m) => m.id === allowedId);
+    const named = field
+      ? [field.columnName ?? field.name]
+      : [metric?.name, metric?.columnName];
+    return [allowedId, `field_${key}`, `metric_${key}`, ...named];
+  };
+  // On a pivoted Insight a metric is one column per pivot value.  The host
+  // sorts a tile by the cell the Insight's own sort on that metric names, and
+  // refuses a metric with no such sort (`tileSortRuns` in the app).
+  const pivotFields = def.reporting
+    ? array(record(def.reporting).pivotFields ?? [], "pivotFields")
+    : [];
+  for (const sort of objects(patch.value, "sorts")) {
+    const sortField = str(sort.field, "sort field"),
+      sortId = allowed.find((allowedId) =>
+        references(allowedId).includes(sortField),
+      );
+    if (sortId === undefined)
+      throw new Error(
+        `${name} does not offer viewers a sort by "${sortField}", so this tile cannot take that sort override. Sort by the id of a field or metric in runtimeControls.sort.allowedFieldIds.`,
+      );
+    const metric = metrics.find((m) => m.id === sortId);
+    if (
+      metric &&
+      pivotFields.length &&
+      !objects(def.sorts ?? [], "sorts").some(
+        (saved) =>
+          (saved.field === sortId ||
+            saved.field === metricColumnAlias(metric)) &&
+          exactPivotTuple(saved, pivotFields),
+      )
+    )
+      throw new Error(
+        `${name} is pivoted, so a tile can sort by a metric only when the Insight sorts by one of its pivot cells, and it has no such sort on "${String(metric.name)}". Sort the tile by another field or metric, or sort the Insight by a cell of this metric first.`,
+      );
+  }
+}
+function requireDeclaredFilter(
+  name: string,
+  def: ObjectValue,
+  controls: ObjectValue,
+  fields: ObjectValue[],
+  value: ObjectValue,
+) {
+  const field = str(value.field, "field"),
+    cleared = value.cleared === true,
+    saved = objects(def.filters ?? [], "filters"),
+    aliases = fields.flatMap((f) => {
+      const [column, alias] = fieldReferences(f);
+      return column === field ? [alias] : [];
+    }),
+    onField = (filter: ObjectValue) =>
+      filter.field === field ||
+      (typeof filter.field === "string" && aliases.includes(filter.field)),
+    declared = objects(controls.filters ?? [], "runtime filters").flatMap(
+      (control) => {
+        const filter = saved.find((f) => f.id === control.filterId);
+        return filter ? [{ control, filter }] : [];
+      },
+    ),
+    // An id names its declaration.  Without one the tile runtime takes the
+    // declared filter on the field, stored by column name or by alias, that
+    // has the override's operator; a clear has no operator to match.
+    matches =
+      value.id === undefined
+        ? declared.filter(
+            ({ filter }) =>
+              onField(filter) &&
+              (cleared || filter.operator === value.operator),
+          )
+        : declared.filter(({ control }) => control.filterId === value.id);
+  if (matches.length > 1)
+    throw new Error(
+      `${name} offers viewers more than one filter that matches "${field}". Send the override with the id of the saved filter it changes.`,
+    );
+  const match = matches[0];
+  if (!match) {
+    let missing = `the filter "${String(value.id)}"`;
+    if (value.id === undefined)
+      missing = cleared
+        ? `a filter on "${field}"`
+        : `a "${String(value.operator)}" filter on "${field}"`;
+    throw new Error(
+      `${name} does not offer viewers ${missing}, so this tile cannot take that filter override. Declare the filter in runtimeControls.filters on the Insight first.`,
+    );
+  }
+  // The saved filter stays the authority for field and operator: the tile
+  // runs it with the override's value, whatever the override itself says.
+  if (!onField(match.filter))
+    throw new Error(
+      `The filter "${String(value.id)}" of ${name} is on "${String(match.filter.field)}", not "${field}". Send the override for that field.`,
+    );
+  if (!cleared && match.filter.operator !== value.operator)
+    throw new Error(
+      `${name} offers viewers a "${String(match.filter.operator)}" filter on "${field}", so this tile cannot take a "${String(value.operator)}" override of it. Send the override with that operator.`,
+    );
+  // The host runs the value against the saved filter, and refuses one that
+  // does not fit it; the tile sends a null value as a clear, whether or not
+  // it is flagged.  Only the value written here is checked.
+  const problem = runtimeFilterValueProblem(
+    {
+      required: match.control.required === true,
+      allowClear: match.control.allowClear === true,
+    },
+    match.filter as Parameters<typeof runtimeFilterValueProblem>[1],
+    cleared || value.value === null ? null : value.value,
+  );
+  if (problem === "RUNTIME_FILTER_VALUE_INVALID")
+    throw new Error(
+      `${name} cannot run its "${String(match.filter.operator)}" filter on "${field}" with ${JSON.stringify(value.value)}. Send a value of the saved filter's kind: a list for "in", a { low, high } range for "between", and otherwise one value of the same type.`,
+    );
+  // A required filter cannot be cleared either; the codec never lets it
+  // allow clearing.
+  if (problem)
+    throw new Error(
+      `${name} does not let viewers clear its filter on "${field}", so this tile cannot take a cleared filter override. Set allowClear on that filter in runtimeControls.filters first.`,
+    );
+}
 async function dashboardCommand(
   graph: Graph,
   p: string,
@@ -1261,10 +1480,22 @@ async function dashboardCommand(
       if (patch.value !== null) {
         const value = record(patch.value);
         if (value.field !== field) throw new Error("Filter field mismatch");
+        await requireDeclaredOverride(graph, item, patch);
         filters.push(value);
       }
       overrides.filters = filters;
     } else if (patch.kind === "sorts" || patch.kind === "limit") {
+      if (
+        patch.kind === "sorts" &&
+        Array.isArray(patch.value) &&
+        patch.value.length > 1
+      )
+        throw new Error(tileSortKeyLimit(patch.value.length));
+      // An empty sort list removes the override, as null does.
+      const removes =
+        patch.value === null ||
+        (Array.isArray(patch.value) && patch.value.length === 0);
+      if (!removes) await requireDeclaredOverride(graph, item, patch);
       if (patch.value === null) delete overrides[patch.kind];
       else overrides[patch.kind] = patch.value!;
     } else throw new Error("Unknown override patch");
@@ -1280,6 +1511,13 @@ async function dashboardCommand(
     const source = items.find((x) => x.id === a.sourceItemId);
     if (!source || source.type !== "visualization" || !source.visualizationId)
       throw new Error("Source must be a visualization item");
+    // Each clone copies the source's overrides, so a longer list saved before
+    // the one-key rule would be written again onto every new tile.
+    const sourceSortKeys = tileSorts(source)?.length ?? 0;
+    if (sourceSortKeys > 1)
+      throw new Error(
+        `The source item's sort override has ${sourceSortKeys} keys, and a tile sort takes one. Patch it to one key before repeating the item.`,
+      );
     const placements = objects(a.placements, "placements");
     if (!placements.length) throw new Error("Placements must not be empty");
     const field = str(a.field, "field");
@@ -1307,6 +1545,17 @@ async function dashboardCommand(
   }
   if (new Set(items.map((i) => i.id)).size !== items.length)
     throw new Error("Duplicate dashboard item id");
+  // Every command that writes an item passes here, so none can store a sort
+  // override the tile cannot run.  A longer list saved before this rule stays
+  // readable: rejecting it would also refuse an unrelated move or resize of
+  // that dashboard, so only a list this command added or changed is refused.
+  for (const item of items) {
+    const sorts = tileSorts(item);
+    if (!sorts || sorts.length <= 1) continue;
+    const saved = (row.layout ?? []).find((stored) => stored.id === item.id);
+    if (!saved || stable(tileSorts(saved)) !== stable(sorts))
+      throw new Error(tileSortKeyLimit(sorts.length));
+  }
   const state = clean(
     parseStoredDashboardState({ layout: items, controls: row.controls }, p),
   );

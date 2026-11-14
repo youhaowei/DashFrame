@@ -539,7 +539,7 @@ describe("VisualizationDisplay — declared runtime controls", () => {
     ).toEqual({ runtime: { filters: { revenue: 250 } } });
   });
 
-  it("rejects ambiguous shared fields and incompatible predicate operators", () => {
+  it("ignores ambiguous shared fields, incompatible operators, and a filter changed under its override", () => {
     const ambiguous: Insight = {
       ...insight,
       filters: [
@@ -553,35 +553,68 @@ describe("VisualizationDisplay — declared runtime controls", () => {
         ],
       },
     };
-    for (const [target, operator] of [
-      [ambiguous, "eq"],
-      [insight, "ne"],
+    const paused = {
+      field: "status",
+      operator: "eq",
+      value: "paused",
+    } as const;
+    // The declaration survives, but the Insight changed the saved filter: the
+    // host would refuse the held value, so the tile keeps the saved predicate.
+    const nowIn = {
+      ...insight,
+      filters: [{ ...savedFilter, operator: "in", value: ["active"] }],
+    } as Insight;
+    const noClear = {
+      ...insight,
+      runtimeControls: {
+        filters: [{ key: "status", filterId: savedFilter.id, label: "Status" }],
+      },
+    } as Insight;
+    // A required filter is left without a value, as on a tile that never
+    // held an override: the host asks for one, and the popover offers Pin.
+    const nowRequiredIn = {
+      ...nowIn,
+      runtimeControls: {
+        filters: [
+          {
+            key: "status",
+            filterId: savedFilter.id,
+            label: "Status",
+            required: true,
+          },
+        ],
+      },
+    } as Insight;
+    for (const [target, override] of [
+      [ambiguous, paused],
+      [insight, { ...paused, operator: "ne" }],
+      [nowIn, { ...paused, id: savedFilter.id }],
+      [noClear, { ...paused, id: savedFilter.id, value: null, cleared: true }],
+      [nowRequiredIn, { ...paused, id: savedFilter.id }],
     ] as const) {
       expect(
-        resolveDashboardRuntime(target, [dataTable], {
-          filters: [{ field: "status", operator, value: "paused" }],
-        }),
-      ).toEqual({
-        error: "This dashboard filter is not declared by the Insight.",
-      });
+        resolveDashboardRuntime(target, [dataTable], { filters: [override] }),
+      ).toEqual({ runtime: { filters: {} } });
     }
   });
 
-  it("fails closed when a dashboard filter was not author-declared", () => {
-    expect(
-      resolveDashboardRuntime(insight, [dataTable], {
-        filters: [
-          {
-            id: "other-filter",
-            field: "region",
-            operator: "eq",
-            value: "west",
-          },
-        ],
-      }),
-    ).toEqual({
-      error: "This dashboard filter is not declared by the Insight.",
-    });
+  // Old overrides never stop a tile rendering: the tile runs the Insight's own
+  // filter or limit in their place.
+  it("ignores a filter or limit the Insight does not declare", () => {
+    const filters = [
+      { id: "other-filter", field: "region", operator: "eq", value: "west" },
+    ] as const;
+    for (const [target, limit] of [
+      [insight, 500],
+      [{ ...insight, runtimeControls: undefined }, 25],
+    ] as const) {
+      expect(
+        resolveDashboardRuntime(target, [dataTable], {
+          filters: [...filters],
+          limit,
+        }),
+      ).toEqual({ runtime: { filters: {} } });
+    }
   });
 });
 

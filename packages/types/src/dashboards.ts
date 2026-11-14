@@ -32,7 +32,11 @@ export interface DashboardItemOverrides {
    * `cleared: true`).  Fields not mentioned fall through to the insight default.
    */
   filters?: InsightFilterOverride[];
-  /** Sort override — replaces the insight's sorts array when present. */
+  /**
+   * Sort override — replaces the insight's sort when present.  It runs as the
+   * insight's runtime sort, which takes one key, so writes reject a longer
+   * list; a list saved before that rule may still hold more.
+   */
   sorts?: InsightSort[];
   /** Row-limit override — replaces the insight's limit when present. */
   limit?: number;
@@ -45,8 +49,8 @@ export interface DashboardItemOverrides {
  * this field" rather than applying a predicate.  This is a DISTINCT signal from
  * absence: absence means inherit, cleared means widen.
  *
- * v0.3: clear widens freely — no permission gate (single-user data only).
- * Multi-tenant widening-permission logic is explicitly deferred to v0.4+.
+ * A clear runs as a null value for the Insight's declared runtime filter, so
+ * the host accepts it only when that declaration sets `allowClear`.
  */
 export interface InsightFilterOverride extends InsightFilter {
   /**
@@ -171,6 +175,10 @@ export interface DashboardItemPatch {
 /**
  * Intent-level override edits. The server applies these against its current
  * dashboard state so callers never have to replace a stale override bag.
+ *
+ * A non-null value sets an override, which the server accepts only through a
+ * control the item's Insight declares for viewers (`runtimeControls`).  Null
+ * removes one and is always accepted.
  */
 export type DashboardItemOverridePatch =
   | {
@@ -178,5 +186,6 @@ export type DashboardItemOverridePatch =
       field: string;
       value: InsightFilterOverride | null;
     }
+  // One key at most: see `DashboardItemOverrides.sorts`.
   | { kind: "sorts"; value: InsightSort[] | null }
   | { kind: "limit"; value: number | null };

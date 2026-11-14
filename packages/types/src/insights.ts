@@ -302,6 +302,101 @@ export function fixedRuntimeIds(
   return shown.filter((id) => !optional.has(id));
 }
 
+/** Why the host refuses a runtime filter value, as the code it throws. */
+export type RuntimeFilterValueProblem =
+  | "RUNTIME_FILTER_REQUIRED"
+  | "RUNTIME_FILTER_CLEAR_NOT_ALLOWED"
+  | "RUNTIME_FILTER_VALUE_INVALID";
+
+/**
+ * Why the host would refuse `value` for a declared runtime filter, or
+ * undefined when it runs it.  `null` clears the filter.  Any other value has
+ * to keep the saved filter's shape: a list of its scalar kinds for `in`, a
+ * `{ low, high }` range of the same kinds for `between`, and otherwise one
+ * scalar of the saved value's kind (a string for `contains`).
+ *
+ * Shared by the host, which runs the value, the tile runtime, which ignores an
+ * override the host would refuse, and the override command, which refuses to
+ * save one, so the three cannot disagree.
+ */
+export function runtimeFilterValueProblem(
+  control: { required?: boolean; allowClear?: boolean },
+  filter: Pick<InsightFilter, "operator" | "value"> | undefined,
+  value: unknown,
+): RuntimeFilterValueProblem | undefined {
+  if (value === null) {
+    if (control.required) return "RUNTIME_FILTER_REQUIRED";
+    return control.allowClear ? undefined : "RUNTIME_FILTER_CLEAR_NOT_ALLOWED";
+  }
+  return filter && runtimeFilterValueIsValid(filter, value)
+    ? undefined
+    : "RUNTIME_FILTER_VALUE_INVALID";
+}
+
+type JsonScalar = string | number | boolean;
+
+function runtimeFilterValueIsValid(
+  filter: Pick<InsightFilter, "operator" | "value">,
+  runtimeValue: unknown,
+): boolean {
+  const savedValue = literalOperand(filter.value);
+  if (filter.operator === "in") {
+    if (!Array.isArray(savedValue) || !Array.isArray(runtimeValue))
+      return false;
+    if (!savedValue.every(isJsonScalar) || !runtimeValue.every(isJsonScalar))
+      return false;
+    const savedKinds = new Set(savedValue.map((value) => typeof value));
+    return (
+      savedKinds.size > 0 &&
+      runtimeValue.every((value) => savedKinds.has(typeof value))
+    );
+  }
+  if (filter.operator === "between") {
+    if (!isExactRange(savedValue) || !isExactRange(runtimeValue)) return false;
+    return (
+      typeof savedValue.low === typeof runtimeValue.low &&
+      typeof savedValue.high === typeof runtimeValue.high
+    );
+  }
+  if (!isJsonScalar(savedValue) || !isJsonScalar(runtimeValue)) return false;
+  if (filter.operator === "contains" && typeof savedValue !== "string")
+    return false;
+  return typeof savedValue === typeof runtimeValue;
+}
+
+/** A saved operand stored as `{ kind: "value", v }` holds its literal in `v`. */
+function literalOperand(value: unknown): unknown {
+  if (isRecord(value) && value.kind === "value" && Object.hasOwn(value, "v"))
+    return value.v;
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isExactRange(
+  value: unknown,
+): value is { low: JsonScalar; high: JsonScalar } {
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value);
+  return (
+    keys.length === 2 &&
+    keys.includes("low") &&
+    keys.includes("high") &&
+    isJsonScalar(value.low) &&
+    isJsonScalar(value.high)
+  );
+}
+
+function isJsonScalar(value: unknown): value is JsonScalar {
+  return (
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  );
+}
+
 /**
  * CompiledInsight - An Insight with all IDs resolved to actual entities.
  *

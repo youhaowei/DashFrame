@@ -107,7 +107,12 @@ export type {
   InsightSource,
 } from "./insights";
 
-export { fixedRuntimeIds, isUnmodifiedDraft } from "./insights";
+export {
+  fixedRuntimeIds,
+  isUnmodifiedDraft,
+  runtimeFilterValueProblem,
+} from "./insights";
+export type { RuntimeFilterValueProblem } from "./insights";
 
 export type {
   AxisType,
