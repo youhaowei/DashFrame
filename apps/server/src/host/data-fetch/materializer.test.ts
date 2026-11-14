@@ -41,6 +41,12 @@ function source(tableId: string, name = "value"): SourceGeneration {
   };
 }
 
+type MaterializeRequest = Parameters<
+  ReturnType<typeof createInsightMaterializer>["materialize"]
+>[0];
+
+const SAVED_TARGET = { kind: "saved", insightId: "insight" } as const;
+
 function harness(overrides: Partial<InsightMaterializerDependencies> = {}) {
   const bytes = new Map<string, Uint8Array>();
   const registered = new Map<string, Uint8Array>();
@@ -100,7 +106,18 @@ function harness(overrides: Partial<InsightMaterializerDependencies> = {}) {
     tableName: (frameId) => `df_${frameId}`,
     ...overrides,
   };
+  /** One materialization through a fresh materializer; saved target by default. */
+  const materialize = (
+    target: MaterializeRequest["target"] = SAVED_TARGET,
+    definition: MaterializeRequest["insight"] = insight,
+  ) =>
+    createInsightMaterializer(dependencies).materialize({
+      ctx: {} as never,
+      target,
+      insight: definition,
+    });
   return {
+    materialize,
     bytes,
     registered,
     storage,
@@ -144,14 +161,13 @@ describe("immutable Insight materializer", () => {
     );
     const h = harness({ resolveSource });
 
-    const ready = await createInsightMaterializer(h.dependencies).materialize({
-      ctx: {} as never,
-      target: { kind: "ephemeral" },
-      insight: {
+    const ready = await h.materialize(
+      { kind: "ephemeral" },
+      {
         ...insight,
         presentation: { dimensions: ["base-field"] },
       },
-    });
+    );
 
     expect(resolveSource.mock.calls.every((call) => call[4] === true)).toBe(
       true,
@@ -183,11 +199,7 @@ describe("immutable Insight materializer", () => {
     );
     const h = harness({ resolveSource });
 
-    await createInsightMaterializer(h.dependencies).materialize({
-      ctx: {} as never,
-      target: { kind: "saved", insightId: "insight" },
-      insight,
-    });
+    await h.materialize();
 
     expect(resolveSource.mock.calls.every((call) => call[4] === false)).toBe(
       true,
@@ -201,15 +213,14 @@ describe("immutable Insight materializer", () => {
     const h = harness({ resolveSource: vi.fn(async () => persisted) });
 
     await expect(
-      createInsightMaterializer(h.dependencies).materialize({
-        ctx: {} as never,
-        target: { kind: "refresh" },
-        insight: {
+      h.materialize(
+        { kind: "refresh" },
+        {
           baseTableId: "base",
           selectedFields: [],
           metrics: [],
         },
-      }),
+      ),
     ).rejects.toThrow("SOURCE_NOT_REFRESHABLE");
     expect(h.storage.save).not.toHaveBeenCalled();
     expect(h.publish).not.toHaveBeenCalled();
@@ -218,17 +229,14 @@ describe("immutable Insight materializer", () => {
   it("refreshes one source without creating an unused result frame", async () => {
     const compile = vi.fn(() => "SELECT 1");
     const h = harness({ compile });
-    const materializer = createInsightMaterializer(h.dependencies);
-
-    const ready = await materializer.materialize({
-      ctx: {} as never,
-      target: { kind: "refresh" },
-      insight: {
+    const ready = await h.materialize(
+      { kind: "refresh" },
+      {
         baseTableId: "base",
         selectedFields: [],
         metrics: [],
       },
-    });
+    );
 
     expect(compile).not.toHaveBeenCalled();
     expect(h.runtime.queryArrow).not.toHaveBeenCalled();
@@ -261,13 +269,9 @@ describe("immutable Insight materializer", () => {
   it("does not start another connector after a source resolution failure", async () => {
     const h = harness();
     h.resolveSource.mockRejectedValueOnce(new Error("source unavailable"));
-    await expect(
-      createInsightMaterializer(h.dependencies).materialize({
-        ctx: {} as never,
-        target: { kind: "ephemeral" },
-        insight,
-      }),
-    ).rejects.toThrow("source unavailable");
+    await expect(h.materialize({ kind: "ephemeral" })).rejects.toThrow(
+      "source unavailable",
+    );
     expect(h.resolveSource).toHaveBeenCalledTimes(1);
     expect(h.publish).not.toHaveBeenCalled();
     expect(h.bytes.size).toBe(0);
@@ -275,13 +279,7 @@ describe("immutable Insight materializer", () => {
 
   it("fetches every source and publishes only metadata after the result is saved", async () => {
     const h = harness();
-    const materializer = createInsightMaterializer(h.dependencies);
-
-    const ready = await materializer.materialize({
-      ctx: {} as never,
-      target: { kind: "ephemeral" },
-      insight,
-    });
+    const ready = await h.materialize({ kind: "ephemeral" });
 
     expect(h.resolveSource).toHaveBeenCalledTimes(2);
     expect(h.publish).toHaveBeenCalledOnce();
@@ -317,15 +315,9 @@ describe("immutable Insight materializer", () => {
         return { ...value, fields: [field("changed", tableId, "changed")] };
       },
     });
-    const materializer = createInsightMaterializer(h.dependencies);
-
-    await expect(
-      materializer.materialize({
-        ctx: {} as never,
-        target: { kind: "ephemeral" },
-        insight,
-      }),
-    ).rejects.toThrow("SOURCE_SCHEMA_CHANGED");
+    await expect(h.materialize({ kind: "ephemeral" })).rejects.toThrow(
+      "SOURCE_SCHEMA_CHANGED",
+    );
     expect(h.storage.save).not.toHaveBeenCalled();
     expect(h.publish).not.toHaveBeenCalled();
   });
@@ -344,11 +336,7 @@ describe("immutable Insight materializer", () => {
       },
     });
 
-    await createInsightMaterializer(h.dependencies).materialize({
-      ctx: {} as never,
-      target: { kind: "ephemeral" },
-      insight,
-    });
+    await h.materialize({ kind: "ephemeral" });
 
     expect(h.publish).toHaveBeenCalledOnce();
     const published = h.publish.mock.calls[0]![1];
@@ -389,10 +377,9 @@ describe("immutable Insight materializer", () => {
         schema: [{ id: "field_result_field", name: "result", type: "string" }],
       }),
     });
-    const ready = await createInsightMaterializer(h.dependencies).materialize({
-      ctx: {} as never,
-      target: { kind: "saved", insightId: "derived" },
-      insight: {
+    const ready = await h.materialize(
+      { kind: "saved", insightId: "derived" },
+      {
         baseTableId: "upstream",
         source: { sourceType: "insight", sourceId: "upstream" },
         selectedFields: ["result-field"],
@@ -406,7 +393,7 @@ describe("immutable Insight materializer", () => {
           },
         ],
       },
-    });
+    );
 
     expect(ready.status).toBe("ready");
     expect(ready.fetchedAt).toBe(456);
@@ -493,16 +480,15 @@ describe("immutable Insight materializer", () => {
     );
 
     await expect(
-      createInsightMaterializer(h.dependencies).materialize({
-        ctx: {} as never,
-        target: { kind: "saved", insightId: "derived" },
-        insight: {
+      h.materialize(
+        { kind: "saved", insightId: "derived" },
+        {
           baseTableId: "upstream",
           source: { sourceType: "insight", sourceId: "upstream" },
           selectedFields: ["result-field"],
           metrics: [],
         },
-      }),
+      ),
     ).rejects.toThrow("transient cleanup");
 
     expect(h.publish).toHaveBeenCalledOnce();
@@ -525,16 +511,15 @@ describe("immutable Insight materializer", () => {
       }),
     });
     await expect(
-      createInsightMaterializer(h.dependencies).materialize({
-        ctx: {} as never,
-        target: { kind: "saved", insightId: "derived" },
-        insight: {
+      h.materialize(
+        { kind: "saved", insightId: "derived" },
+        {
           baseTableId: "upstream",
           source: { sourceType: "insight", sourceId: "upstream" },
           selectedFields: [],
           metrics: [],
         },
-      }),
+      ),
     ).rejects.toThrow("TARGET_NOT_READY");
     expect(h.publish).not.toHaveBeenCalled();
   });
@@ -544,14 +529,7 @@ describe("immutable Insight materializer", () => {
     h.dependencies.compile = () => {
       throw new Error("compile");
     };
-    const materializer = createInsightMaterializer(h.dependencies);
-    await expect(
-      materializer.materialize({
-        ctx: {} as never,
-        target: { kind: "saved", insightId: "insight" },
-        insight,
-      }),
-    ).rejects.toThrow();
+    await expect(h.materialize()).rejects.toThrow();
     expect(h.bytes.size).toBe(0);
     expect(h.registered.size).toBe(0);
   });
@@ -563,13 +541,9 @@ describe("immutable Insight materializer", () => {
       throw new Error("request cancelled after registration");
     });
 
-    await expect(
-      createInsightMaterializer(h.dependencies).materialize({
-        ctx: {} as never,
-        target: { kind: "saved", insightId: "insight" },
-        insight,
-      }),
-    ).rejects.toThrow("request cancelled after registration");
+    await expect(h.materialize()).rejects.toThrow(
+      "request cancelled after registration",
+    );
     expect(h.bytes.size).toBe(0);
     expect(h.registered.size).toBe(0);
     expect(h.runtime.unregisterTable).toHaveBeenCalledWith("df_frame-1");
@@ -584,13 +558,7 @@ describe("immutable Insight materializer", () => {
         throw new Error("response lost");
       },
     });
-    await expect(
-      createInsightMaterializer(h.dependencies).materialize({
-        ctx: {} as never,
-        target: { kind: "saved", insightId: "insight" },
-        insight,
-      }),
-    ).rejects.toThrow("response lost");
+    await expect(h.materialize()).rejects.toThrow("response lost");
     expect(committed?.result.id).toBe("frame-3");
     expect([...h.bytes.keys()]).toEqual(["frame-1", "frame-2", "frame-3"]);
     expect(h.registered.size).toBe(3);
@@ -607,12 +575,7 @@ describe("immutable Insight materializer", () => {
       },
     });
     h.bytes.set("old-frame", new Uint8Array([1]));
-    const materializer = createInsightMaterializer(h.dependencies);
-    await materializer.materialize({
-      ctx: {} as never,
-      target: { kind: "saved", insightId: "insight" },
-      insight,
-    });
+    await h.materialize();
 
     expect(current).toBe("frame-3");
     expect(h.bytes.has("old-frame")).toBe(true);
@@ -626,13 +589,7 @@ describe("immutable Insight materializer", () => {
         throw new Error("save");
       },
     });
-    await expect(
-      createInsightMaterializer(h.dependencies).materialize({
-        ctx: {} as never,
-        target: { kind: "ephemeral" },
-        insight,
-      }),
-    ).rejects.toThrow("save");
+    await expect(h.materialize({ kind: "ephemeral" })).rejects.toThrow("save");
     expect(h.storage.delete).toHaveBeenCalledWith("frame-1");
     expect(h.publish).not.toHaveBeenCalled();
   });
@@ -946,13 +903,7 @@ describe("immutable Insight materializer", () => {
       },
     });
 
-    await expect(
-      createInsightMaterializer(h.dependencies).materialize({
-        ctx: {} as never,
-        target: { kind: "saved", insightId: "insight" },
-        insight,
-      }),
-    ).resolves.toMatchObject({ status: "ready" });
+    await expect(h.materialize()).resolves.toMatchObject({ status: "ready" });
     expect(h.publish).toHaveBeenCalledOnce();
   });
 });
