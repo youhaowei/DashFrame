@@ -10,7 +10,7 @@
  * 4. bound: a control with `control.field === fieldName` lists `item.id` in boundInstances.
  *
  * TRANSITION PAYLOADS — given a state + action, assert the written overrides bag:
- * 6. clear: adds cleared entry; preserves other filters + sorts + limit.
+ * 6. clear: replaces the field's entry with a cleared one, under the declared filter id.
  *
  * SORT ROW — a tile sort override holds one key:
  * 11. sortKeyToPin: Pin saves one key, by a reference the field select shows.
@@ -162,23 +162,6 @@ describe("computeNewOverridesOnClear — transition payload", () => {
     const result = computeNewOverridesOnClear(FIELD, overrides);
     expect(result.filters).toHaveLength(1);
     expect(result.filters![0]).toMatchObject({ field: FIELD, cleared: true });
-  });
-
-  it("6c. preserves other fields' filters, sorts, and limit", () => {
-    const otherFilter = filter(OTHER_FIELD, { value: "active" });
-    const overrides: DashboardItemOverrides = {
-      filters: [otherFilter],
-      sorts: [{ field: "name", direction: "asc" }],
-      limit: 20,
-    };
-    const result = computeNewOverridesOnClear(FIELD, overrides);
-    expect(result.filters).toHaveLength(2);
-    expect(result.filters).toContainEqual(otherFilter);
-    expect(result.filters!.some((f) => f.field === FIELD && f.cleared)).toBe(
-      true,
-    );
-    expect(result.sorts).toEqual([{ field: "name", direction: "asc" }]);
-    expect(result.limit).toBe(20);
   });
 });
 

@@ -833,6 +833,70 @@ describe("OverridePopover offered controls", () => {
           ),
         ).toBeTruthy();
       });
+
+      it("offers no control to bind on a row a held override picked: the control's own override names neither", async () => {
+        const clearableEqualities = makeInsight(
+          {
+            filters: [
+              { key: "a", filterId: "a", label: "A", allowClear: true },
+              { key: "b", filterId: "b", label: "B", allowClear: true },
+            ],
+          },
+          [
+            { id: "a", field: "region", operator: "eq", value: "East" },
+            { id: "b", field: "region", operator: "eq", value: "West" },
+          ],
+        );
+        lists.listDataTables = [
+          {
+            id: clearableEqualities.source.sourceId,
+            name: "sales",
+            fields: [{ id: regionId, name: "Region", columnName: "region" }],
+          },
+        ];
+        await openPopover({
+          item: tileWith({
+            filters: [
+              { id: "a", field: "region", operator: "eq", value: "North" },
+            ],
+          }),
+          insight: clearableEqualities,
+          controls: [
+            {
+              id: "10000000-0000-4000-8000-000000000006" as UUID,
+              field: "region",
+              boundInstances: [],
+            },
+          ],
+        });
+
+        expect(screen.getByRole("button", { name: "= North" })).toBeTruthy();
+        expect(
+          screen.queryByRole("combobox", { name: "Bind to dashboard control" }),
+        ).toBeNull();
+      });
+
+      it("edits the one a held override names, instead of calling it undeclared", async () => {
+        const user = await openPopover({
+          item: tileWith({
+            filters: [
+              { id: "max", field: "amount", operator: "lte", value: 15 },
+            ],
+          }),
+          insight: both,
+        });
+
+        expect(screen.getByRole("button", { name: "≤ 15" })).toBeTruthy();
+        expect(screen.queryByText(staleFilter)).toBeNull();
+
+        // The editor opens on the pinned value, not blank over it.
+        await user.click(screen.getByRole("button", { name: "Edit" }));
+        expect(
+          screen.getByRole<HTMLInputElement>("textbox", {
+            name: "amount value",
+          }).value,
+        ).toBe("15");
+      });
     });
 
     it("offers Clear only when the declared filter allows clearing", async () => {
@@ -866,29 +930,44 @@ describe("OverridePopover offered controls", () => {
       });
     });
 
-    it("offers only the reset when the tile holds a pinned filter the Insight no longer declares", async () => {
-      const user = await openPopover({
-        item: tileWith({
-          filters: [{ field: "region", operator: "eq", value: "West" }],
-        }),
-        insight: makeInsight(),
-      });
+    it.each([
+      {
+        name: "pinned",
+        override: { field: "region", operator: "eq" as const, value: "West" },
+      },
+      {
+        name: "cleared",
+        override: {
+          field: "region",
+          operator: "eq" as const,
+          value: null,
+          cleared: true,
+        },
+      },
+    ])(
+      "offers only the reset when the tile holds a $name filter the Insight no longer declares",
+      async ({ override }) => {
+        const user = await openPopover({
+          item: tileWith({ filters: [override] }),
+          insight: makeInsight(),
+        });
 
-      expect(screen.getByText(staleFilter)).toBeTruthy();
-      for (const name of ["Pin", "Edit", "Clear"])
-        expect(screen.queryByRole("button", { name })).toBeNull();
+        expect(screen.getByText(staleFilter)).toBeTruthy();
+        for (const name of ["Pin", "Edit", "Clear"])
+          expect(screen.queryByRole("button", { name })).toBeNull();
 
-      await user.click(
-        screen.getByRole("button", {
-          name: "Reset region filter to inherit",
-        }),
-      );
-      expect(committedPatch()).toEqual({
-        kind: "filter",
-        field: "region",
-        value: null,
-      });
-    });
+        await user.click(
+          screen.getByRole("button", {
+            name: "Reset region filter to inherit",
+          }),
+        );
+        expect(committedPatch()).toEqual({
+          kind: "filter",
+          field: "region",
+          value: null,
+        });
+      },
+    );
 
     it("offers only Unbind when a bound control drives a filter the Insight no longer declares", async () => {
       const control: DashboardControl = {
