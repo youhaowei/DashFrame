@@ -60,36 +60,25 @@ describe("encoding enforcer — malformed stored values", () => {
 });
 
 describe("encoding enforcer — density charts", () => {
-  it.each(["hexbin"] as const)(
-    "rejects a categorical axis for %s",
-    (chartType) => {
-      expect(
-        isColumnValidForChannel("region", "x", chartType, ANALYSIS).suitable,
-      ).toBe(false);
-      expect(
-        isColumnValidForChannel("amount", "x", chartType, ANALYSIS).suitable,
-      ).toBe(true);
-    },
-  );
+  it("rejects a categorical axis for hexbin", () => {
+    expect(
+      isColumnValidForChannel("region", "x", "hexbin", ANALYSIS).suitable,
+    ).toBe(false);
+    expect(
+      isColumnValidForChannel("amount", "x", "hexbin", ANALYSIS).suitable,
+    ).toBe(true);
+  });
 
-  it.each(["hexbin"] as const)(
-    "offers only scatter-compatible fields and metrics for %s",
-    (chartType) => {
-      const metricId = "10000000-0000-4000-8000-000000000001";
-      const compiledInsight = {
-        metrics: [{ id: metricId }],
-      } as never;
+  it("offers only scatter-compatible fields and metrics for hexbin", () => {
+    const metricId = "10000000-0000-4000-8000-000000000001";
+    const compiledInsight = {
+      metrics: [{ id: metricId }],
+    } as never;
 
-      for (const channel of ["x", "y"] as const) {
-        expect(
-          getValidColumnsForChannel(
-            channel,
-            chartType,
-            ANALYSIS,
-            compiledInsight,
-          ),
-        ).toEqual(["amount", metricIdToColumnAlias(metricId)]);
-      }
-    },
-  );
+    for (const channel of ["x", "y"] as const) {
+      expect(
+        getValidColumnsForChannel(channel, "hexbin", ANALYSIS, compiledInsight),
+      ).toEqual(["amount", metricIdToColumnAlias(metricId)]);
+    }
+  });
 });

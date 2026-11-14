@@ -3,63 +3,39 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import { MarkdownWidget } from "./MarkdownWidget";
 
+function widget(content: string, isEditing: boolean) {
+  return (
+    <MarkdownWidget
+      content={content}
+      isEditing={isEditing}
+      onSave={vi.fn()}
+      onCancel={vi.fn()}
+    />
+  );
+}
+
 describe("MarkdownWidget", () => {
   it("preserves an in-progress draft when content changes externally", () => {
-    const { rerender } = render(
-      <MarkdownWidget
-        content="Initial content"
-        isEditing
-        onSave={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    const { rerender } = render(widget("Initial content", true));
 
     const editor = screen.getByPlaceholderText("Enter markdown...");
     fireEvent.change(editor, { target: { value: "My draft" } });
 
-    rerender(
-      <MarkdownWidget
-        content="External update"
-        isEditing
-        onSave={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    rerender(widget("External update", true));
 
     expect(editor).toHaveProperty("value", "My draft");
   });
 
   it("syncs external content changes while not editing", () => {
-    const { rerender } = render(
-      <MarkdownWidget
-        content="Initial content"
-        isEditing={false}
-        onSave={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    const { rerender } = render(widget("Initial content", false));
 
     expect(screen.getByText("Initial content")).toBeDefined();
 
-    rerender(
-      <MarkdownWidget
-        content="External update"
-        isEditing={false}
-        onSave={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    rerender(widget("External update", false));
 
     expect(screen.getByText("External update")).toBeDefined();
 
-    rerender(
-      <MarkdownWidget
-        content="External update"
-        isEditing
-        onSave={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    rerender(widget("External update", true));
 
     expect(screen.getByPlaceholderText("Enter markdown...")).toHaveProperty(
       "value",
@@ -68,14 +44,7 @@ describe("MarkdownWidget", () => {
   });
 
   it("discards an abandoned draft when edit mode exits", () => {
-    const { rerender } = render(
-      <MarkdownWidget
-        content="Initial content"
-        isEditing
-        onSave={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    const { rerender } = render(widget("Initial content", true));
 
     fireEvent.change(screen.getByPlaceholderText("Enter markdown..."), {
       target: { value: "Abandoned draft" },
@@ -84,30 +53,9 @@ describe("MarkdownWidget", () => {
     // External update lands mid-edit, then the parent leaves edit mode without
     // saving: the buffer must resync to the latest content, not resurrect the
     // draft the next time the editor opens.
-    rerender(
-      <MarkdownWidget
-        content="External update"
-        isEditing
-        onSave={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
-    rerender(
-      <MarkdownWidget
-        content="External update"
-        isEditing={false}
-        onSave={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
-    rerender(
-      <MarkdownWidget
-        content="External update"
-        isEditing
-        onSave={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    rerender(widget("External update", true));
+    rerender(widget("External update", false));
+    rerender(widget("External update", true));
 
     expect(screen.getByPlaceholderText("Enter markdown...")).toHaveProperty(
       "value",

@@ -34,6 +34,14 @@ function makeTable(id: string, name: string, fieldNames: string[]): DataTable {
   } as unknown as DataTable;
 }
 
+function innerJoin(
+  rightTableId: string,
+  leftKey: string,
+  rightKey = "id",
+): InsightJoinConfig {
+  return { type: "inner", rightTableId, leftKey, rightKey };
+}
+
 describe("computeCombinedFields", () => {
   it("disambiguates a 2-way joined-vs-joined column collision (base lacks the name)", () => {
     // Regression: old code only checked base-vs-joined collisions. If two
@@ -44,18 +52,8 @@ describe("computeCombinedFields", () => {
     const joinB = makeTable("t-b", "bookings", ["id", "date"]);
 
     const joins: InsightJoinConfig[] = [
-      {
-        type: "inner",
-        rightTableId: "t-a",
-        leftKey: "account_id",
-        rightKey: "id",
-      },
-      {
-        type: "inner",
-        rightTableId: "t-b",
-        leftKey: "booking_id",
-        rightKey: "id",
-      },
+      innerJoin("t-a", "account_id"),
+      innerJoin("t-b", "booking_id"),
     ];
 
     const { fields } = computeCombinedFields(base, joins, [base, joinA, joinB]);
@@ -82,18 +80,8 @@ describe("computeCombinedFields", () => {
     const joinB = makeTable("t-b", "owners", ["id", "email"]);
 
     const joins: InsightJoinConfig[] = [
-      {
-        type: "inner",
-        rightTableId: "t-a",
-        leftKey: "room_id",
-        rightKey: "id",
-      },
-      {
-        type: "inner",
-        rightTableId: "t-b",
-        leftKey: "owner_id",
-        rightKey: "id",
-      },
+      innerJoin("t-a", "room_id"),
+      innerJoin("t-b", "owner_id"),
     ];
 
     const { fields } = computeCombinedFields(base, joins, [base, joinA, joinB]);
@@ -121,8 +109,8 @@ describe("computeCombinedFields", () => {
     const joinB = makeTable("t-b", `data_${uuid2}`, ["id", "value"]);
 
     const joins: InsightJoinConfig[] = [
-      { type: "inner", rightTableId: "t-a", leftKey: "a_id", rightKey: "id" },
-      { type: "inner", rightTableId: "t-b", leftKey: "b_id", rightKey: "id" },
+      innerJoin("t-a", "a_id"),
+      innerJoin("t-b", "b_id"),
     ];
 
     const { fields } = computeCombinedFields(base, joins, [base, joinA, joinB]);
@@ -152,19 +140,9 @@ describe("computeCombinedFields", () => {
     const joinC = makeTable("shared-cccc", `data_${u3}`, ["id", "note"]);
 
     const joins: InsightJoinConfig[] = [
-      { type: "inner", rightTableId: "t-a", leftKey: "a_id", rightKey: "id" },
-      {
-        type: "inner",
-        rightTableId: "shared-bbbb",
-        leftKey: "b_id",
-        rightKey: "id",
-      },
-      {
-        type: "inner",
-        rightTableId: "shared-cccc",
-        leftKey: "c_id",
-        rightKey: "id",
-      },
+      innerJoin("t-a", "a_id"),
+      innerJoin("shared-bbbb", "b_id"),
+      innerJoin("shared-cccc", "c_id"),
     ];
 
     const { fields } = computeCombinedFields(base, joins, [
@@ -224,14 +202,7 @@ describe("resolveInsightAuthoringTable", () => {
       source: { sourceType: "dataTable", sourceId: orders.id },
       selectedFields: [],
       metrics: [],
-      joins: [
-        {
-          type: "inner",
-          rightTableId: accounts.id,
-          leftKey: "account_id",
-          rightKey: "id",
-        },
-      ],
+      joins: [innerJoin(accounts.id, "account_id")],
       createdAt: 0,
     } as Insight;
     const derived = {
@@ -361,12 +332,7 @@ describe("resolveInsightAvailableFields", () => {
       selectedFields: [],
       metrics: [],
       joins: [
-        {
-          type: "inner",
-          rightTableId: accounts.id,
-          leftKey: fieldIdToColumnAlias("orders-account_id"),
-          rightKey: "id",
-        },
+        innerJoin(accounts.id, fieldIdToColumnAlias("orders-account_id")),
       ],
       createdAt: 0,
     } as Insight;
@@ -421,12 +387,7 @@ describe("computeFilterableFields", () => {
       }),
     ];
     const joins: InsightJoinConfig[] = [
-      {
-        type: "inner",
-        rightTableId: "table-rooms",
-        leftKey: "lead_id",
-        rightKey: "room_id",
-      },
+      innerJoin("table-rooms", "lead_id", "room_id"),
     ];
     const result = computeFilterableFields(fields, joins);
     expect(result.map((f) => f.columnName)).toEqual(["lead_id", "room_name"]);
@@ -471,12 +432,7 @@ describe("computeFilterableFields", () => {
     ];
     // No join key dropping in play here (rightKey unrelated).
     const joins: InsightJoinConfig[] = [
-      {
-        type: "inner",
-        rightTableId: "t2",
-        leftKey: "amount",
-        rightKey: "amount_ref",
-      },
+      innerJoin("t2", "amount", "amount_ref"),
     ];
     const result = computeFilterableFields(fields, joins);
     expect(result.map((f) => f.columnName)).toEqual(["amount"]);
@@ -499,14 +455,7 @@ describe("computeFilterableFields", () => {
       }),
       field({ id: "amount", name: "amount", columnName: "amount" }),
     ];
-    const joins: InsightJoinConfig[] = [
-      {
-        type: "inner",
-        rightTableId: "t2",
-        leftKey: "id",
-        rightKey: "id",
-      },
-    ];
+    const joins: InsightJoinConfig[] = [innerJoin("t2", "id")];
     const result = computeFilterableFields(fields, joins);
     // Base `id` survives (and is the only `id` left, so unambiguous); the
     // joined `id` is dropped as the right join-key.

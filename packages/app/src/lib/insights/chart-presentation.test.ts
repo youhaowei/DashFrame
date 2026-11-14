@@ -30,28 +30,23 @@ const encoding: VisualizationEncoding = {
 };
 
 describe("chart presentation grain", () => {
-  it.each(["barY"] as const)(
-    "requests source reaggregation without an omitted channel for %s",
-    (type) => {
-      expect(buildChartPresentation(insight, encoding, type)).toEqual({
-        dimensions: ["date"],
-        transforms: { date: { kind: "temporal", aggregation: "yearMonth" } },
-      });
-      const resolved = resolveReportChartEncoding(
-        encoding,
-        {
-          fields: [
-            { id: "date", name: "Date", tableId: "source", type: "date" },
-          ],
-          metrics: insight.metrics ?? [],
-        },
-        true,
-        type,
-      );
-      expect(resolved.x).toBe("field_date");
-      expect(resolved.y).toBe("metric_rate");
-    },
-  );
+  it("requests source reaggregation without an omitted channel for barY", () => {
+    expect(buildChartPresentation(insight, encoding, "barY")).toEqual({
+      dimensions: ["date"],
+      transforms: { date: { kind: "temporal", aggregation: "yearMonth" } },
+    });
+    const resolved = resolveReportChartEncoding(
+      encoding,
+      {
+        fields: [{ id: "date", name: "Date", tableId: "source", type: "date" }],
+        metrics: insight.metrics ?? [],
+      },
+      true,
+      "barY",
+    );
+    expect(resolved.x).toBe("field_date");
+    expect(resolved.y).toBe("metric_rate");
+  });
   it("includes a drawn series dimension and only includes size for dots", () => {
     const colored = {
       ...encoding,

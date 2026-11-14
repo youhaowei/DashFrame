@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { InsightRuntimeDeclaration } from "@dashframe/types";
 import * as ui from "@dashframe/ui";
+import type { ComponentProps } from "react";
 import { SortSection } from "./SortSection";
 
 const field = {
@@ -14,6 +15,19 @@ const field = {
   type: "date",
   sourceTableId: "table-1",
 } as CombinedField;
+
+function sortSection(props: Partial<ComponentProps<typeof SortSection>> = {}) {
+  return (
+    <SortSection
+      sorts={[]}
+      fields={[field]}
+      metrics={[]}
+      onChange={vi.fn()}
+      onRuntimeChange={vi.fn()}
+      {...props}
+    />
+  );
+}
 
 describe("SortSection", () => {
   beforeEach(() => {
@@ -36,19 +50,15 @@ describe("SortSection", () => {
       };
       const onRuntimeChange = vi.fn().mockResolvedValue(true);
       render(
-        <SortSection
-          sorts={[]}
-          fields={[field]}
-          metrics={[]}
-          onChange={vi.fn()}
-          onRuntimeChange={onRuntimeChange}
-          runtimeControls={{
+        sortSection({
+          onRuntimeChange,
+          runtimeControls: {
             ...switchers,
             ...(kind === "sort"
               ? { sort: { allowedFieldIds: [field.id], maxKeys: 1 } }
               : { limit: { min: 1, max: 100 } }),
-          }}
-        />,
+          },
+        }),
       );
       fireEvent.click(
         screen.getByRole("switch", {
@@ -69,15 +79,7 @@ describe("SortSection", () => {
       { field: "created_at", direction: "asc" as const },
       { field: "created_at", direction: "desc" as const },
     ];
-    render(
-      <SortSection
-        sorts={sorts}
-        fields={[field]}
-        metrics={[]}
-        onChange={onChange}
-        onRuntimeChange={vi.fn()}
-      />,
-    );
+    render(sortSection({ sorts, onChange }));
     expect(
       screen.getAllByRole("button", { name: "Remove sort Created at" }),
     ).toHaveLength(2);
@@ -92,15 +94,7 @@ describe("SortSection", () => {
 
   it("starts viewer sort with no allowed columns and opts fields in", () => {
     const onRuntimeChange = vi.fn();
-    render(
-      <SortSection
-        sorts={[]}
-        fields={[field]}
-        metrics={[]}
-        onChange={vi.fn()}
-        onRuntimeChange={onRuntimeChange}
-      />,
-    );
+    render(sortSection({ onRuntimeChange }));
     fireEvent.click(
       screen.getByRole("switch", { name: "Viewers can change sort" }),
     );
@@ -114,32 +108,24 @@ describe("SortSection", () => {
   it("keeps an empty enabled sort local when another control changes", () => {
     const onRuntimeChange = vi.fn();
     const view = render(
-      <SortSection
-        sorts={[]}
-        fields={[field]}
-        metrics={[]}
-        runtimeControls={{
+      sortSection({
+        runtimeControls: {
           sort: { allowedFieldIds: [field.id], maxKeys: 1 },
-        }}
-        onChange={vi.fn()}
-        onRuntimeChange={onRuntimeChange}
-      />,
+        },
+        onRuntimeChange,
+      }),
     );
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Created at" }));
     expect(onRuntimeChange).toHaveBeenCalledWith(undefined);
 
     view.rerender(
-      <SortSection
-        sorts={[]}
-        fields={[field]}
-        metrics={[]}
-        runtimeControls={{
+      sortSection({
+        runtimeControls: {
           filters: [{ filterId: "region", key: "region", label: "Region" }],
-        }}
-        onChange={vi.fn()}
-        onRuntimeChange={onRuntimeChange}
-      />,
+        },
+        onRuntimeChange,
+      }),
     );
 
     expect(
@@ -161,14 +147,10 @@ describe("SortSection", () => {
   it("commits valid viewer limits on blur rather than each keystroke", () => {
     const onRuntimeChange = vi.fn();
     render(
-      <SortSection
-        sorts={[]}
-        fields={[field]}
-        metrics={[]}
-        runtimeControls={{ limit: { min: 1, max: 1000 } }}
-        onChange={vi.fn()}
-        onRuntimeChange={onRuntimeChange}
-      />,
+      sortSection({
+        runtimeControls: { limit: { min: 1, max: 1000 } },
+        onRuntimeChange,
+      }),
     );
     fireEvent.change(screen.getByLabelText("Minimum"), {
       target: { value: "10" },
@@ -189,15 +171,7 @@ describe("SortSection", () => {
       .fn()
       .mockReturnValueOnce(firstWrite)
       .mockResolvedValueOnce(true);
-    render(
-      <SortSection
-        sorts={[]}
-        fields={[field]}
-        metrics={[]}
-        onChange={vi.fn()}
-        onRuntimeChange={onRuntimeChange}
-      />,
-    );
+    render(sortSection({ onRuntimeChange }));
 
     fireEvent.click(
       screen.getByRole("switch", { name: "Viewers can change sort" }),
@@ -219,44 +193,29 @@ describe("SortSection", () => {
     const region = { filterId: "region", key: "region", label: "Region" };
     const period = { filterId: "period", key: "period", label: "Period" };
     const view = render(
-      <SortSection
-        sorts={[]}
-        fields={[field]}
-        metrics={[]}
-        runtimeControls={{ filters: [region] }}
-        onChange={vi.fn()}
-        onRuntimeChange={onRuntimeChange}
-      />,
+      sortSection({ runtimeControls: { filters: [region] }, onRuntimeChange }),
     );
 
     fireEvent.click(
       screen.getByRole("switch", { name: "Viewers can set a limit" }),
     );
     view.rerender(
-      <SortSection
-        sorts={[]}
-        fields={[field]}
-        metrics={[]}
-        runtimeControls={{
+      sortSection({
+        runtimeControls: {
           limit: { max: 1000, min: 1 },
           filters: [region],
-        }}
-        onChange={vi.fn()}
-        onRuntimeChange={onRuntimeChange}
-      />,
+        },
+        onRuntimeChange,
+      }),
     );
     view.rerender(
-      <SortSection
-        sorts={[]}
-        fields={[field]}
-        metrics={[]}
-        runtimeControls={{
+      sortSection({
+        runtimeControls: {
           filters: [region, period],
           limit: { min: 1, max: 1000 },
-        }}
-        onChange={vi.fn()}
-        onRuntimeChange={onRuntimeChange}
-      />,
+        },
+        onRuntimeChange,
+      }),
     );
 
     fireEvent.click(
@@ -274,16 +233,8 @@ describe("SortSection", () => {
     const onRuntimeChange = vi.fn().mockResolvedValue(true);
     const region = { filterId: "region", key: "region", label: "Region" };
     const period = { filterId: "period", key: "period", label: "Period" };
-    const renderWith = (runtimeControls: InsightRuntimeDeclaration) => (
-      <SortSection
-        sorts={[]}
-        fields={[field]}
-        metrics={[]}
-        runtimeControls={runtimeControls}
-        onChange={vi.fn()}
-        onRuntimeChange={onRuntimeChange}
-      />
-    );
+    const renderWith = (runtimeControls: InsightRuntimeDeclaration) =>
+      sortSection({ runtimeControls, onRuntimeChange });
     const view = render(
       renderWith({ filters: [region], limit: { min: 1, max: 1000 } }),
     );
