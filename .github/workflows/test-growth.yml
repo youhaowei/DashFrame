@@ -27,17 +27,24 @@ jobs:
           persist-credentials: false
 
       - name: Count test cases
+        id: count
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if ! node scripts/test-delta.mjs "$BASE_SHA" "$HEAD_SHA" --json > "$RUNNER_TEMP/test-delta.json"; then
+          if ! result=$(node scripts/test-delta.mjs "$BASE_SHA" "$HEAD_SHA" --json); then
             echo "::warning::Test counting failed; leaving existing notice untouched"
-            printf '%s\n' '{"skipped":true}' > "$RUNNER_TEMP/test-delta.json"
+            result='{"skipped":true}'
           fi
+          printf 'result=%s\n' "$result" >> "$GITHUB_OUTPUT"
 
       - name: Update notice
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY: ${{ github.repository }}
+          TEST_DELTA: ${{ steps.count.outputs.result }}
         # Counting and API failures are informational, including read-only forks.
         run: node scripts/test-growth-comment.mjs

@@ -1,15 +1,52 @@
 #!/usr/bin/env node
 // CI-only: keep one bot-owned issue comment. Never execute PR strings.
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 const marker = "<!-- dashframe-test-growth -->";
-const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
-const result = JSON.parse(
-  readFileSync(join(process.env.RUNNER_TEMP, "test-delta.json"), "utf8"),
-);
-const repo = process.env.GITHUB_REPOSITORY;
+const repo = process.env.REPOSITORY;
 const root = "https://api.github.com/repos/" + repo;
+
+function readInputs() {
+  const number = Number(process.env.PR_NUMBER);
+  const sha = (value) =>
+    typeof value === "string" && /^[a-f0-9]{40}$/i.test(value);
+  if (
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo ?? "") ||
+    !/^[1-9]\d*$/.test(process.env.PR_NUMBER ?? "") ||
+    !Number.isSafeInteger(number) ||
+    !sha(process.env.BASE_SHA) ||
+    !sha(process.env.HEAD_SHA)
+  ) {
+    throw new Error("Invalid pull request context");
+  }
+  const result = JSON.parse(process.env.TEST_DELTA ?? "null");
+  if (result?.skipped === true) return { number, result };
+  const count = (value) => Number.isSafeInteger(value) && value >= 0;
+  if (
+    !result ||
+    !sha(result.base) ||
+    !sha(result.head) ||
+    !sha(result.mergeBase) ||
+    result.base !== process.env.BASE_SHA ||
+    result.head !== process.env.HEAD_SHA ||
+    !Number.isSafeInteger(result.delta) ||
+    !Array.isArray(result.files) ||
+    !result.files.every(
+      (file) =>
+        file &&
+        typeof file.file === "string" &&
+        file.file.length > 0 &&
+        (file.previousFile === undefined ||
+          typeof file.previousFile === "string") &&
+        count(file.before) &&
+        count(file.after) &&
+        Number.isSafeInteger(file.delta) &&
+        file.delta === file.after - file.before,
+    ) ||
+    result.files.reduce((sum, file) => sum + file.delta, 0) !== result.delta
+  ) {
+    throw new Error("Invalid test delta result");
+  }
+  return { number, result };
+}
 
 async function api(path, method = "GET", body) {
   const response = await fetch(root + path, {
@@ -28,10 +65,9 @@ async function api(path, method = "GET", body) {
 }
 
 try {
+  const { number, result } = readInputs();
   // A queued older push must not overwrite a newer notice.
-  const pr = result.skipped
-    ? undefined
-    : await api("/pulls/" + event.pull_request.number);
+  const pr = result.skipped ? undefined : await api("/pulls/" + number);
   if (result.skipped) {
     console.log(
       "Skipping notice because test counting failed; existing comments left untouched",
@@ -42,7 +78,7 @@ try {
     const comments = [];
     for (let page = 1; ; page++) {
       const batch = await api(
-        "/issues/" + pr.number + "/comments?per_page=100&page=" + page,
+        "/issues/" + number + "/comments?per_page=100&page=" + page,
       );
       comments.push(...batch);
       if (batch.length < 100) break;
@@ -80,11 +116,11 @@ try {
         "\n\nEach new test should catch a defect no existing test catches; fold cases into existing tests or tables where possible. State in the pull request description why this growth is needed. See [Tests](https://github.com/" +
         repo +
         "/blob/" +
-        pr.base.sha +
+        result.base +
         "/AGENTS.md#tests).";
       if (existing.length)
         await api("/issues/comments/" + existing[0].id, "PATCH", { body });
-      else await api("/issues/" + pr.number + "/comments", "POST", { body });
+      else await api("/issues/" + number + "/comments", "POST", { body });
       for (const duplicate of existing.slice(1))
         await api("/issues/comments/" + duplicate.id, "DELETE");
     } else {
