@@ -58,7 +58,7 @@ import {
   cn,
 } from "@wystack/ui-react";
 import { EditIcon, SettingsIcon } from "@wystack/ui-react/icons";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   buildSortFieldOptions,
@@ -395,15 +395,20 @@ export function ResetOnlyRow({
   /** Removes the held override; absent, the button is shown disabled. */
   onReset?: () => void;
 }) {
+  // The reason says why the button is disabled, or what it removes.
+  const reasonId = useId();
   return (
     <div className="flex items-start gap-2 py-1.5">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="text-xs font-medium text-neutral-fg">{name}</span>
-        <span className="text-xs text-neutral-fg-subtle">{reason}</span>
+        <span id={reasonId} className="text-xs text-neutral-fg-subtle">
+          {reason}
+        </span>
       </div>
       <Button
         label={action}
         aria-label={actionLabel}
+        aria-describedby={reasonId}
         variant="ghost"
         size="sm"
         className="h-6 shrink-0 px-1.5 text-xs"
