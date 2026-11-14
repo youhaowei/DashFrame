@@ -260,7 +260,9 @@ export default function DashboardDetailContent({
       if (step !== "discard" || chartDiscards.has(tab.id)) continue;
       chartDiscards.add(tab.id);
       commitBatch({
-        commands: [cmd("DeleteNode", { id: tab.insightId as UUID })],
+        commands: [
+          cmd("DeleteNode", { id: tab.insightId as UUID, ifUnused: true }),
+        ],
       })
         .then(() => closeStoredChartTab(dashboardId, tab.id))
         .catch((error: unknown) => {
