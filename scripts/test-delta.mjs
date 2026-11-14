@@ -49,9 +49,10 @@ function quotedEnd(source, start) {
   let cursor = start + 1;
   while (cursor < source.length) {
     const char = source[cursor++];
-    if (!multiline && LINE_BREAK.test(char)) return start + 1;
+    if (!multiline && /[\r\n]/u.test(char)) return start + 1;
     if (char === "\\") {
-      if (!multiline && LINE_BREAK.test(source[cursor])) return start + 1;
+      // A backslash continues a quoted string across LF, CR or CRLF.
+      if (source[cursor] === "\r" && source[cursor + 1] === "\n") cursor++;
       cursor++;
     } else if (char === quote) return cursor;
   }
@@ -92,7 +93,6 @@ const REGEX_PREFIXES = new Set([
   "new",
   "in",
   "instanceof",
-  "of",
   "else",
   "do",
 ]);
