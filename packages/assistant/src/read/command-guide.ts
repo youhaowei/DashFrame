@@ -469,10 +469,16 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     name: "DeleteNode",
     group: "node",
     summary: "Delete any artifact, cascading through ownership edges.",
-    args: { id: "UUID" },
+    args: {
+      id: "UUID",
+      ifUnused: "optional true: delete only when nothing is built on it",
+    },
     notes:
-      "Cascades ownership edges (source→table); stops at reference edges and " +
-      "reports orphanedNodes for a TBD repair target.",
+      "Cascades ownership edges (source→table, insight→chart). A deleted chart " +
+      "takes its tiles off every report, listed in removedTiles. Insights built " +
+      "on a deleted table or insight are left in place and listed in " +
+      "orphanedNodes. With ifUnused, a node something else is built on is kept: " +
+      "the result has kept and usedBy instead of deleted.",
   },
 ] as const;
 

@@ -319,6 +319,18 @@ describe("DashboardDetailContent — chart tabs", () => {
 
   it("discards the insight of a new chart closed before it reached the report", async () => {
     const user = userEvent.setup();
+    // Another writer saved a chart after the client decided to discard.
+    mockCommitBatch.mockResolvedValueOnce({
+      results: [
+        {
+          value: {
+            ok: true,
+            kept: { kind: "insight", id: "draft-insight" },
+            usedBy: [{ kind: "visualization", id: "saved-chart" }],
+          },
+        },
+      ],
+    });
     server.insights = [{ id: "draft-insight", name: "orders" }];
     useReportChartTabs.setState({
       tabsByReport: {
@@ -337,10 +349,12 @@ describe("DashboardDetailContent — chart tabs", () => {
       commands: [
         expect.objectContaining({
           path: "deleteNode",
-          args: { id: "draft-insight" },
+          args: { id: "draft-insight", ifUnused: true },
         }),
       ],
     });
+    await waitFor(() => expect(storedTabs()).toEqual([]));
+    expect(mockToastError).not.toHaveBeenCalled();
   });
 
   it("keeps the insight of a new chart once a chart is built on it", async () => {
@@ -425,7 +439,7 @@ describe("DashboardDetailContent — chart tabs", () => {
       commands: [
         expect.objectContaining({
           path: "deleteNode",
-          args: { id: "draft-insight" },
+          args: { id: "draft-insight", ifUnused: true },
         }),
       ],
     });

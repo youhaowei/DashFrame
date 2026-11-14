@@ -256,11 +256,11 @@ describe("planChartDeletion", () => {
     id: id as UUID,
     items,
   });
-  const removeTile = (dashboardId: string, itemId: string) => ({
-    path: "removeDashboardItemCmd",
-    args: { dashboardId, itemId },
-  });
   const deleteNode = (id: string) => ({ path: "deleteNode", args: { id } });
+  const deleteIfUnused = (id: string) => ({
+    path: "deleteNode",
+    args: { id, ifUnused: true },
+  });
   const reports = [
     report("report-1", [
       tile("chart-1"),
@@ -271,7 +271,7 @@ describe("planChartDeletion", () => {
     report("report-3", [tile("chart-1")]),
   ];
 
-  it("takes the chart off every report, then deletes it and its unused insight, in one batch", () => {
+  it("deletes the chart and, if still unused at commit, its insight; the server removes the tiles", () => {
     const deletion = planChartDeletion({
       chart: CHART,
       reportId: "report-1",
@@ -281,11 +281,8 @@ describe("planChartDeletion", () => {
     });
 
     expect(deletion.commands).toEqual([
-      removeTile("report-1", "item-chart-1"),
-      removeTile("report-1", "item-fanned-out"),
-      removeTile("report-3", "item-chart-1"),
       deleteNode("chart-1"),
-      deleteNode("insight-1"),
+      deleteIfUnused("insight-1"),
     ]);
     expect(deletion).toMatchObject({
       reportCount: 2,
@@ -303,12 +300,7 @@ describe("planChartDeletion", () => {
       insights: [insightOn("insight-1")],
     });
 
-    expect(deletion.commands).toEqual([
-      removeTile("report-1", "item-chart-1"),
-      removeTile("report-1", "item-fanned-out"),
-      removeTile("report-3", "item-chart-1"),
-      deleteNode("chart-1"),
-    ]);
+    expect(deletion.commands).toEqual([deleteNode("chart-1")]);
     expect(deletion).toMatchObject({
       reportCount: 2,
       onThisReport: false,
@@ -344,28 +336,25 @@ describe("planChartDeletion", () => {
     expect(deletion.commands).toEqual([deleteNode("chart-1")]);
   });
 
-  it("says when the chart has more tiles than one batch can remove", () => {
-    const planFor = (tileCount: number) =>
-      planChartDeletion({
-        chart: CHART,
-        reportId: "report-1",
-        reports: [
-          report(
-            "report-1",
-            Array.from({ length: tileCount }, (_, index) => ({
-              ...tile("chart-1"),
-              id: `item-${index}` as UUID,
-            })),
-          ),
-        ],
-        visualizations: [CHART],
-        insights: [insightOn("insight-1")],
-      });
+  it("stays two commands however many tiles the chart has", () => {
+    const deletion = planChartDeletion({
+      chart: CHART,
+      reportId: "report-1",
+      reports: [
+        report(
+          "report-1",
+          Array.from({ length: 500 }, (_, index) => ({
+            ...tile("chart-1"),
+            id: `item-${index}` as UUID,
+          })),
+        ),
+      ],
+      visualizations: [CHART],
+      insights: [insightOn("insight-1")],
+    });
 
-    // The server takes 200 commands; the chart and its insight are two.
-    expect(planFor(198)).toMatchObject({ tooManyTiles: false });
-    expect(planFor(198).commands).toHaveLength(200);
-    expect(planFor(199)).toMatchObject({ tooManyTiles: true });
+    expect(deletion.commands).toHaveLength(2);
+    expect(deletion).toMatchObject({ reportCount: 1, onThisReport: true });
   });
 });
 
@@ -401,7 +390,7 @@ describe("deleteChartDescription", () => {
 
   it("says when the insight goes with the chart", () => {
     expect(describeDeletion(1, true, true)).toBe(
-      'Are you sure you want to delete "Revenue by region"? It will be removed from this report. Its insight will be deleted with it. This action cannot be undone.',
+      'Are you sure you want to delete "Revenue by region"? It will be removed from this report. Its insight will be deleted with it, unless something else starts using it first. This action cannot be undone.',
     );
   });
 });

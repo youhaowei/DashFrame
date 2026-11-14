@@ -310,14 +310,7 @@ function useDeleteChart(input: {
         ),
       };
     };
-    const first = plan();
-    if (first.tooManyTiles) {
-      toast.error(
-        "This chart has too many tiles to delete at once. Remove some from its reports first.",
-      );
-      return;
-    }
-    const asked = first.description;
+    const asked = plan().description;
     confirm({
       title: "Delete chart",
       description: changed
@@ -334,7 +327,7 @@ function useDeleteChart(input: {
         // What the dialog said no longer holds (a tile was placed, or another
         // chart on the insight went): ask again, saying so, rather than
         // remove more or less than the user agreed to.
-        if (deletion.description !== asked || deletion.tooManyTiles) {
+        if (deletion.description !== asked) {
           ask(true);
           return;
         }

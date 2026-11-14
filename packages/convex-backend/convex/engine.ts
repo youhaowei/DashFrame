@@ -1164,11 +1164,17 @@ async function run(
       throw new Error(
         "Data frames are removed through their host, not deleted as nodes",
       );
-    const orphanedNodes = await removeNode(graph, table, key);
+    if (a.ifUnused !== undefined && typeof a.ifUnused !== "boolean")
+      throw new Error("ifUnused must be true or false");
+    const removal = await removeNode(graph, table, key, a.ifUnused === true);
+    const node = { kind: artifactKinds[table], id: key };
+    if ("usedBy" in removal)
+      return { ok: true, kept: node, usedBy: removal.usedBy };
     return {
       ok: true,
-      deleted: { kind: artifactKinds[table], id: key },
-      orphanedNodes,
+      deleted: node,
+      orphanedNodes: removal.orphaned,
+      removedTiles: removal.removedTiles,
     };
   }
   throw new Error(`Unimplemented command ${p}`);
@@ -1307,11 +1313,29 @@ async function dashboardCommand(
   row.layout = state.items as unknown as ObjectValue[];
   return p === "fanOutDashboardItemsCmd" ? { ok: true, created } : { ok: true };
 }
+/**
+ * What a delete took with it, or, for an `ifUnused` delete that found the node
+ * in use, what is built on it. Nothing is changed in the second case.
+ */
+type Removal =
+  | { orphaned: ObjectValue[]; removedTiles: ObjectValue[] }
+  | { usedBy: ObjectValue[] };
+/**
+ * Deletes a node and what it owns. Everything is read from the graph the batch
+ * runs against, so the answer to "what else is built on this" is the one that
+ * holds when the batch commits, not the one a client held when it planned the
+ * delete.
+ *
+ * A deleted chart takes its tiles off every report: a tile cannot outlive the
+ * chart it shows. Insights built on a deleted table or insight are left in
+ * place and reported as orphaned.
+ */
 async function removeNode(
   graph: Graph,
   table: ArtifactTable,
   id: string,
-): Promise<ObjectValue[]> {
+  ifUnused: boolean,
+): Promise<Removal> {
   const row = await graph.get(table, id),
     deletedTables = new Set<string>(),
     deletedViz = new Set<string>(),
@@ -1337,11 +1361,36 @@ async function removeNode(
     )
       orphaned.push({ id: insight.id, kind: "insight" });
   }
-  for (const dashboard of await graph.scan("dashboards"))
-    if (
-      dashboard.layout?.some((i) => deletedViz.has(String(i.visualizationId)))
-    )
-      orphaned.push({ id: dashboard.id, kind: "dashboard" });
+  // Only a chart tile shows its chart. A text item can carry a stale
+  // visualizationId, and must not lose its content to a chart delete.
+  const showsDeletedChart = (item: ObjectValue) =>
+    item.type === "visualization" &&
+    deletedViz.has(String(item.visualizationId));
+  const tiled = deletedViz.size
+    ? (await graph.scan("dashboards")).filter((dashboard) =>
+        dashboard.layout?.some(showsDeletedChart),
+      )
+    : [];
+  if (ifUnused) {
+    const others = (keys: Set<string>, owner: ArtifactTable) =>
+      [...keys]
+        .filter((key) => table !== owner || key !== id)
+        .map((key) => ({ id: key, kind: artifactKinds[owner] }));
+    const usedBy = [
+      ...others(deletedTables, "dataTables"),
+      ...others(deletedViz, "visualizations"),
+      ...orphaned,
+      ...tiled.map((dashboard) => ({ id: dashboard.id, kind: "dashboard" })),
+    ];
+    if (usedBy.length) return { usedBy };
+  }
+  const removedTiles: ObjectValue[] = [];
+  for (const dashboard of tiled) {
+    const layout = dashboard.layout ?? [];
+    for (const item of layout.filter(showsDeletedChart))
+      removedTiles.push({ dashboardId: dashboard.id, itemId: item.id! });
+    dashboard.layout = layout.filter((item) => !showsDeletedChart(item));
+  }
   // Frames are reached only through their owner indexes, never by scanning the
   // table: a frame belongs to an insight (insightId), a data source (sourceId),
   // or a data table (definitionId), or is pointed at by a table (dataFrameId).
@@ -1377,5 +1426,5 @@ async function removeNode(
   for (const key of deletedTables) graph.delete("dataTables", key);
   for (const key of deletedViz) graph.delete("visualizations", key);
   graph.delete(table, row.id);
-  return orphaned;
+  return { orphaned, removedTiles };
 }

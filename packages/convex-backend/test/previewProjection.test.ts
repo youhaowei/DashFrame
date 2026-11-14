@@ -160,6 +160,185 @@ it("keeps the deletion marker for a deleted artifact", async () => {
   });
 });
 
+async function placeOnReport(visualizationId: string) {
+  const reportId = uuid();
+  await user.mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDashboard", { id: reportId, name: "Report" }),
+      cmd("AddDashboardItem", {
+        dashboardId: reportId,
+        item: {
+          id: uuid(),
+          type: "visualization",
+          visualizationId,
+          x: 0,
+          y: 0,
+          width: 4,
+          height: 3,
+        },
+      }),
+    ],
+  });
+  return reportId;
+}
+const downstreamFlags = (diff: {
+  affectedDownstream: { kind: string; nodeId: string; flag: string }[];
+}) =>
+  diff.affectedDownstream
+    .map((n) => [n.kind, n.nodeId, n.flag])
+    .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+const sorted = (rows: string[][]) =>
+  rows.sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+
+// Deleting a chart takes its tiles off its reports in the same commit, so the
+// report is edited rather than left pointing at a chart that is gone.
+it("flags a report as losing tiles when a chart on it is deleted", async () => {
+  const visualizationId = await seedVisualization();
+  const reportId = await placeOnReport(visualizationId);
+  const textReportId = uuid();
+  await user.mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDashboard", { id: textReportId, name: "Notes" }),
+      cmd("AddDashboardItem", {
+        dashboardId: textReportId,
+        item: {
+          id: uuid(),
+          type: "markdown",
+          content: "Keep this note",
+          visualizationId,
+          x: 0,
+          y: 0,
+          width: 4,
+          height: 3,
+        },
+      }),
+    ],
+  });
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: visualizationId })],
+  });
+
+  expect(downstreamFlags(diff)).toEqual([
+    ["dashboard", reportId, "losesTiles"],
+  ]);
+  expect(diff.tablesWritten).toContain("dashboards");
+});
+
+// The report is a direct node here, so it gets no downstream flag: its own
+// entry has to show the tiles the chart delete takes off it.
+it("shows the removed tiles on a report the same batch edits directly", async () => {
+  const visualizationId = await seedVisualization();
+  const reportId = await placeOnReport(visualizationId);
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [
+      cmd("RenameNode", { id: reportId, name: "Renamed" }),
+      cmd("DeleteNode", { id: visualizationId }),
+    ],
+  });
+
+  const report = diff.directNodes.find((n) => n.nodeId === reportId)!;
+  expect(report).toMatchObject({
+    change: "update",
+    proposedDefinition: { name: "Renamed", items: [] },
+  });
+  expect(downstreamFlags(diff)).toEqual([]);
+});
+
+it("flags a report as losing tiles when its chart goes with a deleted insight", async () => {
+  const { insightId, visualizationId } = await seedChain();
+  const reportId = await placeOnReport(visualizationId);
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: insightId })],
+  });
+
+  expect(downstreamFlags(diff)).toEqual(
+    sorted([
+      ["visualization", visualizationId, "orphaned"],
+      ["dashboard", reportId, "losesTiles"],
+    ]),
+  );
+  // A chart kept by the first command still goes with its insight later.
+  const commands = [
+    cmd("DeleteNode", { id: visualizationId, ifUnused: true }),
+    cmd("DeleteNode", { id: insightId }),
+  ];
+  const keptThenDeleted = await user.query(api.app.previewDiff, { commands });
+  const committed = await user.mutation(api.app.commitBatch, { commands });
+  expect(committed.results[0]?.value).toMatchObject({
+    kept: { kind: "visualization", id: visualizationId },
+  });
+  expect(committed.results[1]?.value).toMatchObject({
+    removedTiles: [expect.objectContaining({ dashboardId: reportId })],
+  });
+  const report = await user.query(api.app.getDashboard, { id: reportId });
+  expect(report?.items).toEqual([]);
+  expect(keptThenDeleted.error).toBeUndefined();
+  expect(
+    keptThenDeleted.directNodes.find((n) => n.nodeId === visualizationId),
+  ).toMatchObject({ change: "update", proposedDefinition: { deleted: true } });
+  expect(downstreamFlags(keptThenDeleted)).toEqual([
+    ["dashboard", reportId, "losesTiles"],
+  ]);
+});
+
+it("keeps a report orphaned or stale when its chart is not deleted", async () => {
+  const { sourceId, tableId, insightId, visualizationId } = await seedChain();
+  const reportId = await placeOnReport(visualizationId);
+
+  // Deleting the source leaves the insight and its chart in place.
+  const commands = [
+    cmd("DeleteNode", { id: insightId, ifUnused: true }),
+    cmd("DeleteNode", { id: sourceId }),
+  ];
+  const deleted = await user.query(api.app.previewDiff, { commands });
+  expect(deleted.directNodes.find((n) => n.nodeId === insightId)).toMatchObject(
+    { change: "noop", proposedDefinition: {} },
+  );
+  expect(downstreamFlags(deleted)).toEqual(
+    sorted([
+      ["dataTable", tableId, "orphaned"],
+      ["visualization", visualizationId, "orphaned"],
+      ["dashboard", reportId, "orphaned"],
+    ]),
+  );
+
+  const renamed = await user.query(api.app.previewDiff, {
+    commands: [cmd("RenameNode", { id: visualizationId, name: "Renamed" })],
+  });
+  expect(downstreamFlags(renamed)).toEqual([["dashboard", reportId, "stale"]]);
+
+  await user.mutation(api.app.commitBatch, { commands });
+  expect(
+    await user.query(api.app.getInsight, { id: insightId }),
+  ).not.toBeNull();
+  expect(
+    await user.query(api.app.getVisualization, { id: visualizationId }),
+  ).not.toBeNull();
+  const report = await user.query(api.app.getDashboard, { id: reportId });
+  expect(report?.items).toHaveLength(1);
+});
+
+it("previews an ifUnused delete of a node in use as no change", async () => {
+  const { insightId } = await seedChain();
+
+  const diff = await user.query(api.app.previewDiff, {
+    commands: [cmd("DeleteNode", { id: insightId, ifUnused: true })],
+  });
+
+  expect(diff.error).toBeUndefined();
+  expect(diff.directNodes).toEqual([
+    expect.objectContaining({
+      nodeId: insightId,
+      kind: "insight",
+      change: "noop",
+    }),
+  ]);
+  expect(diff.affectedDownstream).toEqual([]);
+});
+
 // The downstream walk reads the graph as it stood before the commands ran, so
 // a delete cascade reports the rows it removes as orphaned instead of walking
 // a graph they have already left.
