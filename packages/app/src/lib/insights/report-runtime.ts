@@ -147,13 +147,6 @@ function rebindRemovedField(
   if (replacement) usedDimensions.add(replacement);
 }
 
-/** These marks compute their own fill, so they never draw a color field. */
-const COMPUTED_FILL_CHARTS: ReadonlySet<VisualizationType> = new Set([
-  "hexbin",
-  "heatmap",
-  "raster",
-]);
-
 /**
  * Colors the chart by a field the viewer added to the saved selection, so
  * every pick shows in the chart and not only in the table. The newest pick
@@ -275,7 +268,7 @@ export function reportEncoding(
   for (const { channel, parsed } of parsedChannels) {
     if (
       channel === "color" &&
-      !COMPUTED_FILL_CHARTS.has(chartType) &&
+      chartTypeDraws(chartType, "color") &&
       colorAddedField(
         result,
         parsed,
