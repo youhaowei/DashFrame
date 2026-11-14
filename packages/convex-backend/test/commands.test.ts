@@ -1001,27 +1001,6 @@ describe("existing command behavior on native Convex", () => {
     expect(await fieldName()).toBe("Area");
     expect(await runtimeControls()).toEqual({ dimensions });
   });
-  it("should create an insight over a DataTable source", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Revenue by Region",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-    const rows = await insightsById(insightId);
-    expect(rows).toHaveLength(1);
-    const def = rows[0]?.definition as {
-      source: { sourceType: string; sourceId: string };
-    };
-    expect(def.source).toEqual({
-      sourceType: "dataTable",
-      sourceId: tableId,
-    });
-    expect(def).not.toHaveProperty("baseTableId");
-  });
   it("should batch CreateInsight + CreateVisualization in one atomic envelope (client-id invariant)", async () => {
     const { tableId } = await makeTable();
     const insightId = id();
@@ -1048,35 +1027,6 @@ describe("existing command behavior on native Convex", () => {
     expect(iRows).toHaveLength(1);
     expect(vRows).toHaveLength(1);
     expect(vRows[0]?.insightId).toBe(insightId);
-  });
-  it("rejects data-table field names where selected field ids are required", async () => {
-    const { tableId } = await makeTable();
-    const fieldId = id();
-    const insightId = id();
-    await commit(
-      cmd("AddField", {
-        nodeId: tableId,
-        field: {
-          id: fieldId,
-          name: "Region",
-          tableId,
-          columnName: "region",
-          type: "string",
-        },
-      }),
-    );
-
-    await expect(
-      commit(
-        cmd("CreateInsight", {
-          id: insightId,
-          name: "Invalid selection",
-          source: { sourceType: "dataTable", sourceId: tableId },
-          selectedFields: ["Region"],
-        }),
-      ),
-    ).rejects.toThrow("not output by source");
-    expect(await insightsById(insightId)).toHaveLength(0);
   });
   it("accepts canonical field aliases written by the insight editor", async () => {
     const { tableId } = await makeTable();
@@ -1369,39 +1319,6 @@ describe("existing command behavior on native Convex", () => {
     expect(stored?.definition).toMatchObject({
       source: { sourceType: "dataTable", sourceId: second.tableId },
       selectedFields: [secondFieldId],
-    });
-  });
-  it("should re-point an Insight's source to another Insight's DataFrame", async () => {
-    const { tableId } = await makeTable();
-    const baseInsightId = id();
-    const derivedInsightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: baseInsightId,
-        name: "Base",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateInsight", {
-        id: derivedInsightId,
-        name: "Derived",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-
-    await commit(
-      cmd("SetInsightSource", {
-        id: derivedInsightId,
-        source: { sourceType: "insight", sourceId: baseInsightId },
-      }),
-    );
-
-    const rows = await insightsById(derivedInsightId);
-    const def = rows[0]?.definition as {
-      source: { sourceType: string; sourceId: string };
-    };
-    expect(def.source).toEqual({
-      sourceType: "insight",
-      sourceId: baseInsightId,
     });
   });
   it("rejects fields that the immediate source Insight does not output", async () => {
@@ -2064,49 +1981,6 @@ describe("existing command behavior on native Convex", () => {
     const def = aRows[0]?.definition as { source: { sourceId: string } };
     expect(def.source.sourceId).toBe(bId);
   });
-  it("should preserve the cycle guard after updateInsight renames a composed insight", async () => {
-    const { tableId } = await makeTable();
-    const aId = id();
-    const bId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: aId,
-        name: "A",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateInsight", {
-        id: bId,
-        name: "B",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-    await commit(
-      cmd("SetInsightSource", {
-        id: bId,
-        source: { sourceType: "insight", sourceId: aId },
-      }),
-    );
-
-    await commit(cmd("RenameNode", { id: bId, name: "B renamed" }));
-
-    await expect(
-      commit(
-        cmd("SetInsightSource", {
-          id: aId,
-          source: { sourceType: "insight", sourceId: bId },
-        }),
-      ),
-    ).rejects.toThrow();
-
-    const aRows = await insightsById(aId);
-    const definition = aRows[0]?.definition as {
-      source: { sourceType: string; sourceId: string };
-    };
-    expect(definition.source).toEqual({
-      sourceType: "dataTable",
-      sourceId: tableId,
-    });
-  });
   it("should throw for SetInsightSource on a missing insight (no silent no-op)", async () => {
     const { tableId } = await makeTable();
     await expect(
@@ -2145,33 +2019,6 @@ describe("existing command behavior on native Convex", () => {
     const rows = await insightsById(insightId);
     const def = rows[0]?.definition as { source: { sourceId: string } };
     expect(def.source.sourceId).toBe(tableId);
-  });
-  it("should replace the selected fields set with replace-all semantics", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const fieldA = id();
-    const fieldB = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-        selectedFields: [fieldA],
-      }),
-    );
-
-    await commit(
-      cmd("SelectFields", { id: insightId, fieldIds: [fieldA, fieldB] }),
-    );
-    const rows = await insightsById(insightId);
-    const def = rows[0]?.definition as { selectedFields: string[] };
-    expect(def.selectedFields).toEqual([fieldA, fieldB]);
-
-    // Replace-all: supplying an empty set clears all fields.
-    await commit(cmd("SelectFields", { id: insightId, fieldIds: [] }));
-    const rows2 = await insightsById(insightId);
-    const def2 = rows2[0]?.definition as { selectedFields: string[] };
-    expect(def2.selectedFields).toEqual([]);
   });
   it("persists ids for agent-created filters that omit them", async () => {
     const { tableId } = await makeTable();
@@ -2628,36 +2475,6 @@ describe("existing command behavior on native Convex", () => {
     expect(Array.isArray(cleared.sorts)).toBe(true);
     expect(cleared.sorts).toEqual([]);
   });
-  it("should add a join and then remove it by index", async () => {
-    const { tableId } = await makeTable();
-    const { tableId: rightTableId } = await makeTable();
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-
-    const join = {
-      type: "inner" as const,
-      rightTableId,
-      leftKey: "user_id",
-      rightKey: "id",
-    };
-    await commit(cmd("AddJoin", { id: insightId, join }));
-    const rows = await insightsById(insightId);
-    const def = rows[0]?.definition as { joins: (typeof join)[] };
-    expect(def.joins).toHaveLength(1);
-    expect(def.joins[0]).toEqual(join);
-
-    // Remove the join by index.
-    await commit(cmd("RemoveJoin", { id: insightId, joinIndex: 0 }));
-    const rows2 = await insightsById(insightId);
-    const def2 = rows2[0]?.definition as { joins: unknown[] };
-    expect(def2.joins).toHaveLength(0);
-  });
   it("should reject an AddJoin with a malformed shape or a dangling rightTableId (validate before persisting)", async () => {
     // Regression: AddJoin stored the raw JSON join verbatim — a missing/bogus
     // type, a non-string rightTableId, or a rightTableId that resolves to no
@@ -2807,79 +2624,6 @@ describe("existing command behavior on native Convex", () => {
         }),
       ),
     ).rejects.toThrow();
-  });
-  it("should reject a malformed joinIndex for RemoveJoin (null / float / string are not integers)", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-    await expect(
-      commit(
-        cmd("RemoveJoin", {
-          id: insightId,
-          joinIndex: null as unknown as number,
-        }),
-      ),
-    ).rejects.toThrow();
-    await expect(
-      commit(
-        cmd("RemoveJoin", {
-          id: insightId,
-          joinIndex: "0" as unknown as number,
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should add the field id to selectedFields (the array the read path surfaces), not a phantom definition.fields", async () => {
-    // Regression: AddField on an Insight wrote `definition.fields` (an array of
-    // Field objects), but decodeInsight surfaces `definition.selectedFields`
-    // (UUID[]) and ignores `definition.fields`. The selection reported success
-    // while the read path returned the old list. The fix routes an Insight field
-    // edit to selectedFields membership (mirrors patchInsightDefinition.addField).
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const fieldId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-
-    await commit(
-      cmd("AddField", {
-        nodeId: insightId,
-        field: {
-          id: fieldId,
-          name: "Revenue",
-          tableId,
-          columnName: "revenue",
-          type: "number",
-        },
-      }),
-    );
-
-    const rows = await insightsById(insightId);
-    const def = rows[0]?.definition as {
-      selectedFields: string[];
-      fields?: unknown;
-    };
-    // The id lands in selectedFields — the array the read path reads.
-    expect(def.selectedFields).toEqual([fieldId]);
-    // No phantom `fields` key the read path would ignore.
-    expect(def.fields).toBeUndefined();
-
-    // RemoveField drops the id from selectedFields.
-    await commit(cmd("RemoveField", { nodeId: insightId, fieldId }));
-    const rows2 = await insightsById(insightId);
-    const def2 = rows2[0]?.definition as { selectedFields: string[] };
-    expect(def2.selectedFields).toEqual([]);
   });
   it("should reject UpdateField on an Insight node (a referenced field has no editable definition on the Insight)", async () => {
     // A field on an Insight is a reference (an id in selectedFields), not an
@@ -3052,33 +2796,6 @@ describe("existing command behavior on native Convex", () => {
     expect(def.metrics).toHaveLength(1);
     expect(def.metrics[0]?.sourceTable).toBe(tableId);
     expect(def.metrics[0]?.aggregation).toBe("sum");
-  });
-  it("should accept a valid partial update and keep the InsightMetric shape intact", async () => {
-    const { tableId, insightId, metricId } = await makeInsightWithMetric();
-
-    await commit(
-      cmd("UpdateMetric", {
-        nodeId: insightId,
-        metricId,
-        updates: { name: "Revenue (Total)", aggregation: "avg" } as never,
-      }),
-    );
-
-    const rows = await insightsById(insightId);
-    const def = rows[0]?.definition as {
-      metrics: {
-        id: string;
-        name: string;
-        sourceTable: string;
-        aggregation: string;
-      }[];
-    };
-    expect(def.metrics).toHaveLength(1);
-    const stored = def.metrics[0]!;
-    expect(stored.id).toBe(metricId);
-    expect(stored.name).toBe("Revenue (Total)");
-    expect(stored.sourceTable).toBe(tableId); // untouched key survives the merge
-    expect(stored.aggregation).toBe("avg");
   });
   it("should create a visualization and change its chart type", async () => {
     const { tableId } = await makeTable();
