@@ -50,6 +50,15 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
+/** A lookup that answers with each result in turn, then fails. */
+function inSequence(...results: HostAccessResult<Config>[]) {
+  return async () => {
+    const result = results.shift();
+    if (!result) throw new Error("missing test result");
+    return result;
+  };
+}
+
 function harness(
   lookup: (signal: AbortSignal) => Promise<HostAccessResult<Config>>,
 ) {
@@ -164,15 +173,12 @@ describe("browser bootstrap controller", () => {
   });
 
   it("closes the owned runtime once when access is lost", async () => {
-    const results: HostAccessResult<Config>[] = [
-      { status: "admitted", config: config() },
-      { status: "pending-admission" },
-    ];
-    const test = harness(async () => {
-      const result = results.shift();
-      if (!result) throw new Error("missing test result");
-      return result;
-    });
+    const test = harness(
+      inSequence(
+        { status: "admitted", config: config() },
+        { status: "pending-admission" },
+      ),
+    );
     await vi.waitFor(() => expect(test.views.at(-1)?.status).toBe("admitted"));
 
     await test.controller.retry();
@@ -283,18 +289,15 @@ describe("browser bootstrap controller", () => {
   });
 
   it("quietly replaces the runtime when revalidation changes identity", async () => {
-    const results: HostAccessResult<Config>[] = [
-      { status: "admitted", config: config() },
-      {
-        status: "admitted",
-        config: config({ identity: "user-2", workspaceId: "workspace-2" }),
-      },
-    ];
-    const test = harness(async () => {
-      const result = results.shift();
-      if (!result) throw new Error("missing test result");
-      return result;
-    });
+    const test = harness(
+      inSequence(
+        { status: "admitted", config: config() },
+        {
+          status: "admitted",
+          config: config({ identity: "user-2", workspaceId: "workspace-2" }),
+        },
+      ),
+    );
     await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
 
     await test.controller.revalidate();
@@ -312,16 +315,13 @@ describe("browser bootstrap controller", () => {
   });
 
   it("keeps an admitted runtime when revalidation cannot reach the host", async () => {
-    const results: HostAccessResult<Config>[] = [
-      { status: "admitted", config: config() },
-      { status: "unavailable" },
-      { status: "admitted", config: config() },
-    ];
-    const test = harness(async () => {
-      const result = results.shift();
-      if (!result) throw new Error("missing test result");
-      return result;
-    });
+    const test = harness(
+      inSequence(
+        { status: "admitted", config: config() },
+        { status: "unavailable" },
+        { status: "admitted", config: config() },
+      ),
+    );
     await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
 
     await test.controller.revalidate();
@@ -367,11 +367,7 @@ describe("browser bootstrap controller", () => {
       { status: "unavailable" },
     ];
     const controller = startHostBootstrap({
-      lookup: async () => {
-        const result = results.shift();
-        if (!result) throw new Error("missing test result");
-        return result;
-      },
+      lookup: inSequence(...results),
       createRuntime,
       publish: (view) => views.push(view),
       sameConfig,
@@ -392,30 +388,24 @@ describe("browser bootstrap controller", () => {
     await controller.teardown().catch(() => undefined);
   });
 
-  it.each(["pending-admission"] as const)(
-    "closes an admitted runtime when revalidation reports %s",
-    async (status) => {
-      const results: HostAccessResult<Config>[] = [
+  it("closes an admitted runtime when revalidation reports pending-admission", async () => {
+    const test = harness(
+      inSequence(
         { status: "admitted", config: config() },
-        { status },
-      ];
-      const test = harness(async () => {
-        const result = results.shift();
-        if (!result) throw new Error("missing test result");
-        return result;
-      });
-      await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
+        { status: "pending-admission" },
+      ),
+    );
+    await vi.waitFor(() => expect(test.createRuntime).toHaveBeenCalledOnce());
 
-      await test.controller.revalidate();
+    await test.controller.revalidate();
 
-      expect(test.views.map((view) => view.status)).toEqual([
-        "loading",
-        "admitted",
-        status,
-      ]);
-      expect(test.runtimes[0]?.close).toHaveBeenCalledTimes(1);
-    },
-  );
+    expect(test.views.map((view) => view.status)).toEqual([
+      "loading",
+      "admitted",
+      "pending-admission",
+    ]);
+    expect(test.runtimes[0]?.close).toHaveBeenCalledTimes(1);
+  });
 
   it("discards a stale revalidation superseded by an explicit retry", async () => {
     const revalidation = deferred<HostAccessResult<Config>>();

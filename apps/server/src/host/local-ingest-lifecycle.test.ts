@@ -53,32 +53,8 @@ afterEach(async () => {
 });
 
 it("cancels and reclaims the losing reservation after a frame publication race", async () => {
-  const sourceId = crypto.randomUUID();
-  const tableId = crypto.randomUUID();
-  const converted = await csvToDataFrame(
-    parseCSV("name,value\nalpha,1\nbeta,2\n"),
-    tableId,
-  );
-  await context.metadata.commitBatch(context.principal, [
-    cmd("CreateDataSource", {
-      id: sourceId,
-      name: "Local",
-      type: "local",
-    }),
-    cmd("CreateDataTable", {
-      id: tableId,
-      dataSourceId: sourceId,
-      name: "Values",
-      table: "values.csv",
-      fields: converted.fields,
-      sourceSchema: converted.sourceSchema,
-      metrics: [],
-    }),
-  ]);
-  const request = {
-    dataTableId: tableId,
-    arrowBase64: Buffer.from(converted.arrowBuffer).toString("base64"),
-  };
+  const { request, createValuesTable } = await valuesTable();
+  await createValuesTable();
   const commitImportedFrame = vi.spyOn(context.metadata, "commitImportedFrame");
   context.dataFrameStorage = synchronizeSaves(storage, 2);
 
@@ -123,32 +99,8 @@ it("cancels and reclaims the losing reservation after a frame publication race",
 });
 
 it("cancels a stale replacement claim before any frame bytes are saved", async () => {
-  const sourceId = crypto.randomUUID();
-  const tableId = crypto.randomUUID();
-  const converted = await csvToDataFrame(
-    parseCSV("name,value\nalpha,1\nbeta,2\n"),
-    tableId,
-  );
-  await context.metadata.commitBatch(context.principal, [
-    cmd("CreateDataSource", {
-      id: sourceId,
-      name: "Local",
-      type: "local",
-    }),
-    cmd("CreateDataTable", {
-      id: tableId,
-      dataSourceId: sourceId,
-      name: "Values",
-      table: "values.csv",
-      fields: converted.fields,
-      sourceSchema: converted.sourceSchema,
-      metrics: [],
-    }),
-  ]);
-  const request = {
-    dataTableId: tableId,
-    arrowBase64: Buffer.from(converted.arrowBuffer).toString("base64"),
-  };
+  const { converted, request, createValuesTable } = await valuesTable();
+  await createValuesTable();
   const beginLocalImport = context.metadata.beginLocalImport.bind(
     context.metadata,
   );
@@ -203,28 +155,8 @@ it("cancels a stale replacement claim before any frame bytes are saved", async (
 });
 
 it("preserves the original import error when workspace clear already cancelled the claim", async () => {
-  const sourceId = crypto.randomUUID();
-  const tableId = crypto.randomUUID();
-  const converted = await csvToDataFrame(
-    parseCSV("name,value\nalpha,1\nbeta,2\n"),
-    tableId,
-  );
-  await context.metadata.commitBatch(context.principal, [
-    cmd("CreateDataSource", {
-      id: sourceId,
-      name: "Local",
-      type: "local",
-    }),
-    cmd("CreateDataTable", {
-      id: tableId,
-      dataSourceId: sourceId,
-      name: "Values",
-      table: "values.csv",
-      fields: converted.fields,
-      sourceSchema: converted.sourceSchema,
-      metrics: [],
-    }),
-  ]);
+  const { converted, request, createValuesTable } = await valuesTable();
+  await createValuesTable();
   const beginLocalImport = context.metadata.beginLocalImport.bind(
     context.metadata,
   );
@@ -244,8 +176,7 @@ it("preserves the original import error when workspace clear already cancelled t
   };
 
   const importing = ingestLocalDataFrame(context, {
-    dataTableId: tableId,
-    arrowBase64: Buffer.from(converted.arrowBuffer).toString("base64"),
+    ...request,
     replacement: {
       expectedDataFrameId: crypto.randomUUID(),
       name: "Values",
@@ -258,25 +189,46 @@ it("preserves the original import error when workspace clear already cancelled t
   });
   await importClaimed;
   await context.metadata.clearAllData();
-  await context.metadata.commitBatch(context.principal, [
-    cmd("CreateDataSource", {
-      id: sourceId,
-      name: "Local",
-      type: "local",
-    }),
-    cmd("CreateDataTable", {
-      id: tableId,
-      dataSourceId: sourceId,
-      name: "Values",
-      table: "values.csv",
-      fields: converted.fields,
-      sourceSchema: converted.sourceSchema,
-      metrics: [],
-    }),
-  ]);
+  await createValuesTable();
   releaseImport();
   await expect(importing).rejects.toThrow("STALE_LOCAL_REPLACEMENT");
 });
+
+/**
+ * A local "Values" CSV converted to a frame. `createValuesTable` creates (or,
+ * after a workspace clear, recreates) its source and table, and `request` is
+ * the ingest payload for it.
+ */
+async function valuesTable() {
+  const sourceId = crypto.randomUUID();
+  const tableId = crypto.randomUUID();
+  const converted = await csvToDataFrame(
+    parseCSV("name,value\nalpha,1\nbeta,2\n"),
+    tableId,
+  );
+  const createValuesTable = () =>
+    context.metadata.commitBatch(context.principal, [
+      cmd("CreateDataSource", {
+        id: sourceId,
+        name: "Local",
+        type: "local",
+      }),
+      cmd("CreateDataTable", {
+        id: tableId,
+        dataSourceId: sourceId,
+        name: "Values",
+        table: "values.csv",
+        fields: converted.fields,
+        sourceSchema: converted.sourceSchema,
+        metrics: [],
+      }),
+    ]);
+  const request = {
+    dataTableId: tableId,
+    arrowBase64: Buffer.from(converted.arrowBuffer).toString("base64"),
+  };
+  return { converted, request, createValuesTable };
+}
 
 function synchronizeSaves(
   underlying: FileDataFrameStorage,

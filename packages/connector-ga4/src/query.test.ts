@@ -17,12 +17,7 @@ function responseFor(version: "v1" | "v2"): RunReportResponse {
     ? {
         dimensionHeaders: [{ name: "date" }],
         metricHeaders: [{ name: "activeUsers", type: "TYPE_INTEGER" }],
-        rows: [
-          {
-            dimensionValues: [{ value: "20260923" }],
-            metricValues: [{ value: "42" }],
-          },
-        ],
+        rows: [row("20260923", "42")],
       }
     : {
         dimensionHeaders: [
@@ -53,6 +48,39 @@ function responseFor(version: "v1" | "v2"): RunReportResponse {
           },
         ],
       };
+}
+
+/** Sessions by day over a fixed absolute September range. */
+const SESSIONS_BY_DAY = {
+  dimensions: ["date"],
+  metrics: ["sessions"],
+  grain: "day" as const,
+  dateRange: {
+    kind: "absolute" as const,
+    start: "2026-09-01",
+    end: "2026-09-23",
+  },
+};
+
+/** One report row with a single dimension and a single metric value. */
+function row(dimension: string, metric: string) {
+  return {
+    dimensionValues: [{ value: dimension }],
+    metricValues: [{ value: metric }],
+  };
+}
+
+/** A sessions-by-day report page that reports `rowCount` in total. */
+function sessionsPage(
+  rowCount: number,
+  ...rows: ReturnType<typeof row>[]
+): RunReportResponse {
+  return {
+    dimensionHeaders: [{ name: "date" }],
+    metricHeaders: [{ name: "sessions" }],
+    rowCount,
+    rows,
+  };
 }
 
 describe("GA4 report queries", () => {
@@ -137,18 +165,10 @@ describe("GA4 report queries", () => {
   it("fetches the second page when GA4 reports 250,001 rows", async () => {
     const requests: Array<Record<string, unknown>> = [];
     const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
-    const firstPageRow = {
-      dimensionValues: [{ value: "20260901" }],
-      metricValues: [{ value: "1" }],
-    };
+    const firstPageRow = row("20260901", "1");
     const result = await runReport(
       "123",
-      {
-        dimensions: ["date"],
-        metrics: ["sessions"],
-        grain: "day",
-        dateRange: { kind: "absolute", start: "2026-09-01", end: "2026-09-23" },
-      },
+      SESSIONS_BY_DAY,
       {
         request: async (_url, init) => {
           requests.push(
@@ -163,12 +183,7 @@ describe("GA4 report queries", () => {
             rows:
               page === 1
                 ? Array.from({ length: 250_000 }, () => firstPageRow)
-                : [
-                    {
-                      dimensionValues: [{ value: "20260902" }],
-                      metricValues: [{ value: "2" }],
-                    },
-                  ],
+                : [row("20260902", "2")],
           };
         },
       },
@@ -185,18 +200,10 @@ describe("GA4 report queries", () => {
 
   it("pages without rowCount until GA4 returns a short page", async () => {
     const requests: Array<Record<string, unknown>> = [];
-    const fullPageRow = {
-      dimensionValues: [{ value: "20260901" }],
-      metricValues: [{ value: "1" }],
-    };
+    const fullPageRow = row("20260901", "1");
     const result = await runReport(
       "123",
-      {
-        dimensions: ["date"],
-        metrics: ["sessions"],
-        grain: "day",
-        dateRange: { kind: "absolute", start: "2026-09-01", end: "2026-09-23" },
-      },
+      SESSIONS_BY_DAY,
       {
         request: async (_url, init) => {
           requests.push(
@@ -222,28 +229,9 @@ describe("GA4 report queries", () => {
     await expect(
       runReport(
         "123",
+        SESSIONS_BY_DAY,
         {
-          dimensions: ["date"],
-          metrics: ["sessions"],
-          grain: "day",
-          dateRange: {
-            kind: "absolute",
-            start: "2026-09-01",
-            end: "2026-09-23",
-          },
-        },
-        {
-          request: async () => ({
-            dimensionHeaders: [{ name: "date" }],
-            metricHeaders: [{ name: "sessions" }],
-            rowCount: 2,
-            rows: [
-              {
-                dimensionValues: [{ value: "20260901" }],
-                metricValues: [{ value: "1" }],
-              },
-            ],
-          }),
+          request: async () => sessionsPage(2, row("20260901", "1")),
         },
         { tableId: crypto.randomUUID(), now: NOW },
       ),
@@ -252,28 +240,8 @@ describe("GA4 report queries", () => {
 
   it("shares maxResponseBytes across report pages", async () => {
     const responses: RunReportResponse[] = [
-      {
-        dimensionHeaders: [{ name: "date" }],
-        metricHeaders: [{ name: "sessions" }],
-        rowCount: 250_001,
-        rows: [
-          {
-            dimensionValues: [{ value: "20260901" }],
-            metricValues: [{ value: "1" }],
-          },
-        ],
-      },
-      {
-        dimensionHeaders: [{ name: "date" }],
-        metricHeaders: [{ name: "sessions" }],
-        rowCount: 250_001,
-        rows: [
-          {
-            dimensionValues: [{ value: "20260902" }],
-            metricValues: [{ value: "2" }],
-          },
-        ],
-      },
+      sessionsPage(250_001, row("20260901", "1")),
+      sessionsPage(250_001, row("20260902", "2")),
     ];
     const responseSizes = responses.map(
       (response) =>
@@ -283,16 +251,7 @@ describe("GA4 report queries", () => {
     await expect(
       runReport(
         "123",
-        {
-          dimensions: ["date"],
-          metrics: ["sessions"],
-          grain: "day",
-          dateRange: {
-            kind: "absolute",
-            start: "2026-09-01",
-            end: "2026-09-23",
-          },
-        },
+        SESSIONS_BY_DAY,
         {
           request: async () => {
             throw new Error("unmeasured request should not run");
@@ -320,17 +279,10 @@ describe("GA4 report queries", () => {
   });
 
   it("reports an exhausted byte budget before requesting another page", async () => {
-    const response: RunReportResponse = {
-      dimensionHeaders: [{ name: "date" }],
-      metricHeaders: [{ name: "sessions" }],
-      rowCount: 250_001,
-      rows: [
-        {
-          dimensionValues: [{ value: "20260901" }],
-          metricValues: [{ value: "1" }],
-        },
-      ],
-    };
+    const response: RunReportResponse = sessionsPage(
+      250_001,
+      row("20260901", "1"),
+    );
     const responseBytes = new TextEncoder().encode(
       JSON.stringify(response),
     ).byteLength;
@@ -343,16 +295,7 @@ describe("GA4 report queries", () => {
     await expect(
       runReport(
         "123",
-        {
-          dimensions: ["date"],
-          metrics: ["sessions"],
-          grain: "day",
-          dateRange: {
-            kind: "absolute",
-            start: "2026-09-01",
-            end: "2026-09-23",
-          },
-        },
+        SESSIONS_BY_DAY,
         { request, requestMeasured },
         {
           tableId: crypto.randomUUID(),
@@ -366,17 +309,10 @@ describe("GA4 report queries", () => {
   });
 
   it("debits the response budget by transport-measured bytes", async () => {
-    const response: RunReportResponse = {
-      dimensionHeaders: [{ name: "date" }],
-      metricHeaders: [{ name: "sessions" }],
-      rowCount: 250_001,
-      rows: [
-        {
-          dimensionValues: [{ value: "20260901" }],
-          metricValues: [{ value: "1" }],
-        },
-      ],
-    };
+    const response: RunReportResponse = sessionsPage(
+      250_001,
+      row("20260901", "1"),
+    );
     const minifiedBytes = new TextEncoder().encode(
       JSON.stringify(response),
     ).byteLength;
@@ -389,16 +325,7 @@ describe("GA4 report queries", () => {
     await expect(
       runReport(
         "123",
-        {
-          dimensions: ["date"],
-          metrics: ["sessions"],
-          grain: "day",
-          dateRange: {
-            kind: "absolute",
-            start: "2026-09-01",
-            end: "2026-09-23",
-          },
-        },
+        SESSIONS_BY_DAY,
         { request, requestMeasured },
         {
           tableId: crypto.randomUUID(),
@@ -412,31 +339,12 @@ describe("GA4 report queries", () => {
   });
 
   it("rejects a byte budget when the client cannot measure transport bytes", async () => {
-    const response: RunReportResponse = {
-      dimensionHeaders: [{ name: "date" }],
-      metricHeaders: [{ name: "sessions" }],
-      rowCount: 1,
-      rows: [
-        {
-          dimensionValues: [{ value: "20260901" }],
-          metricValues: [{ value: "1" }],
-        },
-      ],
-    };
+    const response: RunReportResponse = sessionsPage(1, row("20260901", "1"));
     const request = vi.fn(async () => response);
     await expect(
       runReport(
         "123",
-        {
-          dimensions: ["date"],
-          metrics: ["sessions"],
-          grain: "day",
-          dateRange: {
-            kind: "absolute",
-            start: "2026-09-01",
-            end: "2026-09-23",
-          },
-        },
+        SESSIONS_BY_DAY,
         { request },
         {
           tableId: crypto.randomUUID(),
@@ -457,12 +365,7 @@ describe("GA4 report queries", () => {
           dimensionHeaders: [{ name: "date" }],
           metricHeaders: [{ name: "activeUsers" }],
           rowCount: 250_000,
-          rows: [
-            {
-              dimensionValues: [{ value: "20260901" }],
-              metricValues: [{ value: "1" }],
-            },
-          ],
+          rows: [row("20260901", "1")],
         }),
       },
       {

@@ -53,48 +53,42 @@ describe("RoutedCardActionMenuTrigger", () => {
     },
   );
 
-  it.each([{ name: "Enter", key: "Enter" }] as const)(
-    "keeps the menu closed through held $name repeats and opens once on keyup",
-    async ({ key }) => {
-      const { action, onNavigate, onOpen } = renderRoutedCardMenu();
-      const click = vi.spyOn(action, "click");
+  it("keeps the menu closed through held Enter repeats and opens once on keyup", async () => {
+    const { action, onNavigate, onOpen } = renderRoutedCardMenu();
+    const click = vi.spyOn(action, "click");
 
-      action.focus();
-      fireEvent.keyDown(action, { key });
-      fireEvent.keyDown(action, { key, repeat: true });
-      fireEvent.keyDown(action, { key, repeat: true });
+    action.focus();
+    fireEvent.keyDown(action, { key: "Enter" });
+    fireEvent.keyDown(action, { key: "Enter", repeat: true });
+    fireEvent.keyDown(action, { key: "Enter", repeat: true });
 
-      expect(click).not.toHaveBeenCalled();
-      expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
-      expect(document.activeElement).toBe(action);
-      expect(onOpen).not.toHaveBeenCalled();
-      expect(onNavigate).not.toHaveBeenCalled();
+    expect(click).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
+    expect(document.activeElement).toBe(action);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onNavigate).not.toHaveBeenCalled();
 
-      fireEvent.keyUp(action, { key });
+    fireEvent.keyUp(action, { key: "Enter" });
 
-      const openItem = await screen.findByRole("menuitem", { name: "Open" });
-      expect(click).toHaveBeenCalledTimes(1);
-      expect(action.getAttribute("aria-expanded")).toBe("true");
-      await waitFor(() => expect(document.activeElement).toBe(openItem));
-      expect(onOpen).not.toHaveBeenCalled();
-      expect(onNavigate).not.toHaveBeenCalled();
-    },
-  );
+    const openItem = await screen.findByRole("menuitem", { name: "Open" });
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(action.getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() => expect(document.activeElement).toBe(openItem));
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
 
-  it.each([{ name: "Enter", key: "Enter" }] as const)(
-    "suppresses repeated $name keydown through the completed key release",
-    ({ key }) => {
-      const { action, onNavigate } = renderRoutedCardMenu();
-      const click = vi.spyOn(action, "click");
+  it("suppresses repeated Enter keydown through the completed key release", () => {
+    const { action, onNavigate } = renderRoutedCardMenu();
+    const click = vi.spyOn(action, "click");
 
-      action.focus();
-      fireEvent.keyDown(action, { key, repeat: true });
-      fireEvent.keyUp(action, { key });
+    action.focus();
+    fireEvent.keyDown(action, { key: "Enter", repeat: true });
+    fireEvent.keyUp(action, { key: "Enter" });
 
-      expect(click).not.toHaveBeenCalled();
-      expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
-      expect(document.activeElement).toBe(action);
-      expect(onNavigate).not.toHaveBeenCalled();
-    },
-  );
+    expect(click).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+    expect(document.activeElement).toBe(action);
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
 });

@@ -49,6 +49,32 @@ const insight = {
   createdAt: 0,
 } as Insight;
 
+/** The single source table the hook reads, at one published generation. */
+function sourceTable(dataFrameId: string, lastFetchedAt?: number) {
+  return {
+    id: "table-1",
+    dataFrameId,
+    ...(lastFetchedAt === undefined ? {} : { lastFetchedAt }),
+    fields: [],
+  } as unknown as DataTable;
+}
+
+/** The source table list after the table publishes `changes`. */
+function nextGeneration(tables: DataTable[], changes: Partial<DataTable>) {
+  return [{ ...tables[0]!, ...changes }];
+}
+
+/** A ready materialization result. */
+const ready = (dataFrameId: string) => ({
+  status: "ready" as const,
+  dataFrameId,
+});
+
+/** A ready page of a materialized frame. */
+function pageOf(rows: unknown[] = [], totalCount = 1) {
+  return { status: "ready", schema: [], rows, totalCount, page: {} };
+}
+
 describe("useInsightPagination", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -70,17 +96,8 @@ describe("useInsightPagination", () => {
   });
 
   it("finishes the active materialization when StrictMode replays effects", async () => {
-    client.mutate.mockResolvedValue({
-      status: "ready",
-      dataFrameId: "frame-strict",
-    });
-    queryDataFrame.mockResolvedValue({
-      status: "ready",
-      schema: [],
-      rows: [{ value: 3 }],
-      totalCount: 1,
-      page: {},
-    });
+    client.mutate.mockResolvedValue(ready("frame-strict"));
+    queryDataFrame.mockResolvedValue(pageOf([{ value: 3 }], 1));
     const { result } = renderHook(() => useInsightPagination({ insight }), {
       wrapper: StrictMode,
     });
@@ -101,17 +118,8 @@ describe("useInsightPagination", () => {
             resolveFirst = resolve;
           }),
       )
-      .mockResolvedValueOnce({
-        status: "ready",
-        dataFrameId: "frame-after-retry",
-      });
-    queryDataFrame.mockResolvedValue({
-      status: "ready",
-      schema: [],
-      rows: [{ value: 7 }],
-      totalCount: 1,
-      page: {},
-    });
+      .mockResolvedValueOnce(ready("frame-after-retry"));
+    queryDataFrame.mockResolvedValue(pageOf([{ value: 7 }], 1));
     const { result } = renderHook(() => useInsightPagination({ insight }));
     await waitFor(() => expect(client.mutate).toHaveBeenCalledOnce());
 
@@ -132,10 +140,7 @@ describe("useInsightPagination", () => {
   });
 
   it("runs saved insights with declared runtime controls then queries the returned handle", async () => {
-    client.mutate.mockResolvedValue({
-      status: "ready",
-      dataFrameId: "frame-1",
-    });
+    client.mutate.mockResolvedValue(ready("frame-1"));
     queryDataFrame.mockResolvedValue({
       status: "ready",
       schema: [
@@ -196,17 +201,8 @@ describe("useInsightPagination", () => {
     client.mutate
       .mockResolvedValueOnce({ status: "ready", dataFrameId: "frame-product" })
       .mockResolvedValueOnce({ status: "ready", dataFrameId: "frame-date" })
-      .mockResolvedValueOnce({
-        status: "ready",
-        dataFrameId: "frame-date-month",
-      });
-    queryDataFrame.mockResolvedValue({
-      status: "ready",
-      schema: [],
-      rows: [],
-      totalCount: 1,
-      page: {},
-    });
+      .mockResolvedValueOnce(ready("frame-date-month"));
+    queryDataFrame.mockResolvedValue(pageOf());
     const productId = "10000000-0000-4000-8000-000000000001";
     const dateId = "10000000-0000-4000-8000-000000000002";
     const { result, rerender } = renderHook(
@@ -276,17 +272,8 @@ describe("useInsightPagination", () => {
             settleStale = resolve;
           }),
       )
-      .mockResolvedValueOnce({
-        status: "ready",
-        dataFrameId: "frame-current",
-      });
-    queryDataFrame.mockResolvedValue({
-      status: "ready",
-      schema: [],
-      rows: [],
-      totalCount: 1,
-      page: {},
-    });
+      .mockResolvedValueOnce(ready("frame-current"));
+    queryDataFrame.mockResolvedValue(pageOf());
     const presentation: InsightPresentation = {
       dimensions: ["10000000-0000-4000-8000-000000000001"],
     };
@@ -321,10 +308,7 @@ describe("useInsightPagination", () => {
 
   it("pages every presentation cell when a pivot runtime limit is one", async () => {
     const pivotId = "10000000-0000-4000-8000-000000000001";
-    client.mutate.mockResolvedValue({
-      status: "ready",
-      dataFrameId: "frame-pivot",
-    });
+    client.mutate.mockResolvedValue(ready("frame-pivot"));
     queryDataFrame.mockImplementation(
       async (
         _dataFrameId: string,
@@ -412,13 +396,7 @@ describe("useInsightPagination", () => {
         fetchedAt: 123,
       },
     });
-    queryDataFrame.mockResolvedValue({
-      status: "ready",
-      schema: [],
-      rows: [{ country: "CA" }],
-      totalCount: 1,
-      page: {},
-    });
+    queryDataFrame.mockResolvedValue(pageOf([{ country: "CA" }], 1));
 
     const { result } = renderHook(() => useInsightPagination({ insight }));
 
@@ -445,17 +423,8 @@ describe("useInsightPagination", () => {
           resolveA = resolve;
         }),
     );
-    client.mutate.mockResolvedValueOnce({
-      status: "ready",
-      dataFrameId: "frame-b",
-    });
-    queryDataFrame.mockResolvedValue({
-      status: "ready",
-      schema: [],
-      rows: [],
-      totalCount: 2,
-      page: {},
-    });
+    client.mutate.mockResolvedValueOnce(ready("frame-b"));
+    queryDataFrame.mockResolvedValue(pageOf([], 2));
     const insightB = { ...insight, id: "insight-2" };
     const { result, rerender } = renderHook(
       ({ value }) => useInsightPagination({ insight: value }),
@@ -471,10 +440,7 @@ describe("useInsightPagination", () => {
   });
 
   it("surfaces an initial page rejection without an unhandled promise", async () => {
-    client.mutate.mockResolvedValue({
-      status: "ready",
-      dataFrameId: "frame-1",
-    });
+    client.mutate.mockResolvedValue(ready("frame-1"));
     queryDataFrame.mockRejectedValue(
       new HostOperationError("Frame disappeared", undefined, undefined, true),
     );
@@ -487,10 +453,7 @@ describe("useInsightPagination", () => {
   });
 
   it("does not show a raw exception message to the user", async () => {
-    client.mutate.mockResolvedValue({
-      status: "ready",
-      dataFrameId: "frame-1",
-    });
+    client.mutate.mockResolvedValue(ready("frame-1"));
     queryDataFrame.mockRejectedValue(new TypeError("Failed to fetch"));
 
     const { result } = renderHook(() => useInsightPagination({ insight }));
@@ -501,17 +464,8 @@ describe("useInsightPagination", () => {
   });
 
   it("discards a page that resolves after the Insight generation changes", async () => {
-    client.mutate.mockResolvedValue({
-      status: "ready",
-      dataFrameId: "frame-a",
-    });
-    queryDataFrame.mockResolvedValueOnce({
-      status: "ready",
-      schema: [],
-      rows: [],
-      totalCount: 2,
-      page: {},
-    });
+    client.mutate.mockResolvedValue(ready("frame-a"));
+    queryDataFrame.mockResolvedValueOnce(pageOf([], 2));
     let resolvePage!: (value: unknown) => void;
     queryDataFrame.mockImplementationOnce(
       () =>
@@ -535,14 +489,7 @@ describe("useInsightPagination", () => {
   it.each(["source-frame-1", "source-frame-2"])(
     "rematerializes when a manual refresh selects retained %s",
     async (retainedFrame) => {
-      let tables = [
-        {
-          id: "table-1",
-          dataFrameId: "source-frame-1",
-          lastFetchedAt: 1,
-          fields: [],
-        } as unknown as DataTable,
-      ];
+      let tables = [sourceTable("source-frame-1", 1)];
       useQuery.mockImplementation(() => ({ data: tables }));
       let calls = 0;
       client.mutate.mockImplementation(async () =>
@@ -561,31 +508,23 @@ describe("useInsightPagination", () => {
             }
           : { status: "ready", dataFrameId: "result-2", fetchedAt: 4 },
       );
-      queryDataFrame.mockResolvedValue({
-        status: "ready",
-        schema: [],
-        rows: [],
-        totalCount: 1,
-        page: {},
-      });
+      queryDataFrame.mockResolvedValue(pageOf());
       const { result, rerender } = renderHook(() =>
         useInsightPagination({ insight }),
       );
       await waitFor(() => expect(result.current.dataFrameId).toBe("result-1"));
-      tables = [
-        { ...tables[0]!, dataFrameId: "source-frame-2", lastFetchedAt: 2 },
-      ];
+      tables = nextGeneration(tables, {
+        dataFrameId: "source-frame-2",
+        lastFetchedAt: 2,
+      });
       rerender();
       await act(async () => Promise.resolve());
       expect(client.mutate).toHaveBeenCalledTimes(1);
-      tables = [
-        {
-          ...tables[0]!,
-          dataFrameId: retainedFrame,
-          lastFetchedAt: 3,
-          refreshRevision: "manual-rollback",
-        },
-      ];
+      tables = nextGeneration(tables, {
+        dataFrameId: retainedFrame,
+        lastFetchedAt: 3,
+        refreshRevision: "manual-rollback",
+      });
       rerender();
       await waitFor(() => expect(result.current.dataFrameId).toBe("result-2"));
       expect(client.mutate).toHaveBeenCalledTimes(2);
@@ -593,14 +532,7 @@ describe("useInsightPagination", () => {
   );
 
   it("settles sibling publications without hiding new consumers, changed requests, or manual refreshes", async () => {
-    let tables = [
-      {
-        id: "table-1",
-        dataFrameId: "source-frame-1",
-        lastFetchedAt: 1,
-        fields: [],
-      } as unknown as DataTable,
-    ];
+    let tables = [sourceTable("source-frame-1", 1)];
     useQuery.mockImplementation((procedure) => ({
       data: procedure._path === "listInsights" ? [] : tables,
     }));
@@ -623,13 +555,9 @@ describe("useInsightPagination", () => {
         ],
       };
     });
-    queryDataFrame.mockImplementation(async (dataFrameId) => ({
-      status: "ready",
-      schema: [],
-      rows: [{ dataFrameId }],
-      totalCount: 1,
-      page: {},
-    }));
+    queryDataFrame.mockImplementation(async (dataFrameId) =>
+      pageOf([{ dataFrameId }], 1),
+    );
 
     const { result, rerender } = renderHook(
       ({ savedInsight }) => ({
@@ -648,13 +576,10 @@ describe("useInsightPagination", () => {
 
     // The preview's automatic source publication is visible to the saved
     // consumer, but must not start an alternating refresh cycle.
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "preview-source-1",
-        lastFetchedAt: 2,
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "preview-source-1",
+      lastFetchedAt: 2,
+    });
     rerender({ savedInsight: insight });
     await act(async () => Promise.resolve());
     expect({ savedCalls, previewCalls }).toEqual({
@@ -678,14 +603,11 @@ describe("useInsightPagination", () => {
 
     // A manual refresh is not recorded by this hook, so both consumers must
     // update once. Their resulting automatic publications must then settle.
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "manual-source",
-        refreshRevision: "manual",
-        lastFetchedAt: 3,
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "manual-source",
+      refreshRevision: "manual",
+      lastFetchedAt: 3,
+    });
     rerender({ savedInsight: changedInsight });
     await waitFor(() => {
       expect(result.current.saved.dataFrameId).toBe("saved-result-3");
@@ -695,13 +617,10 @@ describe("useInsightPagination", () => {
       savedCalls: 3,
       previewCalls: 2,
     });
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "preview-source-2",
-        lastFetchedAt: 4,
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "preview-source-2",
+      lastFetchedAt: 4,
+    });
     rerender({ savedInsight: changedInsight });
     await act(async () => Promise.resolve());
     expect({ savedCalls, previewCalls }).toEqual({
@@ -722,14 +641,7 @@ describe("useInsightPagination", () => {
   });
 
   it("preserves a manual invalidation while older sibling publications finish", async () => {
-    let tables = [
-      {
-        id: "table-1",
-        dataFrameId: "source-initial",
-        lastFetchedAt: 1,
-        fields: [],
-      } as unknown as DataTable,
-    ];
+    let tables = [sourceTable("source-initial", 1)];
     useQuery.mockImplementation((procedure) => ({
       data: procedure._path === "listInsights" ? [] : tables,
     }));
@@ -761,13 +673,7 @@ describe("useInsightPagination", () => {
         ],
       });
     });
-    const readyPage = {
-      status: "ready",
-      schema: [],
-      rows: [],
-      totalCount: 1,
-      page: {},
-    };
+    const readyPage = pageOf();
     queryDataFrame.mockImplementation((dataFrameId) => {
       if (dataFrameId === "old-saved-result")
         return new Promise((resolve) => {
@@ -790,14 +696,11 @@ describe("useInsightPagination", () => {
     });
 
     phase = "old-flight";
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "old-trigger",
-        lastFetchedAt: 2,
-        refreshRevision: "old-trigger",
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "old-trigger",
+      lastFetchedAt: 2,
+      refreshRevision: "old-trigger",
+    });
     rerender();
     await waitFor(() =>
       expect({ savedCalls, previewCalls }).toEqual({
@@ -808,14 +711,11 @@ describe("useInsightPagination", () => {
 
     // The external/manual generation arrives while both older requests are
     // active. Later automatic source publications must not erase that intent.
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "manual-1",
-        lastFetchedAt: 3,
-        refreshRevision: "manual-1",
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "manual-1",
+      lastFetchedAt: 3,
+      refreshRevision: "manual-1",
+    });
     rerender();
     await act(async () => {
       resolveOldSaved({
@@ -836,9 +736,10 @@ describe("useInsightPagination", () => {
         limit: 100,
       }),
     );
-    tables = [
-      { ...tables[0]!, dataFrameId: "old-saved-source", lastFetchedAt: 4 },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "old-saved-source",
+      lastFetchedAt: 4,
+    });
     rerender();
     phase = "after-manual";
     await act(async () => resolveOldSavedPage(readyPage));
@@ -863,20 +764,18 @@ describe("useInsightPagination", () => {
         limit: 100,
       }),
     );
-    tables = [
-      { ...tables[0]!, dataFrameId: "old-preview-source", lastFetchedAt: 5 },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "old-preview-source",
+      lastFetchedAt: 5,
+    });
     rerender();
     await act(async () => resolveOldPreviewPage(readyPage));
     await waitFor(() => expect(previewCalls).toBe(3));
 
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "after-manual-preview-source-3",
-        lastFetchedAt: 6,
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "after-manual-preview-source-3",
+      lastFetchedAt: 6,
+    });
     rerender();
     await act(async () => Promise.resolve());
     expect({ savedCalls, previewCalls }).toEqual({
@@ -885,14 +784,11 @@ describe("useInsightPagination", () => {
     });
 
     // A later unrelated manual generation still invalidates both consumers.
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "manual-2",
-        lastFetchedAt: 7,
-        refreshRevision: "manual-2",
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "manual-2",
+      lastFetchedAt: 7,
+      refreshRevision: "manual-2",
+    });
     rerender();
     await waitFor(() =>
       expect({ savedCalls, previewCalls }).toEqual({
@@ -913,13 +809,7 @@ describe("useInsightPagination", () => {
       id: "insight-composed",
       source: { sourceType: "insight", sourceId: upstream.id },
     } as Insight;
-    let tables = [
-      {
-        id: "table-1",
-        dataFrameId: "source-frame-1",
-        fields: [],
-      } as unknown as DataTable,
-    ];
+    let tables = [sourceTable("source-frame-1")];
     useQuery.mockImplementation((procedure) => ({
       data: procedure._path === "listInsights" ? [upstream] : tables,
     }));
@@ -935,37 +825,25 @@ describe("useInsightPagination", () => {
         },
       ],
     });
-    queryDataFrame.mockResolvedValue({
-      status: "ready",
-      schema: [],
-      rows: [],
-      totalCount: 1,
-      page: {},
-    });
+    queryDataFrame.mockResolvedValue(pageOf());
     const { result, rerender } = renderHook(() =>
       useInsightPagination({ insight: composed }),
     );
     await waitFor(() => expect(result.current.dataFrameId).toBe("result-1"));
 
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "source-frame-2",
-        lastFetchedAt: 123,
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "source-frame-2",
+      lastFetchedAt: 123,
+    });
     rerender();
     await act(async () => Promise.resolve());
     expect(client.mutate).toHaveBeenCalledTimes(1);
 
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "external-frame",
-        refreshRevision: "external",
-        lastFetchedAt: 123,
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "external-frame",
+      refreshRevision: "external",
+      lastFetchedAt: 123,
+    });
     rerender();
     await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
   });
@@ -981,13 +859,7 @@ describe("useInsightPagination", () => {
       id: "insight-composed-failure",
       source: { sourceType: "insight", sourceId: upstream.id },
     } as Insight;
-    let tables = [
-      {
-        id: "table-1",
-        dataFrameId: "source-frame-1",
-        fields: [],
-      } as unknown as DataTable,
-    ];
+    let tables = [sourceTable("source-frame-1")];
     useQuery.mockImplementation((procedure) => ({
       data: procedure._path === "listInsights" ? [upstream] : tables,
     }));
@@ -1019,20 +891,18 @@ describe("useInsightPagination", () => {
 
     // Distinct subscription deliveries may both arrive after the failed HTTP
     // response. Keep this operation's proof until an external revision arrives.
-    tables = [
-      { ...tables[0]!, dataFrameId: "intermediate-source", lastFetchedAt: 122 },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "intermediate-source",
+      lastFetchedAt: 122,
+    });
     rerender();
     await act(async () => undefined);
     expect(client.mutate).toHaveBeenCalledTimes(1);
 
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "source-frame-2",
-        lastFetchedAt: 123,
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "source-frame-2",
+      lastFetchedAt: 123,
+    });
     rerender();
     await act(async () => Promise.resolve());
     expect(client.mutate).toHaveBeenCalledTimes(1);
@@ -1040,14 +910,11 @@ describe("useInsightPagination", () => {
     act(() => result.current.retry());
     await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(2));
 
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "external-frame",
-        refreshRevision: "external",
-        lastFetchedAt: 123,
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "external-frame",
+      refreshRevision: "external",
+      lastFetchedAt: 123,
+    });
     rerender();
     await waitFor(() => expect(client.mutate).toHaveBeenCalledTimes(3));
   });
@@ -1095,7 +962,7 @@ describe("useInsightPagination", () => {
         sibling: useInsightPagination({ insight, showModelPreview: true }),
       }));
       await waitFor(() => expect(result.current.sibling.isReady).toBe(true));
-      tables = [{ ...tables[0]!, dataFrameId: "b", lastFetchedAt: 2 }];
+      tables = nextGeneration(tables, { dataFrameId: "b", lastFetchedAt: 2 });
       rerender();
       await act(async () => {
         if (failure === "reject") reject(new Error("connection lost"));
@@ -1126,13 +993,7 @@ describe("useInsightPagination", () => {
     useQuery.mockImplementation((procedure) => ({
       data: procedure._path === "listInsights" ? [] : tables,
     }));
-    queryDataFrame.mockResolvedValue({
-      status: "ready",
-      schema: [],
-      rows: [],
-      totalCount: 1,
-      page: {},
-    });
+    queryDataFrame.mockResolvedValue(pageOf());
     let settlePublisher!: (value: unknown) => void;
     let calls = 0;
     client.mutate.mockImplementation(() =>
@@ -1153,9 +1014,10 @@ describe("useInsightPagination", () => {
       ["b", 2],
       ["c", 3],
     ] as const) {
-      tables = [
-        { ...tables[0]!, dataFrameId: frame, lastFetchedAt: timestamp },
-      ];
+      tables = nextGeneration(tables, {
+        dataFrameId: frame,
+        lastFetchedAt: timestamp,
+      });
       first.rerender();
       publisher.rerender();
       await act(async () => undefined);
@@ -1175,14 +1037,11 @@ describe("useInsightPagination", () => {
     expect(calls).toBe(2);
     // A manual epoch survives even when its frame was overwritten before the
     // subscription was delivered to either renderer.
-    tables = [
-      {
-        ...tables[0]!,
-        dataFrameId: "auto-after-manual",
-        lastFetchedAt: 5,
-        refreshRevision: "manual",
-      },
-    ];
+    tables = nextGeneration(tables, {
+      dataFrameId: "auto-after-manual",
+      lastFetchedAt: 5,
+      refreshRevision: "manual",
+    });
     first.rerender();
     publisher.rerender();
     await waitFor(() => expect(calls).toBe(4));

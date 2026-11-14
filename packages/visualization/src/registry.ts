@@ -160,15 +160,6 @@ export function hasRenderer(type: VisualizationType): boolean {
 }
 
 /**
- * Get all registered visualization types.
- *
- * @returns Array of registered types
- */
-function getRegisteredTypes(): VisualizationType[] {
-  return Array.from(rendererMap.keys());
-}
-
-/**
  * Clear all registered renderers.
  * Useful for testing.
  */
@@ -188,5 +179,4 @@ export const chartRendererRegistry: ChartRendererRegistry = {
   register: registerRenderer,
   get: getRenderer,
   has: hasRenderer,
-  getRegisteredTypes,
 };

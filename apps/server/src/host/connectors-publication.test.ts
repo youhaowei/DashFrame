@@ -32,6 +32,48 @@ const modules = import.meta.glob(
   "../../../../packages/convex-backend/convex/**/*.ts",
 );
 
+type Native = ReturnType<typeof convexTest>;
+
+async function seedNotionTable(
+  native: Native,
+  ids: { dataSourceId: string; tableId: string; fields: Field[] },
+) {
+  await native.run(async (ctx) => {
+    await ctx.db.insert("dataSources", {
+      workspaceId: "workspace",
+      id: ids.dataSourceId,
+      revision: 1,
+      name: "Notion",
+      kind: "notion",
+      config: { apiKey: `secret:${crypto.randomUUID()}` },
+      createdAt: 0,
+    });
+    await ctx.db.insert("dataTables", {
+      workspaceId: "workspace",
+      id: ids.tableId,
+      revision: 1,
+      name: "Values",
+      dataSourceId: ids.dataSourceId,
+      table: "remote-database",
+      fields: ids.fields,
+      metrics: [],
+      sourceSchema: null,
+      createdAt: 0,
+    });
+  });
+}
+
+const FRESH_TOKENS = {
+  accessToken: "fresh",
+  refreshToken: "refresh",
+  scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
+};
+
+/** A token bundle that expires an hour from now. */
+function freshTokens() {
+  return { ...FRESH_TOKENS, expiresAt: Date.now() + 3_600_000 };
+}
+
 async function fixture(
   outcome:
     | "success"
@@ -55,29 +97,7 @@ async function fixture(
       sensitivitySource: "user",
     },
   ];
-  await native.run(async (ctx) => {
-    await ctx.db.insert("dataSources", {
-      workspaceId: "workspace",
-      id: dataSourceId,
-      revision: 1,
-      name: "Notion",
-      kind: "notion",
-      config: { apiKey: `secret:${crypto.randomUUID()}` },
-      createdAt: 0,
-    });
-    await ctx.db.insert("dataTables", {
-      workspaceId: "workspace",
-      id: tableId,
-      revision: 1,
-      name: "Values",
-      dataSourceId,
-      table: "remote-database",
-      fields,
-      metrics: [],
-      sourceSchema: null,
-      createdAt: 0,
-    });
-  });
+  await seedNotionTable(native, { dataSourceId, tableId, fields });
   const bytes = new Map<string, Uint8Array>();
   const nativeMetadata = createHostMetadata(native as never, "workspace");
   const storage: DataFrameStorage = {
@@ -199,9 +219,43 @@ async function fixture(
       snapshot: true,
       approvedFields: fields,
     });
+  const rows = (table: "localImports" | "cleanupJobs") =>
+    native.run((ctx) => ctx.db.query(table).collect());
+  const dataTable = () =>
+    native.query(internal.host.getDataTable, {
+      workspaceId: "workspace",
+      id: tableId,
+    });
+  const dataSource = () =>
+    native.query(internal.host.getDataSource, {
+      workspaceId: "workspace",
+      id: dataSourceId,
+    });
+  const convertToGa4 = () =>
+    native.run(async (ctx) => {
+      const source = await ctx.db
+        .query("dataSources")
+        .withIndex("by_workspaceId_and_id", (q) =>
+          q.eq("workspaceId", "workspace").eq("id", dataSourceId),
+        )
+        .unique();
+      await ctx.db.patch(source!._id, { kind: "googleAnalytics" });
+    });
+  const queryGa4 = () =>
+    queryGa4Property(ctx, {
+      dataSourceId,
+      tableId,
+      snapshot: true,
+      approvedFields: fields,
+    });
   return {
     native,
     nativeMetadata,
+    rows,
+    dataTable,
+    dataSource,
+    convertToGa4,
+    queryGa4,
     bytes,
     storage,
     commitImportedFrame,
@@ -222,17 +276,15 @@ describe("connector snapshot publication", () => {
   it("claims before fetch and completes an ordinary connector snapshot", async () => {
     const h = await fixture("success");
     query.mockImplementationOnce(async () => {
-      expect(
-        await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-      ).toMatchObject([{ status: "pending" }]);
+      expect(await h.rows("localImports")).toMatchObject([
+        { status: "pending" },
+      ]);
       return h.queryResult;
     });
     const result = await h.execute();
     expect(result.dataFrameId).toEqual(expect.any(String));
     expect(h.commitImportedFrame).toHaveBeenCalledOnce();
-    expect(
-      await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toEqual([]);
+    expect(await h.rows("localImports")).toEqual([]);
     expect(h.beginLocalImport).toHaveBeenCalledWith(
       expect.objectContaining({ claimKind: "connector-snapshot" }),
     );
@@ -248,12 +300,10 @@ describe("connector snapshot publication", () => {
     const h = await fixture("success");
     query.mockRejectedValueOnce(new Error("connector unavailable"));
     await expect(h.execute()).rejects.toThrow("connector unavailable");
-    expect(
-      await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toEqual([]);
-    expect(
-      await h.native.run((ctx) => ctx.db.query("cleanupJobs").collect()),
-    ).toMatchObject([{ kind: "frame", state: "pending" }]);
+    expect(await h.rows("localImports")).toEqual([]);
+    expect(await h.rows("cleanupJobs")).toMatchObject([
+      { kind: "frame", state: "pending" },
+    ]);
     expect(h.commitImportedFrame).not.toHaveBeenCalled();
     expect(h.bytes.size).toBe(0);
   });
@@ -267,12 +317,9 @@ describe("connector snapshot publication", () => {
     expect(h.getOperation).toHaveBeenCalledWith(
       `local-import:${h.commitImportedFrame.mock.calls[0]![0].operationId}`,
     );
-    expect(
-      await h.native.query(internal.host.getDataTable, {
-        workspaceId: "workspace",
-        id: h.tableId,
-      }),
-    ).toMatchObject({ dataFrameId: result.dataFrameId });
+    expect(await h.dataTable()).toMatchObject({
+      dataFrameId: result.dataFrameId,
+    });
     expect(h.storage.delete).not.toHaveBeenCalled();
   });
 
@@ -281,9 +328,7 @@ describe("connector snapshot publication", () => {
     const result = await h.execute();
     expect(result.dataFrameId).toEqual(expect.any(String));
     expect(h.beginLocalImport).toHaveBeenCalledOnce();
-    expect(
-      await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toEqual([]);
+    expect(await h.rows("localImports")).toEqual([]);
     expect(
       await h.native.query(internal.host.getOperation, {
         workspaceId: "workspace",
@@ -294,24 +339,11 @@ describe("connector snapshot publication", () => {
 
   it("serializes concurrent GA4 token writes", async () => {
     const h = await fixture("success");
-    await h.native.run(async (ctx) => {
-      const source = await ctx.db
-        .query("dataSources")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", "workspace").eq("id", h.dataSourceId),
-        )
-        .unique();
-      await ctx.db.patch(source!._id, { kind: "googleAnalytics" });
-    });
+    await h.convertToGa4();
     const first = await ga4ConnectorFor(h.ctx, h.dataSourceId);
     const second = await ga4ConnectorFor(h.ctx, h.dataSourceId);
     ga4Query.mockImplementation(async (dependencies) => {
-      await dependencies.persistTokenBundle({
-        accessToken: "fresh",
-        refreshToken: "refresh",
-        expiresAt: Date.now() + 3_600_000,
-        scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
-      });
+      await dependencies.persistTokenBundle(freshTokens());
       return h.queryResult;
     });
     const options = { pagination: { offset: 0, limit: 1 } };
@@ -321,45 +353,22 @@ describe("connector snapshot publication", () => {
     ]);
     expect(h.vault.store).toHaveBeenCalledTimes(2);
     expect(h.vault.delete).toHaveBeenCalledTimes(2);
-    expect(
-      await h.native.query(internal.host.getDataSource, {
-        workspaceId: "workspace",
-        id: h.dataSourceId,
-      }),
-    ).toMatchObject({ revision: 3 });
+    expect(await h.dataSource()).toMatchObject({ revision: 3 });
   });
 
   it("recovers an exact GA4 token write after its acknowledgement is lost", async () => {
     const h = await fixture("success");
-    await h.native.run(async (ctx) => {
-      const source = await ctx.db
-        .query("dataSources")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", "workspace").eq("id", h.dataSourceId),
-        )
-        .unique();
-      await ctx.db.patch(source!._id, { kind: "googleAnalytics" });
-    });
+    await h.convertToGa4();
     const replace = h.ctx.metadata.replaceDataSourceConfig.bind(h.ctx.metadata);
     h.ctx.metadata.replaceDataSourceConfig = async (input) => {
       await replace(input);
       throw new Error("token write acknowledgement lost");
     };
     ga4Query.mockImplementationOnce(async (dependencies) => {
-      await dependencies.persistTokenBundle({
-        accessToken: "fresh",
-        refreshToken: "refresh",
-        expiresAt: Date.now() + 3_600_000,
-        scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
-      });
+      await dependencies.persistTokenBundle(freshTokens());
       return h.queryResult;
     });
-    const result = await queryGa4Property(h.ctx, {
-      dataSourceId: h.dataSourceId,
-      tableId: h.tableId,
-      snapshot: true,
-      approvedFields: h.fields,
-    });
+    const result = await h.queryGa4();
     expect(result.dataFrameId).toEqual(expect.any(String));
     expect(
       h.commitImportedFrame.mock.calls[0]![0].expectedDataSourceRevision,
@@ -368,15 +377,7 @@ describe("connector snapshot publication", () => {
 
   it("publishes a confirmed GA4 refresh when obsolete credential deletion fails", async () => {
     const h = await fixture("success");
-    await h.native.run(async (ctx) => {
-      const source = await ctx.db
-        .query("dataSources")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", "workspace").eq("id", h.dataSourceId),
-        )
-        .unique();
-      await ctx.db.patch(source!._id, { kind: "googleAnalytics" });
-    });
+    await h.convertToGa4();
     h.vault.delete.mockRejectedValueOnce(
       new Error("secret must not be logged"),
     );
@@ -384,20 +385,10 @@ describe("connector snapshot publication", () => {
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
     ga4Query.mockImplementationOnce(async (dependencies) => {
-      await dependencies.persistTokenBundle({
-        accessToken: "fresh",
-        refreshToken: "refresh",
-        expiresAt: Date.now() + 3_600_000,
-        scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
-      });
+      await dependencies.persistTokenBundle(freshTokens());
       return h.queryResult;
     });
-    const result = await queryGa4Property(h.ctx, {
-      dataSourceId: h.dataSourceId,
-      tableId: h.tableId,
-      snapshot: true,
-      approvedFields: h.fields,
-    });
+    const result = await h.queryGa4();
     expect(result.dataFrameId).toEqual(expect.any(String));
     expect(
       h.commitImportedFrame.mock.calls[0]![0].expectedDataSourceRevision,
@@ -410,20 +401,9 @@ describe("connector snapshot publication", () => {
 
   it("does not absorb an external GA4 config change during token refresh", async () => {
     const h = await fixture("success");
-    await h.native.run(async (ctx) => {
-      const source = await ctx.db
-        .query("dataSources")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", "workspace").eq("id", h.dataSourceId),
-        )
-        .unique();
-      await ctx.db.patch(source!._id, { kind: "googleAnalytics" });
-    });
+    await h.convertToGa4();
     ga4Query.mockImplementationOnce(async (dependencies) => {
-      const source = await h.native.query(internal.host.getDataSource, {
-        workspaceId: "workspace",
-        id: h.dataSourceId,
-      });
+      const source = await h.dataSource();
       await h.native.mutation(internal.host.replaceDataSourceConfig, {
         workspaceId: "workspace",
         id: h.dataSourceId,
@@ -435,44 +415,23 @@ describe("connector snapshot publication", () => {
         },
       });
       await dependencies
-        .persistTokenBundle({
-          accessToken: "fresh",
-          refreshToken: "refresh",
-          expiresAt: Date.now() + 3_600_000,
-          scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
-        })
+        .persistTokenBundle(freshTokens())
         .catch(() => undefined);
       return h.queryResult;
     });
-    await expect(
-      queryGa4Property(h.ctx, {
-        dataSourceId: h.dataSourceId,
-        tableId: h.tableId,
-        snapshot: true,
-        approvedFields: h.fields,
-      }),
-    ).rejects.toBeInstanceOf(ImportPublicationRejectedError);
+    await expect(h.queryGa4()).rejects.toBeInstanceOf(
+      ImportPublicationRejectedError,
+    );
     expect(h.bytes.size).toBe(0);
   });
 
   it("does not absorb a same-config revision bump after its GA4 token write", async () => {
     const h = await fixture("success");
-    await h.native.run(async (ctx) => {
-      const source = await ctx.db
-        .query("dataSources")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", "workspace").eq("id", h.dataSourceId),
-        )
-        .unique();
-      await ctx.db.patch(source!._id, { kind: "googleAnalytics" });
-    });
+    await h.convertToGa4();
     const replace = h.ctx.metadata.replaceDataSourceConfig.bind(h.ctx.metadata);
     h.ctx.metadata.replaceDataSourceConfig = async (input) => {
       await replace(input);
-      const source = await h.native.query(internal.host.getDataSource, {
-        workspaceId: "workspace",
-        id: h.dataSourceId,
-      });
+      const source = await h.dataSource();
       await h.native.mutation(internal.host.replaceDataSourceConfig, {
         workspaceId: "workspace",
         id: h.dataSourceId,
@@ -483,23 +442,13 @@ describe("connector snapshot publication", () => {
     };
     ga4Query.mockImplementationOnce(async (dependencies) => {
       await dependencies
-        .persistTokenBundle({
-          accessToken: "fresh",
-          refreshToken: "refresh",
-          expiresAt: Date.now() + 3_600_000,
-          scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
-        })
+        .persistTokenBundle(freshTokens())
         .catch(() => undefined);
       return h.queryResult;
     });
-    await expect(
-      queryGa4Property(h.ctx, {
-        dataSourceId: h.dataSourceId,
-        tableId: h.tableId,
-        snapshot: true,
-        approvedFields: h.fields,
-      }),
-    ).rejects.toBeInstanceOf(ImportPublicationRejectedError);
+    await expect(h.queryGa4()).rejects.toBeInstanceOf(
+      ImportPublicationRejectedError,
+    );
   });
 
   it("durably queues rejected frame cleanup when eager deletion fails", async () => {
@@ -514,12 +463,10 @@ describe("connector snapshot publication", () => {
       ImportPublicationRejectedError,
     );
     expect(h.bytes.size).toBe(1);
-    expect(
-      await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toEqual([]);
-    expect(
-      await h.native.run((ctx) => ctx.db.query("cleanupJobs").collect()),
-    ).toMatchObject([{ kind: "frame", state: "pending" }]);
+    expect(await h.rows("localImports")).toEqual([]);
+    expect(await h.rows("cleanupJobs")).toMatchObject([
+      { kind: "frame", state: "pending" },
+    ]);
   });
 
   it("does not delete a referenced frame when an unconfirmed commit won the claim race", async () => {
@@ -531,18 +478,11 @@ describe("connector snapshot publication", () => {
     expect(h.bytes.has(committed.frameRow.id)).toBe(true);
     expect(h.storage.delete).not.toHaveBeenCalled();
     expect(await h.cancelLocalImport.mock.results[0]!.value).toBe(false);
-    expect(
-      await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toEqual([]);
-    expect(
-      await h.native.run((ctx) => ctx.db.query("cleanupJobs").collect()),
-    ).toEqual([]);
-    expect(
-      await h.native.query(internal.host.getDataTable, {
-        workspaceId: "workspace",
-        id: h.tableId,
-      }),
-    ).toMatchObject({ dataFrameId: committed.frameRow.id });
+    expect(await h.rows("localImports")).toEqual([]);
+    expect(await h.rows("cleanupJobs")).toEqual([]);
+    expect(await h.dataTable()).toMatchObject({
+      dataFrameId: committed.frameRow.id,
+    });
   });
 
   it("queues cleanup and fences a late commit when cancellation wins an unknown outcome", async () => {
@@ -554,23 +494,14 @@ describe("connector snapshot publication", () => {
     expect(h.cancelLocalImport).toHaveBeenCalledOnce();
     expect(await h.cancelLocalImport.mock.results[0]!.value).toBe(true);
     expect(h.bytes.has(publication.frameRow.id)).toBe(true);
-    expect(
-      await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toEqual([]);
-    expect(
-      await h.native.run((ctx) => ctx.db.query("cleanupJobs").collect()),
-    ).toMatchObject([
+    expect(await h.rows("localImports")).toEqual([]);
+    expect(await h.rows("cleanupJobs")).toMatchObject([
       { kind: "frame", resourceId: publication.frameRow.id, state: "pending" },
     ]);
     await expect(
       h.nativeMetadata.commitImportedFrame(publication),
     ).rejects.toBeInstanceOf(ImportPublicationRejectedError);
-    expect(
-      await h.native.query(internal.host.getDataTable, {
-        workspaceId: "workspace",
-        id: h.tableId,
-      }),
-    ).not.toHaveProperty("dataFrameId");
+    expect(await h.dataTable()).not.toHaveProperty("dataFrameId");
   });
 
   it("rejects publication when the workspace is cleared during connector fetch", async () => {
@@ -590,34 +521,14 @@ describe("connector snapshot publication", () => {
     });
     const executing = h.execute();
     await queryStarted;
-    expect(
-      await h.native.run((ctx) => ctx.db.query("localImports").collect()),
-    ).toHaveLength(1);
+    expect(await h.rows("localImports")).toHaveLength(1);
     await h.native.mutation(internal.host.clearAllData, {
       workspaceId: "workspace",
     });
-    await h.native.run(async (ctx) => {
-      await ctx.db.insert("dataSources", {
-        workspaceId: "workspace",
-        id: h.dataSourceId,
-        revision: 1,
-        name: "Notion",
-        kind: "notion",
-        config: { apiKey: `secret:${crypto.randomUUID()}` },
-        createdAt: 0,
-      });
-      await ctx.db.insert("dataTables", {
-        workspaceId: "workspace",
-        id: h.tableId,
-        revision: 1,
-        name: "Values",
-        dataSourceId: h.dataSourceId,
-        table: "remote-database",
-        fields: h.fields,
-        metrics: [],
-        sourceSchema: null,
-        createdAt: 0,
-      });
+    await seedNotionTable(h.native, {
+      dataSourceId: h.dataSourceId,
+      tableId: h.tableId,
+      fields: h.fields,
     });
     releaseQuery();
     await expect(executing).rejects.toBeInstanceOf(
@@ -625,12 +536,7 @@ describe("connector snapshot publication", () => {
     );
     expect(h.commitImportedFrame).toHaveBeenCalledOnce();
     expect(h.bytes.size).toBe(0);
-    expect(
-      await h.native.query(internal.host.getDataTable, {
-        workspaceId: "workspace",
-        id: h.tableId,
-      }),
-    ).not.toHaveProperty("dataFrameId");
+    expect(await h.dataTable()).not.toHaveProperty("dataFrameId");
   });
 
   it("does not let an older connector fetch overwrite a newer snapshot", async () => {
@@ -655,12 +561,9 @@ describe("connector snapshot publication", () => {
     const second = await h.execute();
     releaseFirst();
     await expect(first).rejects.toBeInstanceOf(ImportPublicationRejectedError);
-    expect(
-      await h.native.query(internal.host.getDataTable, {
-        workspaceId: "workspace",
-        id: h.tableId,
-      }),
-    ).toMatchObject({ dataFrameId: second.dataFrameId });
+    expect(await h.dataTable()).toMatchObject({
+      dataFrameId: second.dataFrameId,
+    });
     expect(h.bytes.size).toBe(1);
   });
 });

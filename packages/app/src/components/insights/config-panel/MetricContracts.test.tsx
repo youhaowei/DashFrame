@@ -98,28 +98,21 @@ describe("new metric contracts", () => {
     );
   });
 
-  it.each([
-    [
-      "activeUsers",
-      "Not additive across weeks or channels",
-      expectedContracts.activeUsers,
-    ],
-  ] as const)(
-    "inherits the GA4 %s contract from connector metadata",
-    async (columnName, description, contract) => {
-      const onAdd = vi.fn();
-      const user = await addSum(table(columnName, true), onAdd);
+  it("inherits the GA4 activeUsers contract from connector metadata", async () => {
+    const onAdd = vi.fn();
+    const user = await addSum(table("activeUsers", true), onAdd);
 
-      expect(screen.getByText(description)).toBeTruthy();
-      await user.click(
-        screen.getByRole("button", { name: "Add", exact: true }),
-      );
+    expect(
+      screen.getByText("Not additive across weeks or channels"),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Add", exact: true }));
 
-      await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(1));
-      expect(onAdd.mock.calls[0]![0]).toMatchObject({ columnName, contract });
-    },
-    10_000,
-  );
+    await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(1));
+    expect(onAdd.mock.calls[0]![0]).toMatchObject({
+      columnName: "activeUsers",
+      contract: expectedContracts.activeUsers,
+    });
+  }, 10_000);
 
   it("guards active users on a repaired v1 GA4 table that only has a date", async () => {
     const onAdd = vi.fn();

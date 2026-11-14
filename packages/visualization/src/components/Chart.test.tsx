@@ -48,6 +48,16 @@ function makeRenderer(
   };
 }
 
+function barChart(tableName: string, encoding: Record<string, string>) {
+  return (
+    <Chart
+      tableName={tableName}
+      visualizationType={"barY" as VisualizationType}
+      encoding={encoding}
+    />
+  );
+}
+
 describe("Chart renderer resolution", () => {
   beforeEach(() => {
     clearRegistry();
@@ -72,13 +82,7 @@ describe("Chart renderer resolution", () => {
       error: null,
     });
 
-    render(
-      <Chart
-        tableName="insight_view_x"
-        visualizationType={"barY" as VisualizationType}
-        encoding={{ x: "a", y: "b" }}
-      />,
-    );
+    render(barChart("insight_view_x", { x: "a", y: "b" }));
 
     // Exactly one render, and it must be the context (WASM) renderer — proving
     // the per-insight fallback routes to the provider's engine, not the global
@@ -102,13 +106,7 @@ describe("Chart renderer resolution", () => {
       error: null,
     });
 
-    render(
-      <Chart
-        tableName="t"
-        visualizationType={"barY" as VisualizationType}
-        encoding={{ x: "a", y: "b" }}
-      />,
-    );
+    render(barChart("t", { x: "a", y: "b" }));
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.tag).toBe("global");
@@ -128,13 +126,7 @@ describe("Chart renderer resolution", () => {
       error: null,
     });
 
-    render(
-      <Chart
-        tableName="insight_view_fallback"
-        visualizationType={"barY" as VisualizationType}
-        encoding={{ x: "a", y: "b" }}
-      />,
-    );
+    render(barChart("insight_view_fallback", { x: "a", y: "b" }));
 
     // No render happened — the wrong-engine flash is prevented.
     expect(calls).toHaveLength(0);
@@ -153,31 +145,15 @@ describe("Chart renderer resolution", () => {
     });
 
     const { rerender } = render(
-      <Chart
-        tableName="insight_view_x"
-        visualizationType={"barY" as VisualizationType}
-        encoding={{ x: "category", y: "sum(value)" }}
-      />,
+      barChart("insight_view_x", { x: "category", y: "sum(value)" }),
     );
 
-    rerender(
-      <Chart
-        tableName="insight_view_x"
-        visualizationType={"barY" as VisualizationType}
-        encoding={{ x: "category", y: "sum(value)" }}
-      />,
-    );
+    rerender(barChart("insight_view_x", { x: "category", y: "sum(value)" }));
 
     expect(renderer.render).toHaveBeenCalledTimes(1);
     expect(cleanup).not.toHaveBeenCalled();
 
-    rerender(
-      <Chart
-        tableName="insight_view_x"
-        visualizationType={"barY" as VisualizationType}
-        encoding={{ x: "category", y: "avg(value)" }}
-      />,
-    );
+    rerender(barChart("insight_view_x", { x: "category", y: "avg(value)" }));
 
     expect(renderer.render).toHaveBeenCalledTimes(2);
     expect(cleanup).toHaveBeenCalledTimes(1);
@@ -194,11 +170,11 @@ describe("Chart renderer resolution", () => {
       error: null,
     });
     render(
-      <Chart
-        tableName="insight_view_x"
-        visualizationType={"barY" as VisualizationType}
-        encoding={{ x: "category", y: "sum(value)", color: "channel" }}
-      />,
+      barChart("insight_view_x", {
+        x: "category",
+        y: "sum(value)",
+        color: "channel",
+      }),
     );
     expect(renderer.render).toHaveBeenCalledTimes(1);
 
