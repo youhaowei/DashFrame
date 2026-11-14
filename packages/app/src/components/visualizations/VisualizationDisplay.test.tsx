@@ -499,11 +499,27 @@ describe("VisualizationDisplay — declared runtime controls", () => {
         filters: [{ key: "status", filterId: savedFilter.id, label: "Status" }],
       },
     } as Insight;
+    // A required filter is left without a value, as on a tile that never
+    // held an override: the host asks for one, and the popover offers Pin.
+    const nowRequiredIn = {
+      ...nowIn,
+      runtimeControls: {
+        filters: [
+          {
+            key: "status",
+            filterId: savedFilter.id,
+            label: "Status",
+            required: true,
+          },
+        ],
+      },
+    } as Insight;
     for (const [target, override] of [
       [ambiguous, paused],
       [insight, { ...paused, operator: "ne" }],
       [nowIn, { ...paused, id: savedFilter.id }],
       [noClear, { ...paused, id: savedFilter.id, value: null, cleared: true }],
+      [nowRequiredIn, { ...paused, id: savedFilter.id }],
     ] as const) {
       expect(
         resolveDashboardRuntime(target, [dataTable], { filters: [override] }),
