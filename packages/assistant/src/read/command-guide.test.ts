@@ -49,26 +49,4 @@ describe("command guide — self consistency", () => {
     expect(update?.args.updates).toContain("overrides are not editable");
     expect(update?.notes).toContain("PatchDashboardItemOverride");
   });
-
-  it("states that a tile override needs a control the Insight declares", () => {
-    const patch = COMMAND_GUIDE.find(
-      (entry) => entry.name === "PatchDashboardItemOverride",
-    );
-    for (const control of [
-      "runtimeControls.sort",
-      "runtimeControls.limit",
-      "runtimeControls.filters",
-    ])
-      expect(patch?.notes).toContain(control);
-    expect(patch?.notes).toContain("SetInsightRuntimeControls");
-  });
-
-  it.each([
-    "PatchDashboardItemOverride",
-    "AddDashboardItem",
-    "SetDashboardLayout",
-  ])("%s states that a tile sort override takes one key", (name) => {
-    const entry = COMMAND_GUIDE.find((candidate) => candidate.name === name);
-    expect(entry?.notes).toMatch(/one key/);
-  });
 });

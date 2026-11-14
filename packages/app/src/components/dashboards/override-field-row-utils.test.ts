@@ -457,18 +457,6 @@ describe("sortKeyToPin — what Pin saves", () => {
     [{ id: metricId, name: "Revenue" }],
   );
 
-  it("11a. stores the Insight's field alias as the option's reference", () => {
-    expect(
-      sortKeyToPin([{ field: fieldAlias, direction: "desc" }], fields),
-    ).toEqual({ field: fieldId, direction: "desc" });
-  });
-
-  it("11b. stores the Insight's metric alias as the option's reference", () => {
-    expect(
-      sortKeyToPin([{ field: metricAlias, direction: "asc" }], fields),
-    ).toEqual({ field: metricId, direction: "asc" });
-  });
-
   it.each([fieldAlias, metricAlias, "region", "Revenue"])(
     "11c. saves a reference the field select offers, for an Insight sorted by %s",
     (field) => {

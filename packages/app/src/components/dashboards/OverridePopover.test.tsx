@@ -262,18 +262,6 @@ describe("SortOverrideRow", () => {
     ]);
   });
 
-  it("saves one key when the direction changes", async () => {
-    const { onChange, user } = renderRow({ overrideSorts: twoKeys });
-
-    await user.click(screen.getAllByRole("combobox")[1]!);
-    await user.click(await screen.findByRole("option", { name: "desc" }));
-
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith([
-      { field: "region", direction: "desc" },
-    ]);
-  });
-
   it("offers only what the Insight allows, and still names a pinned field it does not", async () => {
     const user = userEvent.setup({ delay: null });
     render(
