@@ -18,7 +18,7 @@ import {
   TestBackend,
 } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
-import { createServer, type Socket } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
 import {
   afterEach,
   beforeEach,
@@ -574,18 +574,39 @@ describe("queryBatches PostgreSQL cursor", () => {
     };
   }
 
+  /** A client whose every FETCH returns `rows`; other statements return nothing. */
+  function fetchOnlyClient(
+    rows: Record<string, unknown>[],
+    rowFields: PgFieldDef[],
+  ): PgClientLike & { end: ReturnType<typeof vi.fn> } {
+    const spy = vi.fn((arg: string | PgQueryConfig) => {
+      const upper = callText(arg).toUpperCase();
+      return Promise.resolve(
+        upper.startsWith("FETCH")
+          ? { rows, fields: rowFields }
+          : { rows: [], fields: [] },
+      );
+    });
+    return {
+      query: spy as unknown as PgClientLike["query"],
+      end: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  async function collect<T>(batches: AsyncIterable<T>): Promise<T[]> {
+    const collected: T[] = [];
+    for await (const batch of batches) collected.push(batch);
+    return collected;
+  }
+
   it("streams more than 10,000 rows in bounded batches and preserves the tail", async () => {
     const client = cursorClient(10_005);
     const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
-    const batches = [];
-
-    for await (const batch of connector.queryBatches(
-      "public.large_table",
-      crypto.randomUUID(),
-      { batchRows: 2_048 },
-    )) {
-      batches.push(batch);
-    }
+    const batches = await collect(
+      connector.queryBatches("public.large_table", crypto.randomUUID(), {
+        batchRows: 2_048,
+      }),
+    );
 
     expect(batches.map((batch) => batch.rowCount)).toEqual([
       2_048, 2_048, 2_048, 2_048, 1_813,
@@ -617,13 +638,9 @@ describe("queryBatches PostgreSQL cursor", () => {
     const client = cursorClient(0);
     const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
 
-    const batches = [];
-    for await (const batch of connector.queryBatches(
-      "public.empty_table",
-      crypto.randomUUID(),
-    )) {
-      batches.push(batch);
-    }
+    const batches = await collect(
+      connector.queryBatches("public.empty_table", crypto.randomUUID()),
+    );
 
     expect(batches).toHaveLength(1);
     expect(batches[0]!.rowCount).toBe(0);
@@ -636,31 +653,17 @@ describe("queryBatches PostgreSQL cursor", () => {
 
   it("preserves non-finite PostgreSQL float values in Arrow", async () => {
     const nonFiniteFields: PgFieldDef[] = [{ name: "value", dataTypeID: 701 }];
-    const spy = vi.fn((arg: string | PgQueryConfig) => {
-      const upper = callText(arg).toUpperCase();
-      return Promise.resolve(
-        upper.startsWith("FETCH")
-          ? {
-              rows: [{ value: Infinity }, { value: -Infinity }, { value: NaN }],
-              fields: nonFiniteFields,
-            }
-          : { rows: [], fields: [] },
-      );
-    });
-    const client: PgClientLike = {
-      query: spy as unknown as PgClientLike["query"],
-      end: vi.fn().mockResolvedValue(undefined),
-    };
+    const client = fetchOnlyClient(
+      [{ value: Infinity }, { value: -Infinity }, { value: NaN }],
+      nonFiniteFields,
+    );
     const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
 
-    const batches = [];
-    for await (const batch of connector.queryBatches(
-      "public.measurements",
-      crypto.randomUUID(),
-      { batchRows: 10 },
-    )) {
-      batches.push(batch);
-    }
+    const batches = await collect(
+      connector.queryBatches("public.measurements", crypto.randomUUID(), {
+        batchRows: 10,
+      }),
+    );
 
     const arrow = tableFromIPC(Buffer.from(batches[0]!.arrowBuffer, "base64"));
     const values = [0, 1, 2].map((index) =>
@@ -702,18 +705,7 @@ describe("queryBatches PostgreSQL cursor", () => {
       const incompatibleFields: PgFieldDef[] = [
         { name: "value", dataTypeID: oid },
       ];
-      const spy = vi.fn((arg: string | PgQueryConfig) => {
-        const upper = callText(arg).toUpperCase();
-        return Promise.resolve(
-          upper.startsWith("FETCH")
-            ? { rows: [{ value }], fields: incompatibleFields }
-            : { rows: [], fields: [] },
-        );
-      });
-      const client: PgClientLike = {
-        query: spy as unknown as PgClientLike["query"],
-        end: vi.fn().mockResolvedValue(undefined),
-      };
+      const client = fetchOnlyClient([{ value }], incompatibleFields);
       const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
       const iterator = connector
         .queryBatches("public.values", crypto.randomUUID(), { batchRows: 10 })
@@ -730,31 +722,17 @@ describe("queryBatches PostgreSQL cursor", () => {
       { name: "active", dataTypeID: 16 },
       { name: "occurred_at", dataTypeID: 1184 },
     ];
-    const spy = vi.fn((arg: string | PgQueryConfig) => {
-      const upper = callText(arg).toUpperCase();
-      return Promise.resolve(
-        upper.startsWith("FETCH")
-          ? {
-              rows: [{ active: true, occurred_at: occurredAt }],
-              fields: nativeFields,
-            }
-          : { rows: [], fields: [] },
-      );
-    });
-    const client: PgClientLike = {
-      query: spy as unknown as PgClientLike["query"],
-      end: vi.fn().mockResolvedValue(undefined),
-    };
+    const client = fetchOnlyClient(
+      [{ active: true, occurred_at: occurredAt }],
+      nativeFields,
+    );
     const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
 
-    const batches = [];
-    for await (const batch of connector.queryBatches(
-      "public.events",
-      crypto.randomUUID(),
-      { batchRows: 10 },
-    )) {
-      batches.push(batch);
-    }
+    const batches = await collect(
+      connector.queryBatches("public.events", crypto.randomUUID(), {
+        batchRows: 10,
+      }),
+    );
 
     const arrow = tableFromIPC(Buffer.from(batches[0]!.arrowBuffer, "base64"));
     expect(arrow.getChild("active")?.get(0)).toBe(true);
@@ -831,18 +809,16 @@ describe("queryBatches PostgreSQL cursor", () => {
     expect(client.end).toHaveBeenCalled();
   });
 
-  it("settles a real pg pending connect when aborted", async () => {
-    const sockets = new Set<Socket>();
-    let acceptConnection!: () => void;
-    const accepted = new Promise<void>((resolve) => {
-      acceptConnection = resolve;
-    });
-    const server = createServer((socket) => {
-      sockets.add(socket);
-      socket.once("close", () => sockets.delete(socket));
-      acceptConnection();
-      // Deliberately never send a PostgreSQL startup response.
-    });
+  /**
+   * Starts a cursor read against `server`, aborts it once `reached` settles,
+   * and expects the pending read to settle promptly; then tears everything down.
+   */
+  async function expectAbortSettles(
+    server: Server,
+    sockets: Set<Socket>,
+    reached: Promise<void>,
+    stage: "connect" | "query",
+  ) {
     await new Promise<void>((resolve) => {
       server.listen(0, "127.0.0.1", resolve);
     });
@@ -863,13 +839,13 @@ describe("queryBatches PostgreSQL cursor", () => {
     let deadline: ReturnType<typeof setTimeout> | undefined;
 
     try {
-      await accepted;
+      await reached;
       abort.abort(new Error("cancelled"));
       const boundedPending = Promise.race([
         pending,
         new Promise<never>((_resolve, reject) => {
           deadline = setTimeout(
-            () => reject(new Error("pending connect did not settle")),
+            () => reject(new Error(`pending ${stage} did not settle`)),
             1_000,
           );
         }),
@@ -889,6 +865,21 @@ describe("queryBatches PostgreSQL cursor", () => {
         });
       });
     }
+  }
+
+  it("settles a real pg pending connect when aborted", async () => {
+    const sockets = new Set<Socket>();
+    let acceptConnection!: () => void;
+    const accepted = new Promise<void>((resolve) => {
+      acceptConnection = resolve;
+    });
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+      acceptConnection();
+      // Deliberately never send a PostgreSQL startup response.
+    });
+    await expectAbortSettles(server, sockets, accepted, "connect");
   });
 
   it("settles a real pg pending query when aborted", async () => {
@@ -946,52 +937,7 @@ describe("queryBatches PostgreSQL cursor", () => {
         }
       });
     });
-    await new Promise<void>((resolve) => {
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    const address = server.address();
-    if (!address || typeof address === "string") {
-      throw new Error("Expected a loopback TCP address");
-    }
-
-    const dsn = `postgresql://user:pass@127.0.0.1:${address.port}/db`;
-    const connector = new PostgresConnector((use) => use(dsn), baseConfig);
-    const abort = new AbortController();
-    const iterator = connector
-      .queryBatches("public.users", crypto.randomUUID(), {
-        signal: abort.signal,
-      })
-      [Symbol.asyncIterator]();
-    const pending = iterator.next();
-    let deadline: ReturnType<typeof setTimeout> | undefined;
-
-    try {
-      await fetchStarted;
-      abort.abort(new Error("cancelled"));
-      const boundedPending = Promise.race([
-        pending,
-        new Promise<never>((_resolve, reject) => {
-          deadline = setTimeout(
-            () => reject(new Error("pending query did not settle")),
-            1_000,
-          );
-        }),
-      ]);
-      await expect(boundedPending).rejects.toThrow(
-        "Connection terminated unexpectedly",
-      );
-    } finally {
-      if (deadline) clearTimeout(deadline);
-      for (const socket of sockets) socket.destroy();
-      await pending.catch(() => undefined);
-      await iterator.return?.().catch(() => undefined);
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      });
-    }
+    await expectAbortSettles(server, sockets, fetchStarted, "query");
   });
 });
 

@@ -85,6 +85,23 @@ function makeResponse(
   } as unknown as Response;
 }
 
+/** Stub global fetch to answer each call with the next response, in order. */
+function stubFetch(...responses: Response[]) {
+  const mockFetch = vi.fn();
+  for (const response of responses) mockFetch.mockResolvedValueOnce(response);
+  vi.stubGlobal("fetch", mockFetch);
+  return mockFetch;
+}
+
+const API_ENDPOINT = "https://api.example.com/data";
+
+/** A connector for the test API endpoint with no credentials. */
+function publicRest(
+  config: Partial<Parameters<typeof makeRestConnector>[1]> = {},
+) {
+  return makeRestConnector(noopResolver, { endpoint: API_ENDPOINT, ...config });
+}
+
 // ---------------------------------------------------------------------------
 // Unit: extractRows
 // ---------------------------------------------------------------------------
@@ -113,9 +130,7 @@ describe("RestConnector", () => {
   // -------------------------------------------------------------------------
 
   describe("validate()", () => {
-    const c = makeRestConnector(noopResolver, {
-      endpoint: "https://api.example.com/data",
-    });
+    const c = publicRest();
 
     it("fails when endpoint is missing", () => {
       const result = c.validate({});
@@ -160,8 +175,7 @@ describe("RestConnector", () => {
   /* oxlint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets the fetch sink must refuse. */
   describe("fetch-sink SSRF guard", () => {
     it("query() refuses a private endpoint BEFORE any fetch", async () => {
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch();
       const c = makeRestConnector(noopResolver, {
         // IPv4-mapped form URL.hostname normalizes to ::ffff:a9fe:a9fe — the
         // cloud-metadata SSRF target. The fetch sink must reject it.
@@ -179,16 +193,13 @@ describe("RestConnector", () => {
       // manually (redirect:"manual") and re-validate each Location — the private
       // hop must be refused. The mock returns the 302; the connector resolves
       // and re-checks the target itself.
-      const mockFetch = vi.fn().mockResolvedValueOnce(
+      const mockFetch = stubFetch(
         makeResponse(null, {
           status: 302,
           location: "http://169.254.169.254/latest/meta-data/",
         }),
       );
-      vi.stubGlobal("fetch", mockFetch);
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
+      const c = publicRest();
       await expect(c.query("db", crypto.randomUUID())).rejects.toThrow(
         /private\/internal|SSRF/i,
       );
@@ -204,16 +215,13 @@ describe("RestConnector", () => {
       // this test blind (no token to leak).
       const { vault, ref } =
         await makeTestVaultWithSecret("super-secret-token");
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          makeResponse(null, {
-            status: 302,
-            location: "https://other.example.net/data",
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        makeResponse(null, {
+          status: 302,
+          location: "https://other.example.net/data",
+        }),
+        makeResponse([{ id: 1 }]),
+      );
       const c = makeRestConnector(makeBoundResolver(vault, ref), {
         endpoint: "https://api.example.com/data",
         authRef: ref,
@@ -237,17 +245,14 @@ describe("RestConnector", () => {
     it("keeps the Authorization header on a same-host scheme upgrade", async () => {
       const { vault, ref } =
         await makeTestVaultWithSecret("super-secret-token");
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          // http→https on the SAME host: a credential-preserving upgrade.
-          makeResponse(null, {
-            status: 302,
-            location: "https://api.example.com/data",
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        // http→https on the SAME host: a credential-preserving upgrade.
+        makeResponse(null, {
+          status: 302,
+          location: "https://api.example.com/data",
+        }),
+        makeResponse([{ id: 1 }]),
+      );
       const c = makeRestConnector(makeBoundResolver(vault, ref), {
         // http→https same-host upgrade keeps auth (covered by the block-level
         // no-clear-text-protocols disable above).
@@ -269,16 +274,13 @@ describe("RestConnector", () => {
       // https→http on the same host re-sends the Bearer over cleartext — drop it.
       const { vault, ref } =
         await makeTestVaultWithSecret("super-secret-token");
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          makeResponse(null, {
-            status: 302,
-            location: "http://api.example.com/data",
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        makeResponse(null, {
+          status: 302,
+          location: "http://api.example.com/data",
+        }),
+        makeResponse([{ id: 1 }]),
+      );
       const c = makeRestConnector(makeBoundResolver(vault, ref), {
         endpoint: "https://api.example.com/data",
         authRef: ref,
@@ -302,15 +304,10 @@ describe("RestConnector", () => {
     it("follows next_cursor until absent", async () => {
       const page1 = { data: [{ id: 1 }], next_cursor: "cursor-abc" };
       const page2 = { data: [{ id: 2 }] };
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse(page1))
-        .mockResolvedValueOnce(makeResponse(page2));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(makeResponse(page1), makeResponse(page2));
 
       const tableId = crypto.randomUUID();
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "cursor",
         rowPath: "data",
       });
@@ -331,15 +328,10 @@ describe("RestConnector", () => {
     it("fetches page 1 then page 2, stops when page 2 has fewer than pageSize rows", async () => {
       const page1 = [{ id: 1 }, { id: 2 }];
       const page2 = [{ id: 3 }]; // < pageSize=2 → stop
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse(page1))
-        .mockResolvedValueOnce(makeResponse(page2));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(makeResponse(page1), makeResponse(page2));
 
       const tableId = crypto.randomUUID();
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "page-number",
         paginationParams: { pageSize: 2 },
       });
@@ -358,11 +350,10 @@ describe("RestConnector", () => {
   describe("rowPath + fieldMap", () => {
     it("extracts nested rows and renames keys", async () => {
       const body = { results: [{ id: 1, full_name: "Alice" }] };
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(makeResponse(body)));
+      stubFetch(makeResponse(body));
 
       const tableId = crypto.randomUUID();
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         rowPath: "results",
         fieldMap: { full_name: "name" },
       });
@@ -437,8 +428,7 @@ describe("RestConnector", () => {
         throw new Error("No secret available — vault missing or ref invalid");
       };
 
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch();
 
       const tableId = crypto.randomUUID();
       const c = makeRestConnector(failResolver, {
@@ -535,8 +525,7 @@ describe("RestConnector", () => {
     it("throws BEFORE fetch when authRef is configured and the token is empty", async () => {
       // A resolver that yields an empty token (miswired factory / deleted secret).
       const emptyTokenResolver: SecretResolver = (use) => use("");
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch();
 
       const c = makeRestConnector(emptyTokenResolver, {
         endpoint: "https://api.example.com/data",
@@ -562,14 +551,9 @@ describe("RestConnector", () => {
       const malicious = JSON.parse(
         '[{"id": 1, "__proto__": "evil", "constructor": "bad"}]',
       );
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValueOnce(makeResponse(malicious)),
-      );
+      stubFetch(makeResponse(malicious));
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
+      const c = publicRest();
       const result = await c.query("db", crypto.randomUUID());
 
       // The reserved keys are dropped — never become columns (they cannot be
@@ -596,8 +580,7 @@ describe("RestConnector", () => {
       const mockFetch = vi.fn().mockResolvedValue(makeResponse(fullPage));
       vi.stubGlobal("fetch", mockFetch);
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "offset",
         paginationParams: { pageSize: 100 },
       });
@@ -617,18 +600,14 @@ describe("RestConnector", () => {
 
   describe("relative Link header resolution", () => {
     it("resolves a relative rel=next link against the current page URL", async () => {
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          makeResponse([{ id: 1 }], {
-            linkHeader: '</data?page=2>; rel="next"',
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse([{ id: 2 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        makeResponse([{ id: 1 }], {
+          linkHeader: '</data?page=2>; rel="next"',
+        }),
+        makeResponse([{ id: 2 }]),
+      );
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "link-header",
       });
       await c.query("db", crypto.randomUUID());
@@ -649,14 +628,9 @@ describe("RestConnector", () => {
     it("coerces a string pageSize so offset increments numerically", async () => {
       const page1 = Array.from({ length: 3 }, (_, i) => ({ id: i }));
       const page2: unknown[] = [];
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse(page1))
-        .mockResolvedValueOnce(makeResponse(page2));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(makeResponse(page1), makeResponse(page2));
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "offset",
         // String pageSize — must be coerced, not string-concatenated.
         paginationParams: { pageSize: "3" },
@@ -679,18 +653,9 @@ describe("RestConnector", () => {
     it("maps an empty-string cell in a numeric column to null, not a fabricated 0", async () => {
       // First row types the column number; second row's "" must become null,
       // NOT 0 (Number("") === 0 would fabricate a real zero reading).
-      vi.stubGlobal(
-        "fetch",
-        vi
-          .fn()
-          .mockResolvedValueOnce(
-            makeResponse([{ amount: "42" }, { amount: "" }]),
-          ),
-      );
+      stubFetch(makeResponse([{ amount: "42" }, { amount: "" }]));
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
+      const c = publicRest();
       const result = await c.query("db", crypto.randomUUID());
 
       const amountField = result.fields.find((f) => f.name === "amount");
@@ -707,18 +672,9 @@ describe("RestConnector", () => {
     it("coerces yes/no boolean strings to boolean (matches engine inference)", async () => {
       // The engine's inferStringColumnType classifies "yes"/"no" as boolean.
       // Coercion must agree — NOT null these values out (data loss).
-      vi.stubGlobal(
-        "fetch",
-        vi
-          .fn()
-          .mockResolvedValueOnce(
-            makeResponse([{ active: "yes" }, { active: "no" }]),
-          ),
-      );
+      stubFetch(makeResponse([{ active: "yes" }, { active: "no" }]));
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
+      const c = publicRest();
       const result = await c.query("db", crypto.randomUUID());
 
       const activeField = result.fields.find((f) => f.name === "active");
@@ -746,11 +702,9 @@ describe("RestConnector", () => {
     });
 
     it("query() rejects a colliding fieldMap before fetching", async () => {
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch();
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         fieldMap: { a: "dup", b: "dup" },
       });
       await expect(c.query("db", crypto.randomUUID())).rejects.toThrow(
@@ -769,14 +723,12 @@ describe("RestConnector", () => {
       const linkHeader =
         '<https://api.example.com/data?page=1>; rel="prev", ' +
         '<https://api.example.com/data?page=3>; rel="next"';
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }], { linkHeader }))
-        .mockResolvedValueOnce(makeResponse([{ id: 2 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        makeResponse([{ id: 1 }], { linkHeader }),
+        makeResponse([{ id: 2 }]),
+      );
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "link-header",
       });
       await c.query("db", crypto.randomUUID());
@@ -792,14 +744,12 @@ describe("RestConnector", () => {
       // A comma inside the angle-bracketed URL must NOT split the entry.
       const linkHeader =
         '<https://api.example.com/data?ids=1,2,3&page=2>; rel="next"';
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }], { linkHeader }))
-        .mockResolvedValueOnce(makeResponse([{ id: 2 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        makeResponse([{ id: 1 }], { linkHeader }),
+        makeResponse([{ id: 2 }]),
+      );
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "link-header",
       });
       await c.query("db", crypto.randomUUID());
@@ -813,13 +763,9 @@ describe("RestConnector", () => {
     it("does NOT treat rel=nextpage as a next-link (token boundary)", async () => {
       // Unquoted `rel=nextpage` must not match the `next` token.
       const linkHeader = "<https://api.example.com/data?page=2>; rel=nextpage";
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }], { linkHeader }));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(makeResponse([{ id: 1 }], { linkHeader }));
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "link-header",
       });
       await c.query("db", crypto.randomUUID());

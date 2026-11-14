@@ -37,6 +37,8 @@ vi.mock("@dashframe/json", () => ({
   }),
 }));
 
+type TableId = `${string}-${string}-${string}-${string}-${string}`;
+
 describe("LocalFileConnector", () => {
   let connector: LocalFileConnector;
 
@@ -45,49 +47,32 @@ describe("LocalFileConnector", () => {
     vi.clearAllMocks();
   });
 
+  /** Parses `content` as a file named `name`, optionally reporting `size`. */
+  function parse(content: string, name: string, type: string, size?: number) {
+    const file = new File([content], name, { type });
+    if (size !== undefined)
+      Object.defineProperty(file, "size", { value: size });
+    return connector.parse(file, "test-uuid" as TableId);
+  }
+
   describe("parse - file size validation", () => {
     it("should reject files exceeding the 16MB source limit", async () => {
-      const largeSize = 17 * 1024 * 1024;
-      const file = new File(["name,value\na,1"], "large.csv", {
-        type: "text/csv",
-      });
-      Object.defineProperty(file, "size", { value: largeSize });
-
       await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
+        parse("name,value\na,1", "large.csv", "text/csv", 17 * 1024 * 1024),
       ).rejects.toThrow("File size exceeds 16MB limit");
     });
 
     it("should accept files at exactly the 16MB source limit", async () => {
-      const exactSize = 16 * 1024 * 1024;
-      const file = new File(["name,value\na,1"], "exact.csv", {
-        type: "text/csv",
-      });
-      Object.defineProperty(file, "size", { value: exactSize });
-
       await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
+        parse("name,value\na,1", "exact.csv", "text/csv", 16 * 1024 * 1024),
       ).resolves.toBeDefined();
     });
   });
 
   describe("parse - file extension validation", () => {
     it("should reject unsupported file extensions", async () => {
-      const file = new File(["some content"], "document.txt", {
-        type: "text/plain",
-      });
-
       await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
+        parse("some content", "document.txt", "text/plain"),
       ).rejects.toThrow(
         "Unsupported file format: .txt. Supported formats: csv, json",
       );
@@ -103,39 +88,20 @@ describe("LocalFileConnector", () => {
     });
 
     it("should handle uppercase CSV extension", async () => {
-      const file = new File(["name,value\nAlice,30"], "DATA.CSV", {
-        type: "text/csv",
-      });
-
-      await connector.parse(
-        file,
-        "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-      );
+      await parse("name,value\nAlice,30", "DATA.CSV", "text/csv");
 
       expect(mockCsvToDataFrame).toHaveBeenCalled();
     });
 
     it("should reject empty CSV files", async () => {
-      const file = new File([""], "empty.csv", { type: "text/csv" });
-
-      await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
-      ).rejects.toThrow("CSV file is empty");
+      await expect(parse("", "empty.csv", "text/csv")).rejects.toThrow(
+        "CSV file is empty",
+      );
     });
 
     it("should reject CSV files with only headers", async () => {
-      const file = new File(["name,value,count"], "headers-only.csv", {
-        type: "text/csv",
-      });
-
       await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
+        parse("name,value,count", "headers-only.csv", "text/csv"),
       ).rejects.toThrow("only headers found");
     });
   });
@@ -149,14 +115,10 @@ describe("LocalFileConnector", () => {
     });
 
     it("should parse JSON array files", async () => {
-      const content = '[{"name": "Alice", "age": 30}]';
-      const file = new File([content], "data.json", {
-        type: "application/json",
-      });
-
-      const result = await connector.parse(
-        file,
-        "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
+      const result = await parse(
+        '[{"name": "Alice", "age": 30}]',
+        "data.json",
+        "application/json",
       );
 
       expect(result).toBeDefined();
@@ -164,83 +126,46 @@ describe("LocalFileConnector", () => {
     });
 
     it("should parse JSON object files", async () => {
-      const content = '{"name": "Alice", "age": 30}';
-      const file = new File([content], "data.json", {
-        type: "application/json",
-      });
-
-      const result = await connector.parse(
-        file,
-        "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
+      const result = await parse(
+        '{"name": "Alice", "age": 30}',
+        "data.json",
+        "application/json",
       );
 
       expect(result).toBeDefined();
       expect(mockJsonToDataFrame).toHaveBeenCalled();
     });
 
-    it("should reject invalid JSON syntax", async () => {
-      const file = new File(["{invalid json}"], "invalid.json", {
-        type: "application/json",
-      });
-
-      await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
-      ).rejects.toThrow("Invalid JSON format");
-    });
-
-    it("should reject null JSON", async () => {
-      const file = new File(["null"], "null.json", {
-        type: "application/json",
-      });
-
-      await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
-      ).rejects.toThrow("must contain an array of objects or a single object");
-    });
-
-    it("should reject primitive JSON values", async () => {
-      const file = new File(["42"], "number.json", {
-        type: "application/json",
-      });
-
-      await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
-      ).rejects.toThrow("must contain an array of objects or a single object");
-    });
-
-    it("should reject empty JSON array", async () => {
-      const file = new File(["[]"], "empty.json", {
-        type: "application/json",
-      });
-
-      await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
-      ).rejects.toThrow("JSON array is empty");
-    });
-
-    it("should reject array of primitives", async () => {
-      const file = new File(["[1, 2, 3]"], "primitives.json", {
-        type: "application/json",
-      });
-
-      await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
-      ).rejects.toThrow("JSON array must contain objects");
+    it.each([
+      [
+        "invalid JSON syntax",
+        "{invalid json}",
+        "invalid.json",
+        "Invalid JSON format",
+      ],
+      [
+        "null JSON",
+        "null",
+        "null.json",
+        "must contain an array of objects or a single object",
+      ],
+      [
+        "primitive JSON values",
+        "42",
+        "number.json",
+        "must contain an array of objects or a single object",
+      ],
+      ["empty JSON array", "[]", "empty.json", "JSON array is empty"],
+      [
+        "array of primitives",
+        "[1, 2, 3]",
+        "primitives.json",
+        "JSON array must contain objects",
+      ],
+    ])("should reject %s", async (_label, content, name, message) => {
+      await expect(parse(content, name, "application/json")).rejects.toThrow(
+        message,
+      );
     });
   });
 });
