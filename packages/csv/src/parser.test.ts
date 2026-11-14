@@ -13,106 +13,85 @@ import { describe, expect, it } from "vite-plus/test";
 import { parseCSV } from "./parser";
 
 describe("parseCSV", () => {
-  describe("standard CSV parsing", () => {
-    it("should parse simple CSV correctly", () => {
-      const csv = "name,age\nAlice,30\nBob,25";
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
+  it.each<[string, string, string[][]]>([
+    [
+      "should parse simple CSV correctly",
+      "name,age\nAlice,30\nBob,25",
+      [
         ["name", "age"],
         ["Alice", "30"],
         ["Bob", "25"],
-      ]);
-    });
-  });
-
-  describe("quoted fields", () => {
-    it("should handle quoted fields with commas", () => {
-      const csv = 'name,description\nAlice,"Hello, World"';
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
+      ],
+    ],
+    [
+      "should handle quoted fields with commas",
+      'name,description\nAlice,"Hello, World"',
+      [
         ["name", "description"],
         ["Alice", "Hello, World"],
-      ]);
-    });
-
-    it("should handle escaped quotes (doubled quotes)", () => {
-      const csv = 'name,quote\nAlice,"She said ""hello"""';
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
+      ],
+    ],
+    [
+      "should handle escaped quotes (doubled quotes)",
+      'name,quote\nAlice,"She said ""hello"""',
+      [
         ["name", "quote"],
         ["Alice", 'She said "hello"'],
-      ]);
-    });
-
-    it("should handle newlines within quoted fields", () => {
-      const csv = 'name,address\nAlice,"123 Main St\nApt 4"';
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
+      ],
+    ],
+    [
+      "should handle newlines within quoted fields",
+      'name,address\nAlice,"123 Main St\nApt 4"',
+      [
         ["name", "address"],
         ["Alice", "123 Main St\nApt 4"],
-      ]);
-    });
-  });
-
-  describe("line endings", () => {
-    it("should handle Windows line endings (CRLF)", () => {
-      const csv = "a,b\r\n1,2\r\n3,4";
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
+      ],
+    ],
+    [
+      "should handle Windows line endings (CRLF)",
+      "a,b\r\n1,2\r\n3,4",
+      [
         ["a", "b"],
         ["1", "2"],
         ["3", "4"],
-      ]);
-    });
-
-    it("should handle old Mac line endings (CR)", () => {
-      const csv = "a,b\r1,2\r3,4";
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
+      ],
+    ],
+    [
+      "should handle old Mac line endings (CR)",
+      "a,b\r1,2\r3,4",
+      [
         ["a", "b"],
         ["1", "2"],
         ["3", "4"],
-      ]);
-    });
-  });
-
-  describe("edge cases", () => {
-    it("should handle trailing newline", () => {
-      const csv = "a,b\n1,2\n";
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
+      ],
+    ],
+    [
+      "should handle trailing newline",
+      "a,b\n1,2\n",
+      [
         ["a", "b"],
         ["1", "2"],
-      ]);
-    });
-
-    it("should handle empty fields", () => {
-      const csv = "a,b,c\n1,,3\n,2,";
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
+      ],
+    ],
+    [
+      "should handle empty fields",
+      "a,b,c\n1,,3\n,2,",
+      [
         ["a", "b", "c"],
         ["1", "", "3"],
         ["", "2", ""],
-      ]);
-    });
-
-    it("should skip empty rows", () => {
-      const csv = "a,b\n\n1,2\n\n3,4";
-      const result = parseCSV(csv);
-
-      expect(result).toEqual([
+      ],
+    ],
+    [
+      "should skip empty rows",
+      "a,b\n\n1,2\n\n3,4",
+      [
         ["a", "b"],
         ["1", "2"],
         ["3", "4"],
-      ]);
-    });
+      ],
+    ],
+  ])("%s", (_label, csv, expected) => {
+    expect(parseCSV(csv)).toEqual(expected);
   });
 });
