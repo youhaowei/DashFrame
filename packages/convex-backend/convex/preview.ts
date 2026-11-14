@@ -437,13 +437,20 @@ export async function preview(
       break;
     }
   }
-  // A later command can change a report it does not name: deleting a chart
-  // takes its tiles off every report. Show a directly edited report's tiles
-  // as the whole batch leaves them, not as its own commands left them.
+  // A later cascade can remove a node an earlier command kept, or take
+  // tiles off a directly edited report. Reconcile against the final graph.
   for (const [mapKey, node] of direct) {
+    const table = artifactTables.find((t) => artifactKinds[t] === node.kind)!;
+    const value = await graph.find(table, node.nodeId);
+    if (!value) {
+      direct.set(mapKey, {
+        ...node,
+        change: node.change === "noop" ? "update" : node.change,
+        proposedDefinition: { deleted: true },
+      });
+      continue;
+    }
     if (node.kind !== "dashboard") continue;
-    const value = await graph.find("dashboards", node.nodeId);
-    if (!value) continue;
     const base = await graph.baseline("dashboards", node.nodeId);
     const items = record(redact(publicRow("dashboards", value))).items!;
     const shown =
@@ -474,8 +481,15 @@ export async function preview(
       for (const [table, row] of await neighbours(graph, current)) {
         const e = edge(current.table, current.id, table, row, linkedFrameId),
           key = graphKey(table, row.id);
-        if (!e || visited.has(key) || direct.has(key)) continue;
+        if (!e || visited.has(key)) continue;
         visited.add(key);
+        const directNode = direct.get(key);
+        if (directNode) {
+          // Changed direct nodes walk their own downstream edges. Unchanged
+          // ones must still carry the upstream node's impact through them.
+          if (directNode.change === "noop") queue.push({ table, id: row.id });
+          continue;
+        }
         // A deleted chart takes its tiles with it, so its reports are edited
         // by the same commands, not left pointing at a chart that is gone.
         const losesTiles =

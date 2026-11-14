@@ -260,6 +260,28 @@ it("flags a report as losing tiles when its chart goes with a deleted insight", 
       ["dashboard", reportId, "losesTiles"],
     ]),
   );
+  // A chart kept by the first command still goes with its insight later.
+  const commands = [
+    cmd("DeleteNode", { id: visualizationId, ifUnused: true }),
+    cmd("DeleteNode", { id: insightId }),
+  ];
+  const keptThenDeleted = await user.query(api.app.previewDiff, { commands });
+  const committed = await user.mutation(api.app.commitBatch, { commands });
+  expect(committed.results[0]?.value).toMatchObject({
+    kept: { kind: "visualization", id: visualizationId },
+  });
+  expect(committed.results[1]?.value).toMatchObject({
+    removedTiles: [expect.objectContaining({ dashboardId: reportId })],
+  });
+  const report = await user.query(api.app.getDashboard, { id: reportId });
+  expect(report?.items).toEqual([]);
+  expect(keptThenDeleted.error).toBeUndefined();
+  expect(
+    keptThenDeleted.directNodes.find((n) => n.nodeId === visualizationId),
+  ).toMatchObject({ change: "update", proposedDefinition: { deleted: true } });
+  expect(downstreamFlags(keptThenDeleted)).toEqual([
+    ["dashboard", reportId, "losesTiles"],
+  ]);
 });
 
 it("keeps a report orphaned or stale when its chart is not deleted", async () => {
@@ -267,13 +289,17 @@ it("keeps a report orphaned or stale when its chart is not deleted", async () =>
   const reportId = await placeOnReport(visualizationId);
 
   // Deleting the source leaves the insight and its chart in place.
-  const deleted = await user.query(api.app.previewDiff, {
-    commands: [cmd("DeleteNode", { id: sourceId })],
-  });
+  const commands = [
+    cmd("DeleteNode", { id: insightId, ifUnused: true }),
+    cmd("DeleteNode", { id: sourceId }),
+  ];
+  const deleted = await user.query(api.app.previewDiff, { commands });
+  expect(deleted.directNodes.find((n) => n.nodeId === insightId)).toMatchObject(
+    { change: "noop", proposedDefinition: {} },
+  );
   expect(downstreamFlags(deleted)).toEqual(
     sorted([
       ["dataTable", tableId, "orphaned"],
-      ["insight", insightId, "orphaned"],
       ["visualization", visualizationId, "orphaned"],
       ["dashboard", reportId, "orphaned"],
     ]),
@@ -283,6 +309,16 @@ it("keeps a report orphaned or stale when its chart is not deleted", async () =>
     commands: [cmd("RenameNode", { id: visualizationId, name: "Renamed" })],
   });
   expect(downstreamFlags(renamed)).toEqual([["dashboard", reportId, "stale"]]);
+
+  await user.mutation(api.app.commitBatch, { commands });
+  expect(
+    await user.query(api.app.getInsight, { id: insightId }),
+  ).not.toBeNull();
+  expect(
+    await user.query(api.app.getVisualization, { id: visualizationId }),
+  ).not.toBeNull();
+  const report = await user.query(api.app.getDashboard, { id: reportId });
+  expect(report?.items).toHaveLength(1);
 });
 
 it("previews an ifUnused delete of a node in use as no change", async () => {
