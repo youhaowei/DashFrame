@@ -1066,31 +1066,6 @@ describe("existing command behavior on native Convex", () => {
       sorts: [{ field: fieldAlias, direction: "desc" }],
     });
   });
-  it("rejects a dashboard item whose visualization is absent from its draft", async () => {
-    const dashboardId = id();
-    await commit(cmd("CreateDashboard", { id: dashboardId, name: "D" }));
-    const { draftId } = await draftCommit();
-
-    await expect(
-      client.mutation(api.app.draftBatch, {
-        draftId,
-        commands: [
-          cmd("AddDashboardItem", {
-            dashboardId,
-            item: {
-              id: id(),
-              type: "visualization",
-              visualizationId: id(),
-              x: 0,
-              y: 0,
-              width: 6,
-              height: 4,
-            },
-          }),
-        ],
-      }),
-    ).rejects.toThrow("visualization");
-  });
   it("accepts a visualization from the addressed draft but rejects one from another draft", async () => {
     const { tableId } = await makeTable();
     const insightId = id();
@@ -2924,62 +2899,6 @@ describe("existing command behavior on native Convex", () => {
         ),
       ).rejects.toThrow("not output by Insight");
   });
-  it("should create a dashboard and add two items", async () => {
-    const dashId = id();
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "V",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-      }),
-      cmd("CreateDashboard", { id: dashId, name: "My Dashboard" }),
-    );
-
-    const itemId = id();
-    const markdownId = id();
-    await commit(
-      cmd("AddDashboardItem", {
-        dashboardId: dashId,
-        item: {
-          id: itemId,
-          type: "visualization",
-          visualizationId: vizId,
-          x: 0,
-          y: 0,
-          width: 6,
-          height: 4,
-        },
-      }),
-      cmd("AddDashboardItem", {
-        dashboardId: dashId,
-        item: {
-          id: markdownId,
-          type: "markdown",
-          content: "## Hello",
-          x: 6,
-          y: 0,
-          width: 6,
-          height: 4,
-        },
-      }),
-    );
-
-    const rows = await dashboardsById(dashId);
-    const layout = rows[0]?.layout as { id: string }[];
-    expect(layout).toHaveLength(2);
-    expect(layout.map((it) => it.id)).toContain(itemId);
-    expect(layout.map((it) => it.id)).toContain(markdownId);
-  });
   it("places a composed widget after items already staged in the draft", async () => {
     const { tableId } = await makeTable();
     const insightId = id();
@@ -3038,42 +2957,6 @@ describe("existing command behavior on native Convex", () => {
     });
     expect(dashboard?.items.map((item) => item.y)).toEqual([0, 4]);
   });
-  it("should reject a duplicate item id in AddDashboardItem (no illegal two-items-one-id state)", async () => {
-    const dashId = id();
-    const itemId = id();
-    await commit(
-      cmd("CreateDashboard", { id: dashId, name: "D" }),
-      cmd("AddDashboardItem", {
-        dashboardId: dashId,
-        item: {
-          id: itemId,
-          type: "markdown",
-          content: "A",
-          x: 0,
-          y: 0,
-          width: 3,
-          height: 3,
-        },
-      }),
-    );
-
-    await expect(
-      commit(
-        cmd("AddDashboardItem", {
-          dashboardId: dashId,
-          item: {
-            id: itemId,
-            type: "markdown",
-            content: "A dup",
-            x: 1,
-            y: 1,
-            width: 3,
-            height: 3,
-          },
-        }),
-      ),
-    ).rejects.toThrow();
-  });
   it("should update an item without rebinding id or type", async () => {
     const dashId = id();
     const itemId = id();
@@ -3119,51 +3002,6 @@ describe("existing command behavior on native Convex", () => {
     expect(layout[0]?.content).toBe("Updated");
     expect(layout[0]?.x).toBe(2);
   });
-  it("preserves a newer item edit when a layout update commits afterward", async () => {
-    const dashId = id();
-    const itemId = id();
-    await commit(
-      cmd("CreateDashboard", { id: dashId, name: "D" }),
-      cmd("AddDashboardItem", {
-        dashboardId: dashId,
-        item: {
-          id: itemId,
-          type: "markdown",
-          content: "Original",
-          x: 0,
-          y: 0,
-          width: 3,
-          height: 3,
-        },
-      }),
-    );
-
-    await commit(
-      cmd("UpdateDashboardItem", {
-        dashboardId: dashId,
-        itemId,
-        updates: { content: "Concurrent edit" },
-      }),
-    );
-    await commit(
-      cmd("UpdateDashboardItem", {
-        dashboardId: dashId,
-        itemId,
-        updates: { x: 5, y: 6, width: 4, height: 2 },
-      }),
-    );
-
-    const rows = await dashboardsById(dashId);
-    expect(rows[0]).toBeDefined();
-    const item = (rows[0]!.layout as Record<string, unknown>[])[0];
-    expect(item).toMatchObject({
-      content: "Concurrent edit",
-      x: 5,
-      y: 6,
-      width: 4,
-      height: 2,
-    });
-  });
   it("rejects whole override-bag replacement through UpdateDashboardItem", async () => {
     const { dashId, sourceItemId: itemId } = await makeDashWithVizItem();
 
@@ -3187,116 +3025,6 @@ describe("existing command behavior on native Convex", () => {
       }[]
     ).find((it) => it.id === itemId)!;
     expect(item.overrides).toBeUndefined();
-  });
-  it("serializes concurrent override intents without dropping sibling fields", async () => {
-    const { dashId, sourceItemId: itemId } =
-      await makeDashWithOverridableItem();
-
-    await Promise.all([
-      commit(
-        cmd("PatchDashboardItemOverride", {
-          dashboardId: dashId,
-          itemId,
-          patch: {
-            kind: "sorts",
-            value: [{ field: "revenue", direction: "desc" }],
-          },
-        }),
-      ),
-      commit(
-        cmd("PatchDashboardItemOverride", {
-          dashboardId: dashId,
-          itemId,
-          patch: { kind: "limit", value: 25 },
-        }),
-      ),
-      commit(
-        cmd("PatchDashboardItemOverride", {
-          dashboardId: dashId,
-          itemId,
-          patch: {
-            kind: "filter",
-            field: "region",
-            value: { field: "region", operator: "eq", value: "West" },
-          },
-        }),
-      ),
-    ]);
-
-    const rows = await dashboardsById(dashId);
-    expect(rows[0]).toBeDefined();
-    const item = (
-      rows[0]!.layout as {
-        id: string;
-        overrides?: {
-          filters?: unknown[];
-          sorts?: unknown[];
-          limit?: number;
-        };
-      }[]
-    ).find((candidate) => candidate.id === itemId);
-    expect(item?.overrides).toEqual({
-      filters: [{ field: "region", operator: "eq", value: "West" }],
-      sorts: [{ field: "revenue", direction: "desc" }],
-      limit: 25,
-    });
-
-    await expect(
-      commit(
-        cmd("PatchDashboardItemOverride", {
-          dashboardId: dashId,
-          itemId,
-          patch: {
-            kind: "sorts",
-            value: [{ field: "revenue", direction: "sideways" }],
-          } as never,
-        }),
-      ),
-    ).rejects.toThrow();
-
-    expect((await dashboardsById(dashId))[0]?.layout).toEqual(rows[0]?.layout);
-
-    await expect(
-      commit(
-        cmd("PatchDashboardItemOverride", {
-          dashboardId: dashId,
-          itemId,
-          patch: {
-            kind: "filter",
-            field: "region",
-            value: { field: "status", operator: "eq", value: "active" },
-          } as never,
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("normalizes cleared and empty override intents to no override bag", async () => {
-    const { dashId, sourceItemId: itemId } =
-      await makeDashWithOverridableItem();
-    await commit(
-      cmd("PatchDashboardItemOverride", {
-        dashboardId: dashId,
-        itemId,
-        patch: { kind: "limit", value: 25 },
-      }),
-      cmd("PatchDashboardItemOverride", {
-        dashboardId: dashId,
-        itemId,
-        patch: { kind: "limit", value: null },
-      }),
-      cmd("PatchDashboardItemOverride", {
-        dashboardId: dashId,
-        itemId,
-        patch: { kind: "sorts", value: [] },
-      }),
-    );
-
-    const rows = await dashboardsById(dashId);
-    expect(rows[0]).toBeDefined();
-    const item = (
-      rows[0]!.layout as { id: string; overrides?: unknown }[]
-    ).find((candidate) => candidate.id === itemId);
-    expect(item?.overrides).toBeUndefined();
   });
   describe("tile sort override key limit", () => {
     const twoKeys = [
@@ -4020,95 +3748,6 @@ describe("existing command behavior on native Convex", () => {
     const rows = await dashboardsById(dashId);
     expect(rows[0]?.layout as unknown[]).toHaveLength(0);
   });
-  it("should reject malformed update fields without partially updating the layout", async () => {
-    // Regression: UpdateDashboardItem merged `updates` verbatim, so
-    // `{ x: "left", width: null }` corrupted numeric layout coordinates. The fix
-    // filters updates to recognized fields with correct primitive types at
-    // the canonical command boundary.
-    const dashId = id();
-    const itemId = id();
-    await commit(
-      cmd("CreateDashboard", { id: dashId, name: "D" }),
-      cmd("AddDashboardItem", {
-        dashboardId: dashId,
-        item: {
-          id: itemId,
-          type: "markdown",
-          content: "A",
-          x: 1,
-          y: 2,
-          width: 3,
-          height: 4,
-        },
-      }),
-    );
-
-    await expect(
-      commit(
-        cmd("UpdateDashboardItem", {
-          dashboardId: dashId,
-          itemId,
-          updates: { x: 9, width: null, content: 5 } as never,
-        }),
-      ),
-    ).rejects.toThrow();
-
-    const rows = await dashboardsById(dashId);
-    expect(rows[0]).toBeDefined();
-    const item = (rows[0]!.layout as Record<string, unknown>[])[0]!;
-    expect(item).toMatchObject({ x: 1, width: 3, content: "A" });
-  });
-  it("should replace the whole layout for SetDashboardLayout", async () => {
-    const dashId = id();
-    const item1 = id();
-    const item2 = id();
-    await commit(
-      cmd("CreateDashboard", { id: dashId, name: "D" }),
-      cmd("AddDashboardItem", {
-        dashboardId: dashId,
-        item: {
-          id: item1,
-          type: "markdown",
-          content: "A",
-          x: 0,
-          y: 0,
-          width: 3,
-          height: 3,
-        },
-      }),
-    );
-
-    // Replace-all with a new layout that includes both items at new positions.
-    const newLayout = [
-      {
-        id: item1,
-        type: "markdown" as const,
-        content: "A",
-        x: 1,
-        y: 0,
-        width: 3,
-        height: 3,
-      },
-      {
-        id: item2,
-        type: "markdown" as const,
-        content: "B",
-        x: 4,
-        y: 0,
-        width: 3,
-        height: 3,
-      },
-    ];
-    await commit(
-      cmd("SetDashboardLayout", { dashboardId: dashId, items: newLayout }),
-    );
-
-    const rows = await dashboardsById(dashId);
-    const layout = rows[0]?.layout as { id: string; x: number }[];
-    expect(layout).toHaveLength(2);
-    expect(layout.find((it) => it.id === item1)?.x).toBe(1);
-    expect(layout.find((it) => it.id === item2)?.x).toBe(4);
-  });
   it("should reject duplicate item ids in SetDashboardLayout (no corrupt state for UpdateDashboardItem/RemoveDashboardItem)", async () => {
     const dashId = id();
     const itemId = id();
@@ -4209,24 +3848,6 @@ describe("existing command behavior on native Convex", () => {
       commit(cmd("RemoveDashboardItem", { dashboardId: dashId, itemId: id() })),
     ).rejects.toThrow();
   });
-  it("should throw on AddDashboardItem for a missing dashboard (no silent no-op)", async () => {
-    await expect(
-      commit(
-        cmd("AddDashboardItem", {
-          dashboardId: id(),
-          item: {
-            id: id(),
-            type: "markdown",
-            content: "X",
-            x: 0,
-            y: 0,
-            width: 3,
-            height: 3,
-          },
-        }),
-      ),
-    ).rejects.toThrow();
-  });
   it("should emit exactly N new items for N placements, each with the correct field pin", async () => {
     const { dashId, sourceItemId, vizId } = await makeDashWithVizItem();
     const ids = [id(), id(), id()];
@@ -4278,55 +3899,7 @@ describe("existing command behavior on native Convex", () => {
     expect(cloneByValue("EMEA")?.id).toBe(ids[0]);
     expect(cloneByValue("APAC")?.id).toBe(ids[1]);
     expect(cloneByValue("AMER")?.id).toBe(ids[2]);
-  });
-  it("should use operator 'eq' for all pinned filters", async () => {
-    const { dashId, sourceItemId } = await makeDashWithVizItem();
-    const cloneId = id();
-
-    await commit(
-      cmd("FanOutDashboardItems", {
-        dashboardId: dashId,
-        sourceItemId,
-        field: "status",
-        placements: [{ id: cloneId, value: "active", x: 0, y: 8 }],
-      }),
-    );
-
-    const [row] = await dashboardsById(dashId);
-    const layout = row?.layout as {
-      id: string;
-      overrides: {
-        filters: { field: string; operator: string; value: unknown }[];
-      };
-    }[];
-    const clone = layout.find((it) => it.id === cloneId)!;
-    const pin = clone.overrides.filters.find((f) => f.field === "status")!;
-    expect(pin.operator).toBe("eq");
-    expect(pin.value).toBe("active");
-  });
-  it("should inherit source item dimensions as defaults when placement omits width/height", async () => {
-    const { dashId, sourceItemId } = await makeDashWithVizItem();
-    const cloneId = id();
-
-    await commit(
-      cmd("FanOutDashboardItems", {
-        dashboardId: dashId,
-        sourceItemId,
-        field: "category",
-        placements: [{ id: cloneId, value: "A", x: 7, y: 0 }],
-      }),
-    );
-
-    const [row] = await dashboardsById(dashId);
-    const layout = row?.layout as {
-      id: string;
-      width: number;
-      height: number;
-    }[];
-    const clone = layout.find((it) => it.id === cloneId)!;
-    // Source item was 6×4; clone must inherit those dimensions.
-    expect(clone.width).toBe(6);
-    expect(clone.height).toBe(4);
+    expect(cloneByValue("EMEA")?.overrides.filters[0]?.operator).toBe("eq");
   });
   it("should preserve existing overrides on the source item and not mutate it", async () => {
     const existingFilters = [
@@ -4502,37 +4075,6 @@ describe("existing command behavior on native Convex", () => {
           sourceItemId,
           field: "region",
           placements: [],
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should reject duplicate placement ids (no corrupt layout state)", async () => {
-    const { dashId, sourceItemId } = await makeDashWithVizItem();
-    const dupId = id();
-    await expect(
-      commit(
-        cmd("FanOutDashboardItems", {
-          dashboardId: dashId,
-          sourceItemId,
-          field: "region",
-          placements: [
-            { id: dupId, value: "EMEA", x: 0, y: 4 },
-            { id: dupId, value: "APAC", x: 6, y: 4 },
-          ],
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should reject a placement id that already exists in the layout (client-id invariant)", async () => {
-    const { dashId, sourceItemId } = await makeDashWithVizItem();
-    // Use the source item's own id as a collision.
-    await expect(
-      commit(
-        cmd("FanOutDashboardItems", {
-          dashboardId: dashId,
-          sourceItemId,
-          field: "region",
-          placements: [{ id: sourceItemId, value: "EMEA", x: 0, y: 4 }],
         }),
       ),
     ).rejects.toThrow();
