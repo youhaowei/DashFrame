@@ -465,7 +465,8 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
     notes:
       "Source item must be a visualization. All placement ids must be unique and not already in the layout. " +
       "width/height default to the source item's dimensions if omitted. " +
-      "The source item and insight definition are never mutated — only DashboardItem.overrides is written.",
+      "The source item and insight definition are never mutated — only DashboardItem.overrides is written. " +
+      "A source whose sort override has more than one key is refused; patch it to one key first.",
   },
   // --- Cross-cutting (polymorphic over artifact kinds) ---
   {
