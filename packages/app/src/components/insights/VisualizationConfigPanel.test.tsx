@@ -223,6 +223,30 @@ describe("VisualizationConfigPanel", () => {
     resolveTypeChange?.();
   });
 
+  it("keeps saved encoding controls disabled until analysis is ready", () => {
+    const updateVisualization = vi.fn();
+    render(
+      <VisualizationConfigPanel
+        activeChartType="barY"
+        availableChartTypes={new Set(["barY"])}
+        activeVisualization={visualization}
+        compiledInsight={compiledInsight}
+        dataTable={table}
+        availableFields={[field]}
+        availableColumns={[{ name: fieldAlias, type: "number" }]}
+        columnDisplayNames={{ [fieldAlias]: "Revenue" }}
+        columnAnalysis={[]}
+        updateVisualization={updateVisualization}
+      />,
+    );
+
+    const xControl = screen.getByRole("button", { name: "Set X encoding" });
+    expect(xControl.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(xControl);
+    expect(updateVisualization).not.toHaveBeenCalled();
+    expect(screen.getByText("Loading encoding options…")).toBeTruthy();
+  });
+
   it("updates a saved visualization type without leaving the saved view", async () => {
     const updateVisualization = vi.fn().mockResolvedValue(undefined);
     render(

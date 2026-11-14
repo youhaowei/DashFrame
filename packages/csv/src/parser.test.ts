@@ -104,6 +104,13 @@ describe("parseCSV", () => {
       ]);
     });
 
+    it("should handle single column CSV", () => {
+      const csv = "name\nAlice\nBob";
+      const result = parseCSV(csv);
+
+      expect(result).toEqual([["name"], ["Alice"], ["Bob"]]);
+    });
+
     it("should skip empty rows", () => {
       const csv = "a,b\n\n1,2\n\n3,4";
       const result = parseCSV(csv);
