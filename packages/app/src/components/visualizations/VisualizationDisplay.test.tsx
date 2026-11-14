@@ -468,7 +468,7 @@ describe("VisualizationDisplay — declared runtime controls", () => {
     ).toEqual({ runtime: { filters: { revenue: 250 } } });
   });
 
-  it("rejects ambiguous shared fields and incompatible predicate operators", () => {
+  it("ignores ambiguous shared fields and incompatible predicate operators", () => {
     const ambiguous: Insight = {
       ...insight,
       filters: [
@@ -490,27 +490,27 @@ describe("VisualizationDisplay — declared runtime controls", () => {
         resolveDashboardRuntime(target, [dataTable], {
           filters: [{ field: "status", operator, value: "paused" }],
         }),
-      ).toEqual({
-        error: "This dashboard filter is not declared by the Insight.",
-      });
+      ).toEqual({ runtime: { filters: {} } });
     }
   });
 
-  it("fails closed when a dashboard filter was not author-declared", () => {
-    expect(
-      resolveDashboardRuntime(insight, [dataTable], {
-        filters: [
-          {
-            id: "other-filter",
-            field: "region",
-            operator: "eq",
-            value: "west",
-          },
-        ],
-      }),
-    ).toEqual({
-      error: "This dashboard filter is not declared by the Insight.",
-    });
+  // Old overrides never stop a tile rendering: the tile runs the Insight's own
+  // filter or limit in their place.
+  it("ignores a filter or limit the Insight does not declare", () => {
+    const filters = [
+      { id: "other-filter", field: "region", operator: "eq", value: "west" },
+    ] as const;
+    for (const [target, limit] of [
+      [insight, 500],
+      [{ ...insight, runtimeControls: undefined }, 25],
+    ] as const) {
+      expect(
+        resolveDashboardRuntime(target, [dataTable], {
+          filters: [...filters],
+          limit,
+        }),
+      ).toEqual({ runtime: { filters: {} } });
+    }
   });
 });
 

@@ -354,7 +354,7 @@ function VisualizationDisplayContent({
   } = useInsightPagination({
     insight,
     showModelPreview: false,
-    enabled: Boolean(insight && !dashboardRuntime.error),
+    enabled: Boolean(insight),
     runtime: effectiveRuntime,
   });
 
@@ -388,13 +388,10 @@ function VisualizationDisplayContent({
     viewName: insightViewName,
     isReady: isInsightViewReady,
     error: insightViewError,
-  } = useInsightView(
-    dashboardRuntime.error || !isPaginationReady ? null : insight,
-    {
-      runtime: effectiveRuntime,
-      presentation: chartPresentation,
-    },
-  );
+  } = useInsightView(!isPaginationReady ? null : insight, {
+    runtime: effectiveRuntime,
+    presentation: chartPresentation,
+  });
 
   // Helper to calculate visible rows from container dimensions
   const calculateVisibleRows = () => {
@@ -616,18 +613,6 @@ function VisualizationDisplayContent({
     return (
       <div className="flex h-full w-full items-center justify-center px-6">
         <EngineUnavailableState className="w-full max-w-lg" />
-      </div>
-    );
-  }
-
-  if (isMounted && dashboardRuntime.error) {
-    return (
-      <div className="flex h-full w-full items-center justify-center px-6">
-        <ErrorState
-          title="Dashboard control is not available"
-          description={dashboardRuntime.error}
-          className="w-full max-w-lg"
-        />
       </div>
     );
   }

@@ -98,11 +98,9 @@ describe("resolveDashboardRuntime — tile sort override", () => {
     ["result-column alias", fieldIdToColumnAlias(unlistedFieldId)],
     ["column name", "channel"],
   ])(
-    "refuses a field the Insight does not allow, named by its %s",
+    "ignores a field the Insight does not allow, named by its %s",
     (_form, reference) => {
-      expect(resolveSort(reference)).toEqual({
-        error: "This dashboard sort field is not allowed by the Insight.",
-      });
+      expect(resolveSort(reference)).toEqual({ runtime: {} });
     },
   );
 
@@ -122,7 +120,7 @@ describe("resolveDashboardRuntime — tile sort override", () => {
     ).toEqual([{ runtime: { sort: [{ fieldId, direction: "desc" }] } }]);
   });
 
-  it("names the cause when a saved list has more keys than a tile runs", () => {
+  it("runs only the first key of a longer list saved before one key was the rule", () => {
     expect(
       resolveDashboardRuntime(insight, [dataTable], {
         sorts: [
@@ -131,13 +129,13 @@ describe("resolveDashboardRuntime — tile sort override", () => {
         ],
       }),
     ).toEqual({
-      error: "This dashboard sort has 2 keys, and the Insight runs 1.",
+      runtime: { sort: [{ fieldId: metricId, direction: "desc" }] },
     });
   });
 
-  it("refuses any sort when the Insight declares none", () => {
+  it("ignores a sort when the Insight declares none", () => {
     expect(
       resolveSort(fieldId, { ...insight, runtimeControls: undefined }),
-    ).toEqual({ error: "This dashboard sort is not declared by the Insight." });
+    ).toEqual({ runtime: {} });
   });
 });

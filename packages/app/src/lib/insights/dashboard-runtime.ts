@@ -10,7 +10,6 @@ import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-f
 
 export type DashboardRuntimeResolution = {
   runtime?: InsightRuntimeInput;
-  error?: string;
 };
 
 export type RuntimeFilterDeclaration = NonNullable<
@@ -77,7 +76,7 @@ function resolveRuntimeFilters(
   insight: Insight,
   availableFields: ReturnType<typeof resolveInsightAvailableFields>,
   overrides: NonNullable<DashboardItemOverrides["filters"]>,
-): DashboardRuntimeResolution {
+): Record<string, unknown> {
   const values: Record<string, unknown> = {};
   for (const override of overrides) {
     const declaration = resolveOverrideRuntimeFilter(
@@ -85,66 +84,60 @@ function resolveRuntimeFilters(
       availableFields,
       override,
     );
-    if (!declaration) {
-      return { error: "This dashboard filter is not declared by the Insight." };
-    }
-    values[declaration.key] = override.cleared ? null : override.value;
+    if (declaration)
+      values[declaration.key] = override.cleared ? null : override.value;
   }
-  return { runtime: { filters: values } };
-}
-
-function resolveRuntimeSorts(
-  insight: Insight,
-  dataTables: readonly DataTable[],
-  overrides: NonNullable<DashboardItemOverrides["sorts"]>,
-): DashboardRuntimeResolution {
-  const declaration = insight.runtimeControls?.sort;
-  if (!declaration) {
-    return { error: "This dashboard sort is not declared by the Insight." };
-  }
-  // The host refuses a longer list with a message that names no cause.  Writes
-  // reject one now, so this is a list saved before they did.
-  if (overrides.length > declaration.maxKeys) {
-    return {
-      error: `This dashboard sort has ${overrides.length} keys, and the Insight runs ${declaration.maxKeys}.`,
-    };
-  }
-  const fields = dataTables.flatMap((table) => table.fields ?? []);
-  const sorts = overrides.map((sort) => {
-    const fieldId = declaration.allowedFieldIds.find((allowedId) => {
-      // An allowed id may be stored as itself or as the result-column alias
-      // the Insight's own sorts use for it.  Both alias forms are checked for
-      // every id: a column selected from an upstream insight keeps that
-      // insight's metric id but is aliased as a field.
-      if (
-        allowedId === sort.field ||
-        fieldIdToColumnAlias(allowedId) === sort.field ||
-        metricIdToColumnAlias(allowedId) === sort.field
-      )
-        return true;
-      const field = fields.find((candidate) => candidate.id === allowedId);
-      if (field) return (field.columnName ?? field.name) === sort.field;
-      const metric = insight.metrics.find(
-        (candidate) => candidate.id === allowedId,
-      );
-      return metric
-        ? metric.name === sort.field || metric.columnName === sort.field
-        : false;
-    });
-    return fieldId ? { fieldId, direction: sort.direction } : null;
-  });
-  if (sorts.some((sort) => sort === null)) {
-    return {
-      error: "This dashboard sort field is not allowed by the Insight.",
-    };
-  }
-  return { runtime: { sort: sorts as InsightRuntimeInput["sort"] } };
+  return values;
 }
 
 /**
- * Convert legacy dashboard cell values into the saved Insight's declared
- * runtime-control surface. Undeclared mutations fail visibly instead of
- * silently changing or bypassing the canonical Insight definition.
+ * The runtime sort a tile's sort override asks for, or undefined when it asks
+ * for none the tile can run.
+ *
+ * Writes refuse a sort override the Insight does not declare or allow,
+ * and one with more than one key.  One saved before they did is not an error:
+ * the tile runs its first key when that key can run, and otherwise ignores it.
+ */
+function resolveRuntimeSort(
+  insight: Insight,
+  dataTables: readonly DataTable[],
+  overrides: NonNullable<DashboardItemOverrides["sorts"]>,
+): InsightRuntimeInput["sort"] {
+  const declaration = insight.runtimeControls?.sort;
+  const sort = overrides[0];
+  if (!declaration || !sort) return undefined;
+  const fields = dataTables.flatMap((table) => table.fields ?? []);
+  const fieldId = declaration.allowedFieldIds.find((allowedId) => {
+    // An allowed id may be stored as itself or as the result-column alias
+    // the Insight's own sorts use for it.  Both alias forms are checked for
+    // every id: a column selected from an upstream insight keeps that
+    // insight's metric id but is aliased as a field.
+    if (
+      allowedId === sort.field ||
+      fieldIdToColumnAlias(allowedId) === sort.field ||
+      metricIdToColumnAlias(allowedId) === sort.field
+    )
+      return true;
+    const field = fields.find((candidate) => candidate.id === allowedId);
+    if (field) return (field.columnName ?? field.name) === sort.field;
+    const metric = insight.metrics.find(
+      (candidate) => candidate.id === allowedId,
+    );
+    return metric
+      ? metric.name === sort.field || metric.columnName === sort.field
+      : false;
+  });
+  return fieldId ? [{ fieldId, direction: sort.direction }] : undefined;
+}
+
+/**
+ * Convert a tile's overrides into the saved Insight's declared runtime-control
+ * surface.
+ *
+ * A tile never fails to render because of an override it holds.  Writes
+ * refuse an override the Insight does not declare, but one saved before they
+ * did, or before the Insight dropped the control, is ignored here and the
+ * tile runs the Insight's own setting instead.
  */
 export function resolveDashboardRuntime(
   insight: Insight,
@@ -162,31 +155,27 @@ export function resolveDashboardRuntime(
       [...dataTables],
       [...insights],
     );
-    const resolution = resolveRuntimeFilters(
+    runtime.filters = resolveRuntimeFilters(
       insight,
       availableFields,
       overrides.filters,
     );
-    if (resolution.error) return resolution;
-    runtime.filters = resolution.runtime?.filters;
   }
 
   if (overrides.sorts !== undefined) {
-    const resolution = resolveRuntimeSorts(
-      insight,
-      dataTables,
-      overrides.sorts,
-    );
-    if (resolution.error) return resolution;
-    runtime.sort = resolution.runtime?.sort;
+    const sort = resolveRuntimeSort(insight, dataTables, overrides.sorts);
+    if (sort) runtime.sort = sort;
   }
 
-  if (overrides.limit !== undefined) {
-    if (!controls?.limit) {
-      return { error: "This dashboard limit is not declared by the Insight." };
-    }
-    runtime.limit = overrides.limit;
-  }
+  // The host refuses a limit outside the range the Insight offers viewers.
+  const limit = overrides.limit;
+  if (
+    limit !== undefined &&
+    controls?.limit &&
+    limit >= controls.limit.min &&
+    limit <= controls.limit.max
+  )
+    runtime.limit = limit;
 
   return { runtime };
 }
