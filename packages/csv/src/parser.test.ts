@@ -83,6 +83,11 @@ describe("parseCSV", () => {
       ],
     ],
     [
+      "should handle single column CSV",
+      "name\nAlice\nBob",
+      [["name"], ["Alice"], ["Bob"]],
+    ],
+    [
       "should skip empty rows",
       "a,b\n\n1,2\n\n3,4",
       [

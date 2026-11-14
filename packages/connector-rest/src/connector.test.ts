@@ -111,6 +111,10 @@ describe("extractRows", () => {
     expect(extractRows({ items: [1] })).toEqual([]);
   });
 
+  it("returns [] when dot-path resolves to a non-array", () => {
+    expect(extractRows({ data: "not-array" }, "data")).toEqual([]);
+  });
+
   it("returns [] when dot-path is missing", () => {
     expect(extractRows({ a: 1 }, "a.b.c")).toEqual([]);
   });

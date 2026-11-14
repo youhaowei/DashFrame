@@ -314,14 +314,14 @@ export async function createStandaloneArrowEngine(
 }
 
 /** Resolve host-local storage independently from the copiable project path. */
-function resolveDataDir(
+export function resolveDataDir(
   opts: CliOptions,
   environment: NodeJS.ProcessEnv = process.env,
 ): string {
   return opts.dataDir ?? environment.DASHFRAME_DATA_DIR ?? DEFAULT_DATA_DIR;
 }
 
-function resolveProjectDirectory(
+export function resolveProjectDirectory(
   opts: CliOptions,
   environment: NodeJS.ProcessEnv = process.env,
 ): string {

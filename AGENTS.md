@@ -280,7 +280,8 @@ suite was pruned twice for breaking these rules; do not grow it back.
   of external formats and protocols, races, data loss, and the logic a bug fix
   changed. Leave out what types or a schema already guarantee, trivial logic,
   copy text, smoke runs, mock-call mirrors, callback wiring, and props rendered
-  to markup.
+  to markup, except disabled, hidden, or confirmation states that block invalid
+  or destructive actions.
 - Extend before you add. When an existing test or table covers the behavior,
   add a row or an assertion there. Write a new `it` only when no case fits, and
   do not add a row that takes the same branch with different literals.
