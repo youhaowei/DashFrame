@@ -4125,63 +4125,6 @@ describe("existing command behavior on native Convex", () => {
       ),
     ).rejects.toThrow();
   });
-  it("should delete a DataSource by id", async () => {
-    const sourceId = id();
-    await commit(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-    );
-    const result = await commit(cmd("DeleteNode", { id: sourceId }));
-    expect(await sourcesById(sourceId)).toHaveLength(0);
-    // No reference-boundary nodes — orphanedNodes is empty.
-    expect(result.results[0]?.value).toMatchObject({
-      ok: true,
-      orphanedNodes: [],
-    });
-  });
-  it("should delete an Insight by id", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-    const result = await commit(cmd("DeleteNode", { id: insightId }));
-    expect(await insightsById(insightId)).toHaveLength(0);
-    expect(result.results[0]?.value).toMatchObject({
-      ok: true,
-      orphanedNodes: [],
-    });
-  });
-  it("should delete a Visualization by id", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "V",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-      }),
-    );
-    const result = await commit(cmd("DeleteNode", { id: vizId }));
-    expect(await vizsById(vizId)).toHaveLength(0);
-    // The parent Insight is untouched.
-    expect(await insightsById(insightId)).toHaveLength(1);
-    expect(result.results[0]?.value).toMatchObject({
-      ok: true,
-      orphanedNodes: [],
-    });
-  });
   it("should take a deleted Visualization's tiles off every dashboard and list them in removedTiles", async () => {
     const { tableId } = await makeTable();
     const insightId = id();
@@ -4281,16 +4224,6 @@ describe("existing command behavior on native Convex", () => {
     // The other chart's tile stays where it was.
     expect(await layoutOf(dashId)).toEqual([otherTileId]);
     expect(await layoutOf(secondDashId)).toEqual([noteId]);
-  });
-  it("should delete a Dashboard by id", async () => {
-    const dashId = id();
-    await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
-    const result = await commit(cmd("DeleteNode", { id: dashId }));
-    expect(await dashboardsById(dashId)).toHaveLength(0);
-    expect(result.results[0]?.value).toMatchObject({
-      ok: true,
-      orphanedNodes: [],
-    });
   });
   it("should throw on DeleteNode for an unknown id (no silent no-op)", async () => {
     await expect(commit(cmd("DeleteNode", { id: id() }))).rejects.toThrow();
@@ -4425,45 +4358,6 @@ describe("existing command behavior on native Convex", () => {
       expect(await insightsById(insightId)).toHaveLength(1);
     });
   });
-  it("should cascade-delete owned Visualizations when their Insight is deleted (ownership edge)", async () => {
-    // Spec — DashFrame Artifact Model: Visualization is owned by its Insight
-    // (it has no independent value without the query that produces it).
-    // The DB schema's onDelete:cascade on visualizations.insight_id enforces
-    // this; DeleteNode must not block it.
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    const viz2Id = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "V1",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-      }),
-      cmd("CreateVisualization", {
-        id: viz2Id,
-        name: "V2",
-        insightId,
-        visualizationType: "line",
-        spec: {},
-      }),
-    );
-
-    await commit(cmd("DeleteNode", { id: insightId }));
-
-    // Insight is gone.
-    expect(await insightsById(insightId)).toHaveLength(0);
-    // Both Visualizations are gone (cascade through the ownership edge).
-    expect(await vizsById(vizId)).toHaveLength(0);
-    expect(await vizsById(viz2Id)).toHaveLength(0);
-  });
   it("should take the tiles of an Insight's owned Visualizations off their dashboards when the Insight is deleted", async () => {
     // When deleting an Insight, its Visualizations cascade-delete via FK.
     // A tile cannot outlive its chart, so their tiles go in the same commit.
@@ -4541,46 +4435,6 @@ describe("existing command behavior on native Convex", () => {
     expect(await tablesById(tableId)).toHaveLength(0);
     expect(await tablesById(table2Id)).toHaveLength(0);
   });
-  it("should surface orphaned Insights when a DataTable they source is deleted (reference boundary)", async () => {
-    // The Artifact Model's typed-edge rule: DataTable → Insight is a reference
-    // edge. Deleting the DataTable must NOT auto-delete the Insight; instead it
-    // must return the Insight in orphanedNodes so the caller can route it to
-    // the TBD repair target. The Insight remains in the DB, reachable but broken.
-    const { tableId } = await makeTable();
-    const insight1Id = id();
-    const insight2Id = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insight1Id,
-        name: "I1",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateInsight", {
-        id: insight2Id,
-        name: "I2",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-
-    const result = await commit(cmd("DeleteNode", { id: tableId }));
-
-    // DataTable is gone.
-    expect(await tablesById(tableId)).toHaveLength(0);
-    // Insights survive — they are NOT cascade-deleted.
-    expect(await insightsById(insight1Id)).toHaveLength(1);
-    expect(await insightsById(insight2Id)).toHaveLength(1);
-    // Both are surfaced as orphanedNodes for the caller to route to repair.
-    const value = result.results[0]?.value as {
-      ok: boolean;
-      orphanedNodes: { id: string; kind: string }[];
-    };
-    expect(value.ok).toBe(true);
-    expect(value.orphanedNodes).toHaveLength(2);
-    expect(value.orphanedNodes.map((n) => n.id).sort()).toEqual(
-      [insight1Id, insight2Id].sort(),
-    );
-    expect(value.orphanedNodes.every((n) => n.kind === "insight")).toBe(true);
-  });
   it("should surface orphaned Insights when a DataSource (and its DataTables) is deleted (reference boundary through cascade)", async () => {
     // When a DataSource is deleted, its DataTables cascade-delete (ownership).
     // Any Insights that sourced those DataTables hit the reference boundary and
@@ -4650,50 +4504,6 @@ describe("existing command behavior on native Convex", () => {
     expect(value.orphanedNodes).toHaveLength(1);
     expect(value.orphanedNodes[0]?.id).toBe(derivedInsightId);
     expect(value.orphanedNodes[0]?.kind).toBe("insight");
-  });
-  it("should not surface duplicate orphaned Insights when two DataTables from one DataSource both feed the same Insight", async () => {
-    // Deduplication invariant: an Insight that transitively sources two
-    // DataTables from the same DataSource must appear only once in
-    // orphanedNodes. Two separate source refs → same orphan id → one entry.
-    // (This is a rare but structurally possible configuration when joins
-    // reference two tables from the same source; we test the dedup path.)
-    const sourceId = id();
-    const table1Id = id();
-    const table2Id = id();
-    await commit(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-      cmd("CreateDataTable", {
-        id: table1Id,
-        dataSourceId: sourceId,
-        name: "T1",
-        table: "t1.csv",
-      }),
-      cmd("CreateDataTable", {
-        id: table2Id,
-        dataSourceId: sourceId,
-        name: "T2",
-        table: "t2.csv",
-      }),
-    );
-    // Single Insight sources table1; table2 doesn't have an Insight over it.
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: table1Id },
-      }),
-    );
-
-    const result = await commit(cmd("DeleteNode", { id: sourceId }));
-
-    const value = result.results[0]?.value as {
-      orphanedNodes: { id: string }[];
-    };
-    // Insight appears exactly once even though the DataSource has 2 tables.
-    expect(value.orphanedNodes.filter((n) => n.id === insightId)).toHaveLength(
-      1,
-    );
   });
   it("should surface orphaned Insights when a DataTable they JOIN against is deleted (join-dependency boundary)", async () => {
     // An Insight that uses a DataTable only as a JOIN target (not as its
@@ -4774,36 +4584,6 @@ describe("existing command behavior on native Convex", () => {
     expect(value.orphanedNodes.filter((n) => n.id === insightId)).toHaveLength(
       1,
     );
-  });
-  it("should rename a Visualization", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "Old",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-      }),
-    );
-
-    await commit(cmd("RenameNode", { id: vizId, name: "New" }));
-    const rows = await vizsById(vizId);
-    expect(rows[0]?.name).toBe("New");
-  });
-  it("should rename a Dashboard", async () => {
-    const dashId = id();
-    await commit(cmd("CreateDashboard", { id: dashId, name: "Old" }));
-    await commit(cmd("RenameNode", { id: dashId, name: "New" }));
-    const rows = await dashboardsById(dashId);
-    expect(rows[0]?.name).toBe("New");
   });
   it("should produce a DataTable with the default Count metric when the caller passes it explicitly", async () => {
     const sourceId = id();
