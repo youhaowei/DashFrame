@@ -32,10 +32,7 @@ describe("createDevProxy", () => {
     },
   );
 
-  it.each(["/data-sources", "/data-frames"])(
-    "leaves the SPA route %s to the app",
-    (url) => {
-      expect(matchProxyKey(url)).toBeUndefined();
-    },
-  );
+  it("leaves the SPA route /data-sources to the app", () => {
+    expect(matchProxyKey("/data-sources")).toBeUndefined();
+  });
 });

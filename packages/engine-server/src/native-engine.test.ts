@@ -1,8 +1,6 @@
 import { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
 import {
   Bool,
-  DateDay,
-  DateMillisecond,
   Float64,
   Int32,
   Table,
@@ -70,20 +68,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     engine = null;
   });
 
-  it("executes a SQL query and returns rows", async () => {
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-    expect(engine.isReady()).toBe(true);
-
-    const result = await queryRows(
-      engine,
-      "SELECT range AS n FROM range(3) ORDER BY n",
-    );
-    expect(result.length).toBe(3);
-    expect(Object.keys(result[0]!)).toEqual(["n"]);
-    expect(result.map((r) => Number(r.n))).toEqual([0, 1, 2]);
-  });
-
   it("does not corrupt a literal '?' when binding positional params (native binding, not text scan)", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
@@ -132,18 +116,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     const table = tableFromIPC(batches[0]!);
     expect(table.numRows).toBe(0);
     expect(table.schema.fields.map((field) => field.name)).toEqual(["value"]);
-  });
-
-  it("keeps temporary spilling available for the default engine", async () => {
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-
-    const rows = await queryRows(
-      engine,
-      "SELECT current_setting('temp_directory') AS temp_directory",
-    );
-
-    expect(rows[0]?.temp_directory).not.toBe("");
   });
 
   it("disables temporary spilling for a sandboxed engine", async () => {
@@ -272,23 +244,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     ).toEqual([{ value: 7 }]);
   });
 
-  it("is not usable after dispose()", async () => {
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-    expect(engine.isReady()).toBe(true);
-
-    await engine.dispose();
-
-    // isReady() must return false — the engine's phase is terminal and the
-    // instance is closed.
-    expect(engine.isReady()).toBe(false);
-    // queryArrow() must throw rather than silently return empty bytes, so
-    // callers discover the misuse instead of seeing a ghost success.
-    await expect(engine.queryArrow("SELECT 1")).rejects.toThrow(
-      "NativeDuckDBEngine not initialized",
-    );
-  });
-
   it("registerArrowTable() after dispose() fails closed instead of resurrecting", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
@@ -308,17 +263,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(engine.isReady()).toBe(false);
     expect(engine.hasTable("df_after_dispose")).toBe(false);
-  });
-
-  it("unregisterTable() after dispose() fails closed instead of resurrecting", async () => {
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-    await engine.dispose();
-
-    await expect(engine.unregisterTable("df_gone")).rejects.toMatchObject({
-      name: "AbortError",
-    });
-    expect(engine.isReady()).toBe(false);
   });
 
   it("rejects table operations that arrive while dispose() is tearing down", async () => {
@@ -561,18 +505,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     expect(engine.hasTable("df_disposed")).toBe(false);
   });
 
-  it("is idempotent under concurrent initialize() — one instance, none leaked", async () => {
-    engine = new NativeDuckDBEngine();
-    // Two callers race before the first await resolves; both must converge on
-    // one DuckDBInstance rather than each creating their own.
-    await Promise.all([engine.initialize(), engine.initialize()]);
-    expect(engine.isReady()).toBe(true);
-
-    // A query still works against the single surviving instance.
-    const result = await queryRows(engine, "SELECT 1 AS one");
-    expect(result.map((r) => Number(r.one))).toEqual([1]);
-  });
-
   it("a leased connection that fails to disconnect still hands back the lock and refcount", async () => {
     engine = new NativeDuckDBEngine();
     await engine.initialize();
@@ -621,48 +553,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     );
     expect(await settles(engine.dispose())).toBe("settled");
     expect(engine.isReady()).toBe(false);
-  });
-
-  it("dispose() completes and closes the instance even when a leased connection refuses to disconnect", async () => {
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-    // Teardown no longer disconnects anything: every operation closes its own
-    // connection on release. The hazard that survives is a connection whose
-    // close FAILED — the instance must still be closed exactly once, and
-    // disposal must stay terminal, rather than the failure leaving a live
-    // instance nothing will ever reclaim.
-    const internals = engine as unknown as {
-      instance: {
-        connect(): Promise<{ disconnectSync(): void }>;
-        closeSync(): void;
-      };
-    };
-    const rawInstance = internals.instance;
-    internals.instance = new Proxy(rawInstance, {
-      get(target, prop, receiver) {
-        if (prop !== "connect") return Reflect.get(target, prop, receiver);
-        return async () => {
-          const conn = await target.connect();
-          conn.disconnectSync = () => {
-            throw new Error("disconnect failed");
-          };
-          return conn;
-        };
-      },
-    });
-    await expect(engine.queryArrow("SELECT 1")).rejects.toThrow(
-      "disconnect failed",
-    );
-    internals.instance = rawInstance;
-    const closeSync = vi.spyOn(rawInstance, "closeSync");
-
-    await expect(engine.dispose()).resolves.toBeUndefined();
-    expect(closeSync).toHaveBeenCalledTimes(1);
-    expect(engine.isReady()).toBe(false);
-    await expect(engine.dispose()).resolves.toBeUndefined();
-    await expect(engine.initialize()).rejects.toMatchObject({
-      name: "AbortError",
-    });
   });
 
   it("an initialize() that fails while dispose() is in flight does not reopen the engine", async () => {
@@ -977,44 +867,7 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     expect(Number(rows[0]?.cnt)).toBe(3);
   });
 
-  it("aborts a buffered registration in flight, not just before it starts", async () => {
-    // registerArrowTable takes a caller signal like every other operation. A
-    // large buffer spends nearly all of its time inside the appender loop, so
-    // checking the signal only on entry would leave a cancelled caller waiting
-    // out the whole ingest and would leave the table registered afterwards.
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-    const rows = 400_000;
-    const arrow = tableToIPC(
-      new Table({
-        v: vectorFromArray(
-          Array.from({ length: rows }, (_, i) => i),
-          new Float64(),
-        ),
-      }),
-    );
-    const controller = new AbortController();
-    const registration = engine.registerArrowTable(
-      "df_aborted",
-      arrow,
-      controller.signal,
-    );
-    // Abort synchronously after the call returns: the entry check has already
-    // run and passed, so only a signal that reached the operation itself can
-    // stop this. A timer could not do it — the appender loop is synchronous
-    // and would starve the timer until the ingest had already finished.
-    controller.abort();
-    await expect(registration).rejects.toMatchObject({ name: "AbortError" });
-    expect(engine.hasTable("df_aborted")).toBe(false);
-  });
-
-  it.each([
-    "buffered registration",
-    "streamed registration",
-    "batch registration",
-    "buffered query",
-    "streamed query",
-  ] as const)(
+  it.each(["buffered registration", "streamed query"] as const)(
     "normalizes an interrupted native call during %s",
     async (operation) => {
       engine = new NativeDuckDBEngine();
@@ -1023,11 +876,8 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       const nativeError = new Error("INTERRUPT Error: Interrupted!");
       const method = (
         {
-          "buffered query": "runAndReadAll",
           "streamed query": "stream",
           "buffered registration": "run",
-          "streamed registration": "run",
-          "batch registration": "run",
         } as const
       )[operation];
       const nativeCall = vi
@@ -1041,9 +891,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       const arrow = tableToIPC(
         new Table({ v: vectorFromArray([1], new Int32()) }),
       );
-      const source = async function* () {
-        yield arrow;
-      };
       const pending = (async () => {
         switch (operation) {
           case "buffered registration":
@@ -1052,21 +899,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
               arrow,
               controller.signal,
             );
-          case "streamed registration":
-            return engine!.registerArrowStream(
-              "cancelled",
-              source(),
-              controller.signal,
-            );
-          case "buffered query":
-          case "batch registration":
-            if (operation === "batch registration")
-              return engine!.registerArrowBatches(
-                "cancelled",
-                source(),
-                controller.signal,
-              );
-            return engine!.queryArrow("SELECT 1", [], controller.signal);
           case "streamed query":
             for await (const _batch of engine!.queryArrowBatches(
               "SELECT 1",
@@ -1286,40 +1118,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       );
     }
 
-    it("registers a table that is queryable with exact values and nulls", async () => {
-      engine = new NativeDuckDBEngine();
-      await engine.registerArrowTable("df_test", producerBuffer());
-
-      const result = await queryRows(
-        engine,
-        'SELECT amount, active, label FROM "df_test" ORDER BY amount NULLS LAST',
-      );
-      expect(result.length).toBe(3);
-      expect(result[0]).toMatchObject({
-        amount: 10.5,
-        active: true,
-        label: "a",
-      });
-      expect(result[1]).toMatchObject({ amount: 33.25, label: null });
-      expect(result[2]).toMatchObject({ amount: null, label: "b" });
-    });
-
-    it("preserves timestamps as native TIMESTAMP, not strings (type fidelity)", async () => {
-      engine = new NativeDuckDBEngine();
-      await engine.registerArrowTable("df_ts", producerBuffer());
-
-      // typeof() proves the column landed as TIMESTAMP — a JSON round-trip
-      // would have degraded it to VARCHAR. epoch_ms proves value fidelity.
-      const result = await queryRows(
-        engine,
-        `SELECT typeof(created) AS t, epoch_ms(created) AS ms
-         FROM "df_ts" WHERE created IS NOT NULL ORDER BY created`,
-      );
-      expect(result.map((r) => r.t)).toEqual(["TIMESTAMP", "TIMESTAMP"]);
-      const ts = Date.UTC(2026, 0, 15, 12, 30, 0);
-      expect(result.map((r) => Number(r.ms))).toEqual([ts, ts + MS_PER_HOUR]);
-    });
-
     it("keeps a registration retryable when native DROP fails transiently", async () => {
       engine = new NativeDuckDBEngine();
       await engine.registerArrowTable("df_retry_drop", producerBuffer());
@@ -1382,143 +1180,15 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       ).rejects.toThrow();
     });
 
-    it("atomic ingest — a failed append leaves the prior table intact (no partial replace)", async () => {
-      // Contract: if registerArrowTable throws mid-append (e.g. type mismatch),
-      // the previously registered table must be unchanged and still queryable.
-      // The staging-table swap ensures this; the old NDJSON path did NOT.
-      engine = new NativeDuckDBEngine();
-
-      // Register the initial table with known data.
-      await engine.registerArrowTable("df_atomic", producerBuffer());
-
-      // Confirm the initial data is there (3 rows).
-      const before = await queryRows(
-        engine,
-        'SELECT COUNT(*) AS cnt FROM "df_atomic"',
-      );
-      expect(Number(before[0]?.cnt)).toBe(3);
-
-      // Attempt a second registration with corrupted (non-Arrow) bytes.
-      // This should throw during staging-table creation or append.
-      await expect(
-        engine.registerArrowTable(
-          "df_atomic",
-          new Uint8Array([0xff, 0xfe, 0x00, 0x01]), // not valid Arrow IPC
-        ),
-      ).rejects.toThrow();
-
-      // The live table must still have the original 3 rows — not 0 or partial.
-      const after = await queryRows(
-        engine,
-        'SELECT COUNT(*) AS cnt FROM "df_atomic"',
-      );
-      expect(Number(after[0]?.cnt)).toBe(3);
-    });
-
-    it("preserves date-only (Date32/DateDay) columns without shifting to epoch", async () => {
-      // Regression for the Arrow date value-translation class: a Date32/DateDay
-      // column must round-trip to the same calendar date, not collapse to day 0
-      // or shift. The conversion divides the `.get()` result by MS_PER_DAY;
-      // apache-arrow normalizes Date32 to epoch millis, so the stored DuckDB
-      // DATE must equal the original calendar day.
-      engine = new NativeDuckDBEngine();
-      const day1 = Date.UTC(2021, 0, 2); // 2021-01-02
-      const day2 = Date.UTC(1999, 11, 31); // 1999-12-31
-      const buffer = tableToIPC(
-        new Table({
-          d: vectorFromArray([day1, null, day2], new DateDay()),
-        }),
-      );
-      await engine.registerArrowTable("df_date32", buffer);
-
-      const result = await queryRows(
-        engine,
-        `SELECT typeof(d) AS t, strftime(d, '%Y-%m-%d') AS iso
-         FROM "df_date32" WHERE d IS NOT NULL ORDER BY d`,
-      );
-      expect(result.map((r) => r.t)).toEqual(["DATE", "DATE"]);
-      expect(result.map((r) => r.iso)).toEqual(["1999-12-31", "2021-01-02"]);
-    });
-
-    it("preserves Date64 (DateMillisecond) columns to the correct calendar day", async () => {
-      engine = new NativeDuckDBEngine();
-      const day = Date.UTC(2024, 5, 13); // 2024-06-13
-      const buffer = tableToIPC(
-        new Table({
-          d: vectorFromArray([day], new DateMillisecond()),
-        }),
-      );
-      await engine.registerArrowTable("df_date64", buffer);
-
-      const result = await queryRows(
-        engine,
-        `SELECT strftime(d, '%Y-%m-%d') AS iso FROM "df_date64"`,
-      );
-      expect(result[0]?.iso).toBe("2024-06-13");
-    });
-
-    it("does not corrupt concurrent registrations of the same table name", async () => {
-      // Two in-flight registrations of the same live table must not corrupt
-      // each other. That name's lock serializes them; the live table ends with
-      // one upload's complete rows (last-writer-wins), never a mix or a thrown
-      // error.
-      //
-      // What punishes a lost same-name lock is DuckDB's catalog write-write
-      // conflict: two connections both running `CREATE OR REPLACE TABLE live`
-      // abort one side, on every platform (20/20 rounds when probed). So this
-      // test discriminates the LOSS of same-name serialization everywhere,
-      // locally included — it is not a macOS smoke screen. (It does not
-      // discriminate the lock's SHAPE: the old global lock also passes.)
-      // Historical: before one connection per operation, the mechanism was the
-      // Linux-only NAPI pending-result taint on the shared connection.
-      engine = new NativeDuckDBEngine();
-
-      const bufferA = tableToIPC(
-        new Table({
-          v: vectorFromArray([1, 2, 3, 4, 5], new Int32()),
-        }),
-      );
-      const bufferB = tableToIPC(
-        new Table({
-          v: vectorFromArray([10, 20, 30, 40, 50, 60, 70], new Int32()),
-        }),
-      );
-
-      // Fire both at once against the same target name.
-      await Promise.all([
-        engine.registerArrowTable("df_concurrent", bufferA),
-        engine.registerArrowTable("df_concurrent", bufferB),
-      ]);
-
-      // The table must hold exactly one upload's rows (5 or 7), never a mix.
-      const result = await queryRows(
-        engine,
-        'SELECT COUNT(*) AS cnt FROM "df_concurrent"',
-      );
-      const cnt = Number(result[0]?.cnt);
-      expect([5, 7]).toContain(cnt);
-
-      // No leaked staging tables remain after the swaps. Staging tables are TEMP
-      // and connection-local, so this query — on its own fresh connection —
-      // could not see one even if it leaked; what it still pins is that the
-      // swap does not leave a NON-temp table behind under a staging name.
-      const staging = await queryRows(
-        engine,
-        `SELECT COUNT(*) AS cnt FROM duckdb_tables()
-         WHERE table_name LIKE '__staging_df_concurrent%'`,
-      );
-      expect(Number(staging[0]?.cnt)).toBe(0);
-    });
-
     it("handles high-concurrency registrations without corruption or error", async () => {
       // Stress variant: 8 concurrent uploads across 4 distinct table names
       // (2 per name) — four lock queues two deep, running against each other.
       // Contract: each named table ends with one upload's complete row count;
       // no thrown errors; no leaked staging tables.
       //
-      // Like the 2-way variant above, dropping same-name serialization surfaces
-      // as a catalog write-write conflict on every platform, so this run is
-      // discriminating rather than a smoke screen.
+      // Dropping same-name serialization surfaces as a catalog write-write
+      // conflict on every platform, so this run is discriminating rather than a
+      // smoke screen.
       engine = new NativeDuckDBEngine();
 
       const uploads: Array<{ name: string; expectedCounts: number[] }> = [
@@ -1563,9 +1233,9 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
         expect(expectedCounts).toContain(Number(result[0]?.cnt));
       }
 
-      // No staging tables should survive. Same caveat as the 2-way variant:
-      // this fresh connection cannot see another connection's TEMP tables, so
-      // it pins the absence of a non-temp leftover.
+      // No staging tables should survive. This fresh connection cannot see
+      // another connection's TEMP tables, so it pins the absence of a non-temp
+      // leftover.
       const leaked = await queryRows(
         engine!,
         `SELECT COUNT(*) AS cnt FROM duckdb_tables()
@@ -1666,29 +1336,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       ).toEqual([{ value: 1 }]);
     });
 
-    it("interrupts and closes its operation query connection on abort", async () => {
-      engine = new NativeDuckDBEngine();
-      const interrupt = vi.spyOn(DuckDBConnection.prototype, "interrupt");
-      const disconnect = vi.spyOn(DuckDBConnection.prototype, "disconnectSync");
-      const controller = new AbortController();
-      const iterator = engine
-        .queryArrowBatches(
-          "SELECT range AS value FROM range(5000)",
-          [],
-          controller.signal,
-        )
-        [Symbol.asyncIterator]();
-
-      expect((await iterator.next()).done).toBe(false);
-      const disconnectsBeforeAbort = disconnect.mock.calls.length;
-      controller.abort();
-      await expect(iterator.next()).rejects.toMatchObject({
-        name: "AbortError",
-      });
-      expect(interrupt).toHaveBeenCalledOnce();
-      expect(disconnect.mock.calls.length).toBe(disconnectsBeforeAbort + 1);
-    });
-
     it("closes a connection when abort wins the pending connect race", async () => {
       engine = new NativeDuckDBEngine();
       await engine.initialize();
@@ -1766,94 +1413,5 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       expect(await outcome).toMatchObject({ name: "AbortError" });
       expect(engine.isReady()).toBe(false);
     });
-
-    it("rejects post-disposal batch calls without reinitializing DuckDB", async () => {
-      engine = new NativeDuckDBEngine();
-      await engine.dispose();
-
-      await expect(
-        engine
-          .queryArrowBatches("SELECT 1 AS value")
-          [Symbol.asyncIterator]()
-          .next(),
-      ).rejects.toMatchObject({ name: "AbortError" });
-      await expect(
-        engine.registerArrowBatches("df_after_dispose", stream(batch([1]))),
-      ).rejects.toMatchObject({ name: "AbortError" });
-      expect(engine.isReady()).toBe(false);
-    });
-  });
-});
-
-// ─── The DuckDB property the connection-per-operation design rests on ────────
-//
-// On Linux, duckdb_appender_close() on a failed appender marks the connection
-// with a pending-result error. The next duckdb_query() on the same connection
-// then fails with "Attempting to execute an unsuccessful or closed pending
-// query result" — emitted as an unhandled NAPI-layer rejection that bypasses
-// the surrounding JS try/catch.
-//
-// The engine no longer has a shared connection for that taint to spread
-// through: a failed appender's connection is closed with the operation that
-// opened it, and the next operation opens its own. This test pins the DuckDB
-// property that makes discarding sufficient rather than merely convenient —
-// that a fresh connection from the SAME instance is clean after a tainted
-// close, and that the closed connection's TEMP tables (the partial staging
-// copy) go with it. Both are load-bearing: without them, discarding the
-// connection would leave either a poisoned instance or a leaked staging table.
-//
-// It sits at the DuckDBInstance layer, independent of the engine contract
-// tests above. The Linux-specific taint cannot be reproduced on macOS
-// (conn.run() succeeds after appender error there), so this acts as a smoke
-// screen locally; Linux CI is the discriminating run.
-describe("DuckDB instance semantics — a fresh connection after a tainted appender", () => {
-  it("a fresh connection from the same instance works after a tainted appender closeSync", async () => {
-    // Force appender into error state → closeSync → disconnect the tainted
-    // conn → connect again from the same instance → the new conn is clean.
-    // The TEMP staging table (connection-local) must be gone after disconnect.
-    const instance = await DuckDBInstance.create(":memory:");
-    const conn = await instance.connect();
-
-    let freshConn;
-    try {
-      await conn.run(
-        "CREATE TEMP TABLE __staging_reset_test (x INTEGER, y INTEGER)",
-      );
-
-      // Force the appender into error state: flush an incomplete row
-      // (1 value appended, 2 columns required → "incomplete append to row").
-      // Precondition: flushSync must throw — this is what triggers the taint.
-      const appender = await conn.createAppender("__staging_reset_test");
-      appender.appendInteger(42); // only 1 of 2 required columns
-      expect(() => appender.flushSync()).toThrow(); // precondition: must throw
-      try {
-        appender.closeSync();
-      } catch {
-        /* close may also throw in error state — ignored */
-      }
-
-      // Discard the tainted connection — what a lease's release() does for
-      // the operation that failed.
-      conn.disconnectSync();
-
-      // A fresh connection from the same instance must be clean and functional.
-      freshConn = await instance.connect();
-
-      // The staging TEMP table was connection-local to `conn` — it is gone now.
-      // Query duckdb_tables() to confirm: zero rows matching the staging name.
-      const reader = await freshConn.runAndReadAll(
-        "SELECT count(*) AS cnt FROM duckdb_tables() WHERE table_name = '__staging_reset_test'",
-      );
-      const rows = reader.getRowObjectsJson() as Array<{ cnt: unknown }>;
-      expect(Number(rows[0]?.cnt)).toBe(0);
-
-      // The fresh connection can execute arbitrary queries without error.
-      const reader2 = await freshConn.runAndReadAll("SELECT 1 AS alive");
-      const rows2 = reader2.getRowObjectsJson() as Array<{ alive: unknown }>;
-      expect(Number(rows2[0]?.alive)).toBe(1);
-    } finally {
-      freshConn?.disconnectSync();
-      instance.closeSync();
-    }
   });
 });

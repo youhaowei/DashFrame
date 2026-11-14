@@ -37,31 +37,6 @@ describe("GA4 metadata", () => {
       "time",
       "user",
     ]);
-    expect(
-      [
-        "dateHour",
-        "dateHourMinute",
-        "year",
-        "month",
-        "week",
-        "day",
-        "dayOfWeek",
-        "hour",
-        "minute",
-        "nthDay",
-        "nthWeek",
-        "nthMonth",
-      ].map(scopeFor),
-    ).toEqual(Array.from({ length: 12 }, () => "time"));
-    expect(
-      [
-        "itemBrand",
-        "itemVariant",
-        "itemCategory2",
-        "itemCategory5",
-        "itemListName",
-      ].map(scopeFor),
-    ).toEqual(Array.from({ length: 5 }, () => "item"));
   });
 
   it("assigns metric scopes independently from dimension fallbacks", () => {

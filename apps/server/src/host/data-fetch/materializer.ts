@@ -89,7 +89,7 @@ function recordExistingSourceGeneration(
   });
 }
 
-export function fieldsFromInsightResult(
+function fieldsFromInsightResult(
   schema: InsightFetchReady["schema"],
   tableId: UUID,
 ): Field[] {

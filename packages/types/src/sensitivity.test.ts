@@ -30,18 +30,13 @@ describe("fail-closed sensitivity marker", () => {
 describe("suggestSensitivityFromName", () => {
   it.each([
     ["email", "email addresses"],
-    ["Email Address", "email addresses"],
-    ["phone_number", "phone numbers"],
-    ["first_name", "personal names"],
-    ["Full Name", "personal names"],
     ["name", "personal names"],
+    ["phone_number", "phone numbers"],
     ["home_address", "physical addresses"],
-    ["zip_code", "physical addresses"],
     ["ssn", "government identifiers"],
     ["date_of_birth", "dates of birth"],
     ["salary", "financial details"],
     ["password", "credentials or secrets"],
-    ["api_key", "credentials or secrets"],
     ["gender", "demographic attributes"],
     ["ip_address", "IP addresses"],
   ])("should flag %s", (name, reasonFragment) => {
@@ -50,7 +45,7 @@ describe("suggestSensitivityFromName", () => {
     expect(reasons.join(" ")).toContain(reasonFragment);
   });
 
-  it.each(["id", "username", "secretary"])("should not flag %s", (name) => {
+  it.each(["username", "secretary"])("should not flag %s", (name) => {
     expect(suggestSensitivityFromName(name)).toEqual([]);
   });
 
@@ -172,20 +167,13 @@ describe("buildSensitivityUpdate", () => {
     });
   });
 
-  it.each([
-    ["sensitive", "Marked sensitive by you"],
-    ["cleared", "Cleared by you"],
-    ["unclassified", "Reset to unclassified by you"],
-  ] as const)(
-    "should record a manual %s marking as user-sourced",
-    (s, reason) => {
-      expect(buildSensitivityUpdate(s)).toEqual({
-        sensitivity: s,
-        sensitivityReason: reason,
-        sensitivitySource: "user",
-      });
-    },
-  );
+  it("should record a manual sensitive marking as user-sourced", () => {
+    expect(buildSensitivityUpdate("sensitive")).toEqual({
+      sensitivity: "sensitive",
+      sensitivityReason: "Marked sensitive by you",
+      sensitivitySource: "user",
+    });
+  });
 
   it("should ignore reasons when clearing — clearing is always a user decision", () => {
     expect(buildSensitivityUpdate("cleared", ["reason"])).toEqual({

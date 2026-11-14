@@ -107,9 +107,7 @@ export function extractRows(data: unknown, rowPath?: string): unknown[] {
  *
  * @throws if two source keys map to the same target name.
  */
-export function assertFieldMapNoCollision(
-  fieldMap: Record<string, string>,
-): void {
+function assertFieldMapNoCollision(fieldMap: Record<string, string>): void {
   const targets = new Map<string, string>(); // target → source that claimed it
   for (const [source, target] of Object.entries(fieldMap)) {
     const prior = targets.get(target);

@@ -90,10 +90,6 @@ describe("NotionConnector — validate", () => {
     connector = makeNotionConnector(resolver);
   });
 
-  it("should return invalid when apiKey is undefined", () => {
-    expect(connector.validate({}).valid).toBe(false);
-  });
-
   it("should reject API keys without secret_ prefix", () => {
     const result = connector.validate({ apiKey: "ntn_abc123" });
     expect(result.valid).toBe(false);

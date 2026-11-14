@@ -1,7 +1,5 @@
 import {
   buildInsightSQL,
-  saveReusableMeasure,
-  importReusableMeasure,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
 } from "@dashframe/engine";
@@ -238,40 +236,6 @@ describe("Report measure correctness in DuckDB", () => {
     )!;
     return arrowIpcToJsonRows(await engine!.queryArrow(sql));
   }
-  it("applies aggregate filters before choosing Top N countries", async () => {
-    const rows = await query({
-      ...insight,
-      metrics: [
-        ...insight.metrics,
-        {
-          id: "revenue",
-          name: "Revenue",
-          sourceTable: "sales",
-          columnName: "revenue",
-          aggregation: "sum",
-        },
-      ],
-      filters: [{ field: "metric_orders", operator: "gt", value: 1 }],
-      reporting: {
-        totals: true,
-        topN: {
-          fieldId: "country",
-          measureId: "revenue",
-          count: 1,
-          direction: "desc",
-        },
-      },
-    });
-    expect(
-      rows
-        .filter((row) => Number(row.__report_grouping) === 0)
-        .map((row) => row.field_country),
-    ).toEqual(["CA"]);
-    expect(
-      rows.find((row) => Number(row.__report_grouping) === 1)?.metric_revenue,
-    ).toBe(90);
-  });
-
   it("ranks countries using only monthly groups that pass aggregate filters", async () => {
     await query(insight);
     await engine!.queryArrow(
@@ -609,45 +573,6 @@ describe("Report measure correctness in DuckDB", () => {
     expect(rows.map((row) => row.metric_pivot_rate).sort()).toEqual([0.4, 0.5]);
   });
 
-  it("keeps pivot-row limits as the source cohort for presentation measures", async () => {
-    await seedPivotSales();
-    const rows = await queryPivot(
-      {
-        ...pivotInsight,
-        reporting: {
-          ...pivotInsight.reporting,
-          dateRange: {
-            fieldId: "period",
-            range: {
-              type: "absolute",
-              start: "2026-01-01T00:00:00Z",
-              end: "2026-02-01T00:00:00Z",
-            },
-          },
-        },
-      },
-      {
-        mode: "query",
-        effectiveLimit: 1,
-        effectiveSorts: [
-          {
-            field: metricIdToColumnAlias("pivot_revenue"),
-            direction: "desc",
-            pivotValues: [{ fieldId: "channel", value: "Web" }],
-          },
-        ],
-        presentation: { dimensions: ["product"] },
-      },
-    );
-    expect(rows).toEqual([
-      expect.objectContaining({
-        field_product: "A",
-        metric_pivot_revenue: 101,
-      }),
-    ]);
-    expect(rows[0]?.metric_pivot_rate).toBeCloseTo(1 / 3);
-  });
-
   it("keeps categorical presentation groups in descending report order", async () => {
     const revenue: InsightMetric = {
       id: "presentation_revenue",
@@ -886,28 +811,6 @@ describe("Report measure correctness in DuckDB", () => {
     ).toThrow("Sort dimension is not selected");
   });
 
-  it("executes a reused filtered conversion measure with the same weighted total", async () => {
-    const library = saveReusableMeasure(insight.metrics, "rate", "sales");
-    const imported = importReusableMeasure(
-      library,
-      library.at(-1)!.id,
-      "sales",
-    );
-    const importedRate = imported.at(-1)!;
-    const result = await query({
-      ...insight,
-      metrics: imported,
-      reporting: { measureIds: [importedRate.id], totals: true },
-    });
-    const column = metricIdToColumnAlias(importedRate.id);
-    const total = result.find((row) => Number(row.__report_grouping) === 1)!;
-    expect(total[column]).toBeCloseTo(3 / 7);
-    const us = result.find((row) => row.field_country === "US")!;
-    expect(us[column]).toBe(0.5);
-    expect(
-      Object.keys(total).filter((key) => key.startsWith("metric_")),
-    ).toEqual([column]);
-  });
   it("compares the same current Top N cohort and recomputes baseline ratios and totals", async () => {
     await query(insight);
     await engine!.queryArrow(

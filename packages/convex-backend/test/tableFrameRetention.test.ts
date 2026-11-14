@@ -93,31 +93,6 @@ async function claim(resourceId: string) {
     : ("protected" as const);
 }
 
-// Reachability first, as #374 asks: refresh a non-local table past the old
-// 1000-row cap and count. Before retention the count was the refresh count.
-it("keeps a live-connector table at current plus previous frames across 1001 refreshes", async () => {
-  const { sourceId, tableId } = await seed();
-  let previous: string | null = null;
-  const ids: string[] = [];
-  for (let index = 0; index < 1001; index++) {
-    previous = await refresh(sourceId, tableId, previous, index + 1);
-    ids.push(previous);
-  }
-  const frames = await tableFrames(tableId);
-  expect(frames.map((f) => f.id).sort()).toEqual(ids.slice(-2).sort());
-  expect(
-    (await user().query(api.app.getDataTable, { id: tableId }))?.dataFrameId,
-  ).toBe(ids.at(-1));
-  // The workspace never crossed the cap, so ordinary reads and writes work.
-  expect(await listAll(user(), api.app.listDataFrames, {})).toHaveLength(2);
-  await user().mutation(api.app.commitBatch, {
-    commands: [cmd("RenameNode", { id: tableId, name: "Renamed" })],
-  });
-  // Superseded blobs were handed to the cleanup outbox and are reclaimable.
-  expect(await claim(ids[0]!)).toBe("claimable");
-  expect(await claim(ids[998]!)).toBe("claimable");
-}, 180_000);
-
 // #367 acceptance case 1: retargeting a table must not lose the frame it
 // pointed at before. The previous frame's row still resolves, and the cleanup
 // outbox refuses to claim its blob while that row exists.

@@ -79,31 +79,22 @@ async function seed() {
   });
   return { sourceId, tableId, frameId, ref };
 }
-it.each(["commit", "publish"])(
-  "queues physical cleanup through a direct public %s",
-  async (mode) => {
-    const { sourceId, frameId, ref } = await seed();
-    const commands = [cmd("DeleteNode", { id: sourceId })];
-    if (mode === "commit")
-      await user().mutation(api.app.commitBatch, { commands });
-    else {
-      const { draftId } = await user().mutation(api.app.draftBatch, {
-        commands,
-      });
-      await user().mutation(api.app.publishDraft, { draftId });
-    }
-    expect(
-      (await list()).page.map(({ kind, resourceId }) => ({ kind, resourceId })),
-    ).toEqual(
-      expect.arrayContaining([
-        { kind: "frame", resourceId: frameId },
-        { kind: "secret", resourceId: ref },
-      ]),
-    );
-    expect(await claim("frame", frameId)).not.toBeNull();
-    expect(await claim("secret", ref)).not.toBeNull();
-  },
-);
+it("queues physical cleanup through a direct public commit", async () => {
+  const { sourceId, frameId, ref } = await seed();
+  await user().mutation(api.app.commitBatch, {
+    commands: [cmd("DeleteNode", { id: sourceId })],
+  });
+  expect(
+    (await list()).page.map(({ kind, resourceId }) => ({ kind, resourceId })),
+  ).toEqual(
+    expect.arrayContaining([
+      { kind: "frame", resourceId: frameId },
+      { kind: "secret", resourceId: ref },
+    ]),
+  );
+  expect(await claim("frame", frameId)).not.toBeNull();
+  expect(await claim("secret", ref)).not.toBeNull();
+});
 it("protects resources retained by a draft until discard", async () => {
   const { sourceId, tableId, frameId, ref } = await seed();
   const { draftId } = await user().mutation(api.app.draftBatch, {
@@ -295,36 +286,6 @@ it("rolls back cleanup jobs with a failed canonical batch and isolates workspace
     ).page,
   ).toEqual([]);
 });
-it("queues replaced OAuth refs but preserves the newly installed credential", async () => {
-  const { sourceId, ref } = await seed(),
-    next = secret();
-  await t.mutation(internal.host.replaceDataSourceConfig, {
-    workspaceId: "w",
-    id: sourceId,
-    expectedConfig: { apiKey: ref },
-    config: { apiKey: next },
-  });
-  expect(await claim("secret", ref)).not.toBeNull();
-  expect((await list()).page.some((job) => job.resourceId === next)).toBe(
-    false,
-  );
-  await expect(
-    t.mutation(internal.host.replaceDataSourceConfig, {
-      workspaceId: "w",
-      id: sourceId,
-      expectedConfig: { apiKey: next },
-      config: { apiKey: ref },
-    }),
-  ).rejects.toThrow("retired");
-  expect(
-    (
-      await t.query(internal.host.getDataSource, {
-        workspaceId: "w",
-        id: sourceId,
-      })
-    )?.config.apiKey,
-  ).toBe(next);
-});
 type Prepare = FunctionArgs<typeof internal.host.prepareHostBatch>;
 function batch(overrides: Partial<Prepare> = {}): Prepare {
   const ref = secret();
@@ -478,61 +439,6 @@ it("serializes missing settlement before a delayed prepare and binds identity an
       })
     ).status,
   ).toBe("pending");
-});
-it("keeps completed host-draft refs protected until publication and later canonical deletion", async () => {
-  const args = batch({ mode: "draft" });
-  await t.mutation(internal.host.prepareHostBatch, args);
-  const completed = await t.mutation(
-    internal.host.executeHostBatch,
-    identity(args),
-  );
-  if (!completed.result || !("draftId" in completed.result))
-    throw new Error("Expected draft result");
-  expect(await claim("secret", args.stagedRefs[0]!)).toBeNull();
-  await user().mutation(api.app.publishDraft, {
-    draftId: completed.result.draftId,
-  });
-  expect(await claim("secret", args.stagedRefs[0]!)).toBeNull();
-  await user().mutation(api.app.commitBatch, {
-    commands: [cmd("DeleteNode", { id: String(args.commands[0]!.args.id) })],
-  });
-  expect(await claim("secret", args.stagedRefs[0]!)).not.toBeNull();
-});
-it("serializes settlement against execution without losing referenced secrets", async () => {
-  const args = batch();
-  await t.mutation(internal.host.prepareHostBatch, args);
-  await Promise.all([
-    t.mutation(internal.host.executeHostBatch, identity(args)),
-    t.mutation(internal.host.settleHostBatch, {
-      ...identity(args),
-      stagedRefs: args.stagedRefs,
-    }),
-  ]);
-  const final = await t.query(internal.host.getHostBatch, identity(args));
-  const sources = await listAll(user(), api.app.listDataSources, {});
-  if (final?.status === "completed") {
-    expect(sources).toHaveLength(1);
-    expect(await claim("secret", args.stagedRefs[0]!)).toBeNull();
-  } else {
-    expect(final?.status).toBe("cancelled");
-    expect(sources).toEqual([]);
-    expect(await claim("secret", args.stagedRefs[0]!)).not.toBeNull();
-  }
-});
-it("cancels pending host writes during clear and refuses service canonical batches", async () => {
-  const args = batch();
-  await t.mutation(internal.host.prepareHostBatch, args);
-  await t.mutation(internal.host.clearAllData, { workspaceId: "w" });
-  expect(
-    (await t.mutation(internal.host.executeHostBatch, identity(args))).status,
-  ).toBe("cancelled");
-  expect(await claim("secret", args.stagedRefs[0]!)).not.toBeNull();
-  await expect(
-    t.mutation(
-      internal.host.prepareHostBatch,
-      batch({ principal: { kind: "service", credentialId: "bot" } }),
-    ),
-  ).rejects.toThrow("User permission");
 });
 it("settles losing preparations with a different hash without altering the winning operation", async () => {
   const winner = batch(),

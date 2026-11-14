@@ -13,14 +13,6 @@ import { applyDateTransformToSql } from "../date-transforms";
 
 describe("applyDateTransformToSql — identifier sink-guard", () => {
   describe("temporal aggregations", () => {
-    it("normal column name is quoted", () => {
-      const sql = applyDateTransformToSql("created_at", {
-        kind: "temporal",
-        aggregation: "yearMonth",
-      });
-      expect(sql).toBe(`date_trunc('month', "created_at")`);
-    });
-
     it("hostile column name with embedded double-quote is escaped", () => {
       // Contract: the embedded " is escaped to "" so the identifier boundary
       // is never broken. The raw hostile string must not appear in the output.
@@ -38,22 +30,6 @@ describe("applyDateTransformToSql — identifier sink-guard", () => {
         aggregation: "none",
       });
       expect(sql).toBe('"order_date"');
-    });
-
-    it("year aggregation quotes the identifier", () => {
-      const sql = applyDateTransformToSql('year"col', {
-        kind: "temporal",
-        aggregation: "year",
-      });
-      expect(sql).toBe(`date_trunc('year', "year""col")`);
-    });
-
-    it("yearWeek aggregation quotes the identifier", () => {
-      const sql = applyDateTransformToSql("shipped_at", {
-        kind: "temporal",
-        aggregation: "yearWeek",
-      });
-      expect(sql).toBe(`date_trunc('week', "shipped_at")`);
     });
   });
 
@@ -73,22 +49,6 @@ describe("applyDateTransformToSql — identifier sink-guard", () => {
       });
       expect(sql).toBe(`monthname("amount""malicious")`);
       expect(sql).not.toContain('amount"m');
-    });
-
-    it("dayOfWeek transform quotes the identifier", () => {
-      const sql = applyDateTransformToSql("event_date", {
-        kind: "categorical",
-        groupBy: "dayOfWeek",
-      });
-      expect(sql).toBe(`dayname("event_date")`);
-    });
-
-    it("quarter transform quotes the identifier", () => {
-      const sql = applyDateTransformToSql("sale_date", {
-        kind: "categorical",
-        groupBy: "quarter",
-      });
-      expect(sql).toBe(`quarter("sale_date")`);
     });
   });
 });

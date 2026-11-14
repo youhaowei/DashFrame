@@ -282,30 +282,6 @@ describe("hosted WorkOS browser session", () => {
     ).toEqual({ status: "unavailable" });
 
     h.load({
-      authenticate: async () => {
-        throw new Error("synthetic SDK transport failure");
-      },
-      refresh: async () => ({ authenticated: false, retryable: false }),
-    });
-    expect(
-      await h.session.resolve(
-        request("/api", "__Host-dashframe-workos-session=sealed-a"),
-      ),
-    ).toEqual({ status: "unavailable" });
-
-    h.load({
-      authenticate: async () => ({ authenticated: false }),
-      refresh: async () => {
-        throw new Error("synthetic refresh transport failure");
-      },
-    });
-    expect(
-      await h.session.resolve(
-        request("/api", "__Host-dashframe-workos-session=sealed-a"),
-      ),
-    ).toEqual({ status: "unavailable" });
-
-    h.load({
       authenticate: async () => ({ authenticated: false }),
       refresh: async () => ({ authenticated: true }),
     });

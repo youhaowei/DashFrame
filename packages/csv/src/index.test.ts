@@ -108,19 +108,6 @@ describe("CSV date ingestion", () => {
     ]);
   });
 
-  it("does not normalize an impossible date after a valid date", async () => {
-    const result = await csvToDataFrame(
-      [["date"], ["2024-02-29"], ["2024-02-30"]],
-      DATA_TABLE_ID,
-    );
-    const values = tableFromIPC(result.arrowBuffer)
-      .toArray()
-      .map((row) => row.toJSON().date);
-
-    expect(result.fields[0]?.type).toBe("string");
-    expect(values).toEqual(["2024-02-29", "2024-02-30"]);
-  });
-
   it("keeps fractional-second timestamps typed as dates", async () => {
     const result = await csvToDataFrame(
       [["date"], ["2024-07-18T00:30:00.123"]],

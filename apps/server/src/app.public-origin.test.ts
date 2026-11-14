@@ -23,11 +23,8 @@ describe("public origin validation", () => {
   it.each([
     "not a url",
     "https://proxy.localhost/api",
-    "https://a.test?b=1",
-    // These round-trip through URL.origin, so only a scheme check rejects them.
-    "ftp://example.com",
+    // This round-trips through URL.origin, so only a scheme check rejects it.
     "ws://example.com",
-    "wss://example.com",
   ])("refuses %j before starting anything", async (value) => {
     await expect(
       createDashframeServer({

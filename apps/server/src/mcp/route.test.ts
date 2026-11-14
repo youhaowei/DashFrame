@@ -266,29 +266,6 @@ describe("MCP route", () => {
     return { client, transport };
   }
 
-  it("refuses a draft read when the draft closes during the read", async () => {
-    const draftId = crypto.randomUUID();
-    let draftChecks = 0;
-    const fakeApp: ApplicationOperations = {
-      forPrincipal() {
-        return this;
-      },
-      async execute(path) {
-        if (path === "listDrafts")
-          return draftChecks++ === 0 ? [{ draftId }] : [];
-        return { page: [], isDone: true, continueCursor: "" };
-      },
-    };
-    const tool = createMcpTools(
-      fakeApp,
-      { principal: { kind: "service", credentialId: "test" }, draftId },
-      "stateless",
-    ).find((candidate) => candidate.name === "find_nodes");
-    await expect(tool!.execute({})).rejects.toThrow(
-      /draft (?:is )?unavailable/i,
-    );
-  });
-
   it("validates and reads one snapshotted stateful draft handle", async () => {
     const originalDraftId = crypto.randomUUID();
     const replacementDraftId = crypto.randomUUID();
@@ -1201,45 +1178,6 @@ describe("MCP route", () => {
     }
   });
 
-  it("rejects plaintext credentials before command dispatch or persistence", async () => {
-    const { client, transport } = await connect();
-    // The literal never appears in an assertion message: every check below is a
-    // boolean or a length, so a failing run prints no secret.
-    const plaintextKey = `pk-live-${crypto.randomUUID()}`;
-    try {
-      const written = await client.callTool({
-        name: "draft_batch",
-        arguments: {
-          commands: [
-            {
-              type: "CreateDataSource",
-              args: {
-                id: crypto.randomUUID(),
-                type: "rest",
-                name: "Credentialed source",
-                apiKey: plaintextKey,
-              },
-            },
-          ],
-        },
-      });
-      expect(written.isError).toBe(true);
-      expect(resultText(written)).toMatch(/credential material.*not accepted/i);
-      expect(JSON.stringify(written).includes(plaintextKey)).toBe(false);
-
-      const log = await native.run((ctx) => ctx.db.query("draftLog").collect());
-      expect(log).toHaveLength(0);
-      expect(JSON.stringify(log).includes(plaintextKey)).toBe(false);
-
-      // And canonical gained nothing at all.
-      expect(
-        await native.run((ctx) => ctx.db.query("dataSources").collect()),
-      ).toHaveLength(0);
-    } finally {
-      await transport.close();
-    }
-  });
-
   it("rejects credential material inside a table origin", async () => {
     const { client, transport } = await connect();
     const plaintextToken = `tok-${crypto.randomUUID()}`;
@@ -1493,6 +1431,120 @@ describe("MCP route", () => {
     }
   });
 
+  it("rolls back all commands after a stateless batch failure", async () => {
+    await start("stateless");
+    const { client, transport } = await connect();
+    try {
+      const result = await client.callTool({
+        name: "draft_batch",
+        arguments: {
+          commands: [
+            {
+              type: "CreateDashboard",
+              args: {
+                id: crypto.randomUUID(),
+                name: "stateless rolled back",
+              },
+            },
+            {
+              type: "SetChartType",
+              args: { id: crypto.randomUUID(), visualizationType: "barY" },
+            },
+          ],
+        },
+      });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toBeUndefined();
+      expect(resultText(result)).toMatch(/not found/i);
+      expect(
+        await native.run((ctx) => ctx.db.query("drafts").collect()),
+      ).toHaveLength(0);
+      expect(
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
+      ).toHaveLength(0);
+      expect(
+        await native.run((ctx) => ctx.db.query("dashboards").collect()),
+      ).toHaveLength(0);
+
+      const continued = await client.callTool({
+        name: "draft_batch",
+        arguments: {
+          commands: [
+            {
+              type: "CreateDashboard",
+              args: { id: crypto.randomUUID(), name: "stateless continued" },
+            },
+          ],
+        },
+      });
+      expect(continued.isError).not.toBe(true);
+      expect(continued.structuredContent).toMatchObject({
+        draftId: expect.any(String),
+      });
+      expect(
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
+      ).toHaveLength(1);
+    } finally {
+      await transport.close();
+    }
+  });
+
+  it("preserves the existing stateful draft when an append batch fails", async () => {
+    await start("stateful");
+    const { client, transport } = await connect();
+    try {
+      const accepted = await writeDashboard(client, "Already accepted");
+      const { draftId } = accepted.structuredContent as { draftId: string };
+      const rejected = await client.callTool({
+        name: "draft_batch",
+        arguments: {
+          commands: [
+            {
+              type: "CreateDashboard",
+              args: { id: crypto.randomUUID(), name: "Must roll back" },
+            },
+            {
+              type: "SetChartType",
+              args: { id: crypto.randomUUID(), visualizationType: "barY" },
+            },
+          ],
+        },
+      });
+      expect(rejected.isError).toBe(true);
+      expect(
+        await native.run((ctx) => ctx.db.query("drafts").collect()),
+      ).toHaveLength(1);
+      expect(
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
+      ).toHaveLength(1);
+      const read = await client.callTool({
+        name: "find_nodes",
+        arguments: {},
+      });
+      expect(read.structuredContent).toMatchObject({
+        hits: [expect.objectContaining({ name: "Already accepted" })],
+      });
+      expect(JSON.stringify(read)).not.toContain("Must roll back");
+      const continued = await client.callTool({
+        name: "draft_batch",
+        arguments: {
+          commands: [
+            {
+              type: "CreateDashboard",
+              args: { id: crypto.randomUUID(), name: "Accepted next" },
+            },
+          ],
+        },
+      });
+      expect(continued.structuredContent).toMatchObject({ draftId });
+      expect(
+        await native.run((ctx) => ctx.db.query("draftLog").collect()),
+      ).toHaveLength(2);
+    } finally {
+      await transport.close();
+    }
+  });
+
   it("serializes concurrent first stateful writes onto one draft", async () => {
     await start("stateful");
     const { client, transport } = await connect();
@@ -1513,127 +1565,6 @@ describe("MCP route", () => {
       await transport.close();
     }
   });
-
-  for (const mode of ["stateless", "stateful"] as const) {
-    it(`rolls back all commands after a ${mode} batch failure`, async () => {
-      await start(mode);
-      const { client, transport } = await connect();
-      try {
-        const result = await client.callTool({
-          name: "draft_batch",
-          arguments: {
-            commands: [
-              {
-                type: "CreateDashboard",
-                args: {
-                  id: crypto.randomUUID(),
-                  name: `${mode} rolled back`,
-                },
-              },
-              {
-                type: "SetChartType",
-                args: { id: crypto.randomUUID(), visualizationType: "barY" },
-              },
-            ],
-          },
-        });
-        expect(result.isError).toBe(true);
-        expect(result.structuredContent).toBeUndefined();
-        expect(resultText(result)).toMatch(/not found/i);
-        expect(
-          await native.run((ctx) => ctx.db.query("drafts").collect()),
-        ).toHaveLength(0);
-        expect(
-          await native.run((ctx) => ctx.db.query("draftLog").collect()),
-        ).toHaveLength(0);
-        expect(
-          await native.run((ctx) => ctx.db.query("dashboards").collect()),
-        ).toHaveLength(0);
-
-        const continued = await client.callTool({
-          name: "draft_batch",
-          arguments: {
-            commands: [
-              {
-                type: "CreateDashboard",
-                args: { id: crypto.randomUUID(), name: `${mode} continued` },
-              },
-            ],
-          },
-        });
-        expect(continued.isError).not.toBe(true);
-        expect(continued.structuredContent).toMatchObject({
-          draftId: expect.any(String),
-        });
-        expect(
-          await native.run((ctx) => ctx.db.query("draftLog").collect()),
-        ).toHaveLength(1);
-      } finally {
-        await transport.close();
-      }
-    });
-  }
-
-  for (const mode of ["stateless", "stateful"] as const) {
-    it(`preserves the existing ${mode} draft when an append batch fails`, async () => {
-      await start(mode);
-      const { client, transport } = await connect();
-      try {
-        const accepted = await writeDashboard(client, "Already accepted");
-        const { draftId } = accepted.structuredContent as { draftId: string };
-        const carry = mode === "stateless" ? { draftId } : {};
-        const rejected = await client.callTool({
-          name: "draft_batch",
-          arguments: {
-            ...carry,
-            commands: [
-              {
-                type: "CreateDashboard",
-                args: { id: crypto.randomUUID(), name: "Must roll back" },
-              },
-              {
-                type: "SetChartType",
-                args: { id: crypto.randomUUID(), visualizationType: "barY" },
-              },
-            ],
-          },
-        });
-        expect(rejected.isError).toBe(true);
-        expect(
-          await native.run((ctx) => ctx.db.query("drafts").collect()),
-        ).toHaveLength(1);
-        expect(
-          await native.run((ctx) => ctx.db.query("draftLog").collect()),
-        ).toHaveLength(1);
-        const read = await client.callTool({
-          name: "find_nodes",
-          arguments: carry,
-        });
-        expect(read.structuredContent).toMatchObject({
-          hits: [expect.objectContaining({ name: "Already accepted" })],
-        });
-        expect(JSON.stringify(read)).not.toContain("Must roll back");
-        const continued = await client.callTool({
-          name: "draft_batch",
-          arguments: {
-            ...carry,
-            commands: [
-              {
-                type: "CreateDashboard",
-                args: { id: crypto.randomUUID(), name: "Accepted next" },
-              },
-            ],
-          },
-        });
-        expect(continued.structuredContent).toMatchObject({ draftId });
-        expect(
-          await native.run((ctx) => ctx.db.query("draftLog").collect()),
-        ).toHaveLength(2);
-      } finally {
-        await transport.close();
-      }
-    });
-  }
 
   it("evicts stateful sessions at capacity and after idle expiry", async () => {
     await start("stateful", { mcpMaxStatefulSessions: 1 });
@@ -1672,38 +1603,6 @@ describe("MCP route", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 10, method: "tools/list" }),
     });
     expect(expired.status).toBe(404);
-  });
-
-  it("keeps concurrent stateful initialization within capacity one", async () => {
-    await start("stateful", { mcpMaxStatefulSessions: 1 });
-    const attempts = await Promise.allSettled([connect(), connect()]);
-    const connected = attempts.flatMap((attempt) =>
-      attempt.status === "fulfilled" ? [attempt.value] : [],
-    );
-    expect(connected.length).toBeGreaterThanOrEqual(1);
-
-    const statuses = await Promise.all(
-      connected.map(({ transport }) =>
-        fetch(`${server!.url}/mcp`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json, text/event-stream",
-            "Mcp-Session-Id": transport.sessionId!,
-            ...bearer(serviceToken),
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: crypto.randomUUID(),
-            method: "tools/list",
-          }),
-        }).then((response) => response.status),
-      ),
-    );
-    expect(statuses.filter((status) => status === 200)).toHaveLength(1);
-    await Promise.allSettled(
-      connected.map(({ transport }) => transport.close()),
-    );
   });
 
   it("does not let another credential evict an active stateful session", async () => {

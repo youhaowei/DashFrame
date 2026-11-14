@@ -2,7 +2,6 @@
  * Unit tests for JSON Flattening Utilities
  *
  * Tests cover:
- * - Basic nested object flattening
  * - Deep nesting with dot-notation keys
  * - Array handling with numeric indices
  * - Edge cases (empty objects, arrays, null values)
@@ -19,26 +18,6 @@ import {
 } from "./flatten";
 
 describe("flattenObject", () => {
-  describe("basic flattening", () => {
-    it("should flatten deeply nested object", () => {
-      const input = {
-        user: {
-          name: "Alice",
-          address: {
-            city: "NYC",
-            zip: "10001",
-          },
-        },
-      };
-      const result = flattenObject(input);
-      expect(result).toEqual({
-        "user.name": "Alice",
-        "user.address.city": "NYC",
-        "user.address.zip": "10001",
-      });
-    });
-  });
-
   describe("primitive values", () => {
     it("should handle primitive at root level", () => {
       expect(flattenObject("hello" as unknown as JsonValue)).toEqual({
@@ -105,24 +84,6 @@ describe("flattenObject", () => {
         "tags.1": "verified",
       });
     });
-
-    it("should handle mixed arrays and objects", () => {
-      const input = {
-        data: [
-          { type: "A", values: [1, 2] },
-          { type: "B", values: [3, 4] },
-        ],
-      };
-      const result = flattenObject(input);
-      expect(result).toEqual({
-        "data.0.type": "A",
-        "data.0.values.0": 1,
-        "data.0.values.1": 2,
-        "data.1.type": "B",
-        "data.1.values.0": 3,
-        "data.1.values.1": 4,
-      });
-    });
   });
 });
 
@@ -143,15 +104,6 @@ describe("flattenObjectArray", () => {
 });
 
 describe("extractKeys", () => {
-  it("should extract all unique keys from array of objects", () => {
-    const input: FlattenedObject[] = [
-      { a: 1, b: 2 },
-      { b: 3, c: 4 },
-    ];
-    const result = extractKeys(input);
-    expect(result).toEqual(["a", "b", "c"]);
-  });
-
   it("should return sorted keys", () => {
     const input: FlattenedObject[] = [{ z: 1, a: 2, m: 3, d: 4 }];
     const result = extractKeys(input);

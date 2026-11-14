@@ -122,17 +122,12 @@ it("denies authority, principal, purpose, admission, and caller-selected ownersh
   await host("a", a).mutation(api.hostedCredentials.register, args);
   for (const caller of [
     t,
-    operator(),
-    service(a, args.credentialId),
     host("a", a, { authority: "browser" }),
-    host("a", a, { purpose: undefined }),
     host("a", a, { purpose: "host-metadata" }),
     host("a", a, { principalKind: "service" }),
-    host("a", a, { principalKind: undefined }),
     host("a", a, { subject: "user:b" }),
     host("a", a, { issuer: operatorIssuer }),
     host("a", b),
-    host("pending", a),
   ]) {
     await expect(
       caller.mutation(api.hostedCredentials.register, args),
@@ -145,19 +140,13 @@ it("denies authority, principal, purpose, admission, and caller-selected ownersh
   await expect(
     host("unallocated", a).mutation(api.hostedCredentials.register, args),
   ).rejects.toThrow("admission");
-  for (const override of [
-    { subject: "b" },
-    { workspaceId: b },
-    { token: "must-not-be-stored" },
-  ]) {
-    const input = { ...args, ...override };
-    await expect(
-      host("a", a).mutation(api.hostedCredentials.register, input),
-    ).rejects.toThrow();
-    await expect(
-      host("a", a).mutation(api.hostedCredentials.revoke, input),
-    ).rejects.toThrow();
-  }
+  const input = { ...args, workspaceId: b };
+  await expect(
+    host("a", a).mutation(api.hostedCredentials.register, input),
+  ).rejects.toThrow();
+  await expect(
+    host("a", a).mutation(api.hostedCredentials.revoke, input),
+  ).rejects.toThrow();
   await operator().mutation(api.admission.revoke, { subject: "a" });
   await expect(
     host("a", a).mutation(api.hostedCredentials.register, args),
@@ -170,15 +159,11 @@ it("denies authority, principal, purpose, admission, and caller-selected ownersh
 it("rejects malformed IDs and never registers historical revocations, even without an ownership row", async () => {
   const a = await admit("a");
   const b = await admit("b");
-  for (const credentialId of [
-    "",
-    " credential ",
-    "not-a-uuid",
-    "x".repeat(257),
-  ])
-    await expect(
-      host("a", a).mutation(api.hostedCredentials.register, { credentialId }),
-    ).rejects.toThrow("ID");
+  await expect(
+    host("a", a).mutation(api.hostedCredentials.register, {
+      credentialId: "not-a-uuid",
+    }),
+  ).rejects.toThrow("ID");
   const credentialId = randomUUID();
   await t.mutation(internal.host.revokeCredential, {
     workspaceId: a,

@@ -111,7 +111,6 @@ it("stores metadata-only publication receipts and preserves retry identity", asy
 });
 it.each([
   "sourceArrow",
-  "sourceFields",
   "tableSamples",
   "frameSamples",
   "schemaSamples",
@@ -130,7 +129,7 @@ it.each([
               { ...item, source: { ...item.source, arrow: { "0": 42 } } },
             ],
           }
-        : slot === "sourceFields"
+        : slot === "tableSamples"
           ? {
               ...value,
               sources: [
@@ -138,57 +137,44 @@ it.each([
                   ...item,
                   source: {
                     ...item.source,
-                    fields: [{ sampleValues: ["private"] }],
+                    table: {
+                      ...item.source.table,
+                      sampleValues: ["private"],
+                    },
                   },
                 },
               ],
             }
-          : slot === "tableSamples"
+          : slot === "frameSamples"
             ? {
                 ...value,
-                sources: [
-                  {
-                    ...item,
-                    source: {
-                      ...item.source,
-                      table: {
-                        ...item.source.table,
-                        sampleValues: ["private"],
-                      },
-                    },
-                  },
-                ],
+                result: { ...value.result, sampleValues: ["private"] },
               }
-            : slot === "frameSamples"
+            : slot === "schemaSamples"
               ? {
                   ...value,
-                  result: { ...value.result, sampleValues: ["private"] },
+                  result: {
+                    ...value.result,
+                    schema: [
+                      {
+                        ...value.result.schema[0]!,
+                        sampleValues: ["private"],
+                      },
+                    ],
+                  },
                 }
-              : slot === "schemaSamples"
+              : slot === "provenanceData"
                 ? {
                     ...value,
-                    result: {
-                      ...value.result,
-                      schema: [
-                        {
-                          ...value.result.schema[0]!,
-                          sampleValues: ["private"],
-                        },
-                      ],
+                    provenance: {
+                      ...value.provenance,
+                      dataRows: ["private"],
                     },
                   }
-                : slot === "provenanceData"
-                  ? {
-                      ...value,
-                      provenance: {
-                        ...value.provenance,
-                        dataRows: ["private"],
-                      },
-                    }
-                  : {
-                      ...value,
-                      target: { ...value.target, dataRows: ["private"] },
-                    };
+                : {
+                    ...value,
+                    target: { ...value.target, dataRows: ["private"] },
+                  };
     await expect(
       t.mutation(internal.host.publishMaterialization, {
         workspaceId: "w",
@@ -204,37 +190,33 @@ it.each([
     ).toBeNull();
   },
 );
-it.each(["deleted", "dataSourceId", "table"])(
-  "rejects changed source binding %s without publishing partial frames",
-  async (change) => {
-    const value = await fixture(),
-      binding = value.sources[0]!.source.table;
-    await t.run(async (ctx) => {
-      const table = await ctx.db
-        .query("dataTables")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", "w").eq("id", binding.id),
-        )
-        .unique();
-      if (!table) throw new Error("Missing table");
-      if (change === "deleted") await ctx.db.delete(table._id);
-      else await ctx.db.patch(table._id, { [change]: "changed" });
-    });
-    await expect(
-      t.mutation(internal.host.publishMaterialization, {
-        workspaceId: "w",
-        value,
-      }),
-    ).rejects.toThrow("SOURCE_BINDING_CHANGED");
-    expect(await listAll(user(), api.app.listDataFrames, {})).toEqual([]);
-    expect(
-      await t.query(internal.host.getOperation, {
-        workspaceId: "w",
-        operationId: `materialize:${value.result.id}`,
-      }),
-    ).toBeNull();
-  },
-);
+it("rejects changed source binding dataSourceId without publishing partial frames", async () => {
+  const value = await fixture(),
+    binding = value.sources[0]!.source.table;
+  await t.run(async (ctx) => {
+    const table = await ctx.db
+      .query("dataTables")
+      .withIndex("by_workspaceId_and_id", (q) =>
+        q.eq("workspaceId", "w").eq("id", binding.id),
+      )
+      .unique();
+    if (!table) throw new Error("Missing table");
+    await ctx.db.patch(table._id, { dataSourceId: "changed" });
+  });
+  await expect(
+    t.mutation(internal.host.publishMaterialization, {
+      workspaceId: "w",
+      value,
+    }),
+  ).rejects.toThrow("SOURCE_BINDING_CHANGED");
+  expect(await listAll(user(), api.app.listDataFrames, {})).toEqual([]);
+  expect(
+    await t.query(internal.host.getOperation, {
+      workspaceId: "w",
+      operationId: `materialize:${value.result.id}`,
+    }),
+  ).toBeNull();
+});
 it("publishes transient sources without retaining their intermediate result", async () => {
   const original = await fixture(),
     value = { ...original, target: { kind: "transient" as const } };

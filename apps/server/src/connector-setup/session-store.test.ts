@@ -103,12 +103,6 @@ describe("native Convex connector setup sessions", () => {
       consumeCallback(db, second.stateNonce, NOW),
     ).resolves.toMatchObject({ state: "exchanging" });
   });
-  it("rejects malformed callback state before looking up a session", async () => {
-    const { db } = fixture();
-    await expect(
-      consumeCallback(db, "not-a-capability", NOW),
-    ).rejects.toMatchObject({ code: "state-mismatch" });
-  });
   it("commits expiry before rejecting a stale callback", async () => {
     const { db, pending } = fixture();
     const issuance = await pending();

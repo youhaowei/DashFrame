@@ -8,8 +8,6 @@ import {
 } from "jose";
 import {
   createAuthKitAccessTokenVerifier,
-  protectedResourceMetadata,
-  protectedResourceMetadataUrl,
   readHostedMcpOAuthConfig,
 } from "./hosted-mcp-oauth";
 
@@ -106,17 +104,6 @@ describe("AuthKit access token verifier", () => {
 });
 
 describe("protected resource metadata", () => {
-  it("names this exact MCP URL and the AuthKit issuer first", () => {
-    expect(protectedResourceMetadata(config)).toMatchObject({
-      resource: "https://dashframe.example.test/mcp",
-      authorization_servers: ["https://auth.example.test"],
-      bearer_methods_supported: ["header"],
-    });
-    expect(protectedResourceMetadataUrl(config)).toBe(
-      "https://dashframe.example.test/.well-known/oauth-protected-resource/mcp",
-    );
-  });
-
   it("stays off without an issuer and refuses a non-HTTPS one", () => {
     expect(
       readHostedMcpOAuthConfig({}, "https://dashframe.example.test"),

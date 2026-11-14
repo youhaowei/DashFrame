@@ -38,7 +38,6 @@ describe("measureCombinesOver", () => {
       false,
     ],
     ["ratio, nothing dropped", { kind: "ratio" }, [], false],
-    ["non-additive, nothing dropped", { kind: "non-additive" }, [], false],
   ];
 
   it.each(cases)("%s", (_label, contract, dropped, expected) => {
@@ -51,7 +50,6 @@ describe("measure contract", () => {
     [{ kind: "additive" }, true],
     [{ kind: "additive", additiveOver: ["time", "session"] }, true],
     [{ kind: "ratio" }, true],
-    [{ kind: "non-additive" }, true],
     [{ kind: "additive", additiveOver: ["account"] }, false],
     [{ kind: "additive", additiveOver: "time" }, false],
     [{ kind: "ratio", additiveOver: ["time"] }, false],

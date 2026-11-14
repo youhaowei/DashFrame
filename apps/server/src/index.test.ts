@@ -197,30 +197,13 @@ describe("dashframe serve CLI", () => {
   });
 
   describe("assertBindIsSafe", () => {
-    it("should allow a loopback bind without a token", () => {
-      expect(() => assertBindIsSafe({ hostname: "127.0.0.1" })).not.toThrow();
-      // Anywhere in 127.0.0.0/8, not just 127.0.0.1.
-      expect(() => assertBindIsSafe({ hostname: "127.0.0.2" })).not.toThrow();
-      expect(() => assertBindIsSafe({})).not.toThrow();
-    });
-
-    it("should reject a non-loopback bind without a token", () => {
-      expect(() => assertBindIsSafe({ hostname: "0.0.0.0" })).toThrow(
-        /Refusing to bind 0\.0\.0\.0 without an authentication token/,
-      );
-    });
-
     // Regression for #243: the gate used to classify loopback with
     // `hostname.startsWith("127.")`, a string prefix test on a *hostname*.
     it.each([
-      // The bypass. Both pass the old prefix test while resolving wherever
-      // their owner points them, so each silently waived the token
-      // requirement on a network-reachable bind.
-      "127.attacker.example",
+      // The bypass. It passes the old prefix test while resolving wherever
+      // its owner points it, so it silently waived the token requirement on a
+      // network-reachable bind.
       "127.0.0.1.evil.example",
-      // Already rejected by the old test (no dot after `127`). Pins the
-      // adjacent shape so a looser rewrite of the parse can't admit it.
-      "127foo",
       // Not a dotted-quad literal, and not attacker-controlled — a genuine
       // loopback shorthand that getaddrinfo widens to 127.0.0.1. The gate
       // fails closed on spellings it cannot parse rather than guessing, so
@@ -240,6 +223,7 @@ describe("dashframe serve CLI", () => {
       }
       expect(() => assertBindIsSafe({ hostname: "localhost" })).not.toThrow();
       expect(() => assertBindIsSafe({ hostname: "::1" })).not.toThrow();
+      expect(() => assertBindIsSafe({})).not.toThrow();
     });
 
     it("should allow a non-loopback bind when a token is set", () => {

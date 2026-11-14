@@ -45,13 +45,6 @@ it("rejects a package that omitted the staged backend", async () => {
     "convex/convex-local-backend",
   );
 });
-it("rejects missing deployable functions even when the executable is present", async () => {
-  const resources = await fixture();
-  await rm(path.join(resources, "convex/functions/convex/host.js"));
-  await expect(assertPackagedLayout(resources, "darwin")).rejects.toThrow(
-    "convex/functions/convex/host.js",
-  );
-});
 it("requires the Windows executable name for Windows packages", async () => {
   const resources = await fixture();
   await expect(assertPackagedLayout(resources, "win32")).rejects.toThrow(

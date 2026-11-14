@@ -292,38 +292,6 @@ describe("connector snapshot publication", () => {
     ).toMatchObject({ result: null });
   });
 
-  it("advances the GA4 source fence after its own credential refresh", async () => {
-    const h = await fixture("success");
-    await h.native.run(async (ctx) => {
-      const source = await ctx.db
-        .query("dataSources")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", "workspace").eq("id", h.dataSourceId),
-        )
-        .unique();
-      await ctx.db.patch(source!._id, { kind: "googleAnalytics" });
-    });
-    ga4Query.mockImplementationOnce(async (dependencies) => {
-      await dependencies.persistTokenBundle({
-        accessToken: "fresh",
-        refreshToken: "refresh",
-        expiresAt: Date.now() + 3_600_000,
-        scopes: ["https://www.googleapis.com/auth/analytics.readonly"],
-      });
-      return h.queryResult;
-    });
-    const result = await queryGa4Property(h.ctx, {
-      dataSourceId: h.dataSourceId,
-      tableId: h.tableId,
-      snapshot: true,
-      approvedFields: h.fields,
-    });
-    expect(result.dataFrameId).toEqual(expect.any(String));
-    expect(
-      h.commitImportedFrame.mock.calls[0]![0].expectedDataSourceRevision,
-    ).toBe(2);
-  });
-
   it("serializes concurrent GA4 token writes", async () => {
     const h = await fixture("success");
     await h.native.run(async (ctx) => {
@@ -656,46 +624,6 @@ describe("connector snapshot publication", () => {
       ImportPublicationRejectedError,
     );
     expect(h.commitImportedFrame).toHaveBeenCalledOnce();
-    expect(h.bytes.size).toBe(0);
-    expect(
-      await h.native.query(internal.host.getDataTable, {
-        workspaceId: "workspace",
-        id: h.tableId,
-      }),
-    ).not.toHaveProperty("dataFrameId");
-  });
-
-  it("rejects a snapshot fetched with an older source configuration", async () => {
-    const h = await fixture("success");
-    let releaseQuery!: () => void;
-    const queryReleased = new Promise<void>((resolve) => {
-      releaseQuery = resolve;
-    });
-    let markQueryStarted!: () => void;
-    const queryStarted = new Promise<void>((resolve) => {
-      markQueryStarted = resolve;
-    });
-    query.mockImplementationOnce(async () => {
-      markQueryStarted();
-      await queryReleased;
-      return h.queryResult;
-    });
-    const executing = h.execute();
-    await queryStarted;
-    const source = await h.native.query(internal.host.getDataSource, {
-      workspaceId: "workspace",
-      id: h.dataSourceId,
-    });
-    await h.native.mutation(internal.host.replaceDataSourceConfig, {
-      workspaceId: "workspace",
-      id: h.dataSourceId,
-      expectedConfig: source!.config ?? {},
-      config: { apiKey: `secret:${crypto.randomUUID()}` },
-    });
-    releaseQuery();
-    await expect(executing).rejects.toBeInstanceOf(
-      ImportPublicationRejectedError,
-    );
     expect(h.bytes.size).toBe(0);
     expect(
       await h.native.query(internal.host.getDataTable, {

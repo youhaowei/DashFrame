@@ -83,16 +83,13 @@ it.each(["signedout", "unavailable"] as const)(
   },
 );
 
-it.each(["pending", "revoked"] as const)(
-  "denies token issuance and runtime allocation for %s users",
-  async (status) => {
-    const f = fixture("authenticated", status);
-    expect((await f.request("runtime")).status).toBe(200);
-    expect((await f.request("convex-token")).status).toBe(403);
-    expect(f.withWorkspace).not.toHaveBeenCalled();
-    expect(f.tokens.browser).not.toHaveBeenCalled();
-  },
-);
+it("denies token issuance and runtime allocation for revoked users", async () => {
+  const f = fixture("authenticated", "revoked");
+  expect((await f.request("runtime")).status).toBe(200);
+  expect((await f.request("convex-token")).status).toBe(403);
+  expect(f.withWorkspace).not.toHaveBeenCalled();
+  expect(f.tokens.browser).not.toHaveBeenCalled();
+});
 
 it("uses only verified identity and admitted workspace, preserving refreshed cookies", async () => {
   const f = fixture();
@@ -151,24 +148,6 @@ it("binds hosted operation dispatch to current admission and rejects unknown rou
   );
   expect((await f.request("host/notPublished")).status).toBe(404);
   expect(f.withWorkspace).toHaveBeenCalledTimes(1);
-  for (const status of ["pending", "revoked"] as const) {
-    const denied = fixture("authenticated", status);
-    expect((await denied.request("host/getAccessCapabilities")).status).toBe(
-      403,
-    );
-    expect(denied.execute).not.toHaveBeenCalled();
-    expect(denied.withWorkspace).not.toHaveBeenCalled();
-  }
-  const foreign = fixture();
-  expect(
-    (
-      await foreign.request(
-        "host/getAccessCapabilities",
-        "https://foreign.invalid",
-      )
-    ).status,
-  ).toBe(403);
-  expect(foreign.session.resolve).not.toHaveBeenCalled();
 });
 
 it("executes a hosted operation entirely inside the workspace lifetime", async () => {

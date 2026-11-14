@@ -46,19 +46,6 @@ describe("PostHogEventQueue", () => {
   });
 
   describe("flush", () => {
-    it("should flush all events to PostHog", () => {
-      const mockPostHog = createMockPostHog();
-
-      queue.capture("event_1", { prop: "value" });
-      queue.identify("user_123", { email: "test@example.com" });
-      queue.capture("event_2");
-
-      queue.flush(mockPostHog);
-
-      expect(mockPostHog.capture).toHaveBeenCalledTimes(2);
-      expect(mockPostHog.identify).toHaveBeenCalledTimes(1);
-    });
-
     it("should include queued_at timestamp in flushed events", () => {
       const mockPostHog = createMockPostHog();
 

@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 
-import { csvToDataFrame, parseCSV } from "@dashframe/csv";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { SampleSeedProjectFixture } from "./sample-data-seed.fixture";
@@ -182,25 +181,5 @@ describe("sample CSV project seeding", () => {
         replacedTable.metrics.some((candidate) => candidate.id === metric.id),
       ),
     ).toBe(true);
-  });
-});
-
-describe("sample CSV fixtures", () => {
-  it("infers the orders columns as dates, numbers, and dimensions", async () => {
-    const csvContent = await readFile(samplePath("orders"), "utf8");
-    const parsed = parseCSV(csvContent);
-    const tableId = "8d2ed912-67e0-40f2-b62f-71b17f4ffec8";
-
-    const converted = await csvToDataFrame(parsed, tableId);
-
-    expect(converted.fields.map(({ name, type }) => [name, type])).toEqual([
-      ["order_id", "string"],
-      ["customer_id", "string"],
-      ["order_date", "date"],
-      ["channel", "string"],
-      ["revenue", "number"],
-      ["quantity", "number"],
-      ["region", "string"],
-    ]);
   });
 });

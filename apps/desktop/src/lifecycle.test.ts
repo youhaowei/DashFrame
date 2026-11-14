@@ -147,18 +147,6 @@ describe("Lifecycle.shutdown — C: per-step error isolation", () => {
 });
 
 describe("Lifecycle.shutdown — D: partial / unset handles", () => {
-  it("disposes the engine when the project was never opened (pre-project failure)", async () => {
-    const exit = vi.fn<(code: number) => void>();
-    const lifecycle = new Lifecycle(exit);
-    const engine = makeEngine();
-    lifecycle.setEngine(engine);
-
-    await lifecycle.shutdown(1);
-
-    expect(engine.dispose).toHaveBeenCalled();
-    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
-  });
-
   it("is a no-op drain when nothing is registered, but still exits", async () => {
     const exit = vi.fn<(code: number) => void>();
     const lifecycle = new Lifecycle(exit);

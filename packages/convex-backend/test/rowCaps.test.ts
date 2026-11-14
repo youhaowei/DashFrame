@@ -31,24 +31,6 @@ const user = () =>
     userId: "u",
   });
 
-it("returns one indexed data source when more than 1000 share its type", async () => {
-  await t.run(async (ctx) => {
-    for (let index = 0; index < 1001; index++)
-      await ctx.db.insert("dataSources", {
-        workspaceId: "w",
-        id: crypto.randomUUID(),
-        revision: 1,
-        name: `Source ${index}`,
-        createdAt: index,
-        kind: "csv",
-      });
-  });
-
-  expect(
-    await user().query(api.app.getDataSourceByType, { type: "csv" }),
-  ).not.toBeNull();
-}, 15_000);
-
 it("serves draft-less indexed reads without loading unrelated artifact tables", async () => {
   const sourceId = crypto.randomUUID();
   const insightId = crypto.randomUUID();

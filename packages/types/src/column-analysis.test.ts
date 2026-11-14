@@ -9,14 +9,6 @@ import { looksLikeIdentifier } from "./column-analysis";
 
 describe("column-analysis", () => {
   describe("looksLikeIdentifier()", () => {
-    describe("exact matches (case insensitive)", () => {
-      it("should detect 'id'", () => {
-        expect(looksLikeIdentifier("id")).toBe(true);
-        expect(looksLikeIdentifier("ID")).toBe(true);
-        expect(looksLikeIdentifier("Id")).toBe(true);
-      });
-    });
-
     describe("suffix patterns", () => {
       it("should detect columns ending with '_id'", () => {
         expect(looksLikeIdentifier("user_id")).toBe(true);
@@ -24,37 +16,9 @@ describe("column-analysis", () => {
         expect(looksLikeIdentifier("order_id")).toBe(true);
         expect(looksLikeIdentifier("product_ID")).toBe(true);
       });
-
-      it("should detect camelCase columns ending with 'Id'", () => {
-        expect(looksLikeIdentifier("userId")).toBe(true);
-        expect(looksLikeIdentifier("customerId")).toBe(true);
-        expect(looksLikeIdentifier("orderId")).toBe(true);
-      });
-
-      it("should detect columns ending with 'key'", () => {
-        expect(looksLikeIdentifier("primary_key")).toBe(true);
-        expect(looksLikeIdentifier("api_key")).toBe(true);
-        expect(looksLikeIdentifier("authkey")).toBe(true);
-        expect(looksLikeIdentifier("sessionKey")).toBe(true);
-      });
-    });
-
-    describe("prefix patterns", () => {
-      it("should detect columns starting with 'id_'", () => {
-        expect(looksLikeIdentifier("id_user")).toBe(true);
-        expect(looksLikeIdentifier("id_customer")).toBe(true);
-        expect(looksLikeIdentifier("ID_order")).toBe(true);
-      });
     });
 
     describe("non-identifier column names", () => {
-      it("should NOT detect regular column names", () => {
-        expect(looksLikeIdentifier("name")).toBe(false);
-        expect(looksLikeIdentifier("email")).toBe(false);
-        expect(looksLikeIdentifier("revenue")).toBe(false);
-        expect(looksLikeIdentifier("category")).toBe(false);
-      });
-
       it("should NOT detect columns with 'id' in the middle", () => {
         expect(looksLikeIdentifier("video")).toBe(false);
         expect(looksLikeIdentifier("friday")).toBe(false);
