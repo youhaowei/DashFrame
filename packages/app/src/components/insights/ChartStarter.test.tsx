@@ -175,6 +175,15 @@ describe("ChartStarter", () => {
     pointsState.mockReturnValue({ status: "ready", points: [] });
   });
 
+  it("cannot pick a card before its aggregate confirms the fit", () => {
+    pointsState.mockReturnValue({ status: "loading" });
+    renderStarter();
+    const card = screen.getByRole("button", { name: "Count by Category" });
+    expect((card as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(card);
+    expect(mockCommitBatch).not.toHaveBeenCalled();
+  });
+
   it("drops a card that does not fit and hides the section when none is left", async () => {
     pointsState.mockImplementation((key: string) =>
       key.startsWith("count-by-category")

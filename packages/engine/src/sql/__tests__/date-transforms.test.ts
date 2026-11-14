@@ -66,6 +66,15 @@ describe("applyDateTransformToSql — identifier sink-guard", () => {
       expect(sql).toBe(`monthname("order_date")`);
     });
 
+    it("hostile column name is escaped in categorical monthName", () => {
+      const sql = applyDateTransformToSql('amount"malicious', {
+        kind: "categorical",
+        groupBy: "monthName",
+      });
+      expect(sql).toBe(`monthname("amount""malicious")`);
+      expect(sql).not.toContain('amount"m');
+    });
+
     it("dayOfWeek transform quotes the identifier", () => {
       const sql = applyDateTransformToSql("event_date", {
         kind: "categorical",

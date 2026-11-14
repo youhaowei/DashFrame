@@ -19,6 +19,8 @@ import {
   createStandaloneServerOptions,
   parseArgs,
   resolveAuthToken,
+  resolveDataDir,
+  resolveProjectDirectory,
   shutdownStandaloneResources,
 } from "./index";
 
@@ -145,6 +147,20 @@ describe("dashframe serve CLI", () => {
       });
     });
 
+    it("should parse the host-local data directory independently", () => {
+      expect(
+        parseArgs([
+          "--project",
+          "/copiable/project",
+          "--data-dir",
+          "/host/local/data",
+        ]),
+      ).toEqual({
+        project: "/copiable/project",
+        dataDir: "/host/local/data",
+      });
+    });
+
     it("should parse both MCP transport modes and reject unknown modes", () => {
       expect(parseArgs(["--mcp-mode", "stateful"])).toEqual({
         mcpMode: "stateful",
@@ -260,6 +276,23 @@ describe("dashframe serve CLI", () => {
   });
 
   describe("standalone secret composition", () => {
+    it("resolves data-dir and project-dir independently, flag over env", () => {
+      const environment = {
+        DASHFRAME_PROJECT_DIR: "/env/project",
+        DASHFRAME_DATA_DIR: "/env/data",
+      };
+      expect(
+        resolveDataDir({ project: "/copiable/project" }, environment),
+      ).toBe("/env/data");
+      expect(resolveDataDir({ dataDir: "/flag/data" }, environment)).toBe(
+        "/flag/data",
+      );
+      expect(resolveProjectDirectory({}, environment)).toBe("/env/project");
+      expect(
+        resolveProjectDirectory({ project: "/flag/project" }, environment),
+      ).toBe("/flag/project");
+    });
+
     it("refuses to place the host-local access root inside the project", () => {
       expect(() =>
         assertAccessRootOutsideProject(
