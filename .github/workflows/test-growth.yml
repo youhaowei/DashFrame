@@ -1,0 +1,39 @@
+name: Test growth
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-growth-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  test-growth:
+    name: Test growth notice
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Count test cases
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/test-delta.mjs "$BASE_SHA" "$HEAD_SHA" --json > "$RUNNER_TEMP/test-delta.json"
+
+      - name: Update notice
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Counting and API failures are informational, including read-only forks.
+        run: node scripts/test-growth-comment.mjs
