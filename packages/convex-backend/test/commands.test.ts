@@ -4467,6 +4467,16 @@ describe("existing command behavior on native Convex", () => {
           value: { field: "region", operator: "ne", value: "West" },
         }),
       ).rejects.toThrow('does not offer viewers a "ne" filter on "region"');
+      // The value has to fit the saved filter, as the host runs it.
+      await expect(
+        patch(dashId, itemId, {
+          kind: "filter",
+          field: "region",
+          value: { ...byId, value: 42 },
+        }),
+      ).rejects.toThrow(
+        'The Insight "Sales Insight" cannot run its "eq" filter on "region" with 42.',
+      );
 
       expect((await storedItems(dashId))[0]?.overrides).toEqual({
         filters: [byId],

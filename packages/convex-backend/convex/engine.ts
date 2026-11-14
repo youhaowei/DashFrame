@@ -14,6 +14,7 @@ import {
   isMeasureContract,
   isMeasureExpression,
   measureContractProblem,
+  runtimeFilterValueProblem,
   validateVisualizationEncoding,
   type VisualizationEncoding,
 } from "@dashframe/types";
@@ -1369,8 +1370,24 @@ function requireDeclaredFilter(
     throw new Error(
       `${name} offers viewers a "${String(match.filter.operator)}" filter on "${field}", so this tile cannot take a "${String(value.operator)}" override of it. Send the override with that operator.`,
     );
-  // The tile sends a null value as a clear, whether or not it is flagged.
-  if ((cleared || value.value === null) && match.control.allowClear !== true)
+  // The host runs the value against the saved filter, and refuses one that
+  // does not fit it; the tile sends a null value as a clear, whether or not
+  // it is flagged.  Only the value written here is checked.
+  const problem = runtimeFilterValueProblem(
+    {
+      required: match.control.required === true,
+      allowClear: match.control.allowClear === true,
+    },
+    match.filter as Parameters<typeof runtimeFilterValueProblem>[1],
+    cleared || value.value === null ? null : value.value,
+  );
+  if (problem === "RUNTIME_FILTER_VALUE_INVALID")
+    throw new Error(
+      `${name} cannot run its "${String(match.filter.operator)}" filter on "${field}" with ${JSON.stringify(value.value)}. Send a value of the saved filter's kind: a list for "in", a { low, high } range for "between", and otherwise one value of the same type.`,
+    );
+  // A required filter cannot be cleared either; the codec never lets it
+  // allow clearing.
+  if (problem)
     throw new Error(
       `${name} does not let viewers clear its filter on "${field}", so this tile cannot take a cleared filter override. Set allowClear on that filter in runtimeControls.filters first.`,
     );
