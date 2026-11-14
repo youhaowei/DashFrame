@@ -153,8 +153,11 @@ export function tileSortRuns(
  * Writes refuse a sort override the Insight does not declare, allow, or run,
  * and one with more than one key.  One saved before they did is not an error:
  * the tile runs its first key when that key can run, and otherwise ignores it.
+ *
+ * The override popover asks this too, so a sort row never shows a sort as
+ * active that the tile ignores.
  */
-function resolveRuntimeSort(
+export function resolveTileSort(
   insight: Insight,
   dataTables: readonly DataTable[],
   overrides: NonNullable<DashboardItemOverrides["sorts"]>,
@@ -189,6 +192,19 @@ function resolveRuntimeSort(
 }
 
 /**
+ * Whether the tile runs a limit override: the Insight offers viewers a limit
+ * and the value is inside its range, which the host refuses to leave.  The
+ * override popover asks this too.
+ */
+export function tileLimitRuns(
+  insight: Pick<Insight, "runtimeControls">,
+  limit: number,
+): boolean {
+  const bounds = insight.runtimeControls?.limit;
+  return bounds !== undefined && limit >= bounds.min && limit <= bounds.max;
+}
+
+/**
  * Convert a tile's overrides into the saved Insight's declared runtime-control
  * surface.
  *
@@ -204,7 +220,6 @@ export function resolveDashboardRuntime(
   insights: readonly Insight[] = [],
 ): DashboardRuntimeResolution {
   if (!overrides) return {};
-  const controls = insight.runtimeControls;
   const runtime: InsightRuntimeInput = {};
 
   if (overrides.filters !== undefined) {
@@ -221,19 +236,12 @@ export function resolveDashboardRuntime(
   }
 
   if (overrides.sorts !== undefined) {
-    const sort = resolveRuntimeSort(insight, dataTables, overrides.sorts);
+    const sort = resolveTileSort(insight, dataTables, overrides.sorts);
     if (sort) runtime.sort = sort;
   }
 
-  // The host refuses a limit outside the range the Insight offers viewers.
-  const limit = overrides.limit;
-  if (
-    limit !== undefined &&
-    controls?.limit &&
-    limit >= controls.limit.min &&
-    limit <= controls.limit.max
-  )
-    runtime.limit = limit;
+  if (overrides.limit !== undefined && tileLimitRuns(insight, overrides.limit))
+    runtime.limit = overrides.limit;
 
   return { runtime };
 }

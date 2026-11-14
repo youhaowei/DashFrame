@@ -123,18 +123,26 @@ export function controlCanDrive(
 /**
  * What the popover shows for one control of a tile.
  *
- * - `editable`: the Insight declares the control for viewers, so an override
- *   of it runs.
- * - `resetOnly`: the Insight does not declare it, but the tile already holds
- *   an override of it.  That override replaces the tile with an error until it
- *   is removed, so the row stays, offering only the removal.
+ * - `editable`: the Insight declares the control for viewers, and the tile
+ *   runs what it holds of it, or holds nothing.
+ * - `resetOnly`: the tile holds an override it does not run, because the
+ *   Insight no longer declares the control or changed it so that the override
+ *   no longer fits (`runs`).  The tile ignores it and runs the Insight's own
+ *   setting, so the row stays, offering only the removal.
  * - `hidden`: the Insight does not declare it and the tile holds nothing.  An
  *   override saved here could not run, so the row is not shown.
+ *
+ * `runs` is the tile runtime's own answer for the held override
+ * (`resolveTileSort`, `tileLimitRuns`), so the row and the tile agree.
  */
 export type OverrideOffer = "editable" | "resetOnly" | "hidden";
 
-export function overrideOffer(declared: boolean, held: boolean): OverrideOffer {
-  if (declared) return "editable";
+export function overrideOffer(
+  declared: boolean,
+  held: boolean,
+  runs = true,
+): OverrideOffer {
+  if (declared && (!held || runs)) return "editable";
   return held ? "resetOnly" : "hidden";
 }
 

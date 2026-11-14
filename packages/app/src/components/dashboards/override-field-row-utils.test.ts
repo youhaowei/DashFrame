@@ -661,14 +661,16 @@ describe("buildSortFieldOptions", () => {
 
 describe("overrideOffer — which row a control gets", () => {
   it.each([
-    { declared: true, held: false, offer: "editable" },
-    { declared: true, held: true, offer: "editable" },
-    { declared: false, held: true, offer: "resetOnly" },
-    { declared: false, held: false, offer: "hidden" },
+    { declared: true, held: false, runs: false, offer: "editable" },
+    { declared: true, held: true, runs: true, offer: "editable" },
+    // Declared, but changed so that the tile ignores what it holds.
+    { declared: true, held: true, runs: false, offer: "resetOnly" },
+    { declared: false, held: true, runs: false, offer: "resetOnly" },
+    { declared: false, held: false, runs: false, offer: "hidden" },
   ])(
-    "14. declared=$declared, held=$held → $offer",
-    ({ declared, held, offer }) => {
-      expect(overrideOffer(declared, held)).toBe(offer);
+    "14. declared=$declared, held=$held, runs=$runs → $offer",
+    ({ declared, held, runs, offer }) => {
+      expect(overrideOffer(declared, held, runs)).toBe(offer);
     },
   );
 });

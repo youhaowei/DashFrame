@@ -27,13 +27,19 @@ import { useArtifactList } from "@/data/artifact-lists";
 
 import { computeItemOverrides } from "@/lib/dashboards/controls";
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
-import { tileSortRuns } from "@/lib/insights/dashboard-runtime";
+import {
+  resolveTileSort,
+  tileLimitRuns,
+  tileSortRuns,
+} from "@/lib/insights/dashboard-runtime";
 import { api } from "@dashframe/convex-backend/api";
 import {
   type DashboardControl,
   type DashboardItem,
   type DashboardItemOverridePatch,
   type DashboardItemOverrides,
+  type DataTable,
+  type Insight,
   type InsightFilterOverride,
   type InsightRuntimeDeclaration,
   type InsightSort,
@@ -69,6 +75,7 @@ import {
   formatSortKeys,
   hasOverrides,
   ignoredFilterReason,
+  type OverrideOffer,
   overrideOffer,
   resolveFilterRow,
   type SortFieldOptions,
@@ -449,6 +456,112 @@ function UndeclaredSortRow({
   );
 }
 
+/**
+ * What the popover offers for a tile's sort and limit.  Whether the tile runs
+ * what it holds is the tile runtime's own answer, so a row never shows an
+ * override as active that the tile ignores.
+ */
+function sortAndLimitOffers(
+  insight: Insight,
+  dataTables: readonly DataTable[],
+  overrides: DashboardItemOverrides | undefined,
+): { sort: OverrideOffer; limit: OverrideOffer } {
+  const sorts = overrides?.sorts;
+  const limit = overrides?.limit;
+  const controls = insight.runtimeControls;
+  return {
+    sort: overrideOffer(
+      controls?.sort !== undefined,
+      sorts !== undefined,
+      sorts !== undefined &&
+        resolveTileSort(insight, dataTables, sorts) !== undefined,
+    ),
+    limit: overrideOffer(
+      controls?.limit !== undefined,
+      limit !== undefined,
+      limit !== undefined && tileLimitRuns(insight, limit),
+    ),
+  };
+}
+
+/**
+ * The sort row for what the popover offers: the editor; the row of an Insight
+ * that does not let viewers sort; or, when the Insight changed its sort
+ * choices after the tile's sort was saved, that sort's removal.
+ */
+function TileSortRow({
+  offer,
+  declared,
+  onChange,
+  ...editor
+}: {
+  offer: OverrideOffer;
+  declared: boolean;
+  insightSorts?: InsightSort[];
+  overrideSorts?: InsightSort[];
+  fields: SortFieldOptions;
+  onChange: (sorts: InsightSort[] | undefined) => void;
+}) {
+  if (offer === "editable")
+    return <SortOverrideRow {...editor} onChange={onChange} />;
+  if (!declared)
+    return (
+      <UndeclaredSortRow
+        held={offer === "resetOnly"}
+        onReset={() => onChange(undefined)}
+      />
+    );
+  return (
+    <ResetOnlyRow
+      name="Sort"
+      reason="The chart changed its sort choices, so the tile ignores the sort saved here."
+      actionLabel="Reset sort to inherit"
+      onReset={() => onChange(undefined)}
+    />
+  );
+}
+
+/**
+ * The limit row for what the popover offers: the editor, or the removal of a
+ * limit the tile ignores, because the Insight no longer offers a limit or no
+ * longer offers this one.
+ */
+function TileLimitRow({
+  offer,
+  bounds,
+  overrideLimit,
+  onChange,
+}: {
+  offer: OverrideOffer;
+  bounds?: InsightRuntimeDeclaration["limit"];
+  overrideLimit?: number;
+  onChange: (limit: number | undefined) => Promise<boolean>;
+}) {
+  if (offer === "editable")
+    return (
+      // insightLimit: the Insight type has no row-limit field (v0.3).
+      // The "default: N rows" hint is intentionally absent for now.
+      <LimitOverrideRow
+        insightLimit={undefined}
+        overrideLimit={overrideLimit}
+        bounds={bounds}
+        onChange={onChange}
+      />
+    );
+  return (
+    <ResetOnlyRow
+      name="Limit"
+      reason={
+        bounds
+          ? `The chart now offers ${bounds.min}–${bounds.max} rows, so the tile ignores the limit saved here.`
+          : "The chart no longer offers a limit to viewers."
+      }
+      actionLabel="Reset limit to inherit"
+      onReset={() => void onChange(undefined)}
+    />
+  );
+}
+
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
     <p className="mb-1 text-xs font-medium tracking-wide text-neutral-fg-subtle uppercase">
@@ -701,12 +814,10 @@ export function OverridePopover({
   // the field it drives.
   const effectiveFilters =
     (effectiveOverrides ?? computeItemOverrides(item, controls))?.filters ?? [];
-  const limitOffer = known
-    ? overrideOffer(
-        runtimeControls?.limit !== undefined,
-        item.overrides?.limit !== undefined,
-      )
-    : "hidden";
+  const offers = known
+    ? sortAndLimitOffers(known, dataTables, item.overrides)
+    : undefined;
+  const limitOffer = offers?.limit ?? "hidden";
   const filterRows = known
     ? fieldNames.flatMap((fieldName) => {
         const held = effectiveFilters.find(
@@ -805,19 +916,14 @@ export function OverridePopover({
       content: (
         <>
           <SectionHeading>Sort</SectionHeading>
-          {runtimeControls?.sort ? (
-            <SortOverrideRow
-              insightSorts={known.sorts}
-              overrideSorts={item.overrides?.sorts}
-              fields={sortFields}
-              onChange={handleSortChange}
-            />
-          ) : (
-            <UndeclaredSortRow
-              held={item.overrides?.sorts !== undefined}
-              onReset={() => handleSortChange(undefined)}
-            />
-          )}
+          <TileSortRow
+            offer={offers?.sort ?? "hidden"}
+            declared={runtimeControls?.sort !== undefined}
+            insightSorts={known.sorts}
+            overrideSorts={item.overrides?.sorts}
+            fields={sortFields}
+            onChange={handleSortChange}
+          />
         </>
       ),
     });
@@ -827,23 +933,12 @@ export function OverridePopover({
       content: (
         <>
           <SectionHeading>Limit</SectionHeading>
-          {limitOffer === "editable" ? (
-            // insightLimit: the Insight type has no row-limit field (v0.3).
-            // The "default: N rows" hint is intentionally absent for now.
-            <LimitOverrideRow
-              insightLimit={undefined}
-              overrideLimit={item.overrides?.limit}
-              bounds={runtimeControls?.limit}
-              onChange={handleLimitChange}
-            />
-          ) : (
-            <ResetOnlyRow
-              name="Limit"
-              reason="The chart no longer offers a limit to viewers."
-              actionLabel="Reset limit to inherit"
-              onReset={() => void handleLimitChange(undefined)}
-            />
-          )}
+          <TileLimitRow
+            offer={limitOffer}
+            bounds={runtimeControls?.limit}
+            overrideLimit={item.overrides?.limit}
+            onChange={handleLimitChange}
+          />
         </>
       ),
     });

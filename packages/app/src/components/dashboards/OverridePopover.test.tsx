@@ -295,9 +295,20 @@ describe("SortOverrideRow", () => {
   });
 });
 
+/** The Insight's table, whose fields name the sort keys a tile stores. */
+const salesTable = {
+  id: "10000000-0000-4000-8000-000000000005",
+  name: "sales",
+  fields: [
+    { id: regionId, name: "Region", columnName: "region" },
+    { id: orderDateId, name: "Order date", columnName: "order_date" },
+  ],
+};
+
 describe("OverridePopover sort wiring", () => {
   beforeEach(() => {
     commitBatch.mockReset();
+    lists.listDataTables = [salesTable];
     vi.stubGlobal("PointerEvent", MouseEvent);
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -499,7 +510,7 @@ describe("OverridePopover offered controls", () => {
     const noSort =
       "This Insight doesn't allow sorting. Change it on the Insight.";
 
-    it("is disabled when the Insight declares none, offering only the removal of a sort the tile holds", async () => {
+    it("offers only the removal of a sort the tile ignores, and a disabled Pin when the Insight declares none", async () => {
       await openPopover({
         item: tileWith(),
         insight: makeInsight({ limit: { min: 1, max: 500 } }),
@@ -520,6 +531,25 @@ describe("OverridePopover offered controls", () => {
         screen.getByRole("button", { name: "Reset sort to inherit" }),
       );
       expect(committedPatch()).toEqual({ kind: "sorts", value: null });
+      cleanup();
+
+      // The Insight still lets viewers sort, but no longer by the pinned field.
+      lists.listDataTables = [salesTable];
+      await openPopover({
+        item: tileWith({ sorts: [{ field: "region", direction: "asc" }] }),
+        insight: makeInsight({
+          sort: { allowedFieldIds: [orderDateId as UUID], maxKeys: 1 },
+        }),
+      });
+      expect(
+        screen.getByText(
+          "The chart changed its sort choices, so the tile ignores the sort saved here.",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByRole("combobox")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Reset sort to inherit" }),
+      ).toBeTruthy();
     });
   });
 
@@ -564,7 +594,7 @@ describe("OverridePopover offered controls", () => {
       expect(screen.queryByText(staleLimit)).toBeNull();
     });
 
-    it("offers only the reset when the tile holds a limit the Insight no longer declares", async () => {
+    it("offers only the reset when the tile holds a limit the Insight no longer declares or offers", async () => {
       const user = await openPopover({
         item: tileWith({ limit: 25 }),
         insight: makeInsight(),
@@ -578,6 +608,22 @@ describe("OverridePopover offered controls", () => {
         screen.getByRole("button", { name: "Reset limit to inherit" }),
       );
       expect(committedPatch()).toEqual({ kind: "limit", value: null });
+      cleanup();
+
+      // The Insight still offers a limit, but its range no longer holds 25.
+      await openPopover({
+        item: tileWith({ limit: 25 }),
+        insight: makeInsight({ limit: { min: 50, max: 500 } }),
+      });
+      expect(
+        screen.getByText(
+          "The chart now offers 50–500 rows, so the tile ignores the limit saved here.",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByRole("spinbutton")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Reset limit to inherit" }),
+      ).toBeTruthy();
     });
   });
 
