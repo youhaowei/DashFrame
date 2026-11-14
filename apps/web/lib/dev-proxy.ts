@@ -12,7 +12,7 @@
  * itself, so `?` has to be part of the boundary alternation: without it,
  * `/data?…` would stop being proxied.
  */
-export const DEV_API_PROXY_KEY = "/api";
+const DEV_API_PROXY_KEY = "/api";
 export const DEV_DATA_PROXY_KEY = "^/data(/|\\?|$)";
 
 export interface DevProxyEntry {

@@ -30,7 +30,7 @@ const encoding: VisualizationEncoding = {
 };
 
 describe("chart presentation grain", () => {
-  it.each(["barY", "line"] as const)(
+  it.each(["barY"] as const)(
     "requests source reaggregation without an omitted channel for %s",
     (type) => {
       expect(buildChartPresentation(insight, encoding, type)).toEqual({

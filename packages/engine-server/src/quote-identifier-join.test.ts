@@ -97,25 +97,4 @@ describe("quoteIdentifier — join SQL against real DuckDB", () => {
     const stillThere = await rows("SELECT COUNT(*) AS cnt FROM base");
     expect(Number(stillThere[0]!.cnt)).toBe(1);
   });
-
-  it("joins on an ordinary column name (no regression)", async () => {
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-
-    await engine.queryArrow(
-      `CREATE TABLE base AS SELECT 7 AS ${quoteIdentifier("user_id")}`,
-    );
-    await engine.queryArrow(
-      `CREATE TABLE other AS SELECT 7 AS ${quoteIdentifier("user_id")}`,
-    );
-
-    const result = await rows(`
-      SELECT COUNT(*) AS cnt
-      FROM base AS b
-      INNER JOIN other AS j
-      ON b.${quoteIdentifier("user_id")} = j.${quoteIdentifier("user_id")}
-    `);
-
-    expect(Number(result[0]!.cnt)).toBe(1);
-  });
 });

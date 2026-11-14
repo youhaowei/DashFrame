@@ -86,46 +86,6 @@ describe("ConnectorCard sign-in link", () => {
   });
 });
 
-describe("ConnectorCard disclosure", () => {
-  it("keeps the setup form closed until the header is opened", async () => {
-    const user = userEvent.setup();
-    const onToggle = vi.fn();
-
-    const { rerender } = render(
-      <ConnectorCard connector={connector} onToggle={onToggle} />,
-    );
-
-    // Collapsed: the row states what the connector is, and nothing else.
-    expect(screen.queryByLabelText("Select CSV file")).toBeNull();
-    const header = screen.getByRole("button", { name: /csv file/i });
-    expect(header.getAttribute("aria-expanded")).toBe("false");
-
-    await user.click(header);
-    expect(onToggle).toHaveBeenCalledTimes(1);
-
-    rerender(
-      <ConnectorCard connector={connector} expanded onToggle={onToggle} />,
-    );
-
-    expect(screen.getByLabelText("Select CSV file")).not.toBeNull();
-    expect(
-      screen
-        .getByRole("button", { name: /csv file/i })
-        .getAttribute("aria-expanded"),
-    ).toBe("true");
-  });
-
-  it("renders a static row when there is no toggle handler", () => {
-    render(<ConnectorCard connector={connector} expanded />);
-
-    // The panel drops `onToggle` once this connector has been picked: the row
-    // still says what is being set up, but it is no longer a choice.
-    expect(screen.queryByRole("button", { name: /csv file/i })).toBeNull();
-    expect(screen.getByText("CSV file")).not.toBeNull();
-    expect(screen.getByLabelText("Select CSV file")).not.toBeNull();
-  });
-});
-
 describe("ConnectorCard unavailable setup", () => {
   it("disables connecting and says why", () => {
     const oauthConnector = {

@@ -84,7 +84,7 @@ const REPORT_TAB_ID = "report";
 const REPORT_PANEL_ID = "report-panel";
 const NO_CHART_TABS: ChartTab[] = [];
 
-export function formatReportContentsCount(
+function formatReportContentsCount(
   questionCount: number,
   savedViewCount: number,
 ): string {

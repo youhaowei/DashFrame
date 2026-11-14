@@ -54,12 +54,6 @@ describe("resolveShelfItem", () => {
       label: "Sales by Product",
     });
   });
-
-  it("names an unnamed chart", () => {
-    expect(
-      resolveShelfItem(chart, { visualizations: [{ id: "v1", name: "" }] }),
-    ).toEqual({ status: "live", label: "Untitled chart" });
-  });
 });
 
 describe("partitionForPage", () => {

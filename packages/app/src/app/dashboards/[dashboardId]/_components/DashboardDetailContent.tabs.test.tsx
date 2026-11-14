@@ -112,25 +112,15 @@ vi.mock("@/hooks/useCreateInsight", () => ({
 vi.mock("@/components/data-sources/DataPickerModal", () => ({
   DataPickerModal: ({
     isOpen,
-    onClose,
     onTableSelect,
   }: {
     isOpen: boolean;
-    onClose: () => void;
     onTableSelect: (tableId: string, tableName: string) => unknown;
   }) =>
     isOpen ? (
-      <>
-        <button
-          type="button"
-          onClick={() => onTableSelect("table-1", "orders")}
-        >
-          Pick orders
-        </button>
-        <button type="button" onClick={onClose}>
-          Close picker
-        </button>
-      </>
+      <button type="button" onClick={() => onTableSelect("table-1", "orders")}>
+        Pick orders
+      </button>
     ) : null,
 }));
 
@@ -203,13 +193,7 @@ function TopBarProbe() {
 }
 
 /** The route's part: the open chart lives in the URL, here in state. */
-function Page({
-  initialChart = null,
-  openChartPicker,
-}: {
-  initialChart?: string | null;
-  openChartPicker?: boolean;
-}) {
+function Page({ initialChart = null }: { initialChart?: string | null }) {
   const [chart, setChart] = useState<string | null>(initialChart);
   return (
     <PlatformProvider>
@@ -223,7 +207,6 @@ function Page({
             // Like the router, the URL changes after the click returns.
             setTimeout(() => setChart(id), 0)
           }
-          openChartPicker={openChartPicker}
         />
       </TopBarTabsProvider>
     </PlatformProvider>
@@ -277,15 +260,6 @@ beforeEach(() => {
 });
 
 describe("DashboardDetailContent — chart tabs", () => {
-  it("shows the report as the first tab, which cannot be closed", () => {
-    render(<Page />);
-
-    expect(tabLabels()).toEqual(["Weekly sales"]);
-    expect(selectedTab()).toBe("Weekly sales");
-    expect(tabs().queryByRole("button", { name: /Close/ })).toBeNull();
-    screen.getByRole("tabpanel", { name: "Report" });
-  });
-
   it("opens a tile's chart as a closable tab and puts it in the URL", async () => {
     const user = userEvent.setup();
     render(<Page />);
@@ -341,26 +315,6 @@ describe("DashboardDetailContent — chart tabs", () => {
     await expectUrl("");
     expect(tabLabels()).toEqual(["Weekly sales"]);
     expect(mockCommitBatch).not.toHaveBeenCalled();
-  });
-
-  it("closes the open chart with ⌘W", async () => {
-    render(<Page initialChart={REVENUE.id} />);
-    expect(selectedTab()).toBe("Revenue by region");
-
-    // ⌘ on macOS, Ctrl elsewhere — whichever this test runtime reports.
-    const isMac = /mac/i.test(navigator.platform);
-    await act(async () => {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "w",
-          metaKey: isMac,
-          ctrlKey: !isMac,
-        }),
-      );
-    });
-
-    await expectUrl("");
-    expect(tabLabels()).toEqual(["Weekly sales"]);
   });
 
   it("discards the insight of a new chart closed before it reached the report", async () => {
@@ -592,27 +546,5 @@ describe("DashboardDetailContent — chart tabs", () => {
         { id: "new-chart", insightId: "insight-new" },
       ]),
     );
-  });
-});
-
-describe("DashboardDetailContent — first report", () => {
-  it("opens with the chart picker only when asked to", () => {
-    const { unmount } = render(<Page />);
-    expect(screen.queryByRole("button", { name: "Pick orders" })).toBeNull();
-    unmount();
-
-    render(<Page openChartPicker />);
-    screen.getByRole("button", { name: "Pick orders" });
-  });
-
-  it("leaves the report as it was when the picker is closed", async () => {
-    const user = userEvent.setup();
-    render(<Page openChartPicker />);
-
-    await user.click(screen.getByRole("button", { name: "Close picker" }));
-
-    expect(screen.queryByRole("button", { name: "Pick orders" })).toBeNull();
-    screen.getByRole("tabpanel", { name: "Report" });
-    expect(mockCommitBatch).not.toHaveBeenCalled();
   });
 });

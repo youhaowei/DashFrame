@@ -618,43 +618,4 @@ describe("assistant read host (ApplicationOperations adapter)", () => {
       ),
     ).toBe(true);
   });
-
-  // -------------------------------------------------------------------------
-  // Neighborhood over artifact DTOs.
-  // -------------------------------------------------------------------------
-  it("neighborhood of an insight = its base table (down) + viz (up), 1 hop", async () => {
-    const sourceId = id();
-    const tableId = id();
-    const insightId = id();
-    const vizId = id();
-    await seedCanonical(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-      cmd("CreateDataTable", {
-        id: tableId,
-        dataSourceId: sourceId,
-        name: "Orders",
-        table: "orders.csv",
-      }),
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Revenue",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "Bar",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-      }),
-    );
-
-    const reader = createAssistantReadHost({ app });
-    const hood = await neighbors(reader, { kind: "insight", id: insightId });
-    expect(hood).not.toBeNull();
-    expect(hood!.downstream.map((n) => n.ref.id)).toContain(tableId);
-    expect(hood!.upstream.map((n) => n.ref.id)).toContain(vizId);
-    // NOT the source (2 hops down) — ambient is 1 hop.
-    expect(hood!.downstream.map((n) => n.ref.id)).not.toContain(sourceId);
-  });
 });

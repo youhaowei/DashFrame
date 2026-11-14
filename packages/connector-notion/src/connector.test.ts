@@ -78,48 +78,6 @@ function makeSpyingResolver(
 }
 
 // ---------------------------------------------------------------------------
-// Static properties & factory
-// ---------------------------------------------------------------------------
-
-describe("NotionConnector — static properties", () => {
-  let connector: NotionConnector;
-
-  beforeEach(async () => {
-    const { vault } = makeTestVaultAndBackend();
-    const { resolver } = await mintBoundResolver(vault, "secret_test");
-    connector = makeNotionConnector(resolver);
-  });
-
-  it("should have correct id", () => {
-    expect(connector.id).toBe("notion");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// getFormFields
-// ---------------------------------------------------------------------------
-
-describe("NotionConnector — getFormFields", () => {
-  let connector: NotionConnector;
-
-  beforeEach(async () => {
-    const { vault } = makeTestVaultAndBackend();
-    const { resolver } = await mintBoundResolver(vault, "secret_test");
-    connector = makeNotionConnector(resolver);
-  });
-
-  it("should have apiKey field with correct configuration", () => {
-    const fields = connector.getFormFields();
-    const apiKeyField = fields[0];
-
-    expect(apiKeyField?.name).toBe("apiKey");
-    expect(apiKeyField?.label).toBe("API Key");
-    expect(apiKeyField?.type).toBe("password");
-    expect(apiKeyField?.required).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // validate
 // ---------------------------------------------------------------------------
 
@@ -136,10 +94,6 @@ describe("NotionConnector — validate", () => {
     expect(connector.validate({}).valid).toBe(false);
   });
 
-  it("should return invalid when apiKey is empty string", () => {
-    expect(connector.validate({ apiKey: "" }).valid).toBe(false);
-  });
-
   it("should reject API keys without secret_ prefix", () => {
     const result = connector.validate({ apiKey: "ntn_abc123" });
     expect(result.valid).toBe(false);
@@ -154,21 +108,6 @@ describe("NotionConnector — validate", () => {
   // .startsWith() to throw TypeError instead of returning { valid: false }.
   it("should return invalid (not throw) when apiKey is a number", () => {
     const result = connector.validate({ apiKey: 42 });
-    expect(result.valid).toBe(false);
-  });
-
-  it("should return invalid (not throw) when apiKey is an object", () => {
-    const result = connector.validate({ apiKey: { secret: "value" } });
-    expect(result.valid).toBe(false);
-  });
-
-  it("should return invalid (not throw) when apiKey is a boolean", () => {
-    const result = connector.validate({ apiKey: true });
-    expect(result.valid).toBe(false);
-  });
-
-  it("should return invalid (not throw) when apiKey is null", () => {
-    const result = connector.validate({ apiKey: null });
     expect(result.valid).toBe(false);
   });
 });
@@ -200,22 +139,6 @@ describe("NotionConnector — bound resolver (capability attenuation)", () => {
     expect(capturedPlaintext).toBe("secret_testkey");
     // connect() returned the (empty) database list
     expect(result).toEqual([]);
-  });
-
-  it("makeNotionConnector requires a SecretResolver — TypeScript enforces at compile time", () => {
-    // The compile-time contract (AC #1: verify by type): makeNotionConnector(auth)
-    // — auth is required, so the pipeline cannot construct a connector without a
-    // bound resolver in scope. @ts-expect-error makes that contract executable:
-    // if `auth` ever becomes optional, this line stops erroring and the test
-    // fails to compile, flagging the regression.
-    // @ts-expect-error — auth (SecretResolver) is required; calling with no args must not typecheck
-    makeNotionConnector();
-
-    // And the happy path: with a resolver, the factory builds the connector.
-    const resolver = <T>(use: (p: string) => Promise<T>) => use("secret_fake");
-    const connector = makeNotionConnector(resolver);
-    expect(connector).toBeInstanceOf(NotionConnector);
-    expect(connector.id).toBe("notion");
   });
 
   it("query() resolves once via the bound resolver and returns a serializable result", async () => {

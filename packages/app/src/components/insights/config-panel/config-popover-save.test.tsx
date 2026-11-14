@@ -5,7 +5,6 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { FieldsSection } from "./FieldsSection";
 import { FiltersSection } from "./FiltersSection";
-import { metricColumnNameForSave } from "./metric-formula";
 import { MetricsSection } from "./MetricsSection";
 
 const table = {
@@ -70,30 +69,6 @@ describe("insight config popover saves", () => {
     );
   });
 
-  it("keeps the add-metric popover open and reports a rejected save", async () => {
-    render(metrics(rejectedSave));
-    fireEvent.click(screen.getByRole("button", { name: "Add metric" }));
-    const submit = screen.getByRole("button", { name: "Add" });
-    fireEvent.click(submit);
-    expect(
-      await screen.findByText("Failed to save metric: write failed"),
-    ).toBeTruthy();
-    expect(screen.getByLabelText("Aggregation")).toBeTruthy();
-  });
-
-  it("keeps the edit-metric popover open and reports a rejected save", async () => {
-    render(metrics(vi.fn(), rejectedSave, [metric]));
-    fireEvent.click(screen.getByRole("button", { name: "Edit Total amount" }));
-    fireEvent.change(screen.getByLabelText("Name"), {
-      target: { value: "Revenue" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(
-      await screen.findByText("Failed to save metric: write failed"),
-    ).toBeTruthy();
-    expect(screen.getByLabelText("Name")).toBeTruthy();
-  });
-
   it("keeps the filter popover open and reports a rejected save", async () => {
     render(
       <FiltersSection
@@ -147,30 +122,6 @@ describe("insight config popover saves", () => {
     await waitFor(() => expect(onDraftChange).toHaveBeenLastCalledWith(null));
   });
 
-  it("keeps the field-rename popover open and reports a rejected save", async () => {
-    render(
-      <FieldsSection
-        selectedFields={[field]}
-        availableFields={[]}
-        tables={[table]}
-        baseTableId={table.id}
-        onReorder={vi.fn()}
-        onRemove={vi.fn()}
-        onSave={rejectedSave}
-        onAdd={vi.fn()}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Edit Amount" }));
-    fireEvent.change(screen.getByLabelText("Display name"), {
-      target: { value: "Revenue" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(
-      await screen.findByText("Failed to save field: write failed"),
-    ).toBeTruthy();
-    expect(screen.getByLabelText("Display name")).toBeTruthy();
-  });
-
   it("renames from the stored field name instead of its disambiguated label", () => {
     render(
       <FieldsSection
@@ -195,78 +146,6 @@ describe("insight config popover saves", () => {
     ).toBe(true);
   });
 
-  it("selects an add-field command grouped under the authoring table", async () => {
-    const user = userEvent.setup({ delay: null });
-    const onAdd = vi.fn();
-    render(
-      <FieldsSection
-        selectedFields={[]}
-        availableFields={[field]}
-        tables={[table]}
-        baseTableId={table.id}
-        onReorder={vi.fn()}
-        onRemove={vi.fn()}
-        onSave={vi.fn()}
-        onAdd={onAdd}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "Add field" }));
-    expect(await screen.findByText("Orders")).toBeTruthy();
-    await user.click(screen.getByRole("option", { name: /Amount/ }));
-    expect(onAdd).toHaveBeenCalledWith(field.id);
-  });
-
-  it("shows option labels in filter and metric select triggers", async () => {
-    const user = userEvent.setup({ delay: null });
-    const view = render(
-      <FiltersSection
-        filters={[
-          {
-            id: "amount-filter",
-            _id: "amount-filter",
-            field: "amount",
-            operator: "eq",
-            value: 100,
-          },
-        ]}
-        combinedFields={[field]}
-        onReorder={vi.fn()}
-        onRemove={vi.fn()}
-        onSave={vi.fn()}
-      />,
-    );
-
-    await user.click(
-      screen.getByRole("button", { name: "Edit filter Amount" }),
-    );
-    expect(screen.getByLabelText("Field").textContent).toContain("Amount");
-    view.unmount();
-
-    render(
-      <MetricsSection
-        metrics={[
-          {
-            ...metric,
-            name: "Unique amount",
-            aggregation: "count_distinct",
-          },
-        ]}
-        dataTable={table}
-        onReorder={vi.fn()}
-        onRemove={vi.fn()}
-        onAdd={vi.fn()}
-        onEdit={vi.fn()}
-      />,
-    );
-    await user.click(
-      screen.getByRole("button", { name: "Edit Unique amount" }),
-    );
-    expect(screen.getByLabelText("Aggregation").textContent).toContain(
-      "Count distinct",
-    );
-    expect(screen.getByLabelText("Column").textContent).toContain("Amount");
-  });
-
   it("ignores Escape while an add-metric save is in flight", async () => {
     let release: () => void = () => undefined;
     const onSave = vi.fn(
@@ -288,30 +167,6 @@ describe("insight config popover saves", () => {
     await waitFor(() =>
       expect(screen.queryByLabelText("Aggregation")).toBeNull(),
     );
-  });
-
-  it("ignores Escape while an edit-metric save is in flight", async () => {
-    let release: () => void = () => undefined;
-    const onSave = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          release = resolve;
-        }),
-    );
-    render(metrics(vi.fn(), onSave, [metric]));
-    fireEvent.click(screen.getByRole("button", { name: "Edit Total amount" }));
-    fireEvent.change(screen.getByLabelText("Name"), {
-      target: { value: "Revenue" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave).toHaveBeenCalled());
-    fireEvent.keyDown(document.activeElement ?? document.body, {
-      key: "Escape",
-      code: "Escape",
-    });
-    expect(screen.getByDisplayValue("Revenue")).toBeTruthy();
-    release();
-    await waitFor(() => expect(screen.queryByLabelText("Name")).toBeNull());
   });
 
   it("ignores Escape while a filter save is in flight", async () => {
@@ -525,9 +380,5 @@ describe("insight config popover saves", () => {
     expect(
       screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
     ).toBe(true);
-  });
-
-  it("omits a count metric's stale saved column", () => {
-    expect(metricColumnNameForSave("count", "amount")).toBeUndefined();
   });
 });

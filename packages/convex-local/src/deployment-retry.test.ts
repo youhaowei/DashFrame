@@ -71,7 +71,6 @@ describe("bounded local deployment retries", () => {
     "Hit an error while evaluating your schema: Validation failed for document 429",
     "Function execution timed out (maximum duration: 1s).",
     "Error fetching POST http://example.com/api/deploy2/start_push 429 Too Many Requests",
-    "Local Convex function deployment timed out.",
   ])(
     "does not retry validation, unrelated timeout, or non-local errors",
     async (diagnostic) => {

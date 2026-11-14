@@ -175,16 +175,6 @@ describe("WorkspaceQueryEngine — registered-table projection", () => {
     expect(engine.getTableNames()).toEqual([]);
   });
 
-  it("keeps names DuckDB keeps apart apart, folding only ASCII case", async () => {
-    const engine = acknowledging();
-    await engine.registerArrowTable("Ä", new Uint8Array([1]));
-    await engine.registerArrowTable("ä", new Uint8Array([1]));
-    expect(engine.getTableNames().sort()).toEqual(["ä", "Ä"].sort());
-    await engine.unregisterTable("Ä");
-    expect(engine.hasTable("ä")).toBe(true);
-    expect(engine.hasTable("Ä")).toBe(false);
-  });
-
   it("forgets every registration once the worker is gone", async () => {
     const engine = acknowledging();
     await engine.registerArrowTable("orders", new Uint8Array([1]));

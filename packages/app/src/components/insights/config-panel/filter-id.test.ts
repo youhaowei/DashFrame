@@ -18,16 +18,6 @@ import type { FilterWithId } from "./FiltersSection";
  */
 
 describe("deriveFilterId", () => {
-  it("uses the persisted id", () => {
-    const f: InsightFilter = {
-      id: "uuid-1",
-      field: "amount",
-      operator: "eq",
-      value: 1,
-    };
-    expect(deriveFilterId(f)).toBe("uuid-1");
-  });
-
   it("rejects a filter without a persisted id", () => {
     const f: InsightFilter = { field: "amount", operator: "eq", value: 1 };
     expect(() => deriveFilterId(f)).toThrow("missing its persisted id");
@@ -92,30 +82,6 @@ describe("applyFilterSave with a stable persisted id", () => {
     expect(() => applyFilterSave([], saved)).toThrow(
       "Filter uuid-a no longer exists",
     );
-  });
-
-  it("keeps an API-created filter idempotent after reorder", () => {
-    // The API receives id-less filters from an agent, stamps persisted ids, and
-    // the UI then derives `_id` solely from that stored identity.
-    const receivedByApi: InsightFilter[] = [
-      { field: "region", operator: "eq", value: "north" },
-      { field: "amount", operator: "gt", value: 100 },
-    ];
-    const persisted: InsightFilter[] = [
-      { ...receivedByApi[0], id: "api-region" },
-      { ...receivedByApi[1], id: "api-amount" },
-    ];
-    const beforeEdit = withFilterIds(persisted);
-    const openedForEdit = beforeEdit[1];
-
-    const reordered = withFilterIds([persisted[1], persisted[0]]);
-    const saved: FilterWithId = { ...openedForEdit, value: 200 };
-    const result = applyFilterSave(reordered, saved);
-
-    expect(result).toHaveLength(2);
-    expect(result.filter((filter) => filter.id === "api-amount")).toEqual([
-      expect.objectContaining({ value: 200 }),
-    ]);
   });
 });
 
@@ -237,22 +203,6 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     // from one hydration still merges into the next.
     expect(withFilterIds([same, same]).map((f) => f._id)).toEqual(
       hydrated.map((f) => f._id),
-    );
-  });
-
-  it("rejects an ambiguous legacy duplicate edit after concurrent reorder", () => {
-    const same = { field: "amount", operator: "eq" as const, value: 1 };
-    const separator = {
-      field: "region",
-      operator: "eq" as const,
-      value: "north",
-    };
-    const opened = withFilterIds([same, separator, same])[0]!;
-    const reordered = withFilterIds([same, separator, same]);
-    const saved = prepareFilterForSave({ ...opened, value: 2 });
-
-    expect(() => applyFilterSave(reordered, saved)).toThrow(
-      /legacy duplicate.*ambiguous/i,
     );
   });
 

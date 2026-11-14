@@ -4,7 +4,6 @@ import { internal } from "../convex/_generated/api";
 import { validateMetric } from "../convex/engine";
 import schema from "../convex/schema";
 import { parseStoredDataTableState } from "../convex/tableCodec";
-import { AGGREGATIONS } from "@dashframe/types";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -15,21 +14,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
-});
-
-it("accepts every public aggregation and rejects values outside the list", () => {
-  for (const aggregation of AGGREGATIONS) {
-    expect(
-      parseStoredDataTableState(state({ aggregation }), "table").metrics[0]
-        .aggregation,
-    ).toBe(aggregation);
-  }
-  expect(() =>
-    parseStoredDataTableState(
-      state({ aggregation: "not-an-aggregation" }),
-      "table",
-    ),
-  ).toThrow(/metrics\.0\.aggregation/);
 });
 
 const state = (overrides: Record<string, unknown> = {}) => ({

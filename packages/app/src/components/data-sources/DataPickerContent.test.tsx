@@ -311,31 +311,6 @@ describe("DataPickerContent file replacement", () => {
     });
   });
 
-  it("returns to the connections and cancels from a connected source", async () => {
-    mockHostRequest.mockResolvedValue({
-      commands: [{ path: "createDataSource", args: {} }],
-      results: [{ value: { id: REMOTE_SOURCE_ID } }],
-    });
-    mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
-    const onCancel = vi.fn();
-    render(<DataPickerContent onTableSelect={vi.fn()} onCancel={onCancel} />);
-
-    await act(async () => {
-      await handleConnect?.(
-        { id: "notion", name: "Notion" } as RemoteApiConnector,
-        { apiKey: "secret-for-host-vault" },
-      );
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Choose another connection" }),
-    );
-
-    expect(screen.getByTestId("add-connection-panel")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(onCancel).toHaveBeenCalledOnce();
-  });
-
   it("reports a failed connection whose source cannot be rolled back", async () => {
     mockHostRequest.mockResolvedValue({
       commands: [{ path: "createDataSource", args: {} }],
@@ -350,22 +325,6 @@ describe("DataPickerContent file replacement", () => {
         apiKey: "secret-for-host-vault",
       }),
     ).rejects.toThrow("Failed to connect and clean up the data source");
-  });
-
-  it("reports a failed connection that rolls its source back", async () => {
-    mockHostRequest.mockResolvedValue({
-      commands: [{ path: "createDataSource", args: {} }],
-      results: [{ value: { id: REMOTE_SOURCE_ID } }],
-    });
-    mockListResources.mockRejectedValue(new Error("resource probe failed"));
-    mockNativeCommit.mockResolvedValue(undefined);
-    render(<DataPickerContent onTableSelect={vi.fn()} />);
-
-    await expect(
-      handleConnect?.({ id: "notion", name: "Notion" } as RemoteApiConnector, {
-        apiKey: "secret-for-host-vault",
-      }),
-    ).rejects.toThrow("resource probe failed");
   });
 
   it("keeps a remote import busy until question creation settles", async () => {

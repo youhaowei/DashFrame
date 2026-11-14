@@ -95,7 +95,7 @@ export function buildInsightModelMetadata(
 export const MAX_DOT_ROW_COUNT = 10_000;
 
 /** One rendered result supplies every saved-chart encoding input. */
-export function useInsightEncodingMetadata(
+function useInsightEncodingMetadata(
   insight: Insight,
   enabled: boolean,
   runtime?: InsightRuntimeInput,
@@ -175,7 +175,7 @@ export function resultErrorCopy(error: string): string {
 }
 
 /** Shared error element so the workbench's table and chart halves agree. */
-export function InsightResultErrorState({
+function InsightResultErrorState({
   error,
   onRetry,
   className,

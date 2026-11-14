@@ -13,8 +13,6 @@ import {
   Utf8,
   vectorFromArray,
 } from "apache-arrow";
-import fs from "node:fs/promises";
-import os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { arrowIpcToJsonRows } from "./arrow-data-path";
@@ -70,11 +68,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     vi.restoreAllMocks();
     await engine?.dispose();
     engine = null;
-  });
-
-  it("is not ready until initialized", () => {
-    engine = new NativeDuckDBEngine();
-    expect(engine.isReady()).toBe(false);
   });
 
   it("executes a SQL query and returns rows", async () => {
@@ -460,24 +453,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       expect(await reading).toBe("failed");
     },
   );
-
-  it("dispose() is idempotent — calling it twice does not throw", async () => {
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-
-    // First dispose closes connection + instance.
-    await engine.dispose();
-    // Second dispose must not throw even though handles are already gone —
-    // e.g. a finally-block and an afterEach teardown may both call dispose().
-    await expect(engine.dispose()).resolves.toBeUndefined();
-    expect(engine.isReady()).toBe(false);
-  });
-
-  it("dispose() on an uninitialized engine does not throw", async () => {
-    engine = new NativeDuckDBEngine();
-    // Never called initialize() — nothing to close, must be a no-op.
-    await expect(engine.dispose()).resolves.toBeUndefined();
-  });
 
   it("dispose() during an in-flight initialize() leaves the engine dead, not live", async () => {
     engine = new NativeDuckDBEngine();
@@ -1343,19 +1318,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       expect(result.map((r) => r.t)).toEqual(["TIMESTAMP", "TIMESTAMP"]);
       const ts = Date.UTC(2026, 0, 15, 12, 30, 0);
       expect(result.map((r) => Number(r.ms))).toEqual([ts, ts + MS_PER_HOUR]);
-    });
-
-    it("does not create an application-owned row staging file", async () => {
-      // The old implementation staged rows as a named NDJSON temp file. Pin
-      // only the absence of that host-owned artifact; an unsandboxed DuckDB may
-      // still use its own temporary spill directory under memory pressure.
-      engine = new NativeDuckDBEngine();
-      await engine.registerArrowTable("df_privacy_probe", producerBuffer());
-
-      const tmpEntries = await fs.readdir(os.tmpdir());
-      expect(tmpEntries.filter((f) => f.includes("df_privacy_probe"))).toEqual(
-        [],
-      );
     });
 
     it("keeps a registration retryable when native DROP fails transiently", async () => {

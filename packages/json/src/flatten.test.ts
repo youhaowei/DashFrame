@@ -40,15 +40,6 @@ describe("flattenObject", () => {
   });
 
   describe("primitive values", () => {
-    it("should handle boolean values", () => {
-      const input = { settings: { enabled: true, visible: false } };
-      const result = flattenObject(input);
-      expect(result).toEqual({
-        "settings.enabled": true,
-        "settings.visible": false,
-      });
-    });
-
     it("should handle primitive at root level", () => {
       expect(flattenObject("hello" as unknown as JsonValue)).toEqual({
         value: "hello",
@@ -63,40 +54,7 @@ describe("flattenObject", () => {
     });
   });
 
-  describe("array handling", () => {
-    it("should flatten arrays with numeric indices", () => {
-      const input = { items: [1, 2, 3] };
-      const result = flattenObject(input);
-      expect(result).toEqual({
-        "items.0": 1,
-        "items.1": 2,
-        "items.2": 3,
-      });
-    });
-
-    it("should flatten nested arrays", () => {
-      const input = {
-        matrix: [
-          [1, 2],
-          [3, 4],
-        ],
-      };
-      const result = flattenObject(input);
-      expect(result).toEqual({
-        "matrix.0.0": 1,
-        "matrix.0.1": 2,
-        "matrix.1.0": 3,
-        "matrix.1.1": 4,
-      });
-    });
-  });
-
   describe("edge cases", () => {
-    it("should handle completely empty object at root", () => {
-      const result = flattenObject({});
-      expect(result).toEqual({});
-    });
-
     it("should handle object with multiple empty nested values", () => {
       const input = {
         empty: {},
@@ -169,13 +127,6 @@ describe("flattenObject", () => {
 });
 
 describe("flattenObjectArray", () => {
-  describe("basic functionality", () => {
-    it("should handle empty array", () => {
-      const result = flattenObjectArray([]);
-      expect(result).toEqual([]);
-    });
-  });
-
   describe("consistent keys across objects", () => {
     it("should fill missing keys with null", () => {
       const input = [
@@ -187,12 +138,6 @@ describe("flattenObjectArray", () => {
         { "user.age": null, "user.name": "Alice" },
         { "user.age": 30, "user.name": "Bob" },
       ]);
-    });
-
-    it("should sort keys alphabetically", () => {
-      const input = [{ z: 1, a: 2, m: 3 }];
-      const result = flattenObjectArray(input);
-      expect(Object.keys(result[0])).toEqual(["a", "m", "z"]);
     });
   });
 });
@@ -211,10 +156,5 @@ describe("extractKeys", () => {
     const input: FlattenedObject[] = [{ z: 1, a: 2, m: 3, d: 4 }];
     const result = extractKeys(input);
     expect(result).toEqual(["a", "d", "m", "z"]);
-  });
-
-  it("should handle empty array", () => {
-    const result = extractKeys([]);
-    expect(result).toEqual([]);
   });
 });

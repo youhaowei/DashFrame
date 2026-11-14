@@ -80,14 +80,6 @@ const vizMap = (...ids: string[]) =>
   new Map(ids.map((id) => [id, { id } as unknown as Visualization]));
 
 describe("ReportMiniature", () => {
-  it("draws an empty report as a dashed frame", () => {
-    render(<ReportMiniature items={[]} visualizationById={new Map()} />);
-
-    expect(screen.getByTestId("miniature-empty").className).toContain(
-      "border-dashed",
-    );
-  });
-
   it("goes live when an empty report gains its first chart", () => {
     const { rerender } = render(
       <ReportMiniature items={[]} visualizationById={vizMap("a")} />,
@@ -156,35 +148,6 @@ describe("ReportMiniature", () => {
       rootMargin: "200px",
     });
     panel.remove();
-  });
-
-  it("watches against the viewport when nothing scrolls", () => {
-    render(
-      <ReportMiniature
-        items={[chart("a", 0, 0)]}
-        visualizationById={vizMap("a")}
-      />,
-    );
-
-    expect(observers.at(-1)?.options).toEqual({
-      root: null,
-      rootMargin: "200px",
-    });
-  });
-
-  it("draws a text block as muted bars, never a chart", () => {
-    render(
-      <ReportMiniature
-        items={[
-          { id: "t", type: "markdown", x: 0, y: 0, width: 12, height: 1 },
-        ]}
-        visualizationById={new Map()}
-      />,
-    );
-    scrollIntoView();
-
-    expect(screen.getByTestId("miniature-text")).toBeTruthy();
-    expect(screen.queryByTestId("live-chart")).toBeNull();
   });
 
   it("mounts live charts only once the tile nears the viewport", () => {

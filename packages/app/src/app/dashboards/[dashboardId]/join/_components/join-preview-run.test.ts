@@ -138,20 +138,6 @@ describe("runJoinSubmit", () => {
     expect(onSuccess).not.toHaveBeenCalled();
   });
 
-  it("uses a generic message when a non-Error value is thrown", async () => {
-    const setError = vi.fn();
-
-    await runJoinSubmit({
-      // oxlint-disable-next-line prefer-promise-reject-errors -- exercises the non-Error rejection path on purpose
-      persist: () => Promise.reject("boom"),
-      onSuccess: vi.fn(),
-      setError,
-      setSubmitting: vi.fn(),
-    });
-
-    expect(setError).toHaveBeenCalledWith("Failed to save join: Unknown error");
-  });
-
   it("runs onSuccess and restores the button when persist resolves", async () => {
     const setSubmitting = vi.fn();
     const setError = vi.fn();

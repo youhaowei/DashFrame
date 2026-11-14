@@ -164,7 +164,7 @@ export function hasRenderer(type: VisualizationType): boolean {
  *
  * @returns Array of registered types
  */
-export function getRegisteredTypes(): VisualizationType[] {
+function getRegisteredTypes(): VisualizationType[] {
   return Array.from(rendererMap.keys());
 }
 

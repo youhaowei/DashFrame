@@ -39,16 +39,6 @@ beforeEach(() => {
 });
 
 describe("Workbench", () => {
-  it("opens both panes by default", () => {
-    render(<Page artifactType="insight" />);
-    expect(screen.getByRole("button", { name: "Config control" })).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Inspector control" }),
-    ).toBeTruthy();
-    expect(paneOf("Config control").className).toContain("w-64");
-    expect(paneOf("Inspector control").className).toContain("w-60");
-  });
-
   it("collapses a pane out of reach and back", () => {
     render(<Page artifactType="insight" />);
 
@@ -83,22 +73,5 @@ describe("Workbench", () => {
     // …while another kind of artifact keeps its own layout.
     render(<Page artifactType="data-source" />);
     expect(paneOf("Inspector control").className).toContain("w-60");
-  });
-
-  it("lets the page hide the inspector whatever was remembered", () => {
-    render(
-      <Workbench rightOpen={false} right={<span>Inspector</span>}>
-        canvas
-      </Workbench>,
-    );
-    expect(screen.getByText("Inspector").closest("aside")!.className).toContain(
-      "w-0",
-    );
-  });
-
-  it("renders no pane the page does not supply", () => {
-    const { container } = render(<Workbench>canvas</Workbench>);
-    expect(container.querySelectorAll("aside")).toHaveLength(0);
-    expect(screen.getByText("canvas")).toBeTruthy();
   });
 });

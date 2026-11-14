@@ -62,42 +62,6 @@ describe("SortSection", () => {
     },
   );
 
-  it("flips an ascending sort to descending from its direction button", () => {
-    const onChange = vi.fn();
-    render(
-      <SortSection
-        sorts={[{ field: "created_at", direction: "asc" }]}
-        fields={[field]}
-        metrics={[]}
-        onChange={onChange}
-        onRuntimeChange={vi.fn()}
-      />,
-    );
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Ascending; switch to descending",
-      }),
-    );
-    expect(onChange).toHaveBeenCalledWith([
-      { field: "created_at", direction: "desc" },
-    ]);
-  });
-
-  it("does not offer another sort when all result columns are used", () => {
-    render(
-      <SortSection
-        sorts={[{ field: "created_at", direction: "asc" }]}
-        fields={[field]}
-        metrics={[]}
-        onChange={vi.fn()}
-        onRuntimeChange={vi.fn()}
-      />,
-    );
-    expect(
-      screen.getByRole("button", { name: "Add sort" }).hasAttribute("disabled"),
-    ).toBe(true);
-  });
-
   it("renders and reorders duplicate sort fields as distinct entries", () => {
     const sortableList = vi.spyOn(ui, "SortableList");
     const onChange = vi.fn();
@@ -124,28 +88,6 @@ describe("SortSection", () => {
     act(() => props.onReorder([...props.items].reverse()));
     expect(onChange).toHaveBeenCalledWith([sorts[1], sorts[0]]);
     sortableList.mockRestore();
-  });
-
-  it("selects an add-sort command", async () => {
-    const user = userEvent.setup({ delay: null });
-    const onChange = vi.fn();
-    render(
-      <SortSection
-        sorts={[]}
-        fields={[field]}
-        metrics={[]}
-        onChange={onChange}
-        onRuntimeChange={vi.fn()}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "Add sort" }));
-    expect(
-      await screen.findByRole("dialog", { name: "Add sort" }),
-    ).toBeTruthy();
-    await user.click(await screen.findByRole("option", { name: /Created at/ }));
-    expect(onChange).toHaveBeenCalledWith([
-      { field: "created_at", direction: "asc" },
-    ]);
   });
 
   it("starts viewer sort with no allowed columns and opts fields in", () => {

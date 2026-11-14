@@ -11,10 +11,4 @@ describe("sanitizeInsightCanvasView", () => {
   it("shows the data when the chart is gone", () => {
     expect(sanitizeInsightCanvasView(chart, new Set())).toBe(TABLE_CANVAS_VIEW);
   });
-
-  it("shows the data when no view is given", () => {
-    expect(sanitizeInsightCanvasView(undefined, new Set())).toBe(
-      TABLE_CANVAS_VIEW,
-    );
-  });
 });

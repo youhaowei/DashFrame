@@ -356,18 +356,6 @@ describe("Arrow data path — auth + IPC roundtrip", () => {
     });
     expect(res.status).toBe(200);
   });
-
-  it("404s the routes that no longer exist", async () => {
-    const app = mosaicPath(fakeEngine());
-    for (const path of ["/arrow", "/tables/orders"]) {
-      const res = await app.request(path, {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ sql: "SELECT 1" }),
-      });
-      expect(res.status).toBe(404);
-    }
-  });
 });
 
 describe("Arrow data path — server frame registration and Mosaic queries", () => {

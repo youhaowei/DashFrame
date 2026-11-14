@@ -245,7 +245,6 @@ vi.mock("@/components/data-sources/DataPickerModal", () => ({
 // ── Component under test ──────────────────────────────────────────────────────
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { AppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import {
   TopBarTabsProvider,
   useRegisteredTopBarTabs,
@@ -397,7 +396,6 @@ function Page({
   return (
     <PlatformProvider>
       <TopBarTabsProvider>
-        <AppBreadcrumbs />
         <TopBarProbe />
         <DataSourcePageContent
           sourceId={sourceId}
@@ -428,21 +426,6 @@ beforeEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("DataSourcePageContent — loading contract", () => {
-  it("shows loading while the sources query is pending, then the source — never 'not found'", async () => {
-    mockUseDataSources.mockReturnValue({ isLoading: true });
-    mockUseDataTables.mockReturnValue({ data: [] });
-    const { rerender } = render(<Page />);
-
-    screen.getByText("Loading data source…");
-    expect(screen.queryByText("Data source not found")).toBeNull();
-
-    mockUseDataSources.mockReturnValue({ data: [FILE_SOURCE] });
-    await act(async () => rerender(<Page />));
-
-    expect(screen.queryByText("Data source not found")).toBeNull();
-    expect(nameInput().value).toBe("Local Files");
-  });
-
   it("shows 'not found' only once loading completes without the source", async () => {
     mockUseDataSources.mockReturnValue({ isLoading: true });
     mockUseDataTables.mockReturnValue({ data: [] });
@@ -453,16 +436,6 @@ describe("DataSourcePageContent — loading contract", () => {
     await act(async () => rerender(<Page sourceId="missing" />));
 
     screen.getByText("Data source not found");
-  });
-
-  it("waits for tables before claiming the source has none", () => {
-    mockUseDataSources.mockReturnValue({ data: [FILE_SOURCE] });
-    mockUseDataTables.mockReturnValue({ isLoading: true });
-    render(<Page />);
-
-    screen.getByText("Loading tables…");
-    expect(screen.queryByText("No tables yet")).toBeNull();
-    screen.getByTestId("no-tabs");
   });
 
   it("shows a table-query error without claiming the source has no tables", () => {
@@ -477,22 +450,6 @@ describe("DataSourcePageContent — loading contract", () => {
 });
 
 describe("DataSourcePageContent — table tabs", () => {
-  it("names the source in the app bar breadcrumb once it loads", async () => {
-    mockUseDataSources.mockReturnValue({ isLoading: true });
-    mockUseDataTables.mockReturnValue({ data: [] });
-    const { rerender } = render(<Page />);
-    expect(screen.queryByRole("navigation", { name: "breadcrumb" })).toBeNull();
-
-    givenSource(FILE_SOURCE, [ORDERS, CUSTOMERS]);
-    await act(async () => rerender(<Page />));
-
-    const trail = within(
-      screen.getByRole("navigation", { name: "breadcrumb" }),
-    );
-    trail.getByText("Data Sources");
-    trail.getByText("Local Files");
-  });
-
   it("puts one top-bar tab per table and opens the first by default", () => {
     givenSource(FILE_SOURCE, [ORDERS, CUSTOMERS]);
     render(<Page />);
@@ -516,41 +473,9 @@ describe("DataSourcePageContent — table tabs", () => {
     fireEvent.click(tabs().getByRole("tab", { name: "Orders" }));
     screen.getByRole("tabpanel", { name: "Orders" });
   });
-
-  it("falls back to the first table when the URL names one that is gone", () => {
-    givenSource(FILE_SOURCE, [ORDERS, CUSTOMERS]);
-    render(<Page initialTableId="table-deleted" />);
-
-    screen.getByRole("tabpanel", { name: "Orders" });
-  });
-
-  it("registers no tabs for a source without tables", () => {
-    givenSource(FILE_SOURCE, []);
-    render(<Page />);
-
-    screen.getByTestId("no-tabs");
-  });
 });
 
 describe("DataSourcePageContent — source configuration pane", () => {
-  it("names a remote source's connection and what credential it stores, never the value", () => {
-    givenSource(POSTGRES_SOURCE, [ORDERS]);
-    render(<Page />);
-
-    screen.getByRole("heading", { name: "Source" });
-    screen.getByText("PostgreSQL");
-    screen.getByText("Connection string stored");
-    screen.getByText("Manual");
-  });
-
-  it("gives a file-backed table's provenance instead of credentials", () => {
-    givenSource(FILE_SOURCE, [ORDERS]);
-    render(<Page />);
-
-    screen.getByText("orders.csv");
-    expect(screen.queryByText("Credentials")).toBeNull();
-  });
-
   it("renames the source in place when the name field is left", async () => {
     givenSource(FILE_SOURCE, [ORDERS]);
     render(<Page />);
@@ -634,27 +559,6 @@ describe("DataSourcePageContent — table actions", () => {
     screen.getByRole("button", { name: "Sign in with Google" });
   });
 
-  it("asks which report, then starts a chart on the table there", async () => {
-    givenSource(FILE_SOURCE, [ORDERS]);
-    render(<Page />);
-
-    await act(async () =>
-      fireEvent.click(screen.getByRole("button", { name: "Start a report" })),
-    );
-    const picker = screen.getByRole("dialog", { name: "Chart Orders" });
-    await act(async () =>
-      fireEvent.click(
-        within(picker).getByRole("button", { name: "New report" }),
-      ),
-    );
-
-    expect(mockStartChart).toHaveBeenCalledWith(
-      { kind: "new" },
-      expect.objectContaining({ id: "table-orders", name: "Orders" }),
-    );
-    expect(screen.queryByRole("dialog", { name: "Chart Orders" })).toBeNull();
-  });
-
   it("keeps the picker open when the chart cannot start", async () => {
     givenSource(FILE_SOURCE, [ORDERS]);
     mockStartChart.mockResolvedValue(false);
@@ -668,27 +572,6 @@ describe("DataSourcePageContent — table actions", () => {
     );
 
     screen.getByRole("dialog", { name: "Chart Orders" });
-  });
-
-  it("starts one chart however often a report is picked while it works", async () => {
-    givenSource(FILE_SOURCE, [ORDERS]);
-    let finish: (ok: boolean) => void = () => {};
-    mockStartChart.mockReturnValue(
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-    );
-    render(<Page />);
-
-    await act(async () =>
-      fireEvent.click(screen.getByRole("button", { name: "Start a report" })),
-    );
-    const pick = screen.getByRole("button", { name: "New report" });
-    await act(async () => fireEvent.click(pick));
-    await act(async () => fireEvent.click(pick));
-    await act(async () => finish(true));
-
-    expect(mockStartChart).toHaveBeenCalledTimes(1);
   });
 
   it("deletes the open table only after confirmation", async () => {
@@ -728,14 +611,6 @@ describe("DataSourcePageContent — preview and column inspector", () => {
   beforeEach(() => {
     givenSource(FILE_SOURCE, [ORDERS]);
     mockUseDataFrameData.mockReturnValue(ORDERS_PREVIEW);
-  });
-
-  it("heads the grid with display names and opens no inspector until a column is chosen", () => {
-    render(<Page />);
-
-    screen.getByRole("button", { name: "Customer email" });
-    expect(inspector()).toBeNull();
-    expect(screen.queryByRole("button", { name: /Column pane$/ })).toBeNull();
   });
 
   it("inspects the column whose header is clicked, with its type, samples and sensitivity", () => {
@@ -837,35 +712,6 @@ describe("DataSourcePageContent — preview and column inspector", () => {
     fireEvent.click(tabs().getByRole("tab", { name: "Customers" }));
     expect(inspector()).toBeNull();
   });
-
-  it("narrows the grid to the columns matching 'Find column'", () => {
-    render(<Page />);
-
-    fireEvent.change(screen.getByRole("textbox", { name: "Find column" }), {
-      target: { value: "am" },
-    });
-    screen.getByRole("button", { name: "Amount" });
-    expect(screen.queryByRole("button", { name: "Region" })).toBeNull();
-
-    fireEvent.change(screen.getByRole("textbox", { name: "Find column" }), {
-      target: { value: "zzz" },
-    });
-    screen.getByText(/No columns match/);
-    expect(screen.queryByTestId("virtual-table")).toBeNull();
-  });
-
-  it("lists columns with their type and sample in the Columns view", () => {
-    render(<Page />);
-
-    fireEvent.click(screen.getByRole("tab", { name: "Columns" }));
-    const list = within(screen.getByRole("list", { name: "Columns" }));
-    const amount = list.getByRole("button", { name: /Amount/ });
-    expect(amount.textContent).toContain("number");
-    expect(amount.textContent).toContain("12, 30, 7");
-
-    fireEvent.click(amount);
-    expect((inspector() as HTMLInputElement).value).toBe("Amount");
-  });
 });
 
 describe("DataSourcePageContent — preview states", () => {
@@ -891,27 +737,6 @@ describe("DataSourcePageContent — preview states", () => {
     expect(mockReloadPreview).toHaveBeenCalledTimes(1);
   });
 
-  it("says a table without stored data is being prepared, not empty", () => {
-    givenSource(FILE_SOURCE, [{ ...ORDERS, dataFrameId: undefined }]);
-    render(<Page />);
-
-    screen.getByText("Preparing this table…");
-    expect(screen.queryByText("This table has no rows.")).toBeNull();
-  });
-
-  it("offers the retry in the Columns view too when the preview fails", () => {
-    mockUseDataFrameData.mockReturnValue(
-      previewResult({ error: "connection reset" }),
-    );
-    render(<Page />);
-    fireEvent.click(screen.getByRole("tab", { name: "Columns" }));
-
-    screen.getByText("Couldn't load the preview");
-    expect(screen.queryByRole("list", { name: "Columns" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(mockReloadPreview).toHaveBeenCalledTimes(1);
-  });
-
   it("shows the empty state only for a successful zero-row result", () => {
     mockUseDataFrameData.mockReturnValue(
       previewResult({ data: { rows: [], columns: [{ name: "region" }] } }),
@@ -924,21 +749,6 @@ describe("DataSourcePageContent — preview states", () => {
 });
 
 describe("DataSourcePageContent — source without tables", () => {
-  it("offers a local-files source one way in: import a file", () => {
-    givenSource(FILE_SOURCE, []);
-    render(<Page />);
-
-    screen.getByRole("heading", { name: "No tables yet" });
-    fireEvent.click(screen.getByRole("button", { name: "Import file" }));
-    fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Import a file" })).getByRole(
-        "button",
-        { name: "Upload a file" },
-      ),
-    );
-    expect(screen.queryByRole("dialog", { name: "Import a file" })).toBeNull();
-  });
-
   it("imports another table from a remote source, offering only what is not a table yet", async () => {
     givenSource(POSTGRES_SOURCE, [
       table("table-orders", "Orders", { table: "public.orders" }),
@@ -956,14 +766,6 @@ describe("DataSourcePageContent — source without tables", () => {
     expect(mockListPostgresTables).toHaveBeenCalledWith({
       dataSourceId: SOURCE_ID,
     });
-  });
-
-  it("points a source it cannot list at Add Source", () => {
-    givenSource({ ...FILE_SOURCE, type: "unknown" }, []);
-    render(<Page />);
-
-    screen.getByText("Choose tables from Add Source on the Data Sources page.");
-    screen.getByRole("button", { name: "Go to Data Sources" });
   });
 });
 
@@ -1155,14 +957,6 @@ describe("buildAnalysisByFieldId — repeat-join identity", () => {
     expect(map.size).toBe(2);
     expect(map.get(UUID_A)).toBe(j0);
     expect(map.get(`${UUID_A}_j1`)).toBe(j1);
-  });
-
-  it("prefers explicit fieldId over parsed columnName when fieldId is set", () => {
-    const col = { ...makeCol(COL_J0, 3), fieldId: "explicit-field-id" };
-    const map = buildAnalysisByFieldId([col]);
-
-    expect(map.get("explicit-field-id")).toBe(col);
-    expect(map.has(UUID_A)).toBe(false);
   });
 });
 

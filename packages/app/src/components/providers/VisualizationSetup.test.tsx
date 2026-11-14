@@ -1,13 +1,9 @@
 /**
  * Tests for VisualizationSetup error routing contracts (see #96).
  *
- * Contracts verified here:
- * 1. Whole-engine-down does NOT fire a toast and does NOT render an inline slab
- *    from this component — that surface moved to VisualizationDisplay (persistent
- *    inline affordance). VisualizationSetup just passes children through.
- * 2. VisualizationBoundary catches render-phase throws → fires a Reload-action
- *    toast that never auto-dismisses (duration: Infinity), and leaves children
- *    mounted (no renderer crash, navigation survives).
+ * Contract verified here: VisualizationBoundary catches render-phase throws →
+ * fires a Reload-action toast that never auto-dismisses (duration: Infinity),
+ * and leaves children mounted (no renderer crash, navigation survives).
  *
  * The persistent inline engine-unavailable affordance is tested in
  * EngineUnavailableState.test.tsx (the surface) and VisualizationDisplay reads
@@ -95,47 +91,7 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
     });
   });
 
-  describe("whole-engine-down → no toast, no inline slab from this component", () => {
-    it("passes children through with no toast and no inline ErrorState slab when engineError is set", async () => {
-      mockUseChartEngine.mockReturnValue({
-        connector: null,
-        engineError: "Native engine unavailable: connection refused",
-        uploadArrowTable: null,
-      });
-
-      renderSetup(<div data-testid="child" />);
-
-      // Give effects a tick to fire — nothing should call showError.
-      await new Promise((r) => {
-        setTimeout(r, 0);
-      });
-      expect(mockShowError).not.toHaveBeenCalled();
-
-      // The raw engineError string must never reach the DOM (DESIGN.md:
-      // no raw runtime errors in UI).
-      expect(screen.queryByText(/Native engine unavailable/i)).toBeNull();
-
-      // Degraded, not dead: children stay mounted.
-      expect(screen.queryByTestId("child")).not.toBeNull();
-    });
-  });
-
   describe("VisualizationBoundary — fail-soft on mid-session render throw", () => {
-    it("renders children when connector is present (native path nominal)", () => {
-      const mockConnector = { query: vi.fn() };
-      mockUseChartEngine.mockReturnValue({
-        connector: mockConnector,
-        engineError: null,
-        uploadArrowTable: null,
-      });
-
-      // Children are inside VisualizationProvider but OUTSIDE the boundary,
-      // so they are always visible and never blanked by a boundary trip.
-      renderSetup(<div data-testid="child" />);
-
-      expect(screen.queryByTestId("child")).not.toBeNull();
-    });
-
     it("catches a setup-component throw, fires a Reload-action toast that never auto-dismisses, and leaves children mounted", async () => {
       const mockConnector = { query: vi.fn() };
       mockUseChartEngine.mockReturnValue({

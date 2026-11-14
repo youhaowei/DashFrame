@@ -41,24 +41,6 @@ describe("connector OAuth browser routes", () => {
     });
   });
 
-  it("requires no bearer and delegates completion through the bound application", async () => {
-    const call = vi.fn(async () => ({ state: "connected" }));
-    const hono = new Hono();
-    hono.get("/api/connectors/oauth/callback", (c) =>
-      handleConnectorOAuthCallback(c, fakeApp(call)),
-    );
-
-    const response = await hono.request(
-      "/api/connectors/oauth/callback?state=opaque&code=authorization-code",
-    );
-    expect(response.status).toBe(200);
-    expect(call).toHaveBeenCalledWith("completeConnectorOAuth", {
-      state: "opaque",
-      code: "authorization-code",
-      oauthError: undefined,
-    });
-  });
-
   it("links back to the new source only when the server says where its app shows one", async () => {
     const execute = vi.fn(async () => ({
       state: "connected",

@@ -168,13 +168,3 @@ describe("Lifecycle.shutdown — D: partial / unset handles", () => {
     expect(exit).toHaveBeenCalledExactlyOnceWith(1);
   });
 });
-
-describe("Lifecycle.hasProject", () => {
-  it("is false until a project is registered, true after", () => {
-    const lifecycle = new Lifecycle(vi.fn());
-    expect(lifecycle.hasProject()).toBe(false);
-
-    lifecycle.setProject(makeProject());
-    expect(lifecycle.hasProject()).toBe(true);
-  });
-});

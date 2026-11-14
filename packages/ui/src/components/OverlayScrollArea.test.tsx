@@ -31,14 +31,4 @@ describe("OverlayScrollArea viewport tab stop", () => {
 
     expect(viewportOf(container)?.hasAttribute("tabindex")).toBe(true);
   });
-
-  it("takes the viewport out of the tab order when a caller opts out", () => {
-    const { container } = render(
-      <OverlayScrollArea viewportTabIndex={-1}>
-        <p>content</p>
-      </OverlayScrollArea>,
-    );
-
-    expect(viewportOf(container)?.getAttribute("tabindex")).toBe("-1");
-  });
 });

@@ -2,12 +2,10 @@ import type { DataTable, Field, Metric, UUID } from "@dashframe/types";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const {
-  mockCsvToDataFrame,
   mockGetDataTable,
   mockGetOrCreateDataSourceByType,
   mockIngestLocalDataFrame,
 } = vi.hoisted(() => ({
-  mockCsvToDataFrame: vi.fn(),
   mockGetDataTable: vi.fn(),
   mockGetOrCreateDataSourceByType: vi.fn(),
   mockIngestLocalDataFrame: vi.fn(),
@@ -30,12 +28,8 @@ vi.mock("@/lib/data-access/data-tables", () => ({
     aggregation: "count" as const,
   }),
 }));
-vi.mock("@dashframe/csv", () => ({ csvToDataFrame: mockCsvToDataFrame }));
 
-import {
-  handleFileConnectorResult,
-  handleLocalCSVUpload,
-} from "./local-csv-handler";
+import { handleFileConnectorResult } from "./local-csv-handler";
 
 const TABLE_ID = "table-id" as UUID;
 const EXISTING_FIELD_ID = "existing-field-id" as UUID;
@@ -99,15 +93,6 @@ const parsedResult = {
 
 const replacementHandlers = [
   {
-    name: "handleLocalCSVUpload",
-    replace: async (result = parsedResult) => {
-      mockCsvToDataFrame.mockResolvedValue(result);
-      return handleLocalCSVUpload(new File([], "orders.csv"), [], {
-        overrideTableId: TABLE_ID,
-      });
-    },
-  },
-  {
     name: "handleFileConnectorResult",
     replace: (result = parsedResult) =>
       handleFileConnectorResult("orders.csv", result as never, {
@@ -126,7 +111,6 @@ describe("file table replacement", () => {
       rowCount: 1,
       columnCount: 2,
     });
-    mockCsvToDataFrame.mockResolvedValue(parsedResult);
   });
 
   it.each(replacementHandlers)(

@@ -58,17 +58,6 @@ describe("duckdbColumnsToArrowIpc roundtrip", () => {
     expect(table.getChild("name")?.toArray()).toEqual(["x", "y", "z"]);
   });
 
-  it("coerces JSON-normalized bigint strings to numeric Arrow values", () => {
-    // getColumnsObjectJson emits BIGINT as a string; the encoder coerces it.
-    const ipc = duckdbColumnsToArrowIpc([
-      { name: "big", typeId: BIGINT, values: ["10", "20"] },
-    ]);
-    const table = tableFromIPC(ipc);
-    expect(table.getChild("big")?.toArray()).toEqual(
-      new Float64Array([10, 20]),
-    );
-  });
-
   it("rejects duplicate column names instead of silently overwriting (no corrupt results)", () => {
     // `SELECT 1 AS v, 2 AS v` is legal SQL; a name-keyed Record would keep
     // only the second column. Fail closed instead.

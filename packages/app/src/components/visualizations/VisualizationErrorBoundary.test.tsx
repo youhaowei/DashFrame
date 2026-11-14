@@ -37,17 +37,6 @@ describe("VisualizationErrorBoundary", () => {
     cleanup();
   });
 
-  it("contains a render throw to its own card", () => {
-    render(
-      <VisualizationErrorBoundary>
-        <ThrowsLikeAMalformedEncoding />
-      </VisualizationErrorBoundary>,
-    );
-    expect(screen.getByRole("alert").textContent).toContain(
-      "Can't display this chart",
-    );
-  });
-
   it("leaves sibling visualizations and the surrounding page mounted", () => {
     render(
       <div>

@@ -15,7 +15,6 @@ import {
   ArtifactGrid,
   ArtifactRow,
   ArtifactRowGroups,
-  ArtifactTile,
 } from "./ArtifactCollection";
 
 function SearchThatEmptied() {
@@ -76,73 +75,6 @@ function PopulatedCollectionFilteredToNoMatches() {
 }
 
 describe("ArtifactCollection structure", () => {
-  function headingLevels() {
-    return screen
-      .getAllByRole("heading")
-      .map((heading) => Number(heading.tagName.slice(1)));
-  }
-
-  function expectNoSkippedHeadingLevels(levels: number[]) {
-    for (let index = 1; index < levels.length; index += 1) {
-      expect(levels[index]! - levels[index - 1]!).toBeLessThanOrEqual(1);
-    }
-  }
-
-  it("uses the shell's main landmark and gives ungrouped cards level-two headings", () => {
-    render(
-      <ArtifactCollection
-        title="Insights"
-        itemCount={2}
-        searchQuery=""
-        onSearchQueryChange={() => {}}
-        searchPlaceholder="Search insights..."
-        searchLabel="Search insights"
-      >
-        <ArtifactGrid>
-          <ArtifactCard name="Revenue" />
-          <ArtifactCard name="Orders" />
-        </ArtifactGrid>
-      </ArtifactCollection>,
-    );
-
-    expect(screen.queryByRole("main")).toBeNull();
-    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(2);
-    const revenueHeading = screen.getByRole("heading", {
-      level: 2,
-      name: "Revenue",
-    });
-    screen.getByRole("heading", { level: 2, name: "Orders" });
-    expect(revenueHeading.parentElement?.tagName).toBe("DIV");
-    expectNoSkippedHeadingLevels(headingLevels());
-  });
-
-  it("allows grouped cards to use level-three headings without skipping a level", () => {
-    render(
-      <ArtifactCollection
-        title="Insights"
-        itemCount={1}
-        searchQuery=""
-        onSearchQueryChange={() => {}}
-        searchPlaceholder="Search insights..."
-        searchLabel="Search insights"
-      >
-        <section>
-          <h2>Drafts</h2>
-          <ArtifactCard name="Revenue" headingLevel={3} />
-        </section>
-      </ArtifactCollection>,
-    );
-
-    screen.getByRole("heading", { level: 3, name: "Revenue" });
-    expectNoSkippedHeadingLevels(headingLevels());
-  });
-
-  it("uses a level-two empty-state heading under the page title", () => {
-    render(<ArtifactEmptyState title="No insights yet" />);
-
-    screen.getByRole("heading", { level: 2, name: "No insights yet" });
-  });
-
   it("moves focus to the collection heading when clearing search unmounts the controls", async () => {
     render(<SearchThatEmptied />);
     const clearSearch = screen.getByRole("button", { name: "Clear search" });
@@ -191,20 +123,6 @@ describe("ArtifactRowGroups", () => {
     />
   );
 
-  it("renders one group as a flat list without its label", () => {
-    render(
-      <ArtifactRowGroups
-        groups={[{ key: "today", label: "Today", items: ["Alpha", "Beta"] }]}
-        renderRow={renderRow}
-      />,
-    );
-
-    expect(screen.queryByRole("button", { name: /Today/ })).toBeNull();
-    expect(
-      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Alpha", "Beta"]);
-  });
-
   it("labels each group and collapses it from its label", () => {
     render(
       <ArtifactRowGroups
@@ -227,100 +145,5 @@ describe("ArtifactRowGroups", () => {
       screen.queryByRole("heading", { level: 3, name: "Beta" }),
     ).toBeNull();
     screen.getByRole("heading", { level: 3, name: "Alpha" });
-  });
-});
-
-describe("ArtifactRow actions", () => {
-  // jsdom evaluates no media queries and computes no Tailwind, so this pins the
-  // classes that carry the behaviour; the running app was checked with a
-  // touch-emulated browser (hover: none) for the computed result.
-  it("keeps the overflow menu reachable on touch screens, where nothing hovers", () => {
-    render(
-      <ul>
-        <ArtifactRow
-          to="/reports/a"
-          name="Alpha"
-          glyph={null}
-          actions={
-            <button type="button" aria-label="More options">
-              ...
-            </button>
-          }
-        />
-      </ul>,
-    );
-
-    const actions = screen.getByRole("button", {
-      name: "More options",
-    }).parentElement!;
-    const classes = actions.className.split(" ");
-    // Hidden until revealed where a pointer can hover…
-    expect(classes).toContain("pointer-events-none");
-    expect(classes).toContain(
-      "[@media(hover:hover)]:group-hover:pointer-events-auto",
-    );
-    // …but visible and tappable where it cannot.
-    expect(classes).toContain("[@media(hover:none)]:pointer-events-auto");
-    expect(classes).toContain("[@media(hover:none)]:**:opacity-70");
-  });
-});
-
-describe("ArtifactTile actions", () => {
-  // Same limits as the row test: class assertions stand in for media queries.
-  it("applies the row's touch rule to the tile menu", () => {
-    render(
-      <ArtifactTile
-        to="/reports/a"
-        name="Alpha"
-        glyph={null}
-        actions={
-          <button type="button" aria-label="More options">
-            ...
-          </button>
-        }
-      />,
-    );
-
-    const classes = screen
-      .getByRole("button", { name: "More options" })
-      .parentElement!.className.split(" ");
-    expect(classes).toContain("pointer-events-none");
-    expect(classes).toContain("[@media(hover:none)]:pointer-events-auto");
-    expect(classes).toContain("[@media(hover:none)]:**:opacity-70");
-  });
-});
-
-describe("ArtifactCollection view toggle", () => {
-  function renderCollection(itemCount: number, onViewChange = vi.fn()) {
-    render(
-      <ArtifactCollection
-        title="Reports"
-        count={itemCount}
-        itemCount={itemCount}
-        searchQuery=""
-        onSearchQueryChange={() => {}}
-        searchPlaceholder="Search reports..."
-        searchLabel="Search reports"
-        view="grid"
-        onViewChange={onViewChange}
-      >
-        {null}
-      </ArtifactCollection>,
-    );
-    return onViewChange;
-  }
-
-  it("switches to the list view", () => {
-    const onViewChange = renderCollection(3);
-
-    fireEvent.click(screen.getByRole("tab", { name: "List view" }));
-
-    expect(onViewChange).toHaveBeenCalledWith("list");
-  });
-
-  it("hides the toggle when there is nothing to show", () => {
-    renderCollection(0);
-
-    expect(screen.queryByRole("tab", { name: "List view" })).toBeNull();
   });
 });

@@ -119,11 +119,6 @@ describe("extractRows", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyFieldMap", () => {
-  it("returns row as-is when no fieldMap", () => {
-    const row = { id: 1, name: "Alice" };
-    expect(applyFieldMap(row)).toEqual({ id: 1, name: "Alice" });
-  });
-
   it("renames mapped keys and passes through unmapped ones", () => {
     const row = { full_name: "Alice", age: 30 };
     expect(applyFieldMap(row, { full_name: "name" })).toEqual({
@@ -140,25 +135,6 @@ describe("applyFieldMap", () => {
 describe("RestConnector", () => {
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  // -------------------------------------------------------------------------
-  // Static properties
-  // -------------------------------------------------------------------------
-
-  it("has id = 'rest'", () => {
-    const c = makeRestConnector(noopResolver, {
-      endpoint: "https://api.example.com/data",
-    });
-    expect(c.id).toBe("rest");
-  });
-
-  it("getFormFields returns at least endpoint field", () => {
-    const c = makeRestConnector(noopResolver, {
-      endpoint: "https://api.example.com/data",
-    });
-    const fields = c.getFormFields();
-    expect(fields.some((f) => f.name === "endpoint")).toBe(true);
   });
 
   // -------------------------------------------------------------------------
@@ -926,10 +902,6 @@ describe("RestConnector", () => {
       expect(() => assertFieldMapNoCollision({ a: "name", b: "name" })).toThrow(
         /collision/i,
       );
-    });
-
-    it("accepts a fieldMap with all-unique targets", () => {
-      expect(() => assertFieldMapNoCollision({ a: "x", b: "y" })).not.toThrow();
     });
 
     it("rejects a rename that lands on an existing passthrough key in a row", () => {

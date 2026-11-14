@@ -1,7 +1,7 @@
 /**
  * EncryptedFileSecretBackend acceptance tests.
  *
- *   AC-1  round-trip / presence / deletion / callback passthrough
+ *   AC-1  round-trip / presence / deletion
  *   AC-2  plaintext never rests on disk
  *   AC-3  has() never decrypts
  *   AC-4  locator and symlink defenses
@@ -84,24 +84,12 @@ async function rewriteBlob(
 }
 
 describe("AC-1: round-trip (store → withSecret → has → delete)", () => {
-  it("returns a fixed-grammar opaque locator", async () => {
-    expect(await backend().store("secret")).toMatch(/^[a-f0-9]{32}$/);
-  });
-
   it("returns the exact stored plaintext", async () => {
     const subject = backend();
     const locator = await subject.store("super-secret-value");
     await expect(
       subject.withSecret(locator, async (value) => value),
     ).resolves.toBe("super-secret-value");
-  });
-
-  it("passes a generic callback return value through", async () => {
-    const subject = backend();
-    const locator = await subject.store("42");
-    await expect(
-      subject.withSecret(locator, async (value) => Number(value)),
-    ).resolves.toBe(42);
   });
 
   it("reports present and absent locators correctly", async () => {

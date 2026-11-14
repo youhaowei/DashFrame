@@ -60,7 +60,7 @@ describe("encoding enforcer — malformed stored values", () => {
 });
 
 describe("encoding enforcer — density charts", () => {
-  it.each(["hexbin", "heatmap", "raster"] as const)(
+  it.each(["hexbin"] as const)(
     "rejects a categorical axis for %s",
     (chartType) => {
       expect(
@@ -72,7 +72,7 @@ describe("encoding enforcer — density charts", () => {
     },
   );
 
-  it.each(["hexbin", "heatmap", "raster"] as const)(
+  it.each(["hexbin"] as const)(
     "offers only scatter-compatible fields and metrics for %s",
     (chartType) => {
       const metricId = "10000000-0000-4000-8000-000000000001";

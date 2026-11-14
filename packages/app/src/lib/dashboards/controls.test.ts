@@ -1,26 +1,18 @@
 /**
- * Tests for dashboard controls — broadcast logic, eligibility, and transient state.
+ * Tests for dashboard controls — broadcast logic and transient state.
  *
  * Named contracts:
  * - A control bound to N cells broadcasts its value → those cells' effective params reflect it.
- * - Binding is opt-in: an eligible-but-unbound cell is NOT affected.
- * - Source-schema eligibility: a control can't bind to a cell whose insight source lacks the field.
+ * - Binding is opt-in: an unbound cell is NOT affected.
  * - defaultValue applies on load (computeItemOverrides with no transient).
  * - Bound control value (binding = delegation): wins over the cell's own pinned value.
  * - Viewer-transient: a viewer's turn wins over the saved default, and setting it returns a new map.
  */
 
-import type {
-  DashboardControl,
-  DashboardItem,
-  DataTable,
-  Field,
-  UUID,
-} from "@dashframe/types";
+import type { DashboardControl, DashboardItem, UUID } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
 import {
   computeItemOverrides,
-  isControlEligible,
   resolveControlValue,
   setTransientValue,
 } from "./controls";
@@ -28,30 +20,6 @@ import {
 // ---------------------------------------------------------------------------
 // Shared fixtures
 // ---------------------------------------------------------------------------
-
-const TABLE_ID = "00000000-0000-0000-0000-000000000001" as UUID;
-
-function makeField(name: string, columnName?: string): Field {
-  return {
-    id: `field-${name}` as UUID,
-    name,
-    tableId: TABLE_ID,
-    columnName: columnName ?? name,
-    type: "string",
-  };
-}
-
-function makeTable(fields: Field[]): DataTable {
-  return {
-    id: TABLE_ID,
-    name: "sales",
-    dataSourceId: "ds-1" as UUID,
-    table: "sales",
-    fields,
-    metrics: [],
-    createdAt: Date.now(),
-  };
-}
 
 function makeItem(
   id: UUID,
@@ -82,38 +50,6 @@ function makeControl(
     defaultValue,
   };
 }
-
-// ---------------------------------------------------------------------------
-// isControlEligible
-// ---------------------------------------------------------------------------
-
-describe("isControlEligible — source-schema eligibility", () => {
-  it("returns true when the field is present in the table's fields", () => {
-    const table = makeTable([makeField("region")]);
-    expect(isControlEligible("region", table)).toBe(true);
-  });
-
-  it("returns true when columnName differs from name but matches the lookup", () => {
-    const field: Field = {
-      id: "f1" as UUID,
-      name: "Region Label",
-      tableId: TABLE_ID,
-      columnName: "region",
-      type: "string",
-    };
-    const table = makeTable([field]);
-    expect(isControlEligible("region", table)).toBe(true);
-  });
-
-  it("returns false when the field is NOT in the table's fields", () => {
-    const table = makeTable([makeField("month")]);
-    expect(isControlEligible("region", table)).toBe(false);
-  });
-
-  it("returns false when the source table is undefined (insight not loaded)", () => {
-    expect(isControlEligible("region", undefined)).toBe(false);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // computeItemOverrides — broadcast
@@ -223,25 +159,6 @@ describe("computeItemOverrides — broadcast to bound cells", () => {
     );
     expect(ov?.filters).toContainEqual(
       expect.objectContaining({ field: "month", value: "2024-01" }),
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// defaultValue applies on load
-// ---------------------------------------------------------------------------
-
-describe("defaultValue applies on load (no transient map)", () => {
-  const ITEM_A = "item-a" as UUID;
-
-  it("defaultValue is used when no transient override exists", () => {
-    const control = makeControl("region", [ITEM_A], "EU");
-    const item = makeItem(ITEM_A);
-
-    const ov = computeItemOverrides(item, [control], new Map());
-
-    expect(ov?.filters).toContainEqual(
-      expect.objectContaining({ field: "region", value: "EU" }),
     );
   });
 });

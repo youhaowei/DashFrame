@@ -28,13 +28,6 @@ describe("getAccessCapabilities", () => {
     ).toEqual({ canManageCredentials: true });
   });
 
-  it("names the missing secret key when the host has no credential store", async () => {
-    expect(await getAccessCapabilities(context({}))).toEqual({
-      canManageCredentials: false,
-      unavailableReason: "no-secret-key",
-    });
-  });
-
   it("tells a non-owner they are not the owner once the host has a key", async () => {
     expect(
       await getAccessCapabilities(

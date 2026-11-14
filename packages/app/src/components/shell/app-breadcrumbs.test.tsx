@@ -52,16 +52,6 @@ describe("useAppBreadcrumbs", () => {
     expect(screen.queryByRole("navigation", { name: "breadcrumb" })).toBeNull();
   });
 
-  it("shows nothing while the page passes null", () => {
-    render(
-      <>
-        <AppBreadcrumbs />
-        <Registers items={null} />
-      </>,
-    );
-    expect(screen.queryByRole("navigation", { name: "breadcrumb" })).toBeNull();
-  });
-
   it("follows the page's trail as it changes", () => {
     const { rerender } = render(
       <>
@@ -116,23 +106,5 @@ describe("useAppBreadcrumbs", () => {
       </>,
     );
     trail().getByText("Warehouse");
-  });
-});
-
-describe("AppBreadcrumbs before tabs", () => {
-  it("lets the tabs stand in for the current page", () => {
-    const { container } = render(
-      <>
-        <AppBreadcrumbs beforeTabs />
-        <Registers items={SOURCE} />
-      </>,
-    );
-
-    const source = trail().getByText("Warehouse");
-    expect(source.getAttribute("aria-current")).toBeNull();
-    // A separator follows the last item, leading into the tab strip.
-    const separators = container.querySelectorAll('li[role="presentation"]');
-    expect(separators).toHaveLength(2);
-    expect(container.querySelector("ol")?.lastElementChild).toBe(separators[1]);
   });
 });

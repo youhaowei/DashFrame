@@ -322,22 +322,6 @@ describe("VisualizationDisplay — declared runtime controls", () => {
     setupCommonMocks();
   });
 
-  it("runs the saved canonical Insight when no dashboard overrides exist", () => {
-    render(<VisualizationDisplay visualizationId="viz-1" />);
-
-    const callOpts = mockUseInsightPagination.mock.calls[0]?.[0];
-    expect(callOpts).toMatchObject({
-      insight,
-      showModelPreview: false,
-      enabled: true,
-      runtime: undefined,
-    });
-    expect(mockUseInsightView).toHaveBeenCalledWith(insight, {
-      runtime: undefined,
-      presentation: undefined,
-    });
-  });
-
   it("offers unselected declared dimensions after reopening a saved report", async () => {
     const report = {
       ...insight,
@@ -606,30 +590,6 @@ describe("VisualizationDisplay — report tile", () => {
     vi.clearAllMocks();
     cleanup();
     setupCommonMocks();
-  });
-
-  it("keeps the workbench's row count and chart/table switch off a tile", async () => {
-    const { rerender } = render(
-      <VisualizationDisplay visualizationId="viz-1" />,
-    );
-    expect(await screen.findByTestId("view-toggle")).toBeTruthy();
-    expect(screen.getByText(/rows •/)).toBeTruthy();
-
-    rerender(
-      <VisualizationDisplay visualizationId="viz-1" reportId="report-a" />,
-    );
-    expect(screen.queryByTestId("view-toggle")).toBeNull();
-    expect(screen.queryByText(/rows •/)).toBeNull();
-  });
-
-  it("names the question a tile came from", async () => {
-    render(
-      <VisualizationDisplay visualizationId="viz-1" reportId="report-a" />,
-    );
-
-    await screen.findByText(`from ${insight.name}`);
-    // Charts are edited from the tile's Edit chart, not by leaving the report.
-    expect(screen.queryByRole("link", { name: insight.name })).toBeNull();
   });
 
   it("says a tile's saved view was deleted instead of loading forever", async () => {

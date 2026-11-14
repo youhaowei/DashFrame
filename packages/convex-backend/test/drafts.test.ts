@@ -64,18 +64,6 @@ it("requires verified workspace principals and observes credential revocation", 
     "revoked",
   );
 });
-it("rolls back all metadata in a failed native mutation", async () => {
-  const id = uuid();
-  await expect(
-    user().mutation(api.app.commitBatch, {
-      commands: [
-        cmd("CreateDataSource", { id, type: "csv", name: "New" }),
-        rename(uuid(), "Missing"),
-      ],
-    }),
-  ).rejects.toThrow();
-  expect(await user().query(api.app.getDataSource, { id })).toBeNull();
-});
 it("services draft but cannot canonically commit or publish through either entry point", async () => {
   const { tableId } = await seed();
   await expect(

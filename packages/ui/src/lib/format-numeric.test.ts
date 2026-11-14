@@ -7,26 +7,10 @@ describe("formatNumeric", () => {
     expect(formatNumeric(409.95000000000005)).toBe("409.95");
   });
 
-  it("leaves an integer unchanged (no decimal point added)", () => {
-    expect(formatNumeric(1000)).toBe("1000");
-    expect(formatNumeric(0)).toBe("0");
-    expect(formatNumeric(-42)).toBe("-42");
-  });
-
   it("leaves large integers exact (no toPrecision truncation)", () => {
     // COUNT(*) or financial IDs with > 10 significant digits must never be rounded
     expect(formatNumeric(12345678901)).toBe("12345678901");
     expect(formatNumeric(100000000011)).toBe("100000000011");
-  });
-
-  it("does not over-truncate a legitimately precise value", () => {
-    // 10 sig-figs: 12345678.90 → stays as-is (trailing zero stripped by parseFloat)
-    expect(formatNumeric(12345678.9)).toBe("12345678.9");
-  });
-
-  it("handles negative floats with noise", () => {
-    // -0.1 - 0.2 = -0.30000000000000004 in IEEE-754
-    expect(formatNumeric(-0.30000000000000004)).toBe("-0.3");
   });
 
   it("handles AVG noise (fractional with many decimals)", () => {

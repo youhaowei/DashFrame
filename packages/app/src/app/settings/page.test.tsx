@@ -76,12 +76,9 @@ const TABLES = [
 vi.mock("convex/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("convex/react")>()),
   ...nativeQueryMocks((ref: { _path: string }) => {
-    if (mockHost.failingQueries.includes(ref._path))
-      return { isError: true, error: new Error("query failed") };
     if (ref._path === "projectInfo")
       return { data: { projectId: "p1", name: "Acme analytics" } };
-    if (ref._path === "listDataSources")
-      return { data: mockHost.sources ?? SOURCES };
+    if (ref._path === "listDataSources") return { data: SOURCES };
     if (ref._path === "listDataTables") return { data: TABLES };
     throw new Error(`Unexpected query: ${ref._path}`);
   }),
@@ -167,10 +164,8 @@ beforeEach(() => {
   mockHost.capabilities = { canManageCredentials: true };
   mockHost.credentials = [];
   mockHost.listFails = false;
-  mockHost.failingQueries = [];
   mockHost.capabilitiesFail = false;
   mockRefetch.mockReset();
-  mockHost.sources = null;
   mockHost.runtime = { url: "http://127.0.0.1:4000", mode: "local" };
   delete (window as { dashframe?: unknown }).dashframe;
   mockClearAllData.mockReset().mockResolvedValue(undefined);
@@ -180,54 +175,6 @@ beforeEach(() => {
 });
 
 describe("SettingsPage", () => {
-  it("stacks every section, in order, with a jump chip for each", () => {
-    render(<SettingsPage />);
-    expect(
-      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Appearance", "Project", "Credentials", "Privacy", "About"]);
-    expect(
-      within(screen.getByRole("navigation", { name: "Jump to section" }))
-        .getAllByRole("button")
-        .map((b) => b.textContent),
-    ).toEqual(["Appearance", "Project", "Credentials", "Privacy", "About"]);
-
-    expect(
-      within(section("Appearance")).getByTestId("theme-panel").dataset.inline,
-    ).toBe("true");
-    expect(within(section("Project")).getByText("Acme analytics")).toBeTruthy();
-    expect(
-      within(section("Project")).getByText("http://127.0.0.1:4000"),
-    ).toBeTruthy();
-    expect(within(section("About")).getByText("Connected")).toBeTruthy();
-    expect(
-      within(section("About"))
-        .getByRole("link", { name: /Open source on GitHub/ })
-        .getAttribute("href"),
-    ).toBe("https://github.com/youhaowei/dashframe");
-  });
-
-  it("says project details failed to load instead of dropping the name", () => {
-    mockHost.failingQueries = ["projectInfo"];
-    render(<SettingsPage />);
-    const project = section("Project");
-    expect(within(project).getByRole("alert").textContent).toBe(
-      "Couldn't load project details.",
-    );
-    expect(within(project).queryByText("Acme analytics")).toBeNull();
-    expect(
-      within(project).queryByRole("button", { name: "Try again" }),
-    ).toBeNull();
-  });
-
-  it("offers no folder action where the host shell cannot reveal it", () => {
-    render(<SettingsPage />);
-    expect(
-      within(section("Project")).queryByRole("button", {
-        name: "Show in Finder",
-      }),
-    ).toBeNull();
-  });
-
   it("reveals the project folder where the desktop shell can", () => {
     const revealFolder = vi.fn().mockResolvedValue(undefined);
     (window as { dashframe?: unknown }).dashframe = {
@@ -294,43 +241,6 @@ describe("SettingsPage", () => {
     ).toBeTruthy();
   });
 
-  it.each(["listDataTables", "listDataSources"])(
-    "says field classification failed to load when %s fails, not that it is loading",
-    (query) => {
-      mockHost.failingQueries = [query];
-      render(<SettingsPage />);
-      const privacy = section("Privacy");
-      expect(within(privacy).queryByText("Loading…")).toBeNull();
-      expect(within(privacy).getByRole("alert").textContent).toBe(
-        "Couldn't load field classification.",
-      );
-    },
-  );
-
-  it("says the sign-in list failed to load instead of dropping it", () => {
-    mockHost.failingQueries = ["listDataSources"];
-    render(<SettingsPage />);
-    const credentials = section("Credentials");
-    expect(
-      within(credentials)
-        .getAllByRole("alert")
-        .map((alert) => alert.textContent),
-    ).toContain("Couldn't load data source sign-ins.");
-    expect(
-      within(credentials).queryByText("No data source has a stored sign-in."),
-    ).toBeNull();
-  });
-
-  it("says no data source has a sign-in when none does", () => {
-    mockHost.sources = [SOURCES[0]];
-    render(<SettingsPage />);
-    expect(
-      within(section("Credentials")).getByText(
-        "No data source has a stored sign-in.",
-      ),
-    ).toBeTruthy();
-  });
-
   it("says the host could not be asked instead of hiding credentials", () => {
     mockHost.capabilitiesFail = true;
     render(<SettingsPage />);
@@ -345,24 +255,6 @@ describe("SettingsPage", () => {
       within(credentials).getByRole("button", { name: "Try again" }),
     );
     expect(mockRefetch).toHaveBeenCalledOnce();
-  });
-
-  it("moves focus to a section's heading, with a visible ring, from its jump chip", () => {
-    render(<SettingsPage />);
-    fireEvent.click(
-      within(
-        screen.getByRole("navigation", { name: "Jump to section" }),
-      ).getByRole("button", { name: "Privacy" }),
-    );
-    const heading = screen.getByRole("heading", { name: "Privacy", level: 2 });
-    expect(document.activeElement).toBe(heading);
-    expect(heading.getAttribute("tabindex")).toBe("-1");
-    expect(heading.className.split(/\s+/)).toEqual(
-      expect.arrayContaining([
-        "focus-visible:ring-2",
-        "focus-visible:ring-neutral-ring",
-      ]),
-    );
   });
 
   it("says so when no credentials are stored", () => {

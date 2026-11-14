@@ -90,7 +90,6 @@ export {
 export {
   chartRendererRegistry,
   clearRegistry,
-  getRegisteredTypes,
   getRenderer,
   hasRenderer,
   registerRenderer,
