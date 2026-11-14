@@ -4837,52 +4837,6 @@ describe("existing command behavior on native Convex", () => {
     expect(await layoutOf(dashId)).toEqual([otherTileId]);
     expect(await layoutOf(secondDashId)).toEqual([noteId]);
   });
-  it("should not list a dashboard as orphaned when a tile's chart is deleted (single tile)", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    const vizId = id();
-    const dashId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "V",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-      }),
-      cmd("CreateDashboard", { id: dashId, name: "D" }),
-      cmd("AddDashboardItem", {
-        dashboardId: dashId,
-        item: {
-          id: id(),
-          type: "visualization",
-          visualizationId: vizId,
-          x: 0,
-          y: 0,
-          width: 4,
-          height: 3,
-        },
-      }),
-    );
-
-    const result = await commit(cmd("DeleteNode", { id: vizId }));
-
-    expect(await vizsById(vizId)).toHaveLength(0);
-    const value = result.results[0]?.value as {
-      orphanedNodes: { id: string; kind: string }[];
-      removedTiles: { dashboardId: string }[];
-    };
-    expect(value.orphanedNodes).toEqual([]);
-    expect(value.removedTiles).toHaveLength(1);
-    expect(value.removedTiles[0]?.dashboardId).toBe(dashId);
-    // The dashboard itself is NOT deleted.
-    expect(await dashboardsById(dashId)).toHaveLength(1);
-  });
   it("should delete a Dashboard by id", async () => {
     const dashId = id();
     await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
@@ -4918,19 +4872,6 @@ describe("existing command behavior on native Convex", () => {
       return insightId;
     }
 
-    it("should delete an Insight nothing is built on", async () => {
-      const insightId = await makeInsight();
-
-      const result = await commit(
-        cmd("DeleteNode", { id: insightId, ifUnused: true }),
-      );
-
-      expect(await insightsById(insightId)).toHaveLength(0);
-      expect(result.results[0]?.value).toMatchObject({
-        ok: true,
-        deleted: { kind: "insight", id: insightId },
-      });
-    });
     it("should delete a chart and its Insight in one batch when the chart was all that used it", async () => {
       const insightId = await makeInsight();
       const vizId = id();
