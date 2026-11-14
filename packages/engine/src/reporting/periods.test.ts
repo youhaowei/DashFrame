@@ -57,37 +57,30 @@ describe("resolveRelativeDateRange", () => {
     expectRange(resolveRelativeDateRange({ type }, asOf), start, end);
   });
 
-  test("resolves last complete days across a leap-day boundary", () => {
-    expectRange(
-      resolveRelativeDateRange(
-        { type: "last_complete_days", count: 3 },
-        new Date("2024-03-02T16:00:00.000Z"),
-      ),
+  test.each([
+    [
+      "resolves last complete days across a leap-day boundary",
+      { type: "last_complete_days", count: 3 },
+      "2024-03-02T16:00:00.000Z",
       "2024-02-28T00:00:00.000Z",
       "2024-03-02T00:00:00.000Z",
-    );
-  });
-
-  test("uses Monday UTC boundaries for complete weeks", () => {
-    expectRange(
-      resolveRelativeDateRange(
-        { type: "last_complete_weeks", count: 2 },
-        new Date("2024-01-07T23:59:59.000Z"),
-      ),
+    ],
+    [
+      "uses Monday UTC boundaries for complete weeks",
+      { type: "last_complete_weeks", count: 2 },
+      "2024-01-07T23:59:59.000Z",
       "2023-12-18T00:00:00.000Z",
       "2024-01-01T00:00:00.000Z",
-    );
-  });
-
-  test("resolves complete months over unequal month lengths", () => {
-    expectRange(
-      resolveRelativeDateRange(
-        { type: "last_complete_months", count: 2 },
-        new Date("2024-03-31T23:00:00.000Z"),
-      ),
+    ],
+    [
+      "resolves complete months over unequal month lengths",
+      { type: "last_complete_months", count: 2 },
+      "2024-03-31T23:00:00.000Z",
       "2024-01-01T00:00:00.000Z",
       "2024-03-01T00:00:00.000Z",
-    );
+    ],
+  ] as const)("%s", (_label, range, at, start, end) => {
+    expectRange(resolveRelativeDateRange(range, new Date(at)), start, end);
   });
 
   test.each([
