@@ -332,6 +332,22 @@ describe("AC4 — identifier quoting", () => {
     expect(selectQuery).toContain("$1");
     expect(selectQuery).not.toContain(evilSchema);
   });
+
+  it("quotes table name with double-quote when fetching by table ref", async () => {
+    const spyClient = makeSpyClient([{ id: 1, name: "Alice" }]);
+    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
+
+    // Trigger the table-ref path: "schema.table" format.
+    await connector.query('public.my"table', crypto.randomUUID());
+
+    const calls = spyClient.spy.mock.calls as Array<[string, ...unknown[]]>;
+    const fetchCall = calls.find((c) =>
+      String(c[0]).toUpperCase().startsWith("SELECT * FROM"),
+    );
+    expect(fetchCall).toBeDefined();
+    // Table name "my"table" must be quoted as "my""table"
+    expect(String(fetchCall?.[0] ?? "")).toContain('"my""table"');
+  });
 });
 
 // ---------------------------------------------------------------------------
