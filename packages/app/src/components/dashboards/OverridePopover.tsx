@@ -27,6 +27,7 @@ import { useArtifactList } from "@/data/artifact-lists";
 
 import { computeItemOverrides } from "@/lib/dashboards/controls";
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
+import { tileSortRuns } from "@/lib/insights/dashboard-runtime";
 import { api } from "@dashframe/convex-backend/api";
 import {
   type DashboardControl,
@@ -675,8 +676,9 @@ export function OverridePopover({
         combinedFields,
         insight?.metrics ?? [],
         insight?.runtimeControls?.sort?.allowedFieldIds,
+        (id) => !insight || tileSortRuns(insight, id),
       ),
-    [combinedFields, insight?.metrics, insight?.runtimeControls?.sort],
+    [combinedFields, insight],
   );
 
   const overridePresent = hasOverrides(item.overrides);

@@ -372,8 +372,9 @@ export interface SortFieldOptions {
  * resolves without a lookup, and the only one that stays unique when joined
  * tables share a column name.
  *
- * `allowedIds` is the Insight's declared viewer sort.  When given, only those
- * fields and metrics are offered, because the tile ignores any other.  An
+ * `allowedIds` is the Insight's declared viewer sort, and `runs` says which of
+ * those ids a tile can sort by (`tileSortRuns`).  When given, only fields and
+ * metrics both allow are offered, because the tile ignores any other.  An
  * Insight that declares no viewer sort gets a disabled sort row, so the
  * unrestricted list is used only to name stored keys.
  *
@@ -391,11 +392,14 @@ export function buildSortFieldOptions(
   }[],
   metrics: readonly { id: string; name: string; columnName?: string }[],
   allowedIds?: readonly string[],
+  runs: (id: string) => boolean = () => true,
 ): SortFieldOptions {
   const entries = sortFieldEntries(fields, metrics);
   const options = entries
     .map(({ option }) => option)
-    .filter(({ value }) => !allowedIds || allowedIds.includes(value));
+    .filter(
+      ({ value }) => (!allowedIds || allowedIds.includes(value)) && runs(value),
+    );
   const rank = (id: string) => {
     const index = allowedIds?.indexOf(id) ?? -1;
     return index < 0 ? Number.MAX_SAFE_INTEGER : index;

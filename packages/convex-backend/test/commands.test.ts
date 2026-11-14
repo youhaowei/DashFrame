@@ -4359,6 +4359,61 @@ describe("existing command behavior on native Convex", () => {
           sorts: [{ field, direction: "asc" }],
         });
       }
+
+      // Pivoted, the metric is one column per channel.  The host sorts a tile
+      // by the cell the Insight's own sort names, so it needs one.
+      const channelId = id();
+      await commit(
+        ...["revenue", "region"].map((columnName) =>
+          cmd("AddField", {
+            nodeId: tableId,
+            field: {
+              id: id(),
+              tableId,
+              name: columnName,
+              columnName,
+              type: "string",
+            },
+          }),
+        ),
+        cmd("AddField", {
+          nodeId: tableId,
+          field: {
+            id: channelId,
+            tableId,
+            name: "Channel",
+            columnName: "channel",
+            type: "string",
+          },
+        }),
+        cmd("SelectFields", { id: insightId, fieldIds: [channelId] }),
+        cmd("SetInsightReporting", {
+          id: insightId,
+          reporting: { pivotFields: [channelId] },
+        }),
+      );
+      const metricSort = { field: metricId, direction: "desc" as const };
+      await expect(
+        patch(dashId, itemId, { kind: "sorts", value: [metricSort] }),
+      ).rejects.toThrow(
+        'The Insight "Sales Insight" is pivoted, so a tile can sort by a metric only when the Insight sorts by one of its pivot cells, and it has no such sort on "Revenue".',
+      );
+      await commit(
+        cmd("SetInsightSort", {
+          id: insightId,
+          sorts: [
+            {
+              field: metricIdToColumnAlias(metricId),
+              direction: "asc",
+              pivotValues: [{ fieldId: channelId, value: "Web" }],
+            },
+          ],
+        }),
+      );
+      await patch(dashId, itemId, { kind: "sorts", value: [metricSort] });
+      expect((await storedItems(dashId))[0]?.overrides).toEqual({
+        sorts: [metricSort],
+      });
     });
 
     it("takes a filter override by the declared filter's id, with that filter's field and operator", async () => {

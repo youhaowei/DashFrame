@@ -7,6 +7,7 @@ import { resolveDashboardRuntime } from "./dashboard-runtime";
 const fieldId = "11111111-1111-4111-8111-111111111111";
 const metricId = "22222222-2222-4222-8222-222222222222";
 const unlistedFieldId = "33333333-3333-4333-8333-333333333333";
+const regionCell = { fieldId, value: "West" };
 
 const dataTable = {
   id: "orders",
@@ -137,5 +138,34 @@ describe("resolveDashboardRuntime — tile sort override", () => {
     expect(
       resolveSort(fieldId, { ...insight, runtimeControls: undefined }),
     ).toEqual({ runtime: {} });
+  });
+
+  // A pivoted metric sorts by the cell the Insight's own sort on it names; the
+  // host refuses one with no such sort.
+  it.each([
+    [
+      "runs a metric the Insight sorts by a full pivot cell",
+      [regionCell],
+      true,
+    ],
+    ["ignores a metric the Insight does not sort by a pivot cell", [], false],
+  ])("on a pivoted Insight, %s", (_case, pivotValues, runs) => {
+    const pivoted = {
+      ...insight,
+      reporting: { pivotFields: [fieldId] },
+      sorts:
+        pivotValues.length > 0
+          ? [
+              {
+                field: metricIdToColumnAlias(metricId),
+                direction: "asc",
+                pivotValues,
+              },
+            ]
+          : [],
+    } as unknown as Insight;
+    expect(resolveSort(metricId, pivoted)).toEqual({
+      runtime: runs ? { sort: [{ fieldId: metricId, direction: "desc" }] } : {},
+    });
   });
 });

@@ -640,6 +640,15 @@ describe("buildSortFieldOptions", () => {
     );
     expect(options).toEqual([{ value: fieldId, label: "Region" }]);
     expect(byReference.get(metricAlias)?.label).toBe("Revenue");
+    // Allowed but unable to run, as a pivoted metric with no pivot-cell sort.
+    expect(
+      buildSortFieldOptions(
+        [{ id: fieldId, name: "Region", columnName: "region" }],
+        [{ id: metricId, name: "Revenue" }],
+        [fieldId, metricId],
+        (id) => id !== metricId,
+      ).options,
+    ).toEqual(options);
   });
 
   it("13g. offers nothing when the Insight's viewer sort allows nothing known", () => {

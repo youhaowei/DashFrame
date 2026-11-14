@@ -441,7 +441,8 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       "A filter override supplies a value for the Insight's saved filter, so it keeps that filter's field and operator; " +
       "send the saved filter's id when the Insight declares more than one filter on the field. " +
       "A sort override takes one key, because a tile runs one runtime sort key; a longer list is rejected. " +
-      "Its field is the id of a field or metric the Insight's viewer controls allow sorting by.",
+      "Its field is the id of a field or metric the Insight's viewer controls allow sorting by. " +
+      "On a pivoted Insight, a metric qualifies only when the Insight's own sort names one of its pivot cells.",
   },
   {
     name: "SetDashboardControls",

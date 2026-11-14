@@ -1268,8 +1268,9 @@ function requireDeclaredSort(
   // A key names an allowed field or metric by its id, its result-column
   // alias, or the name of its column.  Both alias forms are taken for every
   // id: a column selected from an upstream insight keeps that insight's
-  // metric id but is aliased as a field.
-  const references = allowed.flatMap((allowedId) => {
+  // metric id but is aliased as a field.  The first allowed id a key names is
+  // the one the tile sorts by.
+  const references = (allowedId: Json) => {
     const key = String(allowedId).replaceAll("-", "_"),
       field = fields.find((f) => f.id === allowedId),
       metric = metrics.find((m) => m.id === allowedId);
@@ -1277,12 +1278,35 @@ function requireDeclaredSort(
       ? [field.columnName ?? field.name]
       : [metric?.name, metric?.columnName];
     return [allowedId, `field_${key}`, `metric_${key}`, ...named];
-  });
+  };
+  // On a pivoted Insight a metric is one column per pivot value.  The host
+  // sorts a tile by the cell the Insight's own sort on that metric names, and
+  // refuses a metric with no such sort (`tileSortRuns` in the app).
+  const pivotFields = def.reporting
+    ? array(record(def.reporting).pivotFields ?? [], "pivotFields")
+    : [];
   for (const sort of objects(patch.value, "sorts")) {
-    const sortField = str(sort.field, "sort field");
-    if (!references.includes(sortField))
+    const sortField = str(sort.field, "sort field"),
+      sortId = allowed.find((allowedId) =>
+        references(allowedId).includes(sortField),
+      );
+    if (sortId === undefined)
       throw new Error(
         `${name} does not offer viewers a sort by "${sortField}", so this tile cannot take that sort override. Sort by the id of a field or metric in runtimeControls.sort.allowedFieldIds.`,
+      );
+    const metric = metrics.find((m) => m.id === sortId);
+    if (
+      metric &&
+      pivotFields.length &&
+      !objects(def.sorts ?? [], "sorts").some(
+        (saved) =>
+          (saved.field === sortId ||
+            saved.field === metricColumnAlias(metric)) &&
+          exactPivotTuple(saved, pivotFields),
+      )
+    )
+      throw new Error(
+        `${name} is pivoted, so a tile can sort by a metric only when the Insight sorts by one of its pivot cells, and it has no such sort on "${String(metric.name)}". Sort the tile by another field or metric, or sort the Insight by a cell of this metric first.`,
       );
   }
 }

@@ -91,10 +91,36 @@ function resolveRuntimeFilters(
 }
 
 /**
+ * Whether a tile can sort by the allowed field or metric `id`.
+ *
+ * On a pivoted Insight a metric is one column per pivot value.  The host sorts
+ * a tile by the cell the Insight's own saved sort on that metric names, and
+ * refuses a metric that has no such sort, so only metrics with one can run.
+ */
+export function tileSortRuns(
+  insight: Pick<Insight, "metrics" | "sorts" | "reporting">,
+  id: string,
+): boolean {
+  const pivotFields = insight.reporting?.pivotFields ?? [];
+  if (!pivotFields.length || !insight.metrics.some((m) => m.id === id))
+    return true;
+  return (insight.sorts ?? []).some((sort) => {
+    if (sort.field !== id && sort.field !== metricIdToColumnAlias(id))
+      return false;
+    const tuple = sort.pivotValues?.map((value) => value.fieldId) ?? [];
+    return (
+      tuple.length === pivotFields.length &&
+      new Set(tuple).size === tuple.length &&
+      pivotFields.every((fieldId) => tuple.includes(fieldId))
+    );
+  });
+}
+
+/**
  * The runtime sort a tile's sort override asks for, or undefined when it asks
  * for none the tile can run.
  *
- * Writes refuse a sort override the Insight does not declare or allow,
+ * Writes refuse a sort override the Insight does not declare, allow, or run,
  * and one with more than one key.  One saved before they did is not an error:
  * the tile runs its first key when that key can run, and otherwise ignores it.
  */
@@ -127,7 +153,9 @@ function resolveRuntimeSort(
       ? metric.name === sort.field || metric.columnName === sort.field
       : false;
   });
-  return fieldId ? [{ fieldId, direction: sort.direction }] : undefined;
+  return fieldId && tileSortRuns(insight, fieldId)
+    ? [{ fieldId, direction: sort.direction }]
+    : undefined;
 }
 
 /**
