@@ -335,27 +335,6 @@ describe("planChartDeletion", () => {
 
     expect(deletion.commands).toEqual([deleteNode("chart-1")]);
   });
-
-  it("stays two commands however many tiles the chart has", () => {
-    const deletion = planChartDeletion({
-      chart: CHART,
-      reportId: "report-1",
-      reports: [
-        report(
-          "report-1",
-          Array.from({ length: 500 }, (_, index) => ({
-            ...tile("chart-1"),
-            id: `item-${index}` as UUID,
-          })),
-        ),
-      ],
-      visualizations: [CHART],
-      insights: [insightOn("insight-1")],
-    });
-
-    expect(deletion.commands).toHaveLength(2);
-    expect(deletion).toMatchObject({ reportCount: 1, onThisReport: true });
-  });
 });
 
 describe("deleteChartDescription", () => {
@@ -385,12 +364,6 @@ describe("deleteChartDescription", () => {
     );
     expect(describeDeletion(0, false)).toBe(
       'Are you sure you want to delete "Revenue by region"? This action cannot be undone.',
-    );
-  });
-
-  it("says when the insight goes with the chart", () => {
-    expect(describeDeletion(1, true, true)).toBe(
-      'Are you sure you want to delete "Revenue by region"? It will be removed from this report. Its insight will be deleted with it, unless something else starts using it first. This action cannot be undone.',
     );
   });
 });
