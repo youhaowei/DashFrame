@@ -2,7 +2,7 @@
 // Usage: node scripts/test-delta.mjs <base> <head> [--json]
 // Lexical estimate: bare it/test calls, including modifiers and skipped cases.
 // Literal each arrays count entries; dynamic/spread/tagged tables count as one.
-// Aliases, loops, type arguments and runtime conditions are not resolved.
+// Aliases, loops and runtime conditions are not resolved.
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -36,12 +36,16 @@ function tokenize(source) {
   return result;
 }
 
-function closing(tokens, start) {
+const BRACKETS = { "(": ")", "[": "]", "{": "}" };
+
+function closing(tokens, start, pairs = BRACKETS) {
   const stack = [];
-  const pairs = { "(": ")", "[": "]", "{": "}" };
   for (let i = start; i < tokens.length; i++) {
     if (pairs[tokens[i]]) stack.push(pairs[tokens[i]]);
-    else if (tokens[i] === stack.at(-1)) {
+    else if (
+      tokens[i] === stack.at(-1) &&
+      !(tokens[i] === ">" && tokens[i - 1] === "=")
+    ) {
       stack.pop();
       if (stack.length === 0) return i;
     }
@@ -50,7 +54,15 @@ function closing(tokens, start) {
 }
 
 function tableSize(tokens, start, end) {
-  if (tokens[start] !== "[" || closing(tokens, start) !== end - 1) return 1;
+  if (tokens[start] !== "[") return 1;
+  const arrayEnd = closing(tokens, start);
+  // Type assertions do not change the number of literal rows.
+  if (
+    arrayEnd !== end - 1 &&
+    !["as", "satisfies"].includes(tokens[arrayEnd + 1])
+  )
+    return 1;
+  end = arrayEnd + 1;
   let rows = 0;
   let entry = false;
   for (let i = start + 1; i < end - 1; i++) {
@@ -97,6 +109,11 @@ export function countCases(source) {
       )
         break;
       cursor += 2;
+      if (modifier === "each" && tokens[cursor] === "<") {
+        cursor =
+          closing(tokens, cursor, { "<": ">", "(": ")", "[": "]", "{": "}" }) +
+          1;
+      }
       if (modifier === "each" && tokens[cursor] === "(") {
         const end = closing(tokens, cursor);
         cases = tableSize(tokens, cursor + 1, end);
@@ -131,11 +148,14 @@ export function testDelta(base, head, cwd = process.cwd()) {
       cwd,
     ).trim(),
   );
+  // Count only this branch's changes, while retaining the base tip below for
+  // the comment writer's stale-run check.
+  const mergeBase = git(["merge-base", ...refs], cwd).trim();
   const eligible = (path) =>
-    /\.(?:test\.tsx?|spec\.ts)$/.test(path) &&
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path) &&
     !/(?:^|\/)(?:libs|node_modules)\//.test(path);
   const changes = git(
-    ["diff", "--name-status", "-z", "-M", ...refs, "--"],
+    ["diff", "--name-status", "-z", "-M", mergeBase, refs[1], "--"],
     cwd,
   ).split("\0");
   const files = [];
@@ -145,7 +165,7 @@ export function testDelta(base, head, cwd = process.cwd()) {
     const newPath = status.startsWith("R") ? changes.shift() : oldPath;
     const before =
       status !== "A" && eligible(oldPath)
-        ? countCases(git(["show", refs[0] + ":" + oldPath], cwd))
+        ? countCases(git(["show", mergeBase + ":" + oldPath], cwd))
         : 0;
     const after =
       status !== "D" && eligible(newPath)
@@ -164,6 +184,7 @@ export function testDelta(base, head, cwd = process.cwd()) {
   return {
     base: refs[0],
     head: refs[1],
+    mergeBase,
     delta: files.reduce((sum, file) => sum + file.delta, 0),
     files,
   };

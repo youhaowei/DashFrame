@@ -29,8 +29,14 @@ async function api(path, method = "GET", body) {
 
 try {
   // A queued older push must not overwrite a newer notice.
-  const pr = await api("/pulls/" + event.pull_request.number);
-  if (pr.head.sha !== result.head || pr.base.sha !== result.base) {
+  const pr = result.skipped
+    ? undefined
+    : await api("/pulls/" + event.pull_request.number);
+  if (result.skipped) {
+    console.log(
+      "Skipping notice because test counting failed; existing comments left untouched",
+    );
+  } else if (pr.head.sha !== result.head || pr.base.sha !== result.base) {
     console.log("Skipping stale pull request snapshot");
   } else {
     const comments = [];
@@ -52,7 +58,7 @@ try {
         name
           .slice(0, 160)
           .replace(
-            /[&<>`[\]\\\r\n]/g,
+            /[&<>`@:[\]\\\r\n]/g,
             (char) => "&#" + char.charCodeAt(0) + ";",
           );
       const top = result.files

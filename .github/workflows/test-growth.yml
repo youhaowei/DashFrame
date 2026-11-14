@@ -30,7 +30,11 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: node scripts/test-delta.mjs "$BASE_SHA" "$HEAD_SHA" --json > "$RUNNER_TEMP/test-delta.json"
+        run: |
+          if ! node scripts/test-delta.mjs "$BASE_SHA" "$HEAD_SHA" --json > "$RUNNER_TEMP/test-delta.json"; then
+            echo "::warning::Test counting failed; leaving existing notice untouched"
+            printf '%s\n' '{"skipped":true}' > "$RUNNER_TEMP/test-delta.json"
+          fi
 
       - name: Update notice
         env:
