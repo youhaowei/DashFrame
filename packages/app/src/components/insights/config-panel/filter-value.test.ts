@@ -97,6 +97,12 @@ describe("isFilterDraftValid", () => {
       ).toBe(false);
     });
 
+    it("rejects whitespace-only tokens that collapse to an empty list", () => {
+      expect(
+        isFilterDraftValid(draft({ operator: "in", scalarValue: " , , " })),
+      ).toBe(false);
+    });
+
     it("rejects a non-finite element on a numeric field", () => {
       // Bug: "in"+numeric skipped the isFinite check and stored [NaN, 2024].
       expect(

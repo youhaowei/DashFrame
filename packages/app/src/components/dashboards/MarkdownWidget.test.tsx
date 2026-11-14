@@ -114,4 +114,30 @@ describe("MarkdownWidget", () => {
       "External update",
     );
   });
+
+  it("saves the draft and resets it when cancelled", () => {
+    const onSave = vi.fn();
+    const onCancel = vi.fn();
+
+    render(
+      <MarkdownWidget
+        content="Initial content"
+        isEditing
+        onSave={onSave}
+        onCancel={onCancel}
+      />,
+    );
+
+    const editor = screen.getByPlaceholderText("Enter markdown...");
+    fireEvent.change(editor, { target: { value: "Saved draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith("Saved draft");
+
+    fireEvent.change(editor, { target: { value: "Discarded draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(editor).toHaveProperty("value", "Initial content");
+  });
 });
