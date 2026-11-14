@@ -72,16 +72,4 @@ describe("IPC channel contract: preload ↔ main", () => {
       ).toContain(channel);
     }
   });
-
-  it("the contract is exactly the four documented desktop channels", () => {
-    // Pin the surface so an accidental new channel (or a dropped one) is a
-    // visible, reviewed change rather than a silent drift.
-    const handled = handledChannels(mainSource);
-    expect([...handled].sort()).toEqual([
-      "dashframe:oauth:open-authorization",
-      "dashframe:project:info",
-      "dashframe:project:reveal",
-      "dashframe:server:info",
-    ]);
-  });
 });

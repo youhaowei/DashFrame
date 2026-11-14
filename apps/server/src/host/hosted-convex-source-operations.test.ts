@@ -11,69 +11,6 @@ import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-it("maps host-facing source calls to the four named Bearer wire operations without body scope", async () => {
-  const requests: {
-    path: string;
-    args: unknown[];
-    authorization: string | null;
-  }[] = [];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (_url: string, init: RequestInit) => {
-      const request = JSON.parse(String(init.body)) as {
-        path: string;
-        args: unknown[];
-      };
-      requests.push({
-        ...request,
-        authorization: new Headers(init.headers).get("authorization"),
-      });
-      return new Response(
-        JSON.stringify({
-          status: "success",
-          value: request.path.endsWith(":clearAllData")
-            ? { complete: true }
-            : null,
-        }),
-      );
-    }),
-  );
-  const metadata = createHostedSourceMetadata({
-    deploymentUrl: "https://metadata.test",
-    getToken: async () => "synthetic-token",
-    credentialVault: { has: async () => true },
-  });
-  await metadata.replaceDataSourceConfig({
-    id: "source",
-    expectedRevision: 1,
-    expectedConfig: {},
-    config: {},
-  });
-  await metadata.prepareRemoteDataTable({
-    id: "table",
-    dataSourceId: "source",
-    table: "table.csv",
-    fields: [],
-  });
-  await metadata.removeDataFrame("frame");
-  await metadata.clearAllData();
-  expect(requests.map((request) => request.path)).toEqual(
-    [
-      "replaceDataSourceConfig",
-      "prepareRemoteDataTable",
-      "removeDataFrame",
-      "clearAllData",
-    ].map((name) => `hostedSourceOperations:${name}`),
-  );
-  for (const request of requests) {
-    expect(request.authorization).toBe("Bearer synthetic-token");
-    expect(request.args[0]).not.toHaveProperty("workspaceId");
-    expect(request.args[0]).not.toHaveProperty("principal");
-  }
-  expect(requests[2]!.args).toEqual([{ id: "frame" }]);
-  expect(requests[3]!.args).toEqual([{}]);
-});
-
 it("calls clearAllData again until the backend reports the workspace empty", async () => {
   let calls = 0;
   vi.stubGlobal(

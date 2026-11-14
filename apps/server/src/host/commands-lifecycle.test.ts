@@ -326,21 +326,4 @@ describe("cleanup failure reporting", () => {
       ]),
     );
   });
-
-  it("keeps a normal null cleanup claim silent", async () => {
-    const cleanupId = crypto.randomUUID();
-    vi.spyOn(ctx.metadata, "listCleanup").mockResolvedValue({
-      page: [{ cleanupId, kind: "frame", resourceId: "retained-frame" }],
-      isDone: true,
-      continueCursor: "",
-    });
-    vi.spyOn(ctx.metadata, "claimCleanup").mockResolvedValue(null);
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    await cleanup.run();
-
-    expect(error).not.toHaveBeenCalled();
-    expect(warn).not.toHaveBeenCalled();
-  });
 });

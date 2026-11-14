@@ -178,18 +178,6 @@ export interface DefinitionConnector {
   ): Promise<DefinitionCompatibility>;
 }
 
-/** Narrow a connector only when all definition operations are available. */
-export function supportsDefinitions(
-  connector: AnyConnector,
-): connector is AnyConnector & DefinitionConnector {
-  const candidate = connector as Partial<DefinitionConnector>;
-  return (
-    typeof candidate.queryDefinition === "function" &&
-    typeof candidate.listFields === "function" &&
-    typeof candidate.checkDefinition === "function"
-  );
-}
-
 /**
  * Type guard to check if a connector is a file source connector.
  *

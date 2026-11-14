@@ -6,6 +6,7 @@ import type { SecretVault } from "@wystack/secret-vault";
 import type { HostMetadata } from "./metadata";
 import type { GoogleOAuthConfig } from "../connector-setup/oauth-provider";
 import type { ApplicationOperations } from "./application";
+import type { HostedCredentialOwnership } from "./hosted-credential-ownership";
 
 /** Capabilities injected after HTTP authentication, never accepted from request JSON. */
 export interface HostContext {
@@ -18,6 +19,11 @@ export interface HostContext {
   metadata: HostMetadata;
   cleanupResources?: () => Promise<void>;
   accessCredentials?: Pick<ApiAccessCredentials, "issue" | "list" | "revoke">;
+  /** Hosted only: OAuth agent grants, administered with owner authority. */
+  agentGrants?: Pick<
+    HostedCredentialOwnership,
+    "listAgentGrants" | "revokeAgentGrant"
+  >;
   getServerEndpoint: () => string | undefined;
   accessConnectionInfo?: AccessConnectionInfo;
   vault?: SecretVault;

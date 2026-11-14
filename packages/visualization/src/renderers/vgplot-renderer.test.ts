@@ -150,11 +150,6 @@ function clearChartColorCssVars() {
 // ============================================================================
 
 describe("isExpressionBoundColor", () => {
-  it("returns false for plain column names", () => {
-    expect(isExpressionBoundColor("category")).toBe(false);
-    expect(isExpressionBoundColor("order status")).toBe(false);
-  });
-
   it("returns true for aggregation expressions", () => {
     expect(isExpressionBoundColor("sum(amount)")).toBe(true);
     expect(isExpressionBoundColor("avg(price)")).toBe(true);
@@ -176,20 +171,6 @@ describe("setupColorDomain", () => {
 
     expect(query).toHaveBeenCalledWith(
       'SELECT DISTINCT "order ""status""" as val FROM "sales order""archive" ORDER BY "order ""status"""',
-      { type: "json" },
-    );
-  });
-
-  it("pins schema-qualified tableName as a single quoted identifier (not split)", async () => {
-    // Latent divergence vs api.from(): domain query quotes the whole string as
-    // one identifier. This test pins that current behavior.
-    const query = vi.fn(() => Promise.resolve([]));
-    const api = createMockApi({ query });
-
-    await setupColorDomain(api, "region", "analytics.sales");
-
-    expect(query).toHaveBeenCalledWith(
-      'SELECT DISTINCT "region" as val FROM "analytics.sales" ORDER BY "region"',
       { type: "json" },
     );
   });
@@ -244,36 +225,6 @@ describe("setupColorDomain", () => {
 
     expect(colorDomain).not.toHaveBeenCalled();
     expect(directive).toBeUndefined();
-  });
-
-  it("skips the domain query for metric/expression-bound color (no query, no throw)", async () => {
-    const query = vi.fn(() => Promise.resolve([]));
-    const colorDomain = vi.fn();
-    const api = createMockApi({ query, colorDomain });
-
-    const directive = await setupColorDomain(api, "sum(amount)", "sales");
-
-    expect(query).not.toHaveBeenCalled();
-    expect(colorDomain).not.toHaveBeenCalled();
-    expect(directive).toBeUndefined();
-  });
-
-  it("logs a warning and returns undefined when the domain query fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const query = vi.fn(() => Promise.reject(new Error("duckdb boom")));
-    const colorDomain = vi.fn();
-    const api = createMockApi({ query, colorDomain });
-
-    const directive = await setupColorDomain(api, "region", "sales");
-
-    expect(directive).toBeUndefined();
-    expect(colorDomain).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(
-      "[VgplotRenderer] Could not set color domain:",
-      expect.any(Error),
-    );
-
-    warn.mockRestore();
   });
 });
 

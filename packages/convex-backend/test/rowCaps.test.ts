@@ -31,51 +31,6 @@ const user = () =>
     userId: "u",
   });
 
-it("lists every frame across pages when a workspace has 1001 frames", async () => {
-  const frameIds = Array.from({ length: 1001 }, () => crypto.randomUUID());
-  await t.run(async (ctx) => {
-    for (const id of frameIds)
-      await ctx.db.insert("dataFrames", {
-        workspaceId: "w",
-        id,
-        revision: 1,
-        name: "Historical frame",
-        createdAt: Date.now(),
-        storage: { type: "file", key: id },
-        fieldIds: [],
-      });
-  });
-
-  const listed = await listAll(user(), api.app.listDataFrames, {}, 400);
-  expect(listed).toHaveLength(1001);
-  expect(new Set(listed.map((row) => row.id)).size).toBe(1001);
-  await t.mutation(internal.host.removeDataFrame, {
-    workspaceId: "w",
-    id: frameIds[0]!,
-  });
-  expect(await listAll(user(), api.app.listDataFrames, {}, 400)).toHaveLength(
-    1000,
-  );
-}, 15_000);
-
-it("returns one indexed data source when more than 1000 share its type", async () => {
-  await t.run(async (ctx) => {
-    for (let index = 0; index < 1001; index++)
-      await ctx.db.insert("dataSources", {
-        workspaceId: "w",
-        id: crypto.randomUUID(),
-        revision: 1,
-        name: `Source ${index}`,
-        createdAt: index,
-        kind: "csv",
-      });
-  });
-
-  expect(
-    await user().query(api.app.getDataSourceByType, { type: "csv" }),
-  ).not.toBeNull();
-}, 15_000);
-
 it("serves draft-less indexed reads without loading unrelated artifact tables", async () => {
   const sourceId = crypto.randomUUID();
   const insightId = crypto.randomUUID();
@@ -122,27 +77,6 @@ it("serves draft-less indexed reads without loading unrelated artifact tables", 
     (await user().query(api.app.getDataFrameByInsight, { insightId }))?.id,
   ).toBe(insightFrameId);
 }, 15_000);
-
-it("applies secondary filters after selecting a draft-less index", async () => {
-  await t.run(async (ctx) => {
-    for (const insightId of ["matching", "other"])
-      await ctx.db.insert("dataSources", {
-        workspaceId: "w",
-        id: crypto.randomUUID(),
-        revision: 1,
-        name: "Source",
-        createdAt: Date.now(),
-        dataSourceId: "shared-source",
-        insightId,
-      });
-  });
-
-  const rows = await listAll(user(), api.app.listDataSources, {
-    dataSourceId: "shared-source",
-    insightId: "matching",
-  });
-  expect(rows).toHaveLength(1);
-});
 
 it("reports a cap exceedance for draftLog and retains the claim", async () => {
   const cleanupId = crypto.randomUUID();

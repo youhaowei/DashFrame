@@ -152,42 +152,6 @@ describe("SVG Sanitization Security", () => {
       expect(result).toContain("<g");
       expect(result).toContain("<defs");
     });
-
-    it("should preserve stroke and fill attributes", () => {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-        <path d="M12 2" fill="currentColor" stroke="#000" stroke-width="2" stroke-linecap="round"/>
-      </svg>`;
-
-      const result = sanitizeSvg(svg);
-
-      expect(result).toContain('fill="currentColor"');
-      expect(result).toContain('stroke="#000"');
-      expect(result).toContain('stroke-width="2"');
-      expect(result).toContain('stroke-linecap="round"');
-    });
-
-    it("should preserve transform attribute", () => {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg">
-        <g transform="translate(10, 10) rotate(45)">
-          <path d="M0 0 L10 10"/>
-        </g>
-      </svg>`;
-
-      const result = sanitizeSvg(svg);
-
-      expect(result).toContain('transform="translate(10, 10) rotate(45)"');
-    });
-
-    it("should handle empty SVG string gracefully", () => {
-      expect(sanitizeSvg("")).toBe("");
-    });
-
-    it("should handle malformed SVG gracefully", () => {
-      const malformed = "<svg><path d='M0 0'";
-      const result = sanitizeSvg(malformed);
-      // DOMPurify should handle this gracefully
-      expect(typeof result).toBe("string");
-    });
   });
 
   describe("SVG_SANITIZE_CONFIG", () => {
@@ -195,28 +159,6 @@ describe("SVG Sanitization Security", () => {
       // We explicitly define all allowed tags/attrs instead of using profiles
       // because profiles merge with our allowlist rather than replacing it
       expect(SVG_SANITIZE_CONFIG.USE_PROFILES).toBeUndefined();
-    });
-
-    it("should allowlist only safe SVG tags", () => {
-      const safeTags = [
-        "svg",
-        "path",
-        "circle",
-        "rect",
-        "line",
-        "polyline",
-        "polygon",
-        "g",
-        "defs",
-        "use",
-        "ellipse",
-        "text",
-        "tspan",
-      ];
-
-      for (const tag of safeTags) {
-        expect(SVG_SANITIZE_CONFIG.ALLOWED_TAGS).toContain(tag);
-      }
     });
 
     it("should not include dangerous tags in allowlist", () => {

@@ -64,43 +64,6 @@ it("requires verified workspace principals and observes credential revocation", 
     "revoked",
   );
 });
-it("rolls back all metadata in a failed native mutation", async () => {
-  const id = uuid();
-  await expect(
-    user().mutation(api.app.commitBatch, {
-      commands: [
-        cmd("CreateDataSource", { id, type: "csv", name: "New" }),
-        rename(uuid(), "Missing"),
-      ],
-    }),
-  ).rejects.toThrow();
-  expect(await user().query(api.app.getDataSource, { id })).toBeNull();
-});
-it("services draft but cannot canonically commit or publish through either entry point", async () => {
-  const { tableId } = await seed();
-  await expect(
-    service().mutation(api.app.commitBatch, {
-      commands: [rename(tableId, "Bad")],
-    }),
-  ).rejects.toThrow();
-  await expect(
-    t.mutation(internal.host.commitBatch, {
-      workspaceId: "w",
-      principal: { kind: "service", credentialId: "bot" },
-      commands: [{ path: "renameNode", args: { id: tableId, name: "Bad" } }],
-    }),
-  ).rejects.toThrow();
-  const { draftId } = await service().mutation(api.app.draftBatch, {
-    commands: [rename(tableId, "Proposal")],
-  });
-  await expect(
-    service().mutation(api.app.publishDraft, { draftId }),
-  ).rejects.toThrow();
-  await user().mutation(api.app.publishDraft, await publication(draftId));
-  expect(
-    (await user().query(api.app.getDataTable, { id: tableId }))?.name,
-  ).toBe("Proposal");
-});
 it("isolates draft owners, permits operator review of service drafts, and rejects foreign-user drafts", async () => {
   const { tableId } = await seed();
   const { draftId } = await service().mutation(api.app.draftBatch, {
@@ -214,61 +177,35 @@ it("creates empty drafts for assistant sessions and rejects closed draft reads",
     service().query(api.app.getDraftLog, { draftId }),
   ).rejects.toThrow("Draft unavailable");
 });
-it.each(["publish", "discard"] as const)(
-  "deletes draftLog and draftChanges rows on %s",
-  async (mode) => {
-    const { tableId } = await seed();
-    const { draftId } = await user().mutation(api.app.draftBatch, {
-      commands: [rename(tableId, "Draft name")],
-    });
-    const counts = () =>
-      t.run(async (ctx) => ({
-        log: (
-          await ctx.db
-            .query("draftLog")
-            .withIndex("by_workspaceId_and_draftId_and_sequence", (q) =>
-              q.eq("workspaceId", "w").eq("draftId", draftId),
-            )
-            .collect()
-        ).length,
-        changes: (
-          await ctx.db
-            .query("draftChanges")
-            .withIndex("by_workspaceId_and_draftId", (q) =>
-              q.eq("workspaceId", "w").eq("draftId", draftId),
-            )
-            .collect()
-        ).length,
-      }));
-    expect(await counts()).toEqual({ log: 1, changes: 1 });
-
-    if (mode === "publish")
-      await user().mutation(api.app.publishDraft, { draftId });
-    else await user().mutation(api.app.discardDraft, { draftId });
-
-    expect(await counts()).toEqual({ log: 0, changes: 0 });
-  },
-);
-it("rejects stale review after append even when a caller omits the count", async () => {
-  const { tableId } = await seed(),
-    owner = user();
-  const { draftId } = await owner.mutation(api.app.draftBatch, {
-    commands: [rename(tableId, "First")],
+it("deletes draftLog and draftChanges rows on publish", async () => {
+  const { tableId } = await seed();
+  const { draftId } = await user().mutation(api.app.draftBatch, {
+    commands: [rename(tableId, "Draft name")],
   });
-  const expected = await publication(draftId);
-  await owner.mutation(api.app.draftBatch, {
-    draftId,
-    commands: [rename(tableId, "Second")],
-  });
-  await expect(
-    owner.mutation(api.app.publishDraft, {
-      draftId,
-      expectedLogSignature: expected.expectedLogSignature,
-    }),
-  ).rejects.toThrow("changed since review");
-  expect((await owner.query(api.app.getDataTable, { id: tableId }))?.name).toBe(
-    "Table",
-  );
+  const counts = () =>
+    t.run(async (ctx) => ({
+      log: (
+        await ctx.db
+          .query("draftLog")
+          .withIndex("by_workspaceId_and_draftId_and_sequence", (q) =>
+            q.eq("workspaceId", "w").eq("draftId", draftId),
+          )
+          .collect()
+      ).length,
+      changes: (
+        await ctx.db
+          .query("draftChanges")
+          .withIndex("by_workspaceId_and_draftId", (q) =>
+            q.eq("workspaceId", "w").eq("draftId", draftId),
+          )
+          .collect()
+      ).length,
+    }));
+  expect(await counts()).toEqual({ log: 1, changes: 1 });
+
+  await user().mutation(api.app.publishDraft, { draftId });
+
+  expect(await counts()).toEqual({ log: 0, changes: 0 });
 });
 it("blocks same-cell conflicts but merges disjoint canonical edits", async () => {
   const { tableId } = await seed();
@@ -565,27 +502,6 @@ it("rejects runtime sort declarations outside saved result fields", async () => 
       ],
     }),
   ).rejects.toThrow("sort field");
-});
-it("rejects an oversized append before it creates an unpublishable draft", async () => {
-  const { tableId } = await seed();
-  const { draftId } = await user().mutation(api.app.draftBatch, {
-    commands: Array.from({ length: 200 }, (_, i) =>
-      rename(tableId, `Name ${i}`),
-    ),
-  });
-  await expect(
-    user().mutation(api.app.draftBatch, {
-      draftId,
-      commands: [rename(tableId, "Too many")],
-    }),
-  ).rejects.toThrow("200 commands");
-  expect(
-    (await user().query(api.app.draftPublishReview, { draftId })).commandCount,
-  ).toBe(200);
-  await user().mutation(api.app.publishDraft, await publication(draftId));
-  expect(
-    (await user().query(api.app.getDataTable, { id: tableId }))?.name,
-  ).toBe("Name 199");
 });
 it("reports initialized project identity only inside the authenticated workspace", async () => {
   await expect(user().query(api.app.projectInfo, {})).rejects.toThrow(

@@ -24,7 +24,6 @@ export {
   RemoteApiConnector,
   isFileConnector,
   isRemoteApiConnector,
-  supportsDefinitions,
 } from "./base";
 
 export type { AnyConnector, DefinitionConnector, SecretResolver } from "./base";

@@ -285,7 +285,9 @@ function edge(
   if (
     from === "visualizations" &&
     to === "dashboards" &&
-    row.layout?.some((i) => i.visualizationId === id)
+    row.layout?.some(
+      (i) => i.type === "visualization" && i.visualizationId === id,
+    )
   )
     return "visualization->dashboard";
   if (row.parentArtifactId === id) return "parentArtifact";
@@ -378,7 +380,8 @@ export async function preview(
       };
       let target = fixed[command.path];
       if (result && typeof result === "object" && !Array.isArray(result)) {
-        const resolved = result.target ?? result.renamed ?? result.deleted;
+        const resolved =
+          result.target ?? result.renamed ?? result.deleted ?? result.kept;
         if (resolved) {
           const location = record(resolved);
           target = artifactTables.find(
@@ -434,6 +437,33 @@ export async function preview(
       break;
     }
   }
+  // A later cascade can remove a node an earlier command kept, or take
+  // tiles off a directly edited report. Reconcile against the final graph.
+  for (const [mapKey, node] of direct) {
+    const table = artifactTables.find((t) => artifactKinds[t] === node.kind)!;
+    const value = await graph.find(table, node.nodeId);
+    if (!value) {
+      direct.set(mapKey, {
+        ...node,
+        change: node.change === "noop" ? "update" : node.change,
+        proposedDefinition: { deleted: true },
+      });
+      continue;
+    }
+    if (node.kind !== "dashboard") continue;
+    const base = await graph.baseline("dashboards", node.nodeId);
+    const items = record(redact(publicRow("dashboards", value))).items!;
+    const shown =
+      "items" in node.proposedDefinition
+        ? node.proposedDefinition.items
+        : (base?.layout ?? []);
+    if (stable(shown ?? null) === stable(items)) continue;
+    direct.set(mapKey, {
+      ...node,
+      change: base ? "update" : node.change,
+      proposedDefinition: { ...node.proposedDefinition, items },
+    });
+  }
   const downstream: PreviewDownstreamNode[] = [];
   for (const node of direct.values()) {
     if (node.change === "noop") continue;
@@ -451,19 +481,33 @@ export async function preview(
       for (const [table, row] of await neighbours(graph, current)) {
         const e = edge(current.table, current.id, table, row, linkedFrameId),
           key = graphKey(table, row.id);
-        if (!e || visited.has(key) || direct.has(key)) continue;
+        if (!e || visited.has(key)) continue;
         visited.add(key);
+        const directNode = direct.get(key);
+        if (directNode) {
+          // Changed direct nodes walk their own downstream edges. Unchanged
+          // ones must still carry the upstream node's impact through them.
+          if (directNode.change === "noop") queue.push({ table, id: row.id });
+          continue;
+        }
+        // A deleted chart takes its tiles with it, so its reports are edited
+        // by the same commands, not left pointing at a chart that is gone.
+        const losesTiles =
+          e === "visualization->dashboard" &&
+          !(await graph.has("visualizations", current.id));
         downstream.push({
           nodeId: row.id as UUID,
           kind: artifactKinds[table],
           name: row.name,
           edge: e,
           via: { kind: node.kind, id: node.nodeId },
-          flag: node.proposedDefinition.deleted
-            ? "orphaned"
-            : table === "insights"
-              ? "recompute"
-              : "stale",
+          flag: losesTiles
+            ? "losesTiles"
+            : node.proposedDefinition.deleted
+              ? "orphaned"
+              : table === "insights"
+                ? "recompute"
+                : "stale",
         });
         queue.push({ table, id: row.id });
       }

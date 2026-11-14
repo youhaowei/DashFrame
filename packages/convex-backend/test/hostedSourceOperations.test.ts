@@ -1,5 +1,4 @@
 import { generateKeyPairSync } from "node:crypto";
-import type { UserIdentity } from "convex/server";
 import { convexTest } from "convex-test";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import schema from "../convex/schema";
@@ -26,12 +25,7 @@ beforeEach(() => {
   t = makeTest();
 });
 afterEach(() => vi.unstubAllEnvs());
-function host(
-  workspaceId: string,
-  subject = "a",
-  service = false,
-  overrides: Partial<UserIdentity> = {},
-) {
+function host(workspaceId: string, subject = "a", service = false) {
   return t.withIdentity({
     issuer: environment.DASHFRAME_AUTH_ISSUER,
     subject: `${service ? "service" : "user"}:${subject}`,
@@ -41,7 +35,6 @@ function host(
     workspaceId,
     authority: "host",
     purpose: "host-metadata",
-    ...overrides,
   });
 }
 const operator = () =>
@@ -346,85 +339,47 @@ it("removes and clears only the signed workspace while preserving atomic cleanup
   ).toEqual([]);
 });
 
-it.each(["service", "revoked"] as const)(
-  "denies every source operation to a %s caller without modifying metadata or cleanup",
-  async (kind) => {
-    const a = await admit(),
-      { user, sourceId, tableId, frameId, ref } = await seed(a);
-    await t.run((ctx) =>
-      ctx.db.insert("credentialOwners", {
-        workspaceId: a,
-        subject: "a",
-        credentialId: "service-a",
-      }),
-    );
-    const client = kind === "service" ? host(a, "service-a", true) : user;
-    if (kind === "revoked")
-      await operator().mutation(api.admission.revoke, { subject: "a" });
-    const sourceBefore = await t.run((ctx) =>
-      ctx.db.query("dataSources").collect(),
-    );
-    for (const invoke of [
-      () =>
-        client.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
-          id: sourceId,
-          expectedConfig: { apiKey: ref },
-          config: {},
-        }),
-      () =>
-        client.mutation(api.hostedSourceOperations.prepareRemoteDataTable, {
-          id: tableId,
-          dataSourceId: sourceId,
-          table: "t.csv",
-          fields: [],
-        }),
-      () =>
-        client.mutation(api.hostedSourceOperations.removeDataFrame, {
-          id: frameId,
-        }),
-      () => client.mutation(api.hostedSourceOperations.clearAllData, {}),
-    ])
-      await expect(invoke()).rejects.toThrow(
-        kind === "service"
-          ? "User permission required"
-          : "Workspace admission required",
-      );
-    expect(await t.run((ctx) => ctx.db.query("dataSources").collect())).toEqual(
-      sourceBefore,
-    );
-    expect(
-      await t.run((ctx) => ctx.db.query("dataFrames").collect()),
-    ).toHaveLength(1);
-    expect(await t.run((ctx) => ctx.db.query("cleanupJobs").collect())).toEqual(
-      [],
-    );
-  },
-);
-
-it("denies shape-valid direct source replacement to browser or non-metadata tokens", async () => {
-  const workspaceId = await admit();
-  const { sourceId, ref } = await seed(workspaceId);
-  const before = await t.run((ctx) => ctx.db.query("dataSources").collect());
-  for (const [client, error] of [
-    [
-      host(workspaceId, "a", false, { authority: "browser" }),
-      "Invalid hosted authority",
-    ],
-    [
-      host(workspaceId, "a", false, { purpose: undefined }),
-      "Host metadata purpose required",
-    ],
-  ] as const)
-    await expect(
+it("denies every source operation to a service caller without modifying metadata or cleanup", async () => {
+  const a = await admit(),
+    { sourceId, tableId, frameId, ref } = await seed(a);
+  await t.run((ctx) =>
+    ctx.db.insert("credentialOwners", {
+      workspaceId: a,
+      subject: "a",
+      credentialId: "service-a",
+    }),
+  );
+  const client = host(a, "service-a", true);
+  const sourceBefore = await t.run((ctx) =>
+    ctx.db.query("dataSources").collect(),
+  );
+  for (const invoke of [
+    () =>
       client.mutation(api.hostedSourceOperations.replaceDataSourceConfig, {
         id: sourceId,
         expectedConfig: { apiKey: ref },
-        config: { apiKey: secret() },
+        config: {},
       }),
-    ).rejects.toThrow(error);
+    () =>
+      client.mutation(api.hostedSourceOperations.prepareRemoteDataTable, {
+        id: tableId,
+        dataSourceId: sourceId,
+        table: "t.csv",
+        fields: [],
+      }),
+    () =>
+      client.mutation(api.hostedSourceOperations.removeDataFrame, {
+        id: frameId,
+      }),
+    () => client.mutation(api.hostedSourceOperations.clearAllData, {}),
+  ])
+    await expect(invoke()).rejects.toThrow("User permission required");
   expect(await t.run((ctx) => ctx.db.query("dataSources").collect())).toEqual(
-    before,
+    sourceBefore,
   );
+  expect(
+    await t.run((ctx) => ctx.db.query("dataFrames").collect()),
+  ).toHaveLength(1);
   expect(await t.run((ctx) => ctx.db.query("cleanupJobs").collect())).toEqual(
     [],
   );

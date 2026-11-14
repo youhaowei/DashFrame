@@ -100,26 +100,3 @@ export async function queryAll<T>(
     cursor = page.continueCursor;
   }
 }
-
-export async function hostCall<T>(
-  path: string,
-  args: unknown,
-  token?: string,
-): Promise<T> {
-  const response = await fetch(
-    `${process.env.E2E_DASHFRAME_URL}/api/host/${path}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(args),
-    },
-  );
-  if (!response.ok)
-    throw new Error(
-      `${path} failed: ${response.status} ${await response.text()}`,
-    );
-  return (await response.json()) as T;
-}

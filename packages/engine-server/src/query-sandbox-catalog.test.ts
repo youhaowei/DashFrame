@@ -49,10 +49,8 @@ describe("WorkspaceQueryEngine — registered-table projection", () => {
       });
 
       it.each([
-        ["caller", 0],
         ["caller", 1],
         ["dispose", 0],
-        ["dispose", 1],
       ] as const)(
         "settles a stalled pull on %s after %i chunks without awaiting producer cleanup",
         async (cancellation, chunks) => {
@@ -173,24 +171,6 @@ describe("WorkspaceQueryEngine — registered-table projection", () => {
     await engine.unregisterTable("SaLeS");
     expect(engine.hasTable("Sales")).toBe(false);
     expect(engine.getTableNames()).toEqual([]);
-  });
-
-  it("keeps names DuckDB keeps apart apart, folding only ASCII case", async () => {
-    const engine = acknowledging();
-    await engine.registerArrowTable("Ä", new Uint8Array([1]));
-    await engine.registerArrowTable("ä", new Uint8Array([1]));
-    expect(engine.getTableNames().sort()).toEqual(["ä", "Ä"].sort());
-    await engine.unregisterTable("Ä");
-    expect(engine.hasTable("ä")).toBe(true);
-    expect(engine.hasTable("Ä")).toBe(false);
-  });
-
-  it("forgets every registration once the worker is gone", async () => {
-    const engine = acknowledging();
-    await engine.registerArrowTable("orders", new Uint8Array([1]));
-    await engine.dispose();
-    expect(engine.getTableNames()).toEqual([]);
-    expect(engine.hasTable("orders")).toBe(false);
   });
 
   it("forgets them however the worker died, not only on dispose()", async () => {

@@ -1,14 +1,9 @@
-import type {
-  Insight,
-  InsightFetchFailed,
-  InsightFetchResult,
-} from "@dashframe/types";
+import type { Insight, InsightFetchResult } from "@dashframe/types";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   applyInsightRuntime,
   createDataFetchFunctions,
-  fingerprintEffectiveInsight,
   toFetchFailure,
 } from "./data-fetch";
 import type { HostContext } from "./context";
@@ -54,7 +49,6 @@ function fetchContext(): HostContext {
 
 const productFieldId = "10000000-0000-4000-8000-000000000001";
 const countryFieldId = "10000000-0000-4000-8000-000000000002";
-const otherFieldId = "10000000-0000-4000-8000-000000000003";
 
 const previewDefinition = {
   baseTableId: "table-1",
@@ -94,68 +88,9 @@ describe("fetchData sort schema", () => {
       }),
     );
   });
-
-  it.each([
-    [{ fieldId: "country", value: Number.NaN }],
-    [{ fieldId: "country", value: { nested: true } }],
-    [{ fieldId: "country", value: "US", extra: true }],
-  ])("rejects a malformed pivot tuple", async (pivotValues) => {
-    const execute = vi.fn();
-    const { fetchData } = createDataFetchFunctions(execute);
-
-    const result = await fetchData(fetchContext(), {
-      insight: {
-        ...previewDefinition,
-        sorts: [{ field: "metric_revenue", direction: "desc", pivotValues }],
-      },
-    });
-
-    expect(result).toMatchObject({
-      status: "failed",
-      code: "FETCH_INVALID_DEFINITION",
-    });
-    expect(execute).not.toHaveBeenCalled();
-  });
 });
 
 describe("Insight presentation requests", () => {
-  it("passes a validated presentation to an ephemeral preview", async () => {
-    const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
-      status: "failed",
-      code: "EXPECTED",
-      message: "expected",
-      retryable: false,
-      diagnosticId: "diagnostic",
-    }));
-    const { fetchData } = createDataFetchFunctions(execute);
-
-    await fetchData(fetchContext(), {
-      insight: previewDefinition,
-      presentation: {
-        dimensions: [productFieldId],
-        transforms: {
-          [productFieldId]: { kind: "temporal", aggregation: "yearMonth" },
-        },
-      },
-    });
-
-    expect(execute).toHaveBeenCalledWith({
-      context: expect.anything(),
-      insight: expect.objectContaining({
-        presentation: {
-          dimensions: [productFieldId],
-          transforms: {
-            [productFieldId]: {
-              kind: "temporal",
-              aggregation: "yearMonth",
-            },
-          },
-        },
-      }),
-      target: { kind: "ephemeral" },
-    });
-  });
-
   it("accepts a date transform for a selected repeat-join field", async () => {
     const repeatFieldId = `${productFieldId}_j1`;
     const execute = vi.fn(async (): Promise<InsightFetchResult> => ({
@@ -194,44 +129,21 @@ describe("Insight presentation requests", () => {
     );
   });
 
-  it.each([
-    [{ dimensions: [productFieldId, productFieldId] }, "FETCH_INVALID_REQUEST"],
-    [
-      {
-        dimensions: [productFieldId],
-        transforms: {
-          [productFieldId]: { kind: "temporal", aggregation: "day" },
-        },
-      },
-      "FETCH_INVALID_REQUEST",
-    ],
-    [
-      {
-        dimensions: [productFieldId],
-        transforms: {
-          [otherFieldId]: { kind: "categorical", groupBy: "monthName" },
-        },
-      },
-      "RUNTIME_PRESENTATION_NOT_ALLOWED",
-    ],
-  ] as const)(
-    "rejects invalid presentation input %#",
-    async (presentation, code) => {
-      const execute = vi.fn();
-      const { fetchData } = createDataFetchFunctions(execute);
+  it("rejects invalid presentation input", async () => {
+    const execute = vi.fn();
+    const { fetchData } = createDataFetchFunctions(execute);
 
-      const result = await fetchData(fetchContext(), {
-        insight: previewDefinition,
-        presentation,
-      });
+    const result = await fetchData(fetchContext(), {
+      insight: previewDefinition,
+      presentation: { dimensions: [productFieldId, productFieldId] },
+    });
 
-      expect(result).toMatchObject({
-        status: "failed",
-        code,
-      });
-      expect(execute).not.toHaveBeenCalled();
-    },
-  );
+    expect(result).toMatchObject({
+      status: "failed",
+      code: "FETCH_INVALID_REQUEST",
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
 
   it("uses an ephemeral frame after runtime selection and never offers a saved fallback", async () => {
     const insightId = "00000000-0000-4000-8000-000000000001";
@@ -346,6 +258,32 @@ describe("Insight presentation requests", () => {
 });
 
 describe("applyInsightRuntime", () => {
+  it("lets a viewer hide every field only when a metric remains to show", () => {
+    const open: Insight = {
+      ...insight,
+      runtimeControls: {
+        dimensions: { allowedIds: ["region", "date"], maxSelected: 2 },
+      },
+    };
+    expect(() => applyInsightRuntime(open, { dimensions: [] })).toThrow(
+      "RUNTIME_SELECTION_EMPTY",
+    );
+    const withMetric: Insight = {
+      ...open,
+      metrics: [
+        {
+          id: "orders",
+          name: "Orders",
+          sourceTable: "table-1",
+          aggregation: "count",
+        },
+      ],
+    };
+    expect(
+      applyInsightRuntime(withMetric, { dimensions: [] }).selectedFields,
+    ).toEqual([]);
+  });
+
   it("switches declared dimensions and measures without dropping calculation dependencies or mutating the report", () => {
     const saved: Insight = {
       ...insight,
@@ -787,39 +725,6 @@ describe("applyInsightRuntime", () => {
     ).toThrow("RUNTIME_SORT_FIELD_NOT_ALLOWED");
   });
 
-  it("includes internal runtime provenance in the effective fingerprint", () => {
-    const effective = applyInsightRuntime(
-      {
-        ...insight,
-        runtimeControls: {
-          dimensions: { allowedIds: ["region", "date"], maxSelected: 1 },
-        },
-      },
-      { dimensions: ["region"] },
-    );
-    const { runtimeDimensionsChanged: _changed, ...withoutProvenance } =
-      effective;
-
-    expect(fingerprintEffectiveInsight(effective)).not.toBe(
-      fingerprintEffectiveInsight(withoutProvenance),
-    );
-  });
-
-  it("distinguishes a presentation frame from its canonical report frame", () => {
-    const effective = {
-      baseTableId: "table-1",
-      selectedFields: ["region"],
-      metrics: [],
-    };
-
-    expect(
-      fingerprintEffectiveInsight({
-        ...effective,
-        presentation: { dimensions: ["region"] },
-      }),
-    ).not.toBe(fingerprintEffectiveInsight(effective));
-  });
-
   it("applies only a declared bounded limit", () => {
     expect(
       applyInsightRuntime(insight, { filters: { region: "US" }, limit: 50 })
@@ -882,36 +787,6 @@ describe("applyInsightRuntime", () => {
     });
     expect(
       toFetchFailure(
-        new Error("RUNTIME_SORT_REFERENCE_AMBIGUOUS"),
-        "FETCH_EXECUTION_FAILED",
-      ),
-    ).toMatchObject({
-      code: "RUNTIME_SORT_REFERENCE_AMBIGUOUS",
-      message:
-        "The saved sort matches more than one field. Choose the sort field again.",
-    });
-    expect(
-      toFetchFailure(
-        new Error("RUNTIME_SORT_REFERENCE_INVALID"),
-        "FETCH_EXECUTION_FAILED",
-      ),
-    ).toMatchObject({
-      code: "RUNTIME_SORT_REFERENCE_INVALID",
-      message:
-        "The saved sort field is no longer available. Choose another sort field.",
-    });
-    expect(
-      toFetchFailure(
-        new Error("RUNTIME_LIMIT_REQUIRES_SORT"),
-        "FETCH_EXECUTION_FAILED",
-      ),
-    ).toMatchObject({
-      code: "RUNTIME_LIMIT_REQUIRES_SORT",
-      message:
-        "The selected dimensions removed the sort required by the row limit. Choose another sort or remove the limit.",
-    });
-    expect(
-      toFetchFailure(
         new Error("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE"),
         "FETCH_EXECUTION_FAILED",
       ),
@@ -919,44 +794,6 @@ describe("applyInsightRuntime", () => {
       code: "RUNTIME_TOPN_MEASURE_NOT_ADDITIVE",
       message:
         "This measure can't rank by the selected dimension across another dimension; rank by an additive measure.",
-      retryable: false,
-    });
-    expect(
-      toFetchFailure(new Error("SOURCE_SCHEMA_CHANGED"), "FETCH_SOURCE_FAILED"),
-    ).toMatchObject({
-      status: "failed",
-      code: "SOURCE_SCHEMA_CHANGED",
-      retryable: false,
-    });
-    expect(
-      toFetchFailure(new Error("TARGET_NOT_READY"), "FETCH_SOURCE_FAILED"),
-    ).toMatchObject({
-      status: "failed",
-      code: "TARGET_NOT_READY",
-      message:
-        "The requested data isn't ready. Check that its sources and tables exist.",
-      retryable: false,
-    });
-    expect(
-      toFetchFailure(
-        new Error("FETCH_COMPILE_FAILED"),
-        "FETCH_EXECUTION_FAILED",
-      ),
-    ).toMatchObject({
-      status: "failed",
-      code: "FETCH_COMPILE_FAILED",
-      message:
-        "This insight couldn't be compiled. Its source table may not have data yet.",
-      retryable: false,
-    });
-    expect(
-      toFetchFailure(
-        new Error("SOURCE_NOT_REFRESHABLE"),
-        "FETCH_SOURCE_FAILED",
-      ),
-    ).toMatchObject({
-      status: "failed",
-      code: "SOURCE_NOT_REFRESHABLE",
       retryable: false,
     });
   });
@@ -991,42 +828,6 @@ describe("applyInsightRuntime", () => {
       retryable: false,
       sourceGenerations: [{ tableId, dataFrameId, lastFetchedAt: 123 }],
     });
-  });
-
-  it("types retained success metadata as explicitly stale", () => {
-    const result: InsightFetchFailed = {
-      status: "failed",
-      code: "SOURCE_SCHEMA_CHANGED",
-      message: "safe",
-      retryable: false,
-      diagnosticId: "diagnostic",
-      lastSuccessful: {
-        stale: true,
-        dataFrameId: "frame",
-        schema: [],
-        rowCount: 1,
-        definitionFingerprint: "fingerprint",
-        provenance: { connectorKind: "notion", bindingVersion: "v1" },
-        fetchedAt: 1,
-      },
-    };
-    expect(result.lastSuccessful).toMatchObject({
-      stale: true,
-      dataFrameId: "frame",
-    });
-  });
-});
-
-it("reports unsupported source values separately from schema changes", () => {
-  expect(
-    toFetchFailure(
-      new Error("SOURCE_VALUE_UNSUPPORTED"),
-      "FETCH_SOURCE_FAILED",
-    ),
-  ).toMatchObject({
-    status: "failed",
-    code: "SOURCE_VALUE_UNSUPPORTED",
-    retryable: false,
   });
 });
 

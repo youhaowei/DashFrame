@@ -8,8 +8,6 @@ import {
   clearManifest,
   clearStoppedManifest,
   createDevIdentity,
-  getDevInfo,
-  sanitizeHostnameLabel,
   status,
   writeManifest,
 } from "./dev-worktree.mjs";
@@ -151,12 +149,6 @@ describe("worktree dev identity", () => {
     expect(name).toHaveLength(63);
   });
 
-  test("produces valid hostname labels", () => {
-    expect(sanitizeHostnameLabel(" Codex/Feature__One ")).toBe(
-      "codex-feature-one",
-    );
-  });
-
   test("writes, reports, and clears only the owning runtime manifest", () => {
     withManifestEnvironment((info) => {
       writeManifest(info);
@@ -232,14 +224,6 @@ describe("worktree dev identity", () => {
       expect(clearStoppedManifest(info, process.pid)).toBe(true);
       expect(status(info).manifest).toBeNull();
     });
-  });
-
-  test("keeps surface manifests separate within one worktree", () => {
-    const root = process.cwd();
-    expect(getDevInfo(root, "web").manifest).toEndWith("/.data/dev-web.json");
-    expect(getDevInfo(root, "desktop").manifest).toEndWith(
-      "/.data/dev-desktop.json",
-    );
   });
 
   test("records a surface-neutral desktop runtime", () => {

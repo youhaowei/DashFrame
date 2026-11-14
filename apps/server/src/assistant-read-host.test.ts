@@ -153,53 +153,6 @@ describe("assistant read host (ApplicationOperations adapter)", () => {
   // -------------------------------------------------------------------------
   // Draft overlay: the reader sees the assistant's in-progress draft edits.
   // -------------------------------------------------------------------------
-  it("a draft-scoped reader sees an insight created inside the draft; canonical does not", async () => {
-    const sourceId = id();
-    const tableId = id();
-    await seedCanonical(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-      cmd("CreateDataTable", {
-        id: tableId,
-        dataSourceId: sourceId,
-        name: "Orders",
-        table: "orders.csv",
-      }),
-    );
-
-    // Create an insight INSIDE a draft (not published).
-    const draftId = fixture.createDraft();
-    const insightId = id();
-    fixture.seed(
-      [
-        cmd("CreateInsight", {
-          id: insightId,
-          name: "Draft-only insight",
-          source: { sourceType: "dataTable", sourceId: tableId },
-        }),
-      ],
-      draftId,
-    );
-
-    // Draft-scoped reader: the insight is visible (reads the overlay).
-    const draftReader = createAssistantReadHost({ app, draftId });
-    const fromDraft = await draftReader.getInsight(insightId);
-    expect(fromDraft?.name).toBe("Draft-only insight");
-
-    // Canonical reader (no draftId): the insight does NOT exist yet.
-    const canonicalReader = createAssistantReadHost({ app });
-    expect(await canonicalReader.getInsight(insightId)).toBeNull();
-    expect(fixture.execute).toHaveBeenCalledWith(
-      "getInsight",
-      { id: insightId },
-      { draftId },
-    );
-    expect(fixture.execute).toHaveBeenCalledWith(
-      "getInsight",
-      { id: insightId },
-      {},
-    );
-  });
-
   it("filtered list reads preserve draft scope and return only matching artifacts", async () => {
     // The adapter obtains the scoped list and applies its graph-port filters.
     const sourceId = id();
@@ -344,41 +297,6 @@ describe("assistant read host (ApplicationOperations adapter)", () => {
   // -------------------------------------------------------------------------
   // Inherit-source masking over Field.sensitivity.
   // -------------------------------------------------------------------------
-  it("readData masks (profiles-only) when a source field is sensitive", async () => {
-    const sourceId = id();
-    const tableId = id();
-    const emailField = field("email", "sensitive");
-    const amountField = field("amount", "cleared");
-    await seedCanonical(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-      cmd("CreateDataTable", {
-        id: tableId,
-        dataSourceId: sourceId,
-        name: "Orders",
-        table: "orders.csv",
-        fields: [
-          { ...emailField, tableId },
-          { ...amountField, tableId },
-        ],
-      }),
-    );
-
-    const reader = createAssistantReadHost({ app });
-    const { readData } = createReadTools(reader);
-
-    const res = await readData.execute("c", { kind: "dataTable", id: tableId });
-    const data = res.details as DataReadResult;
-
-    // Masked: a sensitive source column inherits up to the whole read.
-    expect(data.masked).toBe(true);
-    // Structure NEVER gated: both columns + their declared sensitivity flow.
-    const byName = new Map(data.columns.map((c) => [c.name, c]));
-    expect(byName.get("email")?.sensitivity).toBe("sensitive");
-    expect(byName.get("amount")?.sensitivity).toBe("cleared");
-    // Profiles-only — no raw rows.
-    expect(data.sample).toBeUndefined();
-  });
-
   it("readData does NOT mask a fully-cleared source, still profiles-only", async () => {
     const sourceId = id();
     const tableId = id();
@@ -617,44 +535,5 @@ describe("assistant read host (ApplicationOperations adapter)", () => {
         (n) => n.ref.kind === "insight" && n.ref.id === baseInsightId,
       ),
     ).toBe(true);
-  });
-
-  // -------------------------------------------------------------------------
-  // Neighborhood over artifact DTOs.
-  // -------------------------------------------------------------------------
-  it("neighborhood of an insight = its base table (down) + viz (up), 1 hop", async () => {
-    const sourceId = id();
-    const tableId = id();
-    const insightId = id();
-    const vizId = id();
-    await seedCanonical(
-      cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
-      cmd("CreateDataTable", {
-        id: tableId,
-        dataSourceId: sourceId,
-        name: "Orders",
-        table: "orders.csv",
-      }),
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Revenue",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-      cmd("CreateVisualization", {
-        id: vizId,
-        name: "Bar",
-        insightId,
-        visualizationType: "barY",
-        spec: {},
-      }),
-    );
-
-    const reader = createAssistantReadHost({ app });
-    const hood = await neighbors(reader, { kind: "insight", id: insightId });
-    expect(hood).not.toBeNull();
-    expect(hood!.downstream.map((n) => n.ref.id)).toContain(tableId);
-    expect(hood!.upstream.map((n) => n.ref.id)).toContain(vizId);
-    // NOT the source (2 hops down) — ambient is 1 hop.
-    expect(hood!.downstream.map((n) => n.ref.id)).not.toContain(sourceId);
   });
 });

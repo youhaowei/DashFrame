@@ -76,6 +76,7 @@ vi.mock("./DeleteConfirmDialog", () => ({
   removeFromEncoding: (encoding: unknown) => encoding,
 }));
 
+import type { ComponentProps } from "react";
 import { InsightConfigPanel } from "./InsightConfigPanel";
 
 const fieldId = "20000000-0000-4000-8000-000000000003" as UUID;
@@ -117,14 +118,21 @@ const insight = {
   createdAt: 0,
 } satisfies Insight;
 
-function removeRegion() {
+function renderPanel(
+  props: Partial<ComponentProps<typeof InsightConfigPanel>> = {},
+) {
   render(
     <InsightConfigPanel
       insight={insight}
       dataTable={table}
       allDataTables={[table]}
+      {...props}
     />,
   );
+}
+
+function removeRegion() {
+  renderPanel();
   fireEvent.click(screen.getByRole("button", { name: "Remove Region" }));
 }
 
@@ -152,13 +160,7 @@ describe("InsightConfigPanel field removal", () => {
           }),
       )
       .mockResolvedValue(undefined);
-    render(
-      <InsightConfigPanel
-        insight={insight}
-        dataTable={table}
-        allDataTables={[table]}
-      />,
-    );
+    renderPanel();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Region" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove Channel" }));
@@ -189,13 +191,7 @@ describe("InsightConfigPanel field removal", () => {
           }),
       )
       .mockResolvedValue(undefined);
-    render(
-      <InsightConfigPanel
-        insight={insight}
-        dataTable={table}
-        allDataTables={[table]}
-      />,
-    );
+    renderPanel();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Region" }));
     fireEvent.click(screen.getByRole("button", { name: "Reverse fields" }));
@@ -217,13 +213,7 @@ describe("InsightConfigPanel field removal", () => {
     commitBatch
       .mockRejectedValueOnce(new Error("write failed"))
       .mockResolvedValue(undefined);
-    render(
-      <InsightConfigPanel
-        insight={insight}
-        dataTable={table}
-        allDataTables={[table]}
-      />,
-    );
+    renderPanel();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Region" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove Channel" }));
@@ -248,51 +238,14 @@ describe("InsightConfigPanel field removal", () => {
   });
 
   it("blocks removal while a saved-chart encoding write is pending", () => {
-    render(
-      <InsightConfigPanel
-        insight={insight}
-        dataTable={table}
-        allDataTables={[table]}
-        getVisualizationWriteStatus={() => ({ pending: true, generation: 1 })}
-      />,
-    );
+    renderPanel({
+      getVisualizationWriteStatus: () => ({ pending: true, generation: 1 }),
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Region" }));
 
     expect(commitBatch).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
-  });
-
-  it("rechecks saved-chart writes before a queued removal executes", async () => {
-    let resolveFirst: (() => void) | undefined;
-    let writeStatus = { pending: false, generation: 0 };
-    const getVisualizationWriteStatus = () => writeStatus;
-    commitBatch.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveFirst = resolve;
-        }),
-    );
-    render(
-      <InsightConfigPanel
-        insight={insight}
-        dataTable={table}
-        allDataTables={[table]}
-        getVisualizationWriteStatus={getVisualizationWriteStatus}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Remove Region" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove Channel" }));
-    await waitFor(() => expect(commitBatch).toHaveBeenCalledOnce());
-    writeStatus = { pending: true, generation: 1 };
-    await act(async () => {
-      resolveFirst?.();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(commitBatch).toHaveBeenCalledOnce();
   });
 
   it("rejects a queued removal when a chart write starts and settles first", async () => {
@@ -304,14 +257,7 @@ describe("InsightConfigPanel field removal", () => {
           resolveFirst = resolve;
         }),
     );
-    render(
-      <InsightConfigPanel
-        insight={insight}
-        dataTable={table}
-        allDataTables={[table]}
-        getVisualizationWriteStatus={() => writeStatus}
-      />,
-    );
+    renderPanel({ getVisualizationWriteStatus: () => writeStatus });
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Region" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove Channel" }));

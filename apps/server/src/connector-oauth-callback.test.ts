@@ -41,24 +41,6 @@ describe("connector OAuth browser routes", () => {
     });
   });
 
-  it("requires no bearer and delegates completion through the bound application", async () => {
-    const call = vi.fn(async () => ({ state: "connected" }));
-    const hono = new Hono();
-    hono.get("/api/connectors/oauth/callback", (c) =>
-      handleConnectorOAuthCallback(c, fakeApp(call)),
-    );
-
-    const response = await hono.request(
-      "/api/connectors/oauth/callback?state=opaque&code=authorization-code",
-    );
-    expect(response.status).toBe(200);
-    expect(call).toHaveBeenCalledWith("completeConnectorOAuth", {
-      state: "opaque",
-      code: "authorization-code",
-      oauthError: undefined,
-    });
-  });
-
   it("links back to the new source only when the server says where its app shows one", async () => {
     const execute = vi.fn(async () => ({
       state: "connected",
@@ -82,25 +64,6 @@ describe("connector OAuth browser routes", () => {
     expect(
       await (await hono.request("/without-app?state=s&code=c")).text(),
     ).not.toContain("<a ");
-  });
-
-  it("returns only the minimal public resume DTO", async () => {
-    const result = {
-      sessionId: crypto.randomUUID(),
-      connectorId: "googleAnalytics",
-      state: "awaiting-user-auth",
-      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      expiresAt: Date.now() + 60_000,
-    };
-    const call = vi.fn(async () => result);
-    const hono = new Hono();
-    hono.get("/api/connectors/setup/:sessionId/resume", (c) =>
-      handleConnectorSetupResume(c, fakeApp(call)),
-    );
-    const response = await hono.request(
-      `/api/connectors/setup/${result.sessionId}/resume`,
-    );
-    await expect(response.json()).resolves.toEqual(result);
   });
 
   it("turns the standalone resume capability into a fresh authorization redirect", async () => {
@@ -128,8 +91,7 @@ describe("connector OAuth browser routes", () => {
     });
   });
 
-  it("preserves a nonlocal hosted subject through callback and both resume paths", async () => {
-    const subject = "workos-user-a";
+  it("executes on the application it was given, with no principal argument, on the callback and both resume paths", async () => {
     const call = vi.fn(async (operation: string, _input: unknown) =>
       operation === "completeConnectorOAuth"
         ? { state: "connected" }
@@ -144,19 +106,9 @@ describe("connector OAuth browser routes", () => {
       }
       return call(args[0] as string, args[1]);
     });
-    const execute = executeSpy as unknown as ApplicationOperations["execute"];
-    const unbound: ApplicationOperations = {
-      execute: async () => {
-        throw new Error("Application is not bound");
-      },
-      forPrincipal(principal) {
-        if (principal.kind !== "user" || principal.userId !== subject) {
-          throw new Error("Wrong hosted subject");
-        }
-        return fakeApp(execute);
-      },
-    };
-    const bound = unbound.forPrincipal({ kind: "user", userId: subject });
+    const bound = fakeApp(
+      executeSpy as unknown as ApplicationOperations["execute"],
+    );
     const hono = new Hono();
     hono.get("/api/connectors/oauth/callback", (c) =>
       handleConnectorOAuthCallback(c, bound),
@@ -191,7 +143,6 @@ describe("connector OAuth browser routes", () => {
       ["reissueConnectorSetupResume", { sessionId: "session" }],
       ["reissueConnectorSetupResume", { sessionId: "session" }],
     ]);
-    expect(executeSpy.mock.calls.every((args) => args.length === 2)).toBe(true);
   });
 
   it("renders a generic error and logs only a session-free gate code", async () => {
@@ -266,14 +217,21 @@ describe("connector OAuth browser routes", () => {
     });
 
     it("serves the resume DTO with 200 and an unavailable session with 404", async () => {
+      const dto = {
+        sessionId: "s",
+        connectorId: "googleAnalytics",
+        state: "awaiting-user-auth",
+        authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+        expiresAt: Date.now() + 60_000,
+      };
       const ok = route(
         handleConnectorSetupResume,
         "/api/connectors/setup/:sessionId/resume",
-        { sessionId: "s", connectorId: "googleAnalytics", state: "expired" },
+        dto,
       );
-      expect((await ok.request("/api/connectors/setup/s/resume")).status).toBe(
-        200,
-      );
+      const served = await ok.request("/api/connectors/setup/s/resume");
+      expect(served.status).toBe(200);
+      await expect(served.json()).resolves.toEqual(dto);
 
       const failing = new Hono();
       failing.get("/api/connectors/setup/:sessionId/resume", (c) =>

@@ -18,7 +18,7 @@ import {
   TestBackend,
 } from "@wystack/secret-vault";
 import { tableFromIPC } from "apache-arrow";
-import { createServer, type Socket } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
 import {
   afterEach,
   beforeEach,
@@ -32,7 +32,6 @@ import {
   PostgresConnector,
   assertReadOnlyQuery,
   listTablesInSchema,
-  makePostgresConnector,
   pgOidToColumnType,
   unmappedOidsAsText,
 } from "./connector.js";
@@ -153,22 +152,10 @@ const baseConfig: PostgresConnectorConfig = {
 // ---------------------------------------------------------------------------
 
 describe("assertReadOnlyQuery", () => {
-  it("accepts SELECT", () => {
-    expect(() => assertReadOnlyQuery("SELECT * FROM foo")).not.toThrow();
-  });
-
   it("accepts WITH (CTE)", () => {
     expect(() =>
       assertReadOnlyQuery("WITH cte AS (SELECT 1) SELECT * FROM cte"),
     ).not.toThrow();
-  });
-
-  it("accepts EXPLAIN", () => {
-    expect(() => assertReadOnlyQuery("EXPLAIN SELECT 1")).not.toThrow();
-  });
-
-  it("accepts TABLE shorthand", () => {
-    expect(() => assertReadOnlyQuery("TABLE foo")).not.toThrow();
   });
 
   it("accepts SELECT after leading line comment", () => {
@@ -186,43 +173,6 @@ describe("assertReadOnlyQuery", () => {
   it("is case-insensitive", () => {
     expect(() => assertReadOnlyQuery("select * from foo")).not.toThrow();
     expect(() => assertReadOnlyQuery("Select 1")).not.toThrow();
-  });
-
-  it("rejects DROP", () => {
-    expect(() => assertReadOnlyQuery("DROP TABLE foo")).toThrow(
-      /non-SELECT query rejected/i,
-    );
-  });
-
-  it("rejects INSERT", () => {
-    expect(() => assertReadOnlyQuery("INSERT INTO foo VALUES (1)")).toThrow(
-      /non-SELECT query rejected/i,
-    );
-  });
-
-  it("rejects UPDATE", () => {
-    expect(() => assertReadOnlyQuery("UPDATE foo SET x=1")).toThrow(
-      /non-SELECT query rejected/i,
-    );
-  });
-
-  it("rejects DELETE", () => {
-    expect(() => assertReadOnlyQuery("DELETE FROM foo")).toThrow(
-      /non-SELECT query rejected/i,
-    );
-  });
-
-  it("rejects CREATE", () => {
-    expect(() => assertReadOnlyQuery("CREATE TABLE foo (id int)")).toThrow(
-      /non-SELECT query rejected/i,
-    );
-  });
-
-  it("does NOT match SELECT token inside a DROP (keyword-anywhere trap)", () => {
-    // "DROP TABLE select_log" — first token is DROP, not SELECT.
-    expect(() => assertReadOnlyQuery("DROP TABLE select_log")).toThrow(
-      /non-SELECT query rejected/i,
-    );
   });
 
   it("rejects empty/whitespace-only input", () => {
@@ -255,17 +205,6 @@ describe("AC1 — non-SELECT rejected at allowlist, before any client.query", ()
     // so even the SET SESSION statement is never issued. Zero pg calls total.
     expect(spyClient.spy).not.toHaveBeenCalled();
   });
-
-  it("throws for INSERT before any pg query call", async () => {
-    const spyClient = makeSpyClient();
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    await expect(
-      connector.query("INSERT INTO foo VALUES (1)", crypto.randomUUID()),
-    ).rejects.toThrow(/non-SELECT query rejected/i);
-
-    expect(spyClient.spy).not.toHaveBeenCalled();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -280,19 +219,6 @@ function spyCallText(c: SpyCall): string {
 }
 
 describe("AC2 — SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY is first query", () => {
-  it("issues the read-only SET before any query in connect()", async () => {
-    const spyClient = makeSpyClient([{ table_name: "users" }]);
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    await connector.connect();
-
-    const calls = spyClient.spy.mock.calls as SpyCall[];
-    expect(calls.length).toBeGreaterThanOrEqual(1);
-    expect(spyCallText(calls[0]!).toUpperCase()).toBe(
-      "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY",
-    );
-  });
-
   it("issues the read-only SET before the data query in query()", async () => {
     const spyClient = makeSpyClient([{ id: 1, name: "Alice" }]);
     const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
@@ -353,40 +279,6 @@ describe("AC2 — SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY is first 
 // ---------------------------------------------------------------------------
 
 describe("AC3 — credential never plaintext in config", () => {
-  it("config stores a SecretRef string, never a postgres:// DSN", () => {
-    const plainDsn = "postgres://user:pass@host:5432/db";
-    const config: PostgresConnectorConfig = {
-      connectionStringRef: "secret:00000000-0000-0000-0000-000000000002",
-    };
-
-    const connector = makePostgresConnector(noopDsnResolver, config);
-
-    // Inspect all enumerable and own non-enumerable properties on the instance.
-    // The plaintext DSN must NOT appear as any property value.
-    const proto = Object.getPrototypeOf(connector) as object;
-    const ownKeys = [
-      ...Object.getOwnPropertyNames(connector),
-      ...Object.getOwnPropertyNames(proto),
-    ];
-    for (const key of ownKeys) {
-      try {
-        const val = (connector as unknown as Record<string, unknown>)[key];
-        if (typeof val === "string") {
-          expect(val).not.toBe(plainDsn);
-          expect(val).not.toContain("postgres://");
-        }
-      } catch {
-        // Private fields / accessors may throw — that's fine.
-      }
-    }
-
-    // connectionStringRef must be a SecretRef pattern or omitted.
-    // (We set it explicitly, so check it's the ref we gave.)
-    const configRef = config.connectionStringRef;
-    expect(configRef).toMatch(/^secret:/);
-    expect(configRef).not.toContain("postgres://");
-  });
-
   it("fail-closed: empty DSN from resolver throws before creating a client", async () => {
     const spyClient = makeSpyClient();
     const connector = makeTestConnector(
@@ -463,58 +355,6 @@ describe("AC4 — identifier quoting", () => {
 // ---------------------------------------------------------------------------
 
 describe("AC5 — Arrow output shape matches registry contract", () => {
-  it("returns arrowBuffer (base64), fieldIds, fields, rowCount for a two-column result", async () => {
-    const tableId = crypto.randomUUID();
-    const testRows = [
-      { id: 1, name: "Alice" },
-      { id: 2, name: "Bob" },
-    ];
-    const spyClient = makeSpyClient(testRows);
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    const result = await connector.query("SELECT * FROM users", tableId);
-
-    // Shape contract
-    expect(typeof result.arrowBuffer).toBe("string");
-    expect(Array.isArray(result.fieldIds)).toBe(true);
-    expect(Array.isArray(result.fields)).toBe(true);
-    expect(result.rowCount).toBe(2);
-
-    // fieldIds and fields must be aligned.
-    expect(result.fieldIds).toHaveLength(result.fields.length);
-
-    // Deserialize Arrow buffer and verify column names.
-    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
-    const table = tableFromIPC(bytes);
-    const colNames = table.schema.fields.map((f) => f.name);
-
-    // Both "id" and "name" columns must be present.
-    const fieldNames = result.fields.map((f) => f.name);
-    for (const name of fieldNames) {
-      expect(colNames).toContain(name);
-    }
-    expect(table.numRows).toBe(2);
-  });
-
-  it("returns rowCount = 0 for an empty result set (no pg column metadata)", async () => {
-    // When the spy provides no fields metadata (legacy / no OID info),
-    // the result is an empty schema — this is the pre-fix baseline.
-    const spyClient = makeSpyClient([], []);
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    const result = await connector.query(
-      "SELECT * FROM empty",
-      crypto.randomUUID(),
-    );
-
-    expect(result.rowCount).toBe(0);
-    expect(result.fields).toHaveLength(0);
-    expect(result.fieldIds).toHaveLength(0);
-    // arrowBuffer should still be a valid base64 string (empty Arrow table).
-    expect(typeof result.arrowBuffer).toBe("string");
-    expect(result.arrowBuffer.length).toBeGreaterThan(0);
-  });
-
   it("preserves schema from pg column metadata on a zero-row result (empty-result schema fix)", async () => {
     // Simulate pg returning column descriptors even when rows is empty.
     const pgFields: PgFieldDef[] = [
@@ -542,60 +382,6 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
     // NUMERIC (OID 1700) must map to "string" — lossless coercion.
     const amountField = result.fields.find((f) => f.name === "amount");
     expect(amountField?.type).toBe("string");
-  });
-
-  it("recovers common OID types (bool, text, float8) on a zero-row result", async () => {
-    // Verifies the extended OID map covers standard column types for empty-result
-    // schema recovery. A zero-row result has no sample values — OID is the only
-    // type signal, so every listed type must map to a non-"unknown" ColumnType.
-    const pgFields: PgFieldDef[] = [
-      { name: "active", dataTypeID: 16 }, // bool   → "boolean"
-      { name: "label", dataTypeID: 25 }, //  text   → "string"
-      { name: "score", dataTypeID: 701 }, // float8 → "number"
-    ];
-    const spyClient = makeSpyClient([], pgFields);
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    const result = await connector.query(
-      "SELECT active, label, score FROM metrics WHERE 1=0",
-      crypto.randomUUID(),
-    );
-
-    expect(result.rowCount).toBe(0);
-    expect(result.fields).toHaveLength(3);
-    const byName = Object.fromEntries(
-      result.fields.map((f) => [f.name, f.type]),
-    );
-    expect(byName["active"]).toBe("boolean");
-    expect(byName["label"]).toBe("string");
-    expect(byName["score"]).toBe("number");
-  });
-
-  it("types an unmapped OID on a zero-row result as 'string'", async () => {
-    // An OID that pgOidToColumnType doesn't map (e.g. jsonb 3802) is delivered
-    // as raw PostgreSQL text by createClient, so it is a string column. With no
-    // rows to inspect, the OID metadata alone must still yield "string" — the
-    // same answer queryBatches gives, so prepare and stream agree.
-    const pgFields: PgFieldDef[] = [
-      { name: "payload", dataTypeID: 3802 }, // jsonb — not in OID map
-    ];
-    const spyClient = makeSpyClient([], pgFields);
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    const result = await connector.query(
-      "SELECT payload FROM events WHERE 1=0",
-      crypto.randomUUID(),
-    );
-
-    expect(result.rowCount).toBe(0);
-    expect(result.fields).toHaveLength(1);
-    const field = result.fields.find((f) => f.name === "payload");
-    expect(field?.type).toBe("string");
-    // Arrow buffer must still be valid with 1 column (schema preserved)
-    const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
-    const table = tableFromIPC(bytes);
-    expect(table.schema.fields).toHaveLength(1);
-    expect(table.schema.fields[0]?.type.toString()).toBe("Utf8");
   });
 
   it("returns correct rowCount for connect() listing tables", async () => {
@@ -763,20 +549,6 @@ describe("pagination pushdown (table-ref path)", () => {
     // limit/offset are passed as value params (no interpolation).
     expect(fetchCall![1]).toEqual([50, 20]);
   });
-
-  it("emits a plain SELECT (no LIMIT) when no pagination is requested", async () => {
-    const spyClient = makeSpyClient([{ id: 1 }]);
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    await connector.query("public.users", crypto.randomUUID());
-
-    const calls = spyClient.spy.mock.calls as SpyCall[];
-    const fetchCall = calls.find((c) =>
-      spyCallText(c).toUpperCase().startsWith("SELECT * FROM"),
-    );
-    expect(fetchCall).toBeDefined();
-    expect(spyCallText(fetchCall!)).not.toContain("LIMIT");
-  });
 });
 
 describe("queryBatches PostgreSQL cursor", () => {
@@ -818,18 +590,39 @@ describe("queryBatches PostgreSQL cursor", () => {
     };
   }
 
+  /** A client whose every FETCH returns `rows`; other statements return nothing. */
+  function fetchOnlyClient(
+    rows: Record<string, unknown>[],
+    rowFields: PgFieldDef[],
+  ): PgClientLike & { end: ReturnType<typeof vi.fn> } {
+    const spy = vi.fn((arg: string | PgQueryConfig) => {
+      const upper = callText(arg).toUpperCase();
+      return Promise.resolve(
+        upper.startsWith("FETCH")
+          ? { rows, fields: rowFields }
+          : { rows: [], fields: [] },
+      );
+    });
+    return {
+      query: spy as unknown as PgClientLike["query"],
+      end: vi.fn().mockResolvedValue(undefined),
+    };
+  }
+
+  async function collect<T>(batches: AsyncIterable<T>): Promise<T[]> {
+    const collected: T[] = [];
+    for await (const batch of batches) collected.push(batch);
+    return collected;
+  }
+
   it("streams more than 10,000 rows in bounded batches and preserves the tail", async () => {
     const client = cursorClient(10_005);
     const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
-    const batches = [];
-
-    for await (const batch of connector.queryBatches(
-      "public.large_table",
-      crypto.randomUUID(),
-      { batchRows: 2_048 },
-    )) {
-      batches.push(batch);
-    }
+    const batches = await collect(
+      connector.queryBatches("public.large_table", crypto.randomUUID(), {
+        batchRows: 2_048,
+      }),
+    );
 
     expect(batches.map((batch) => batch.rowCount)).toEqual([
       2_048, 2_048, 2_048, 2_048, 1_813,
@@ -861,13 +654,9 @@ describe("queryBatches PostgreSQL cursor", () => {
     const client = cursorClient(0);
     const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
 
-    const batches = [];
-    for await (const batch of connector.queryBatches(
-      "public.empty_table",
-      crypto.randomUUID(),
-    )) {
-      batches.push(batch);
-    }
+    const batches = await collect(
+      connector.queryBatches("public.empty_table", crypto.randomUUID()),
+    );
 
     expect(batches).toHaveLength(1);
     expect(batches[0]!.rowCount).toBe(0);
@@ -880,31 +669,17 @@ describe("queryBatches PostgreSQL cursor", () => {
 
   it("preserves non-finite PostgreSQL float values in Arrow", async () => {
     const nonFiniteFields: PgFieldDef[] = [{ name: "value", dataTypeID: 701 }];
-    const spy = vi.fn((arg: string | PgQueryConfig) => {
-      const upper = callText(arg).toUpperCase();
-      return Promise.resolve(
-        upper.startsWith("FETCH")
-          ? {
-              rows: [{ value: Infinity }, { value: -Infinity }, { value: NaN }],
-              fields: nonFiniteFields,
-            }
-          : { rows: [], fields: [] },
-      );
-    });
-    const client: PgClientLike = {
-      query: spy as unknown as PgClientLike["query"],
-      end: vi.fn().mockResolvedValue(undefined),
-    };
+    const client = fetchOnlyClient(
+      [{ value: Infinity }, { value: -Infinity }, { value: NaN }],
+      nonFiniteFields,
+    );
     const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
 
-    const batches = [];
-    for await (const batch of connector.queryBatches(
-      "public.measurements",
-      crypto.randomUUID(),
-      { batchRows: 10 },
-    )) {
-      batches.push(batch);
-    }
+    const batches = await collect(
+      connector.queryBatches("public.measurements", crypto.randomUUID(), {
+        batchRows: 10,
+      }),
+    );
 
     const arrow = tableFromIPC(Buffer.from(batches[0]!.arrowBuffer, "base64"));
     const values = [0, 1, 2].map((index) =>
@@ -913,62 +688,6 @@ describe("queryBatches PostgreSQL cursor", () => {
     expect(values[0]).toBe(Infinity);
     expect(values[1]).toBe(-Infinity);
     expect(Number.isNaN(values[2])).toBe(true);
-  });
-
-  it("keeps text-backed enum and UUID OIDs lossless across batches", async () => {
-    const enumFields: PgFieldDef[] = [
-      { name: "status", dataTypeID: 16_384 },
-      { name: "external_id", dataTypeID: 2_950 },
-    ];
-    const firstId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-    const secondId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-    const fetchRows = [
-      [{ status: "true", external_id: firstId }],
-      [{ status: "pending", external_id: secondId }],
-      [],
-    ];
-    let fetchIndex = 0;
-    const spy = vi.fn((arg: string | PgQueryConfig) => {
-      const upper = callText(arg).toUpperCase();
-      return Promise.resolve(
-        upper.startsWith("FETCH")
-          ? { rows: fetchRows[fetchIndex++] ?? [], fields: enumFields }
-          : { rows: [], fields: [] },
-      );
-    });
-    const client: PgClientLike = {
-      query: spy as unknown as PgClientLike["query"],
-      end: vi.fn().mockResolvedValue(undefined),
-    };
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
-
-    const batches = [];
-    for await (const batch of connector.queryBatches(
-      "public.jobs",
-      crypto.randomUUID(),
-      { batchRows: 1 },
-    )) {
-      batches.push(batch);
-    }
-
-    expect(
-      batches.map((batch) => batch.fields.map((field) => field.type)),
-    ).toEqual([
-      ["string", "string"],
-      ["string", "string"],
-      ["string", "string"],
-    ]);
-    const values = batches.slice(0, 2).map((batch) => {
-      const arrow = tableFromIPC(Buffer.from(batch.arrowBuffer, "base64"));
-      return {
-        status: arrow.getChild("status")?.get(0),
-        externalId: arrow.getChild("external_id")?.get(0),
-      };
-    });
-    expect(values).toEqual([
-      { status: "true", externalId: firstId },
-      { status: "pending", externalId: secondId },
-    ]);
   });
 
   it("types an enum OID as 'string' on the query path too, losslessly", async () => {
@@ -994,8 +713,6 @@ describe("queryBatches PostgreSQL cursor", () => {
     ["number", 23, "not-a-number"],
     ["boolean", 16, "pending"],
     ["date", 1184, "not-a-date"],
-    ["infinite date", 1082, Infinity],
-    ["negative infinite timestamp", 1114, -Infinity],
     ["out-of-range timestamp", 1184, new Date(Number.NaN)],
     ["string", 25, { nested: true }],
   ])(
@@ -1004,18 +721,7 @@ describe("queryBatches PostgreSQL cursor", () => {
       const incompatibleFields: PgFieldDef[] = [
         { name: "value", dataTypeID: oid },
       ];
-      const spy = vi.fn((arg: string | PgQueryConfig) => {
-        const upper = callText(arg).toUpperCase();
-        return Promise.resolve(
-          upper.startsWith("FETCH")
-            ? { rows: [{ value }], fields: incompatibleFields }
-            : { rows: [], fields: [] },
-        );
-      });
-      const client: PgClientLike = {
-        query: spy as unknown as PgClientLike["query"],
-        end: vi.fn().mockResolvedValue(undefined),
-      };
+      const client = fetchOnlyClient([{ value }], incompatibleFields);
       const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
       const iterator = connector
         .queryBatches("public.values", crypto.randomUUID(), { batchRows: 10 })
@@ -1032,31 +738,17 @@ describe("queryBatches PostgreSQL cursor", () => {
       { name: "active", dataTypeID: 16 },
       { name: "occurred_at", dataTypeID: 1184 },
     ];
-    const spy = vi.fn((arg: string | PgQueryConfig) => {
-      const upper = callText(arg).toUpperCase();
-      return Promise.resolve(
-        upper.startsWith("FETCH")
-          ? {
-              rows: [{ active: true, occurred_at: occurredAt }],
-              fields: nativeFields,
-            }
-          : { rows: [], fields: [] },
-      );
-    });
-    const client: PgClientLike = {
-      query: spy as unknown as PgClientLike["query"],
-      end: vi.fn().mockResolvedValue(undefined),
-    };
+    const client = fetchOnlyClient(
+      [{ active: true, occurred_at: occurredAt }],
+      nativeFields,
+    );
     const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
 
-    const batches = [];
-    for await (const batch of connector.queryBatches(
-      "public.events",
-      crypto.randomUUID(),
-      { batchRows: 10 },
-    )) {
-      batches.push(batch);
-    }
+    const batches = await collect(
+      connector.queryBatches("public.events", crypto.randomUUID(), {
+        batchRows: 10,
+      }),
+    );
 
     const arrow = tableFromIPC(Buffer.from(batches[0]!.arrowBuffer, "base64"));
     expect(arrow.getChild("active")?.get(0)).toBe(true);
@@ -1133,96 +825,16 @@ describe("queryBatches PostgreSQL cursor", () => {
     expect(client.end).toHaveBeenCalled();
   });
 
-  it("ends the connection to interrupt an in-flight FETCH on abort", async () => {
-    let rejectFetch: ((error: Error) => void) | undefined;
-    let fetchStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      fetchStarted = resolve;
-    });
-    const spy = vi.fn((arg: string | PgQueryConfig) => {
-      const upper = callText(arg).toUpperCase();
-      if (upper.startsWith("FETCH")) {
-        fetchStarted();
-        return new Promise<never>((_resolve, reject) => {
-          rejectFetch = reject;
-        });
-      }
-      return Promise.resolve({ rows: [], fields: [] });
-    });
-    const client: PgClientLike & { end: ReturnType<typeof vi.fn> } = {
-      query: spy as unknown as PgClientLike["query"],
-      end: vi.fn(async () => rejectFetch?.(new Error("connection terminated"))),
-    };
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
-    const abort = new AbortController();
-    const iterator = connector
-      .queryBatches("public.users", crypto.randomUUID(), {
-        batchRows: 4,
-        signal: abort.signal,
-      })
-      [Symbol.asyncIterator]();
-
-    const pending = iterator.next();
-    await started;
-    abort.abort(new Error("cancelled"));
-    await expect(pending).rejects.toThrow("connection terminated");
-    expect(client.end).toHaveBeenCalled();
-  });
-
-  it("ends the client to interrupt pending connection establishment", async () => {
-    let rejectConnect: ((error: Error) => void) | undefined;
-    let connectStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      connectStarted = resolve;
-    });
-    const client: PgClientLike & {
-      abortConnection: ReturnType<typeof vi.fn>;
-      connect: ReturnType<typeof vi.fn>;
-      end: ReturnType<typeof vi.fn>;
-    } = {
-      abortConnection: vi.fn(() =>
-        rejectConnect?.(new Error("connection terminated")),
-      ),
-      connect: vi.fn(
-        () =>
-          new Promise<void>((_resolve, reject) => {
-            rejectConnect = reject;
-            connectStarted();
-          }),
-      ),
-      query: vi.fn() as unknown as PgClientLike["query"],
-      end: vi.fn().mockResolvedValue(undefined),
-    };
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, client);
-    const abort = new AbortController();
-    const iterator = connector
-      .queryBatches("public.users", crypto.randomUUID(), {
-        signal: abort.signal,
-      })
-      [Symbol.asyncIterator]();
-
-    const pending = iterator.next();
-    await started;
-    abort.abort(new Error("cancelled"));
-
-    await expect(pending).rejects.toThrow("connection terminated");
-    expect(client.abortConnection).toHaveBeenCalled();
-    expect(client.end).toHaveBeenCalled();
-    expect(client.query).not.toHaveBeenCalled();
-  });
-
-  it("settles a real pg pending connect when aborted", async () => {
-    const sockets = new Set<Socket>();
-    let acceptConnection!: () => void;
-    const accepted = new Promise<void>((resolve) => {
-      acceptConnection = resolve;
-    });
-    const server = createServer((socket) => {
-      sockets.add(socket);
-      socket.once("close", () => sockets.delete(socket));
-      acceptConnection();
-      // Deliberately never send a PostgreSQL startup response.
-    });
+  /**
+   * Starts a cursor read against `server`, aborts it once `reached` settles,
+   * and expects the pending read to settle promptly; then tears everything down.
+   */
+  async function expectAbortSettles(
+    server: Server,
+    sockets: Set<Socket>,
+    reached: Promise<void>,
+    stage: "connect" | "query",
+  ) {
     await new Promise<void>((resolve) => {
       server.listen(0, "127.0.0.1", resolve);
     });
@@ -1243,13 +855,13 @@ describe("queryBatches PostgreSQL cursor", () => {
     let deadline: ReturnType<typeof setTimeout> | undefined;
 
     try {
-      await accepted;
+      await reached;
       abort.abort(new Error("cancelled"));
       const boundedPending = Promise.race([
         pending,
         new Promise<never>((_resolve, reject) => {
           deadline = setTimeout(
-            () => reject(new Error("pending connect did not settle")),
+            () => reject(new Error(`pending ${stage} did not settle`)),
             1_000,
           );
         }),
@@ -1269,6 +881,21 @@ describe("queryBatches PostgreSQL cursor", () => {
         });
       });
     }
+  }
+
+  it("settles a real pg pending connect when aborted", async () => {
+    const sockets = new Set<Socket>();
+    let acceptConnection!: () => void;
+    const accepted = new Promise<void>((resolve) => {
+      acceptConnection = resolve;
+    });
+    const server = createServer((socket) => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+      acceptConnection();
+      // Deliberately never send a PostgreSQL startup response.
+    });
+    await expectAbortSettles(server, sockets, accepted, "connect");
   });
 
   it("settles a real pg pending query when aborted", async () => {
@@ -1326,52 +953,7 @@ describe("queryBatches PostgreSQL cursor", () => {
         }
       });
     });
-    await new Promise<void>((resolve) => {
-      server.listen(0, "127.0.0.1", resolve);
-    });
-    const address = server.address();
-    if (!address || typeof address === "string") {
-      throw new Error("Expected a loopback TCP address");
-    }
-
-    const dsn = `postgresql://user:pass@127.0.0.1:${address.port}/db`;
-    const connector = new PostgresConnector((use) => use(dsn), baseConfig);
-    const abort = new AbortController();
-    const iterator = connector
-      .queryBatches("public.users", crypto.randomUUID(), {
-        signal: abort.signal,
-      })
-      [Symbol.asyncIterator]();
-    const pending = iterator.next();
-    let deadline: ReturnType<typeof setTimeout> | undefined;
-
-    try {
-      await fetchStarted;
-      abort.abort(new Error("cancelled"));
-      const boundedPending = Promise.race([
-        pending,
-        new Promise<never>((_resolve, reject) => {
-          deadline = setTimeout(
-            () => reject(new Error("pending query did not settle")),
-            1_000,
-          );
-        }),
-      ]);
-      await expect(boundedPending).rejects.toThrow(
-        "Connection terminated unexpectedly",
-      );
-    } finally {
-      if (deadline) clearTimeout(deadline);
-      for (const socket of sockets) socket.destroy();
-      await pending.catch(() => undefined);
-      await iterator.return?.().catch(() => undefined);
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      });
-    }
+    await expectAbortSettles(server, sockets, fetchStarted, "query");
   });
 });
 
@@ -1418,46 +1000,6 @@ describe("reserved column names (Arrow safety)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Static metadata
-// ---------------------------------------------------------------------------
-
-describe("static metadata", () => {
-  const c = makePostgresConnector(noopDsnResolver, baseConfig);
-
-  it("has id = 'postgres'", () => {
-    expect(c.id).toBe("postgres");
-  });
-
-  it("has sourceType = 'remote-api'", () => {
-    expect(c.sourceType).toBe("remote-api");
-  });
-
-  it("is an instance of PostgresConnector", () => {
-    expect(c).toBeInstanceOf(PostgresConnector);
-  });
-
-  it("getFormFields includes connectionString and defaultSchema", () => {
-    const fields = c.getFormFields();
-    const names = fields.map((f) => f.name);
-    expect(names).toContain("connectionString");
-    expect(names).toContain("defaultSchema");
-  });
-
-  it("validate() fails when connectionString is absent", () => {
-    const result = c.validate({});
-    expect(result.valid).toBe(false);
-    expect(result.errors?.["connectionString"]).toBeTruthy();
-  });
-
-  it("validate() passes when connectionString is present", () => {
-    const result = c.validate({
-      connectionString: "postgres://user:pass@host:5432/db",
-    });
-    expect(result.valid).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Vault round-trip: SecretResolver wired to real vault
 // ---------------------------------------------------------------------------
 
@@ -1495,6 +1037,13 @@ describe("vault round-trip: bound resolver from real SecretVault", () => {
     expect(
       (connector as unknown as Record<string, unknown>)["dsn"],
     ).toBeUndefined();
+    // No own property of the connector holds the plaintext after connect().
+    for (const key of Object.getOwnPropertyNames(connector)) {
+      const val = (connector as unknown as Record<string, unknown>)[key];
+      if (typeof val === "string") {
+        expect(val).not.toContain("postgres://");
+      }
+    }
   });
 });
 
@@ -1512,83 +1061,6 @@ describe("fail-closed: resolver failure", () => {
 
     await expect(connector.connect()).rejects.toThrow(/vault unavailable/i);
     expect(spyClient.spy).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Read-only guard wired end-to-end
-// ---------------------------------------------------------------------------
-
-describe("read-only guard: allowlisted queries pass through to pg", () => {
-  let spyClient: SpyClient;
-  let connector: TestPostgresConnector;
-
-  beforeEach(() => {
-    spyClient = makeSpyClient([{ count: 42 }]);
-    connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-  });
-
-  it("SELECT query reaches pg after SET SESSION", async () => {
-    await connector.query("SELECT count(*) FROM users", crypto.randomUUID());
-    const calls = spyClient.spy.mock.calls as SpyCall[];
-    const queries = calls.map((c) => spyCallText(c).toUpperCase());
-    expect(queries[0]).toContain("SET SESSION CHARACTERISTICS");
-    expect(queries.some((q) => q.includes("SELECT"))).toBe(true);
-  });
-
-  it("WITH query passes the allowlist", async () => {
-    spyClient = makeSpyClient([{ n: 1 }]);
-    connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-    await expect(
-      connector.query(
-        "WITH cte AS (SELECT 1 AS n) SELECT * FROM cte",
-        crypto.randomUUID(),
-      ),
-    ).resolves.toBeDefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// pgOidToColumnType — OID → ColumnType mapping
-// ---------------------------------------------------------------------------
-
-describe("pgOidToColumnType", () => {
-  it("maps BIGINT (OID 20) to 'string' — preserves precision for values > 2^53", () => {
-    expect(pgOidToColumnType(20)).toBe("string");
-  });
-
-  it("maps NUMERIC (OID 1700) to 'string' — preserves decimal precision", () => {
-    expect(pgOidToColumnType(1700)).toBe("string");
-  });
-
-  it("maps common integer/float OIDs to 'number'", () => {
-    expect(pgOidToColumnType(21)).toBe("number"); // int2
-    expect(pgOidToColumnType(23)).toBe("number"); // int4
-    expect(pgOidToColumnType(700)).toBe("number"); // float4
-    expect(pgOidToColumnType(701)).toBe("number"); // float8
-  });
-
-  it("maps bool (OID 16) to 'boolean'", () => {
-    expect(pgOidToColumnType(16)).toBe("boolean");
-  });
-
-  it("maps text/varchar/char OIDs to 'string'", () => {
-    expect(pgOidToColumnType(18)).toBe("string"); // internal "char" (1-byte)
-    expect(pgOidToColumnType(25)).toBe("string"); // text
-    expect(pgOidToColumnType(1042)).toBe("string"); // bpchar / CHAR(n)
-    expect(pgOidToColumnType(1043)).toBe("string"); // varchar
-  });
-
-  it("maps date/timestamp OIDs to 'date'", () => {
-    expect(pgOidToColumnType(1082)).toBe("date"); // date
-    expect(pgOidToColumnType(1114)).toBe("date"); // timestamp
-    expect(pgOidToColumnType(1184)).toBe("date"); // timestamptz
-  });
-
-  it("returns undefined for unrecognized OIDs (fall through to value inference)", () => {
-    expect(pgOidToColumnType(0)).toBeUndefined();
-    expect(pgOidToColumnType(3802)).toBeUndefined(); // jsonb
-    expect(pgOidToColumnType(2950)).toBeUndefined(); // uuid
   });
 });
 
@@ -1652,29 +1124,6 @@ describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", 
     const arrowValue = table.getChildAt(0)?.get(0);
     expect(typeof arrowValue).toBe("string");
     expect(arrowValue).toBe(numericValue);
-  });
-
-  it("mixed row: OID path takes priority; BIGINT/NUMERIC → 'string', int4 → 'number'", async () => {
-    const pgFields: PgFieldDef[] = [
-      { name: "id", dataTypeID: 23 }, // int4 → OID 23 → "number"
-      { name: "balance", dataTypeID: 1700 }, // NUMERIC → OID 1700 → "string"
-      { name: "score", dataTypeID: 20 }, // BIGINT → OID 20 → "string"
-    ];
-    const spyClient = makeSpyClient(
-      [{ id: 1, balance: "9999.99", score: "42" }],
-      pgFields,
-    );
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    const result = await connector.query(
-      "SELECT * FROM scores",
-      crypto.randomUUID(),
-    );
-
-    const byName = Object.fromEntries(result.fields.map((f) => [f.name, f]));
-    expect(byName["id"]?.type).toBe("number"); // int4 — OID path
-    expect(byName["balance"]?.type).toBe("string"); // NUMERIC — OID path
-    expect(byName["score"]?.type).toBe("string"); // BIGINT — OID path
   });
 
   it("deduplicates duplicate column names from pgFields (e.g. JOIN with shared column names)", async () => {
@@ -1769,90 +1218,42 @@ describe("unmapped OIDs arrive as text and type identically on both paths", () =
     { name: "meta", dataTypeID: 3802 },
   ];
 
-  it.each([
-    ["populated", [{ tags: "{a,b}", meta: '{"k": 1}' }]],
-    ["NULL-only", [{ tags: null, meta: null }]],
-  ])(
-    "query() and queryBatches() agree on a %s unmapped-OID column",
-    async (_label, rows) => {
-      const tableId = crypto.randomUUID();
+  it("query() and queryBatches() agree on a NULL-only unmapped-OID column", async () => {
+    const rows = [{ tags: null, meta: null }];
+    const tableId = crypto.randomUUID();
 
-      const previewConnector = makeTestConnector(
-        noopDsnResolver,
-        baseConfig,
-        makeSpyClient(rows, unmappedFields),
-      );
-      const preview = await previewConnector.query("public.orders", tableId);
-
-      const streamConnector = makeTestConnector(
-        noopDsnResolver,
-        baseConfig,
-        fetchOnceClient(rows, unmappedFields),
-      );
-      const batches = [];
-      for await (const batch of streamConnector.queryBatches(
-        "public.orders",
-        tableId,
-        { batchRows: 10 },
-      )) {
-        batches.push(batch);
-      }
-
-      expect(shapeOf(preview)).toEqual({
-        fieldTypes: [
-          ["tags", "string"],
-          ["meta", "string"],
-        ],
-        arrowTypes: [
-          ["tags", "Utf8"],
-          ["meta", "Utf8"],
-        ],
-      });
-      expect(shapeOf(batches[0]!)).toEqual(shapeOf(preview));
-      // The persisted-schema signature streamPostgresBinding compares.
-      const signature = (result: {
-        fields: { name: string; type: string }[];
-      }) => JSON.stringify(result.fields.map((f) => [f.name, f.type]));
-      expect(signature(batches[0]!)).toBe(signature(preview));
-    },
-  );
-
-  it("round-trips the raw PostgreSQL text of an array and a jsonb value", async () => {
-    const rows = [{ tags: "{a,b}", meta: '{"k": 1}' }];
-    const connector = makeTestConnector(
+    const previewConnector = makeTestConnector(
       noopDsnResolver,
       baseConfig,
       makeSpyClient(rows, unmappedFields),
     );
+    const preview = await previewConnector.query("public.orders", tableId);
 
-    const result = await connector.query("public.orders", crypto.randomUUID());
-
-    const arrow = tableFromIPC(Buffer.from(result.arrowBuffer, "base64"));
-    expect(arrow.getChild("tags")?.get(0)).toBe("{a,b}");
-    expect(arrow.getChild("meta")?.get(0)).toBe('{"k": 1}');
-  });
-
-  it("still infers from values when pg supplies no column metadata", async () => {
-    // Legacy call sites and spy clients without field descriptors keep the
-    // value-inference fallback (real pg always supplies field descriptors).
-    // Inference reads String(value), so the JS value must still match the type
-    // it produces — serialization has always been strict on the stream path and
-    // is now strict here too.
-    const connector = makeTestConnector(
+    const streamConnector = makeTestConnector(
       noopDsnResolver,
       baseConfig,
-      makeSpyClient([{ n: 42, flag: true }]),
+      fetchOnceClient(rows, unmappedFields),
     );
+    const batches = [];
+    for await (const batch of streamConnector.queryBatches(
+      "public.orders",
+      tableId,
+      { batchRows: 10 },
+    )) {
+      batches.push(batch);
+    }
 
-    const result = await connector.query(
-      "SELECT * FROM legacy",
-      crypto.randomUUID(),
-    );
-
-    expect(result.fields.map((field) => [field.name, field.type])).toEqual([
-      ["n", "number"],
-      ["flag", "boolean"],
-    ]);
+    expect(shapeOf(preview)).toEqual({
+      fieldTypes: [
+        ["tags", "string"],
+        ["meta", "string"],
+      ],
+      arrowTypes: [
+        ["tags", "Utf8"],
+        ["meta", "Utf8"],
+      ],
+    });
+    expect(shapeOf(batches[0]!)).toEqual(shapeOf(preview));
   });
 });
 

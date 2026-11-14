@@ -5,3 +5,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # init and analyze are one action released together; a PR that bumps only
+      # one of them fails CodeQL on the version mismatch.
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"

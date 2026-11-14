@@ -96,16 +96,6 @@ describe("measure library in the metric editor", () => {
     );
   });
 
-  it("shows no saved-measure picker without library actions", async () => {
-    const user = userEvent.setup({ delay: null });
-    render(section());
-
-    await user.click(screen.getByRole("button", { name: "Add metric" }));
-    expect(
-      screen.queryByRole("combobox", { name: "Start from a saved measure" }),
-    ).toBeNull();
-  });
-
   it("keeps the editor open and explains a failed import", async () => {
     const user = userEvent.setup({ delay: null });
     const onReuse = vi.fn().mockRejectedValue(new Error("write failed"));

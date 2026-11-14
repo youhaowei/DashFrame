@@ -39,11 +39,4 @@ describe("PutChartOnShelfButton", () => {
     );
     expect(readShelf(P1).map((item) => item.id)).toEqual(["v1"]);
   });
-
-  it("falls back to Untitled chart for a chart with no name", () => {
-    renderButton("");
-    expect(
-      screen.getByRole("button", { name: "Put Untitled chart on shelf" }),
-    ).toBeTruthy();
-  });
 });

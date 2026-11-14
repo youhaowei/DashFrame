@@ -14,7 +14,6 @@ This package provides:
 
 - `jsonToDataFrame()` - Convert JSON data to Arrow IPC with type inference
 - `flattenObject()` / `flattenObjectArray()` - Flatten nested JSON to dot-notation
-- `unflattenObject()` - Reverse flattening operation
 
 **Features:**
 
@@ -57,16 +56,6 @@ flattenObjectArray([
 // [{ "user.name": "Alice", "user.age": null }, { "user.name": "Bob", "user.age": 25 }]
 ```
 
-### Flatten Options
-
-```typescript
-flattenObject(data, {
-  maxDepth: 2, // Limit nesting depth
-  separator: "_", // Use underscore: user_name
-  arrayHandling: "stringify", // Arrays become JSON strings
-});
-```
-
 ## Type Inference
 
 | Sample Value    | Inferred Type |
@@ -92,8 +81,6 @@ export {
   flattenObject,
   flattenObjectArray,
   extractKeys,
-  unflattenObject,
-  type FlattenOptions,
   type FlattenedObject,
   type JsonValue,
   type JsonPrimitive,

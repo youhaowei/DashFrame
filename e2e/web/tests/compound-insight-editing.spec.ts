@@ -149,29 +149,6 @@ test.describe("compound-insight field/metric editing", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // addMetric: definition.metrics grows from [] to [{ aggregation: "count" }]
-  // ---------------------------------------------------------------------------
-  test("addMetric: adding a Count metric adds it to the Metrics section", async ({
-    page,
-  }) => {
-    await openSection(page, "Metrics");
-    // Initial: no metric chips, only the add row.
-    await expect(page.getByRole("button", { name: /^Edit / })).toHaveCount(0);
-
-    await addCountMetric(page);
-
-    // Reload the page to get fresh server state — confirms server persisted correctly
-    await page.reload();
-    await openSection(page, "Metrics");
-
-    // Observable: the "Count" chip appears, confirming
-    // definition.metrics = [{ name: "Count", aggregation: "count" }].
-    await expect(page.getByRole("button", { name: "Edit Count" })).toBeVisible({
-      timeout: 15_000,
-    });
-  });
-
-  // ---------------------------------------------------------------------------
   // Full compound path: all five mutations in sequence
   // Proves the atomic metadata update chain is correct at runtime,
   // not just at typecheck. Each step asserts an observable state change.
@@ -191,6 +168,8 @@ test.describe("compound-insight field/metric editing", () => {
     ).toBeVisible({ timeout: 15_000 });
 
     // ── 2. addMetric ────────────────────────────────────────────────────────
+    // definition.metrics grows from [] to [{ name: "Count", aggregation: "count" }].
+    await expectMetricSaved("Count", false);
     await addCountMetric(page);
     await page.reload();
     await openSection(page, "Metrics");

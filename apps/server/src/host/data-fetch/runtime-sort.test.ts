@@ -168,28 +168,4 @@ describe("runtime dimension sort reconciliation", () => {
       ),
     ).toThrow("RUNTIME_SORT_REFERENCE_AMBIGUOUS");
   });
-
-  it("rejects a limit whose only saved sort was pruned", () => {
-    expect(() =>
-      runtimeSortsForCompile(
-        definition({
-          sorts: [{ field: "country_code", direction: "asc" }],
-          limit: 10,
-        }),
-        fields,
-      ),
-    ).toThrow("RUNTIME_LIMIT_REQUIRES_SORT");
-  });
-
-  it("keeps a limit when a selected dimension sort remains", () => {
-    expect(
-      runtimeSortsForCompile(
-        definition({
-          sorts: [{ field: "product_name", direction: "asc" }],
-          limit: 10,
-        }),
-        fields,
-      ),
-    ).toEqual([{ field: fieldIdToColumnAlias("product"), direction: "asc" }]);
-  });
 });

@@ -2,6 +2,7 @@ import type {
   AxisType,
   ChannelTransform,
   EncodingValue,
+  EncodingValueChannel,
 } from "./encoding-helpers";
 import type { UUID } from "./uuid";
 
@@ -77,6 +78,13 @@ interface ChartTypeMetadata {
   description: string;
   /** Usage hint explaining when to use this chart type */
   hint: string;
+  /**
+   * The encoding channels this chart type draws. A saved encoding may still
+   * carry a channel its chart type leaves out, so switching back restores it,
+   * but that channel never reaches the marks: only a scatter sizes its points,
+   * and the density charts fill by their own count.
+   */
+  channels: readonly EncodingValueChannel[];
 }
 
 /**
@@ -87,6 +95,7 @@ interface ChartTypeMetadata {
  * - displayName: Human-readable name
  * - description: Short description
  * - hint: When to use this chart
+ * - channels: Encoding channels it draws
  */
 export const CHART_TYPE_METADATA: Record<VisualizationType, ChartTypeMetadata> =
   {
@@ -95,50 +104,67 @@ export const CHART_TYPE_METADATA: Record<VisualizationType, ChartTypeMetadata> =
       displayName: "Bar",
       description: "Vertical bars comparing values",
       hint: "Compare values across categories or show trends over time periods",
+      channels: ["x", "y", "color"],
     },
     barX: {
       tags: ["comparison"],
       displayName: "Horizontal bar",
       description: "Horizontal bars for ranking",
       hint: "Good for long category labels or ranking comparisons",
+      channels: ["x", "y", "color"],
     },
     line: {
       tags: ["trend"],
       displayName: "Line",
       description: "Connected points showing trends",
       hint: "Show how values change over time with continuous data",
+      channels: ["x", "y", "color"],
     },
     areaY: {
       tags: ["trend"],
       displayName: "Area",
       description: "Filled area emphasizing volume",
       hint: "Like line charts but emphasizes cumulative totals",
+      channels: ["x", "y", "color"],
     },
     dot: {
       tags: ["correlation"],
       displayName: "Scatter",
       description: "Individual points showing correlation",
       hint: "Explore relationships between two numeric variables (<5K points)",
+      channels: ["x", "y", "color", "size"],
     },
     hexbin: {
       tags: ["correlation", "distribution"],
       displayName: "Hexbin",
       description: "Density binning for large datasets",
       hint: "Aggregates points into hex cells by density (5K-100K points)",
+      channels: ["x", "y"],
     },
     heatmap: {
       tags: ["correlation", "distribution"],
       displayName: "Heatmap",
       description: "Smooth density visualization",
       hint: "Shows continuous density distribution for finding clusters",
+      channels: ["x", "y"],
     },
     raster: {
       tags: ["correlation"],
       displayName: "Raster",
       description: "Pixel aggregation for huge datasets",
       hint: "Fastest for massive datasets (100K+ points)",
+      channels: ["x", "y"],
     },
   };
+
+/** Whether a chart of this type draws the given encoding channel. */
+export function chartTypeDraws(
+  chartType: VisualizationType,
+  channel: EncodingValueChannel,
+): boolean {
+  // Optional: a saved chart may name a type this build no longer has.
+  return CHART_TYPE_METADATA[chartType]?.channels.includes(channel) ?? false;
+}
 
 /**
  * Column encoding for chart visualization.

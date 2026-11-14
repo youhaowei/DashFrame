@@ -122,7 +122,7 @@ export type {
   VisualizationType,
 } from "./visualizations";
 
-export { CHART_TYPE_METADATA } from "./visualizations";
+export { CHART_TYPE_METADATA, chartTypeDraws } from "./visualizations";
 
 // =============================================================================
 // Encoding Helpers
@@ -147,9 +147,6 @@ export {
   ENCODING_VALUE_FORMAT,
   fieldEncoding,
   isEncodingValue,
-  isFieldEncoding,
-  isMetricEncoding,
-  isValidEncoding,
   metricEncoding,
   parseEncoding,
   validateVisualizationEncoding,
@@ -178,7 +175,6 @@ export type {
   BooleanSemantic,
   ColumnAnalysis,
   ColumnAnalysisBase,
-  ColumnCategory,
   ColumnDataType,
   ColumnSemantic,
   DataFrameAnalysis,
@@ -201,12 +197,7 @@ export {
   localArrowSizeIsAllowed,
 } from "./local-file-limits";
 
-export {
-  CARDINALITY_THRESHOLDS,
-  getLegacyCategory,
-  looksLikeIdentifier,
-  stripSampleValues,
-} from "./column-analysis";
+export { CARDINALITY_THRESHOLDS, looksLikeIdentifier } from "./column-analysis";
 
 export {
   suggestSensitivityFromAnalysis,

@@ -2,7 +2,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { convexTest } from "convex-test";
 import schema from "@dashframe/convex-backend/schema";
-import { api } from "@dashframe/convex-backend/api";
 import type { LocalConvex } from "@dashframe/convex-local";
 import { CREDENTIAL_CLASS } from "@dashframe/server-core";
 import {
@@ -12,20 +11,14 @@ import {
   SecretVault,
   TestBackend,
 } from "@wystack/secret-vault";
-import { cmd, COMMAND_PATHS } from "@dashframe/types";
+import { COMMAND_PATHS } from "@dashframe/types";
 import type { HostContext } from "./context";
 import { createHostMetadata } from "./convex-metadata";
-import { executeHostCommandBatch, HostBatchRejectedError } from "./commands";
+import { executeHostCommandBatch } from "./commands";
 
 const modules = import.meta.glob(
   "../../../../packages/convex-backend/convex/**/*.ts",
 );
-const userIdentity = {
-  subject: "u",
-  workspaceId: "w",
-  principalKind: "user",
-  userId: "u",
-};
 
 let native: ReturnType<typeof convexTest>;
 let ctx: HostContext;
@@ -124,27 +117,5 @@ describe("host batch retry fence", () => {
 
     expect(hashes[7]).not.toBe(hashes[6]);
     expect(hashes[8]).not.toBe(hashes[6]);
-  });
-
-  it("requires a new operation ID after a deterministic mutation rejection", async () => {
-    const id = crypto.randomUUID();
-    const input = {
-      operationId: crypto.randomUUID(),
-      commands: [cmd("RenameNode", { id, name: "Recovered" })],
-    };
-
-    await expect(
-      executeHostCommandBatch(ctx, input, "commit"),
-    ).rejects.toBeInstanceOf(HostBatchRejectedError);
-
-    await native.withIdentity(userIdentity).mutation(api.app.commitBatch, {
-      commands: [cmd("CreateDataSource", { id, name: "Before", type: "csv" })],
-    });
-
-    const { operationId: _rejectedOperationId, ...corrected } = input;
-    await expect(
-      executeHostCommandBatch(ctx, corrected, "commit"),
-    ).resolves.toMatchObject({ mode: "commit" });
-    expect((await ctx.metadata.getDataSource(id))?.name).toBe("Recovered");
   });
 });

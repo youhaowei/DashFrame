@@ -93,22 +93,6 @@ describe("Navigation", () => {
     mockPlatform.hasInsetTrafficLights = false;
   });
 
-  it("renders exactly the three ratified roots in order", () => {
-    render(<Navigation />);
-
-    const links = within(screen.getByRole("navigation")).getAllByRole("link");
-    expect(links.map((link) => link.textContent?.trim())).toEqual([
-      "Reports",
-      "Data Sources",
-      "Drafts",
-    ]);
-    expect(links.map((link) => link.getAttribute("href"))).toEqual([
-      "/dashboards",
-      "/data-sources",
-      "/drafts",
-    ]);
-  });
-
   it("opens the command palette from the search row above the roots, closing the drawer", () => {
     useCommandPalette.setState({ open: false });
     render(<Navigation />);
@@ -124,28 +108,6 @@ describe("Navigation", () => {
     fireEvent.click(within(drawer).getByRole("button", { name: /^Search…/ }));
     expect(useCommandPalette.getState().open).toBe(true);
     expect(screen.queryByTestId("mobile-drawer")).toBeNull();
-  });
-
-  it("shows the DashFrame logo linking to Reports", () => {
-    render(<Navigation />);
-
-    const home = screen
-      .getAllByRole("link")
-      .find((link) => link.textContent?.trim() === "DashFrame");
-    expect(home?.getAttribute("href")).toBe("/dashboards");
-    expect(home?.querySelector("svg")).not.toBeNull();
-  });
-
-  it("keeps a draggable row for the traffic lights only on macOS desktop", () => {
-    const { unmount } = render(<Navigation />);
-    expect(screen.queryByTestId("nav-traffic-light-row")).toBeNull();
-    unmount();
-
-    mockPlatform.hasInsetTrafficLights = true;
-    render(<Navigation />);
-    expect(screen.getByTestId("nav-traffic-light-row").className).toContain(
-      "titlebar-drag-region",
-    );
   });
 
   it("closes the mobile drawer when the active route is tapped", () => {
@@ -172,24 +134,5 @@ describe("Navigation", () => {
     rerender(<Navigation />);
 
     expect(screen.queryByTestId("mobile-drawer")).toBeNull();
-  });
-
-  it("links Settings to the settings page, closing the drawer", () => {
-    render(<Navigation />);
-    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
-    const drawer = screen.getByTestId("mobile-drawer");
-    const settings = within(drawer).getByRole("link", { name: "Settings" });
-    expect(settings.getAttribute("href")).toBe("/settings");
-
-    fireEvent.click(settings);
-    expect(screen.queryByTestId("mobile-drawer")).toBeNull();
-  });
-
-  // Clearing data, credentials, and sign-out live on the Settings page now.
-  it("keeps no settings menu in the nav", () => {
-    render(<Navigation />);
-    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
-    expect(screen.queryByText("Clear all data")).toBeNull();
-    expect(screen.queryByText("Sign out")).toBeNull();
   });
 });

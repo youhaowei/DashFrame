@@ -41,6 +41,9 @@ const insight: Insight = {
   },
   createdAt: 0,
 };
+const fieldChoices: Insight["runtimeControls"] = {
+  dimensions: { allowedIds: ["date", "channel", "country"], maxSelected: 2 },
+};
 describe("report reader switchers", () => {
   beforeEach(() => vi.stubGlobal("PointerEvent", MouseEvent));
   afterEach(() => vi.unstubAllGlobals());
@@ -58,6 +61,80 @@ describe("report reader switchers", () => {
     );
     await waitFor(() =>
       expect(onChange).toHaveBeenCalledWith({ dimensions: [] }),
+    );
+  });
+
+  it("requires a field when the insight has no metrics to show alone", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onChange = vi.fn();
+    render(
+      <ReportSwitchers
+        insight={{ ...insight, metrics: [], runtimeControls: fieldChoices }}
+        fields={fields}
+        onChange={onChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Fields · 2 of 3" }));
+    expect(screen.getByText("Choose 1–2.")).toBeTruthy();
+    await user.click(screen.getByRole("checkbox", { name: "Month" }));
+    await user.click(screen.getByRole("checkbox", { name: "Channel" }));
+    const apply = screen.getByRole("button", { name: "Apply", exact: true });
+    expect(apply).toHaveProperty("disabled", true);
+    await user.click(apply);
+    expect(onChange).not.toHaveBeenCalled();
+
+    // One field is enough.
+    await user.click(screen.getByRole("checkbox", { name: "Country" }));
+    await user.click(apply);
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({ dimensions: ["country"] }),
+    );
+  });
+
+  it("asks for exactly one field when only one can show", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(
+      <ReportSwitchers
+        insight={{
+          ...insight,
+          selectedFields: ["channel"],
+          metrics: [],
+          runtimeControls: {
+            dimensions: { allowedIds: ["channel", "country"], maxSelected: 1 },
+          },
+        }}
+        fields={fields}
+        onChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Fields" }));
+    expect(screen.getByText("Choose 1.")).toBeTruthy();
+  });
+
+  it("lets a viewer hide every choice when a fixed field still shows", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onChange = vi.fn();
+    render(
+      <ReportSwitchers
+        insight={{
+          ...insight,
+          metrics: [],
+          runtimeControls: {
+            dimensions: { allowedIds: ["channel", "country"], maxSelected: 2 },
+          },
+        }}
+        fields={fields}
+        onChange={onChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Fields · 1 of 2" }));
+    expect(screen.queryByRole("checkbox", { name: "Month" })).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: "Channel" }));
+    await user.click(
+      screen.getByRole("button", { name: "Apply", exact: true }),
+    );
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({ dimensions: ["date"] }),
     );
   });
 
@@ -138,33 +215,6 @@ describe("report reader switchers", () => {
     );
     await waitFor(() =>
       expect(onChange).toHaveBeenCalledWith({ ...runtime, measures: ["rate"] }),
-    );
-  });
-  it("keeps fields the author didn't mark when a viewer changes the choice", async () => {
-    const user = userEvent.setup({ delay: null });
-    const onChange = vi.fn();
-    const partlyOpen: Insight = {
-      ...insight,
-      runtimeControls: {
-        dimensions: { allowedIds: ["channel", "country"], maxSelected: 2 },
-      },
-    };
-    render(
-      <ReportSwitchers
-        insight={partlyOpen}
-        fields={fields}
-        onChange={onChange}
-      />,
-    );
-    // Month is not a viewer choice, so it is neither offered nor counted.
-    await user.click(screen.getByRole("button", { name: "Fields · 1 of 2" }));
-    expect(screen.queryByRole("checkbox", { name: "Month" })).toBeNull();
-    await user.click(screen.getByRole("checkbox", { name: "Channel" }));
-    await user.click(
-      screen.getByRole("button", { name: "Apply", exact: true }),
-    );
-    await waitFor(() =>
-      expect(onChange).toHaveBeenCalledWith({ dimensions: ["date"] }),
     );
   });
   it("keeps author choices open when saving declarations fails", async () => {

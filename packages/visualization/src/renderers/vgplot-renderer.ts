@@ -30,6 +30,7 @@
 import type { RenderFunction } from "@observablehq/plot";
 import "./chart-styles.css";
 import { quoteIdentifier, formatMeasureValue } from "@dashframe/engine";
+import { chartTypeDraws } from "@dashframe/types";
 import type { ChartEncoding, VisualizationType } from "@dashframe/types";
 import type {
   ChartCleanup,
@@ -458,9 +459,7 @@ const COLOR_LEGEND_HEIGHT = 36;
 
 function hasColorLegend(type: VisualizationType, config: ChartConfig): boolean {
   return (
-    !config.preview &&
-    !!config.encoding.color &&
-    ["barY", "barX", "line", "areaY", "dot"].includes(type)
+    !config.preview && !!config.encoding.color && chartTypeDraws(type, "color")
   );
 }
 

@@ -24,6 +24,7 @@ Configure these values on the host:
 | `DASHFRAME_AUTH_ISSUER`            | HTTPS issuer trusted by the Convex deployment                                   |
 | `DASHFRAME_AUTH_PRIVATE_KEY`       | RSA runtime signing key; alternatively use `DASHFRAME_AUTH_PRIVATE_KEY_FILE`    |
 | `DASHFRAME_SECRET_KEY`             | Base64-encoded 32-byte vault key; alternatively use `DASHFRAME_SECRET_KEY_FILE` |
+| `DASHFRAME_MCP_OAUTH_ISSUER`       | Optional AuthKit issuer, such as `https://<authkit-domain>`; enables `/mcp`     |
 
 Allow `${DASHFRAME_PUBLIC_ORIGIN}/auth/callback` in the WorkOS application.
 Configure Convex for hosted mode with the corresponding runtime public JWKS
@@ -45,6 +46,20 @@ do not need these hosted settings.
 In the hosted app, open Settings, choose **Issue credential…** under Credentials, and copy the MCP connection URL. Issue a named credential and configure your MCP client to send it as a Bearer token. The URL includes the admitted workspace: `https://dashframe.dev/workspaces/<workspace-id>/mcp`.
 
 Hosted MCP is stateless HTTP. It does not use the local WebSocket endpoint. Each request verifies the credential and current workspace admission before opening query resources; revoking the credential denies subsequent requests. Local app connection details remain unchanged.
+
+### Sign in from Claude with OAuth
+
+With `DASHFRAME_MCP_OAUTH_ISSUER` set, `https://dashframe.dev/mcp` accepts AuthKit-issued OAuth access tokens. The URL is the same for every user: the token's WorkOS subject resolves to that user's admitted workspace. Without the variable, `/mcp` returns 503 and the metadata routes return 404.
+
+In the WorkOS dashboard for the environment the hosted app already uses for sign-in:
+
+1. Under Connect → Configuration, turn on Client ID Metadata Documents and Dynamic Client Registration.
+2. Add `${DASHFRAME_PUBLIC_ORIGIN}/mcp` as a Resource Indicator. Access tokens carry it as their audience; the server rejects any other audience.
+3. Set `DASHFRAME_MCP_OAUTH_ISSUER` to the AuthKit domain, exactly as it appears in the tokens' `iss`.
+
+An unauthenticated request gets a 401 whose `WWW-Authenticate` header points at `/.well-known/oauth-protected-resource/mcp`. Claude reads that metadata, signs the user in through AuthKit, and retries with the token. An account without admission gets 403.
+
+Each sign-in creates an agent grant for that user and OAuth client. The access token must name the client in `client_id` or `azp`; a token that names none is refused with 403, because one shared grant would let a single revocation lock out every agent the user connected. A grant can read and draft but not publish, the same limits as a named credential. Revoking a grant denies the next request and every later one, including requests with refreshed tokens, which get 403 rather than another sign-in challenge. The owner lists and revokes grants through the `listAgentGrants` and `revokeAgentGrant` host operations; Settings does not show them yet. Reconnecting a revoked client is not supported yet.
 
 ## Vault key rotation
 

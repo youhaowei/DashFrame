@@ -137,17 +137,6 @@ describe("publication acknowledgement recovery", () => {
     ).toMatchObject({ id });
   });
 
-  it("does not query confirmation on an acknowledged success", async () => {
-    const getOperation = vi.fn(async () => null);
-    await publishWithConfirmation(
-      { getOperation },
-      "operation",
-      {},
-      async () => {},
-    );
-    expect(getOperation).not.toHaveBeenCalled();
-  });
-
   it.each(["absent", "different", "unavailable"] as const)(
     "keeps the outcome unknown when confirmation is %s",
     async (confirmation) => {

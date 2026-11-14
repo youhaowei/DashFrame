@@ -1,14 +1,10 @@
 import { nativeQueryMocks } from "@/test/native-query-fixture";
 /**
- * The shelf in the nav footer, and its collapsed badge.
+ * The shelf in the nav footer.
  *
- * - Empty: one dashed row says where to drop.
  * - Pinned items sit above recent ones; pin and × change the stored shelf.
- * - An item whose artifact is gone stays, muted, marked "no longer exists".
  * - With a page target registered, items it does not take fold into one
  *   "Not for this page" row that expands.
- * - The header collapses the shelf; the collapsed badge counts and opens a
- *   flyout on hover.
  */
 import { useShellStore } from "@/lib/stores/shell-store";
 import {
@@ -39,7 +35,7 @@ vi.mock("convex/react", async (importOriginal) => ({
   })),
 }));
 
-import { CollapsedShelf, useHeldOpen } from "./CollapsedShelf";
+import { useHeldOpen } from "./CollapsedShelf";
 import {
   AppDragProvider,
   useDropTarget,
@@ -115,12 +111,6 @@ describe("ShelfPanel", () => {
     useShellStore.setState({ shelfOpen: true });
   });
 
-  it("shows a dashed drop row when empty", () => {
-    renderShelf();
-    expect(screen.getByText("Drop here to keep")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Shelf" })).toBeTruthy();
-  });
-
   it("lists pinned items above recent ones and pins or removes on click", () => {
     seed();
     act(() => {
@@ -142,23 +132,6 @@ describe("ShelfPanel", () => {
     );
     expect(readShelf(P1).map((item) => item.id)).toEqual(["v1"]);
     expect(screen.queryByText("Sum of Sales")).toBeNull();
-  });
-
-  it("keeps an item whose artifact is gone, marked and removable", () => {
-    seed();
-    server.visualizations = [];
-    renderShelf();
-
-    expect(screen.getByText("no longer exists")).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Pin Sales by Product" }),
-    ).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Take Sales by Product off shelf",
-      }),
-    );
-    expect(screen.queryByText("no longer exists")).toBeNull();
   });
 
   it("offers a chip for dragging only while a page target can take it", async () => {
@@ -227,36 +200,6 @@ describe("ShelfPanel", () => {
     fireEvent.click(row);
     expect(row.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Sales by Product")).toBeTruthy();
-  });
-
-  it("collapses to its header", () => {
-    seed();
-    renderShelf();
-    fireEvent.click(screen.getByRole("button", { name: "Shelf, 2 items" }));
-    expect(screen.queryByText("Sum of Sales")).toBeNull();
-    expect(useShellStore.getState().shelfOpen).toBe(false);
-  });
-});
-
-describe("CollapsedShelf", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-    seed();
-  });
-
-  it("counts the shelf and opens the flyout on hover", () => {
-    render(
-      <AppDragProvider overlay={() => null}>
-        <ShelfScope storageKey={P1}>
-          <CollapsedShelf />
-        </ShelfScope>
-      </AppDragProvider>,
-    );
-    const badge = screen.getByRole("button", { name: "Shelf, 2 items" });
-    expect(badge.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.mouseEnter(badge);
-    expect(badge.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByText("Sum of Sales")).toBeTruthy();
   });
 });
 

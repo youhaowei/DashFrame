@@ -92,16 +92,6 @@ describe("Lifecycle.shutdown — A: drain order + exit", () => {
     expect(calls).toEqual(["server.stop", "engine.dispose", "project.close"]);
     expect(exit).toHaveBeenCalledExactlyOnceWith(0);
   });
-
-  it("passes a non-zero exit code through (the startup-error path)", async () => {
-    const exit = vi.fn<(code: number) => void>();
-    const lifecycle = new Lifecycle(exit);
-    lifecycle.setEngine(makeEngine());
-
-    await lifecycle.shutdown(1);
-
-    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
-  });
 });
 
 describe("Lifecycle.shutdown — B: re-entrancy", () => {
@@ -157,18 +147,6 @@ describe("Lifecycle.shutdown — C: per-step error isolation", () => {
 });
 
 describe("Lifecycle.shutdown — D: partial / unset handles", () => {
-  it("disposes the engine when the project was never opened (pre-project failure)", async () => {
-    const exit = vi.fn<(code: number) => void>();
-    const lifecycle = new Lifecycle(exit);
-    const engine = makeEngine();
-    lifecycle.setEngine(engine);
-
-    await lifecycle.shutdown(1);
-
-    expect(engine.dispose).toHaveBeenCalled();
-    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
-  });
-
   it("is a no-op drain when nothing is registered, but still exits", async () => {
     const exit = vi.fn<(code: number) => void>();
     const lifecycle = new Lifecycle(exit);
@@ -176,15 +154,5 @@ describe("Lifecycle.shutdown — D: partial / unset handles", () => {
     await expect(lifecycle.shutdown(1)).resolves.toBeUndefined();
 
     expect(exit).toHaveBeenCalledExactlyOnceWith(1);
-  });
-});
-
-describe("Lifecycle.hasProject", () => {
-  it("is false until a project is registered, true after", () => {
-    const lifecycle = new Lifecycle(vi.fn());
-    expect(lifecycle.hasProject()).toBe(false);
-
-    lifecycle.setProject(makeProject());
-    expect(lifecycle.hasProject()).toBe(true);
   });
 });

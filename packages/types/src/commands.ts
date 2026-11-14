@@ -278,7 +278,12 @@ export interface CommandPayloads {
   };
   // Cross-cutting
   RenameNode: { id: UUID; name: string };
-  DeleteNode: { id: UUID };
+  /**
+   * `ifUnused` deletes the node only when nothing else is built on it, judged
+   * when the batch commits. A node in use is kept and the result names what
+   * uses it; the command still succeeds.
+   */
+  DeleteNode: { id: UUID; ifUnused?: boolean };
 }
 
 export type CommandName = keyof CommandPayloads;

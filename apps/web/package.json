@@ -15,7 +15,6 @@
     "@tanstack/react-form": "^1.0.0",
     "@tanstack/react-query": "^5.0.0",
     "@tanstack/react-router": "^1.169.2",
-    "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.12",
     "@uwdata/vgplot": "^0.21.1",
     "class-variance-authority": "^0.7.1",
@@ -72,5 +71,5 @@
     "test:coverage": "vp test run --coverage",
     "typecheck": "bunx tsc --noEmit"
   },
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

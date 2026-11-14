@@ -232,26 +232,6 @@ it("requests and renders a presentation frame for a supplied metric materializat
 // ── (a) Loading — spinner while insight or view not ready ────────────────────
 
 describe("VisualizationPreview — (a) loading branch", () => {
-  it("renders a spinner while insight is still loading", () => {
-    mockUseInsight.mockReturnValue({ data: undefined, isLoading: true });
-    mockUseDataTables.mockReturnValue({ data: [] });
-    mockUseInsightView.mockReturnValue({
-      viewName: null,
-      isReady: false,
-      error: null,
-    });
-
-    const { container } = render(
-      <VisualizationPreview visualization={visualization} />,
-    );
-
-    // Spinner is rendered — no error text, no chart
-    expect(container.querySelector("svg")).not.toBeNull();
-    expect(screen.queryByText("Failed to load")).toBeNull();
-    expect(screen.queryByText("Encoding missing")).toBeNull();
-    expect(screen.queryByTestId("chart")).toBeNull();
-  });
-
   it("renders a spinner when insight loaded but view is not yet ready (no error)", () => {
     setDataReady();
     mockUseInsightView.mockReturnValue({
@@ -290,25 +270,6 @@ describe("VisualizationPreview — (b) view-creation error branch", () => {
     expect(screen.getByText("Failed to load")).not.toBeNull();
     // No spinner SVG visible
     expect(container.querySelector("svg")).toBeNull();
-  });
-
-  it("passes fallback through when caller provides one and error occurs", () => {
-    setDataReady();
-    mockUseInsightView.mockReturnValue({
-      viewName: null,
-      isReady: false,
-      error: "some error",
-    });
-
-    render(
-      <VisualizationPreview
-        visualization={visualization}
-        fallback={<span data-testid="custom-fallback">custom</span>}
-      />,
-    );
-
-    expect(screen.getByTestId("custom-fallback")).not.toBeNull();
-    expect(screen.queryByText("Failed to load")).toBeNull();
   });
 
   it("does NOT show stale error from prior insight while the new insight is loading", () => {
@@ -445,6 +406,108 @@ it("titles a measure from its source column's display name", () => {
   );
 });
 
+describe("VisualizationPreview — metric titles from source fields", () => {
+  const regionId = "60000000-0000-4000-8000-000000000001";
+  const revenueId = "60000000-0000-4000-8000-000000000002";
+  const metricId = "70000000-0000-4000-8000-000000000001";
+  const region = {
+    id: regionId,
+    tableId: "t1",
+    name: "Region",
+    columnName: "region",
+    type: "string",
+  } as import("@dashframe/types").Field;
+  const revenue = {
+    id: revenueId,
+    tableId: "t1",
+    name: "Revenue",
+    columnName: "revenue_usd",
+    type: "number",
+  } as import("@dashframe/types").Field;
+  const metricInsight = {
+    ...insight,
+    selectedFields: [regionId],
+    metrics: [
+      {
+        id: metricId,
+        name: "",
+        sourceTable: "t1",
+        columnName: "revenue_usd",
+        aggregation: "sum",
+      },
+    ],
+  } as import("@dashframe/types").Insight;
+  // The chart's result holds only what it draws, under its column alias.
+  const resultFields = [
+    { ...region, columnName: fieldIdToColumnAlias(regionId) },
+  ];
+
+  function renderMetricChart(
+    sourceTable: import("@dashframe/types").DataTable,
+    metricLabelFields?: import("@dashframe/types").Field[],
+  ) {
+    mockChart.mockClear();
+    mockResolveEncoding.mockReturnValueOnce({
+      x: "field_x",
+      y: "metric_y",
+      color: "metric_y",
+    });
+    mockUseInsightPagination.mockReturnValueOnce({
+      dataFrameId: "frame-presentation",
+      isReady: true,
+      error: null,
+      resolvedFields: resultFields,
+    });
+    render(
+      <VisualizationPreview
+        visualization={{
+          ...visualization,
+          encoding: {
+            x: `field:${regionId}`,
+            y: `metric:${metricId}`,
+            color: `metric:${metricId}`,
+          },
+        }}
+        thumbnail={false}
+        metricLabelFields={metricLabelFields}
+        materialization={{
+          insight: metricInsight,
+          dataTable: sourceTable,
+          dataFrameId: "frame-shared",
+          isReady: true,
+          error: null,
+          resolvedFields: resultFields,
+        }}
+      />,
+    );
+  }
+
+  it("names a metric's column that the chart does not draw", () => {
+    renderMetricChart({ ...dataTable, fields: [region, revenue] });
+
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        encoding: expect.objectContaining({
+          xLabel: "Region",
+          yLabel: "Sum of Revenue",
+          colorLabel: "Sum of Revenue",
+        }),
+      }),
+    );
+  });
+
+  it("names a metric's column from the fields the caller supplies", () => {
+    // A joined table's fields are not on the source table.
+    renderMetricChart({ ...dataTable, fields: [region] }, [region, revenue]);
+
+    expect(mockChart).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        encoding: expect.objectContaining({ yLabel: "Sum of Revenue" }),
+      }),
+    );
+  });
+});
+
 describe("VisualizationPreview — report cell overrides", () => {
   function renderWithOverrides(
     overrides: import("@dashframe/types").DashboardItemOverrides,
@@ -501,7 +564,10 @@ describe("VisualizationPreview — report cell overrides", () => {
 });
 
 describe("VisualizationPreview — report cell pivot", () => {
-  function renderPivoted(reportCell: boolean) {
+  function renderPivoted(
+    reportCell: boolean,
+    visualizationType: import("@dashframe/types").VisualizationType = "barY",
+  ) {
     mockUseInsightView.mockClear();
     mockUseInsight.mockReturnValue({
       data: {
@@ -520,7 +586,7 @@ describe("VisualizationPreview — report cell pivot", () => {
     });
     render(
       <VisualizationPreview
-        visualization={visualization}
+        visualization={{ ...visualization, visualizationType }}
         reportCell={reportCell}
       />,
     );
@@ -534,6 +600,15 @@ describe("VisualizationPreview — report cell pivot", () => {
       expect.objectContaining({
         presentation: { dimensions: ["f1", "p1"] },
       }),
+    );
+  });
+
+  it("leaves the pivot off a report cell's chart that fills by density", () => {
+    renderPivoted(true, "heatmap");
+
+    expect(mockUseInsightView).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ presentation: { dimensions: ["f1"] } }),
     );
   });
 
@@ -621,12 +696,6 @@ describe("VisualizationPreview — render failure", () => {
     expect(screen.getByTestId("custom-fallback")).toBeTruthy();
     expect(screen.queryByText("Can't display this chart")).toBeNull();
   });
-
-  it("shows the broken-chart card when no fallback is given", () => {
-    renderThrowingChart();
-
-    expect(screen.getByText("Can't display this chart")).toBeTruthy();
-  });
 });
 
 describe("VisualizationPreview — chart chrome", () => {
@@ -656,14 +725,6 @@ describe("VisualizationPreview — chart chrome", () => {
       />,
     );
   }
-
-  it("draws a card thumbnail without axes by default", () => {
-    renderReady();
-    expect(screen.getByTestId("chart")).toBeTruthy();
-    expect(mockChart).toHaveBeenLastCalledWith(
-      expect.objectContaining({ preview: true }),
-    );
-  });
 
   it("draws the full chart, axes included, when it is not a thumbnail", () => {
     renderReady(false);

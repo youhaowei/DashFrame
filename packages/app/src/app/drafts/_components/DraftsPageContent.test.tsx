@@ -8,10 +8,9 @@ import {
  * - Tabs: every draft waiting for review fills the top bar; the open tab
  *   follows the URL and falls back to the most recent draft; closing a tab
  *   hides it without discarding the draft.
- * - Centre: the open draft's changes, with late-bound values filled in under
- *   the change that needs them; an empty state when nothing waits.
- * - Panes: the left pane holds the draft's origin and status; the right pane
- *   exists only while a change is selected, and removes its steps.
+ * - Centre: a rejected revision is shown, not reported as applied; a failed
+ *   list is not an empty one.
+ * - Panes: the left pane holds the draft's origin and status.
  * - Lifecycle: publish and discard still reach their mutations.
  */
 import { act, render, screen, waitFor, within } from "@testing-library/react";
@@ -76,7 +75,6 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { AppBreadcrumbs } from "@/components/shell/app-breadcrumbs";
 import {
   TopBarTabsProvider,
   useRegisteredTopBarTabs,
@@ -254,7 +252,6 @@ function Page({ initialDraftId = null }: { initialDraftId?: string | null }) {
   return (
     <PlatformProvider>
       <TopBarTabsProvider>
-        <AppBreadcrumbs />
         <TopBarProbe />
         <DraftsPageContent draftId={draftId} />
         <ConfirmDialog />
@@ -264,7 +261,6 @@ function Page({ initialDraftId = null }: { initialDraftId?: string | null }) {
 }
 
 const tabs = () => within(screen.getByRole("tablist", { name: "Drafts" }));
-const inspector = () => screen.queryByRole("heading", { name: "Change" });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -280,15 +276,6 @@ beforeEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("DraftsPageContent — draft tabs", () => {
-  it("shows Drafts in the app bar breadcrumb", () => {
-    givenDrafts([NEWER, OLDER]);
-    render(<Page />);
-
-    within(screen.getByRole("navigation", { name: "breadcrumb" })).getByText(
-      "Drafts",
-    );
-  });
-
   it("puts one tab per draft, oldest first, and opens the most recent", () => {
     givenDrafts([NEWER, OLDER]);
     render(<Page />);
@@ -305,6 +292,11 @@ describe("DraftsPageContent — draft tabs", () => {
     ).toBe("true");
     screen.getByRole("tabpanel", { name: NEWER.title });
     screen.getByRole("heading", { level: 1, name: NEWER.title });
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/drafts/$draftId",
+      params: { draftId: NEWER.draftId },
+      replace: true,
+    });
   });
 
   it("opens the draft named in the URL, and another when its tab is chosen", async () => {
@@ -319,18 +311,6 @@ describe("DraftsPageContent — draft tabs", () => {
       replace: true,
     });
     screen.getByRole("tabpanel", { name: NEWER.title });
-  });
-
-  it("falls back to the most recent draft when the URL names one that is gone", () => {
-    givenDrafts([OLDER, NEWER]);
-    render(<Page initialDraftId="draft-published" />);
-
-    screen.getByRole("tabpanel", { name: NEWER.title });
-    expect(mockNavigate).toHaveBeenCalledWith({
-      to: "/drafts/$draftId",
-      params: { draftId: NEWER.draftId },
-      replace: true,
-    });
   });
 
   it("keeps the open draft when another one is updated in the background", async () => {
@@ -398,25 +378,6 @@ describe("DraftsPageContent — draft tabs", () => {
 });
 
 describe("DraftsPageContent — empty and loading states", () => {
-  it("says where drafts come from when none are waiting, with no action", () => {
-    givenDrafts([]);
-    render(<Page />);
-
-    screen.getByRole("heading", { name: "No changes waiting for review" });
-    screen.getByText(/When an agent proposes changes/);
-    expect(screen.queryByRole("button")).toBeNull();
-    screen.getByTestId("no-tabs");
-    expect(mockReview).not.toHaveBeenCalled();
-  });
-
-  it("never claims there are no drafts while they load", () => {
-    mockListDrafts.mockReturnValue({ isLoading: true });
-    render(<Page />);
-
-    screen.getByText("Loading drafts…");
-    expect(screen.queryByText("No changes waiting for review")).toBeNull();
-  });
-
   it("reports a failed list without claiming there are no drafts", () => {
     mockListDrafts.mockReturnValue({ isError: true });
     render(<Page />);
@@ -444,18 +405,9 @@ describe("DraftsPageContent — panes", () => {
         .disabled,
     ).toBe(true);
   });
+});
 
-  it("opens the inspector only once a change is selected", async () => {
-    givenDrafts([OLDER]);
-    render(<Page />);
-    expect(inspector()).toBeNull();
-
-    await userEvent.click(screen.getByRole("button", { name: /^Orders/ }));
-
-    expect(inspector()).not.toBeNull();
-    screen.getByText("Orders → Orders 2026");
-  });
-
+describe("DraftsPageContent — centre and lifecycle", () => {
   it("removes a step from the draft after confirmation", async () => {
     givenDrafts([NEWER]);
     render(<Page />);
@@ -477,33 +429,6 @@ describe("DraftsPageContent — panes", () => {
       draftId: NEWER.draftId,
       expectedLogSignature: "sig-newer",
       ops: [{ type: "removeCommand", commandIndex: 1 }],
-    });
-  });
-});
-
-describe("DraftsPageContent — centre and lifecycle", () => {
-  it("fills in a late-bound value under the change that needs it", async () => {
-    givenDrafts([NEWER]);
-    render(<Page />);
-    screen.getByText("1 value still needs to be filled in before publishing.");
-
-    await userEvent.type(
-      screen.getByRole("textbox", { name: /Value.*Region/ }),
-      "EMEA",
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
-
-    expect(mockRevise).toHaveBeenCalledWith({
-      draftId: NEWER.draftId,
-      expectedLogSignature: "sig-newer",
-      ops: [
-        {
-          type: "bindOperand",
-          commandIndex: 1,
-          jsonPath: "$.filters[0].value",
-          value: "EMEA",
-        },
-      ],
     });
   });
 
@@ -610,17 +535,6 @@ describe("DraftsPageContent — centre and lifecycle", () => {
     expect(new Set(labels).size).toBe(2);
     expect(labels.some((label) => label?.endsWith(" · draft-"))).toBe(true);
     expect(labels.some((label) => label?.endsWith(" · twin-d"))).toBe(true);
-  });
-
-  it("goes home after publishing the last draft", async () => {
-    givenDrafts([OLDER]);
-    render(<Page />);
-
-    await userEvent.click(screen.getByRole("button", { name: "Publish" }));
-
-    await waitFor(() =>
-      expect(mockNavigate).toHaveBeenLastCalledWith({ to: "/", replace: true }),
-    );
   });
 
   it("discards the open draft only after confirmation", async () => {

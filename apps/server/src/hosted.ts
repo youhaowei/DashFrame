@@ -2,9 +2,17 @@ import { createHostedQueryRuntime } from "./host/hosted-query-runtime";
 import { mountHostedMcpRoutes } from "./host/hosted-mcp-routes";
 import { mountHostedBrowserRoutes } from "./host/hosted-browser-routes";
 import { createHostedServiceAccess } from "./host/hosted-service-access";
+import { createHostedAgentGrants } from "./host/hosted-agent-grants";
+import {
+  createAuthKitAccessTokenVerifier,
+  readHostedMcpOAuthConfig,
+  type AgentTokenVerifier,
+  type HostedMcpOAuthConfig,
+} from "./host/hosted-mcp-oauth";
 import path from "node:path";
 import { Hono } from "hono";
 import type {
+  HostedTokenIssuer,
   HostedUserTokenSource,
   HostedPrincipalTokenSource,
 } from "./host/hosted-token-issuer";
@@ -79,6 +87,11 @@ export async function startHostedServer(
     publicOrigin,
   });
   const admission = createHostedAdmissionService({ deploymentUrl, tokens });
+  const mcpOAuthConfig = readHostedMcpOAuthConfig(environment, publicOrigin);
+  const mcpOAuth = mcpOAuthConfig && {
+    config: mcpOAuthConfig,
+    verifier: createAuthKitAccessTokenVerifier(mcpOAuthConfig),
+  };
   const googleOAuth = readOptionalGoogleOAuthConfig(environment);
   const workerDirectory = "/opt/dashframe-query";
   const runtime = querySandboxNodeRuntime();
@@ -109,6 +122,7 @@ export async function startHostedServer(
     googleOAuth,
     open,
     authenticateCredential: open.authenticateCredential,
+    mcpOAuth,
     staticDirectory: path.resolve("apps/web/dist"),
     revision: environment.RAILWAY_GIT_COMMIT_SHA ?? null,
   });
@@ -133,7 +147,8 @@ export async function createHostedServerSurface(options: {
   deploymentUrl: string;
   session: ReturnType<typeof createHostedWorkOSSession>;
   admission: ReturnType<typeof createHostedAdmissionService>;
-  tokens: Parameters<typeof createHostedApplication>[0]["tokens"];
+  tokens: Parameters<typeof createHostedApplication>[0]["tokens"] &
+    Pick<HostedTokenIssuer, "agentGrant">;
   allowInsecureLoopbackForTests?: boolean;
   googleOAuth?: ReturnType<typeof readOptionalGoogleOAuthConfig>;
   open: (
@@ -144,6 +159,8 @@ export async function createHostedServerSurface(options: {
   authenticateCredential?: Awaited<
     ReturnType<typeof createHostedWorkspaceResourceFactory>
   >["authenticateCredential"];
+  /** AuthKit OAuth for the universal /mcp endpoint; absent leaves it off. */
+  mcpOAuth?: { config: HostedMcpOAuthConfig; verifier: AgentTokenVerifier };
   staticDirectory: string;
   revision: string | null;
 }) {
@@ -289,6 +306,15 @@ export async function createHostedServerSurface(options: {
     authenticateCredential: options.authenticateCredential,
     serviceAccess,
     withPrincipalContext,
+    oauth: options.mcpOAuth && {
+      ...options.mcpOAuth,
+      admission,
+      grants: createHostedAgentGrants({
+        deploymentUrl,
+        tokens,
+        allowInsecureLoopbackForTests: options.allowInsecureLoopbackForTests,
+      }),
+    },
   });
   mountHostedBrowserRoutes(app, {
     publicOrigin,

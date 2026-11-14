@@ -30,8 +30,15 @@ import { createHostedServerSurface } from "../hosted";
 import { NativeDuckDBEngine } from "@dashframe/engine-server";
 import { FileDataFrameStorage } from "@dashframe/engine-server/file-dataframe-storage";
 import { z } from "zod";
+import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
+import { Hono } from "hono";
+import { createAuthKitAccessTokenVerifier } from "./hosted-mcp-oauth";
+import { createHostedAgentGrants } from "./hosted-agent-grants";
+import { createHostedCredentialOwnership } from "./hosted-credential-ownership";
+import { mountHostedMcpRoutes } from "./hosted-mcp-routes";
 import { createHostedApplication } from "./hosted-application";
 import { createHostedServiceAccess } from "./hosted-service-access";
+import type { HostedTokenIssuer } from "./hosted-token-issuer";
 import { bindHostedMetadata } from "./bound-hosted-metadata";
 import { HostResourceCleanup } from "./resource-cleanup";
 import { createHostedSourceMetadata } from "./hosted-convex-source-operations";
@@ -683,7 +690,8 @@ it(
       });
       const applicationTokens: Parameters<
         typeof createHostedApplication
-      >[0]["tokens"] = {
+      >[0]["tokens"] &
+        Pick<HostedTokenIssuer, "agentGrant"> = {
         metadata: (source, workspaceId) => {
           return source.kind === "user"
             ? issued(userClaims(source.userId, workspaceId))
@@ -716,6 +724,11 @@ it(
           issued({
             ...userClaims(user.userId, workspaceId),
             purpose: "host-credentials",
+          }),
+        agentGrant: (user, workspaceId) =>
+          issued({
+            ...userClaims(user.userId, workspaceId),
+            purpose: "host-agent-grants",
           }),
       };
       const httpCredentials = new ApiAccessCredentials(
@@ -1118,6 +1131,202 @@ it(
     } finally {
       httpSurface?.closeConnections();
       await httpSurface?.closeResources();
+      await backend?.stop();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+it(
+  "serves an AuthKit-signed agent through a real grant and keeps a revoked grant refused",
+  { skip: process.env.DASHFRAME_CONVEX_INTEGRATION !== "1", timeout: 180_000 },
+  async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "dashframe-hosted-oauth-runtime-"),
+    );
+    const runtime = keys("runtime"),
+      operator = keys("operator");
+    let backend: LocalConvex | undefined;
+    try {
+      backend = await startLocalConvex({
+        projectDir: directory,
+        functionsDirectory,
+        auth: {
+          issuer: runtimeIssuer,
+          jwksDataUri: runtime.jwks,
+          audience: "dashframe",
+        },
+      });
+      await configureHosted(backend, directory, runtime, operator);
+      const operatorClient = new ConvexHttpClient(backend.url);
+      operatorClient.setAuth(
+        token(operator, {
+          iss: operatorIssuer,
+          aud: "dashframe-operator",
+          sub: "operator:test",
+          authority: "operator",
+        }),
+      );
+      await operatorClient.mutation(api.admission.grant, { subject: "a" });
+      const issued = (claims: Record<string, string>) => ({
+        token: token(runtime, claims),
+        expiresAt: Date.now() + 60_000,
+      });
+      const userClaims = (
+        subject: string,
+        workspaceId: string,
+        purpose: string,
+      ) => ({
+        sub: `user:${subject}`,
+        userId: subject,
+        principalKind: "user",
+        authority: "host",
+        purpose,
+        workspaceId,
+      });
+      // A local key pair stands in for AuthKit; everything after token
+      // verification runs against the real Convex backend.
+      const authKit = await generateKeyPair("RS256");
+      const oauthConfig = {
+        issuer: "https://authkit.invalid",
+        resource: "https://hosted-app.invalid/mcp",
+      };
+      const oauthKeys = createLocalJWKSet({
+        keys: [
+          {
+            ...(await exportJWK(authKit.publicKey)),
+            kid: "authkit",
+            alg: "RS256",
+          },
+        ],
+      });
+      const oauthToken = (subject: string, iat: number) =>
+        new SignJWT({
+          iss: oauthConfig.issuer,
+          aud: oauthConfig.resource,
+          sub: subject,
+          client_id: "claude",
+          iat,
+          exp: iat + 300,
+        })
+          .setProtectedHeader({ alg: "RS256", kid: "authkit" })
+          .sign(authKit.privateKey);
+      const served: {
+        workspaceId: string;
+        ownerId: string;
+        grantId: string;
+      }[] = [];
+      const app = new Hono();
+      mountHostedMcpRoutes(app, {
+        publicOrigin: "https://hosted-app.invalid",
+        serviceAccess: createHostedServiceAccess({
+          deploymentUrl: backend.url,
+          allowInsecureLoopbackForTests: true,
+          tokens: {
+            metadata: (source, workspaceId) =>
+              source.kind === "user"
+                ? issued(
+                    userClaims(source.userId, workspaceId, "host-metadata"),
+                  )
+                : issued({
+                    sub: `service:${source.credentialId}`,
+                    credentialId: source.credentialId,
+                    principalKind: "service",
+                    authority: "host",
+                    purpose: "host-metadata",
+                    workspaceId,
+                  }),
+          },
+        }),
+        withPrincipalContext: async (workspaceId, ownerId, source) => {
+          if (source.kind !== "service") throw new Error("Expected service");
+          served.push({ workspaceId, ownerId, grantId: source.credentialId });
+          return new Response("served");
+        },
+        oauth: {
+          config: oauthConfig,
+          verifier: createAuthKitAccessTokenVerifier(oauthConfig, oauthKeys),
+          admission: createHostedAdmissionService({
+            deploymentUrl: backend.url,
+            allowInsecureLoopbackForTests: true,
+            tokens: {
+              admission: (user) =>
+                issued({
+                  sub: `user:${user.userId}`,
+                  userId: user.userId,
+                  principalKind: "user",
+                  authority: "host",
+                }),
+            },
+          }),
+          grants: createHostedAgentGrants({
+            deploymentUrl: backend.url,
+            allowInsecureLoopbackForTests: true,
+            tokens: {
+              agentGrant: (user, workspaceId) =>
+                issued(
+                  userClaims(user.userId, workspaceId, "host-agent-grants"),
+                ),
+            },
+          }),
+        },
+      });
+      const call = async (bearer?: string) =>
+        app.request("https://hosted-app.invalid/mcp", {
+          method: "POST",
+          headers: bearer ? { Authorization: `Bearer ${bearer}` } : {},
+        });
+
+      const challenge = await call();
+      expect(challenge.status).toBe(401);
+      expect(challenge.headers.get("WWW-Authenticate")).toBe(
+        'Bearer resource_metadata="https://hosted-app.invalid/.well-known/oauth-protected-resource/mcp"',
+      );
+      const now = Math.floor(Date.now() / 1000);
+      expect((await call(await oauthToken("pending-user", now))).status).toBe(
+        403,
+      );
+      const first = await oauthToken("a", now - 10);
+      expect(await (await call(first)).text()).toBe("served");
+      const [binding] = served;
+      expect(binding).toMatchObject({ ownerId: "a" });
+
+      // The owner's host-side administration path, as Settings will call it.
+      const admin = createHostedCredentialOwnership({
+        deploymentUrl: backend.url,
+        allowInsecureLoopbackForTests: true,
+        getToken: async () =>
+          issued(userClaims("a", binding!.workspaceId, "host-credentials"))
+            .token,
+      });
+      expect(await admin.listAgentGrants()).toEqual([
+        expect.objectContaining({
+          grantId: binding!.grantId,
+          clientKey: "oauth:claude",
+          permissions: ["read", "draft"],
+          revokedAt: null,
+        }),
+      ]);
+      // The real backend redacts messages; a ConvexError's text is its data.
+      await expect(admin.revoke(binding!.grantId)).rejects.toMatchObject({
+        data: "Agent grants are not named credentials",
+      });
+      await admin.revokeAgentGrant(binding!.grantId);
+      // Live revocation: the cached binding fails the per-request service check.
+      const revoked = await call(first);
+      expect(revoked.status).toBe(401);
+      expect(revoked.headers.get("WWW-Authenticate")).toContain(
+        'error="invalid_token"',
+      );
+      expect(served).toHaveLength(1);
+
+      // A refreshed token for the same client stays refused, without a
+      // challenge that would loop it back through sign-in.
+      const refreshed = await call(await oauthToken("a", now + 5));
+      expect(refreshed.status).toBe(403);
+      expect(refreshed.headers.get("WWW-Authenticate")).toBeNull();
+      expect(served).toHaveLength(1);
+    } finally {
       await backend?.stop();
       await rm(directory, { recursive: true, force: true });
     }

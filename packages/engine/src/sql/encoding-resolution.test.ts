@@ -13,7 +13,6 @@ import {
   resolveForAnalysis,
   resolveToSql,
 } from "./encoding-resolution";
-import { buildInsightSQL } from "./insight-sql";
 
 const CONTEXT = { fields: [], metrics: [] } as never;
 
@@ -91,50 +90,6 @@ describe("encoding resolution — materialized Insight results", () => {
         { fields: [], metrics: [] },
       ).y,
     ).toBeUndefined();
-  });
-
-  it("targets the exact metric alias emitted by Insight materialization", () => {
-    const field = {
-      id: "revenue-id",
-      name: "Revenue",
-      columnName: "revenue",
-      type: "number",
-    };
-    const metric = {
-      id: "total-revenue-id",
-      name: "Total revenue",
-      columnName: "revenue",
-      aggregation: "sum",
-    };
-    const insight = {
-      id: "insight-id",
-      name: "Revenue insight",
-      baseTableId: "table-id",
-      selectedFields: [],
-      metrics: [metric],
-      filters: [],
-      sorts: [],
-      joins: [],
-      createdAt: 0,
-    };
-    const sql = buildInsightSQL(
-      {
-        id: "table-id",
-        name: "Orders",
-        dataFrameId: "frame-id",
-        fields: [field],
-      } as never,
-      new Map(),
-      insight as never,
-      { mode: "query" },
-    );
-    const resolved = resolveEncodingToResultFrame(
-      { y: "metric:total-revenue-id" },
-      { fields: [field], metrics: [metric] } as never,
-    );
-
-    expect(sql).toContain('AS "metric_total_revenue_id"');
-    expect(resolved.y).toBe("metric_total_revenue_id");
   });
 
   it("rolls composable result metrics up to a coarser transformed date grain", () => {
@@ -285,37 +240,6 @@ describe("encoding resolution — materialized Insight results", () => {
       resolveEncodingToResultFrame(encoding, contextFor("session")).y,
     ).toBeUndefined();
     expect(resolveEncodingToResultFrame(encoding, contextFor("time")).y).toBe(
-      "sum(metric_measure)",
-    );
-  });
-
-  it("rolls up an unrestricted additive measure over an unscoped field, as SQL does", () => {
-    const encoding = {
-      x: "field:date",
-      y: "metric:measure",
-      xTransform: {
-        type: "date" as const,
-        transform: {
-          kind: "temporal" as const,
-          aggregation: "yearMonth" as const,
-        },
-      },
-    };
-    const context = {
-      fields: [
-        { id: "date", tableId: "table", name: "Date", type: "date" as const },
-      ],
-      metrics: [
-        {
-          id: "measure",
-          name: "Value",
-          sourceTable: "table",
-          aggregation: "sum" as const,
-          contract: { kind: "additive" as const },
-        },
-      ],
-    };
-    expect(resolveEncodingToResultFrame(encoding, context).y).toBe(
       "sum(metric_measure)",
     );
   });

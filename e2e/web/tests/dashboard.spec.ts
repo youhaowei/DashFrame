@@ -13,6 +13,11 @@ test.describe("Reports", () => {
     await page.getByRole("link", { name: "Reports" }).click();
     await expect(page).toHaveURL(/\/dashboards/);
 
+    // Verify reports page loads (use exact match to avoid "No reports yet" heading)
+    await expect(
+      page.getByRole("heading", { name: "Reports", exact: true }),
+    ).toBeVisible();
+
     // Create new report - button text varies by collection state.
     const newReportButton = page.getByRole("button", { name: "New report" });
     const createReportButton = page.getByRole("button", {
@@ -37,22 +42,6 @@ test.describe("Reports", () => {
     // Verify report page loaded
     await expect(
       page.getByRole("heading", { name: "Test report" }),
-    ).toBeVisible();
-  });
-
-  test("navigate between reports list and detail", async ({
-    page,
-    homePage,
-  }) => {
-    await homePage();
-
-    // Navigate to reports
-    await page.getByRole("link", { name: "Reports" }).click();
-    await expect(page).toHaveURL(/\/dashboards/);
-
-    // Verify reports page loads (use exact match to avoid "No reports yet" heading)
-    await expect(
-      page.getByRole("heading", { name: "Reports", exact: true }),
     ).toBeVisible();
   });
 });

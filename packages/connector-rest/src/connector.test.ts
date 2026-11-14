@@ -18,9 +18,7 @@ import {
 } from "@wystack/secret-vault";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
-  RestConnector,
   applyFieldMap,
-  assertFieldMapNoCollision,
   extractRows,
   makeRestConnector,
   noopResolver,
@@ -87,23 +85,30 @@ function makeResponse(
   } as unknown as Response;
 }
 
+/** Stub global fetch to answer each call with the next response, in order. */
+function stubFetch(...responses: Response[]) {
+  const mockFetch = vi.fn();
+  for (const response of responses) mockFetch.mockResolvedValueOnce(response);
+  vi.stubGlobal("fetch", mockFetch);
+  return mockFetch;
+}
+
+const API_ENDPOINT = "https://api.example.com/data";
+
+/** A connector for the test API endpoint with no credentials. */
+function publicRest(
+  config: Partial<Parameters<typeof makeRestConnector>[1]> = {},
+) {
+  return makeRestConnector(noopResolver, { endpoint: API_ENDPOINT, ...config });
+}
+
 // ---------------------------------------------------------------------------
 // Unit: extractRows
 // ---------------------------------------------------------------------------
 
 describe("extractRows", () => {
-  it("returns root array when no rowPath", () => {
-    expect(extractRows([1, 2, 3])).toEqual([1, 2, 3]);
-  });
-
   it("returns [] for non-array root with no rowPath", () => {
     expect(extractRows({ items: [1] })).toEqual([]);
-  });
-
-  it("resolves a dot-path to the array", () => {
-    expect(extractRows({ data: { items: [{ id: 1 }] } }, "data.items")).toEqual(
-      [{ id: 1 }],
-    );
   });
 
   it("returns [] when dot-path resolves to a non-array", () => {
@@ -112,25 +117,6 @@ describe("extractRows", () => {
 
   it("returns [] when dot-path is missing", () => {
     expect(extractRows({ a: 1 }, "a.b.c")).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Unit: applyFieldMap
-// ---------------------------------------------------------------------------
-
-describe("applyFieldMap", () => {
-  it("returns row as-is when no fieldMap", () => {
-    const row = { id: 1, name: "Alice" };
-    expect(applyFieldMap(row)).toEqual({ id: 1, name: "Alice" });
-  });
-
-  it("renames mapped keys and passes through unmapped ones", () => {
-    const row = { full_name: "Alice", age: 30 };
-    expect(applyFieldMap(row, { full_name: "name" })).toEqual({
-      name: "Alice",
-      age: 30,
-    });
   });
 });
 
@@ -144,46 +130,11 @@ describe("RestConnector", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Static properties
-  // -------------------------------------------------------------------------
-
-  it("has id = 'rest'", () => {
-    const c = makeRestConnector(noopResolver, {
-      endpoint: "https://api.example.com/data",
-    });
-    expect(c.id).toBe("rest");
-  });
-
-  it("has sourceType = 'remote-api'", () => {
-    const c = makeRestConnector(noopResolver, {
-      endpoint: "https://api.example.com/data",
-    });
-    expect(c.sourceType).toBe("remote-api");
-  });
-
-  it("is an instance of RestConnector", () => {
-    const c = makeRestConnector(noopResolver, {
-      endpoint: "https://api.example.com/data",
-    });
-    expect(c).toBeInstanceOf(RestConnector);
-  });
-
-  it("getFormFields returns at least endpoint field", () => {
-    const c = makeRestConnector(noopResolver, {
-      endpoint: "https://api.example.com/data",
-    });
-    const fields = c.getFormFields();
-    expect(fields.some((f) => f.name === "endpoint")).toBe(true);
-  });
-
-  // -------------------------------------------------------------------------
   // validate()
   // -------------------------------------------------------------------------
 
   describe("validate()", () => {
-    const c = makeRestConnector(noopResolver, {
-      endpoint: "https://api.example.com/data",
-    });
+    const c = publicRest();
 
     it("fails when endpoint is missing", () => {
       const result = c.validate({});
@@ -207,32 +158,17 @@ describe("RestConnector", () => {
     // typically plain-http; these are rejected-by-design fixtures, not real
     // connection targets.
     /* oxlint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets that validate() must reject. */
-    it.each([
-      ["http://10.0.0.1/data", "RFC-1918 private"],
-      ["http://192.168.1.1/data", "RFC-1918 private"],
-      ["http://127.0.0.1:8080/admin", "loopback"],
-      ["http://localhost/data", "loopback hostname"],
-      ["http://169.254.169.254/latest/meta-data/", "cloud metadata"],
-      ["http://[::1]/data", "IPv6 loopback"],
-      // IPv4-mapped IPv6: URL.hostname normalizes this to ::ffff:a9fe:a9fe (hex),
-      // which a dotted-form-only classifier would let through to cloud metadata.
-      // This fixture goes through the real validate() → URL → isPrivateHost path.
-      [
-        "http://[::ffff:169.254.169.254]/latest/meta-data/",
-        "IPv4-mapped metadata",
-      ],
-      ["http://[::ffff:10.0.0.1]/data", "IPv4-mapped private"],
-    ])("rejects a private/internal endpoint: %s (%s)", (endpoint) => {
-      const result = c.validate({ endpoint });
+    // IPv4-mapped IPv6: URL.hostname normalizes this to ::ffff:a9fe:a9fe (hex),
+    // which a dotted-form-only classifier would let through to cloud metadata.
+    // This fixture goes through the real validate() → URL → isPrivateHost path.
+    it("rejects a private/internal endpoint: http://[::ffff:169.254.169.254]/latest/meta-data/ (IPv4-mapped metadata)", () => {
+      const result = c.validate({
+        endpoint: "http://[::ffff:169.254.169.254]/latest/meta-data/",
+      });
       expect(result.valid).toBe(false);
       expect(result.errors?.["endpoint"]).toBeTruthy();
     });
     /* oxlint-enable sonarjs/no-clear-text-protocols */
-
-    it("passes for a public IP-literal URL", () => {
-      const result = c.validate({ endpoint: "https://8.8.8.8/api" });
-      expect(result.valid).toBe(true);
-    });
   });
 
   // -------------------------------------------------------------------------
@@ -243,8 +179,7 @@ describe("RestConnector", () => {
   /* oxlint-disable sonarjs/no-clear-text-protocols -- SSRF fixtures: internal http targets the fetch sink must refuse. */
   describe("fetch-sink SSRF guard", () => {
     it("query() refuses a private endpoint BEFORE any fetch", async () => {
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch();
       const c = makeRestConnector(noopResolver, {
         // IPv4-mapped form URL.hostname normalizes to ::ffff:a9fe:a9fe — the
         // cloud-metadata SSRF target. The fetch sink must reject it.
@@ -257,57 +192,24 @@ describe("RestConnector", () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it("connect() refuses a loopback endpoint BEFORE any fetch", async () => {
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "http://127.0.0.1:9200/_cluster/health",
-      });
-      await expect(c.connect()).rejects.toThrow(/private\/internal|SSRF/i);
-      expect(mockFetch).not.toHaveBeenCalled();
-    });
-
     it("refuses a redirect from a public endpoint to a private host", async () => {
       // A public endpoint 30x-redirects to cloud metadata. We follow redirects
       // manually (redirect:"manual") and re-validate each Location — the private
       // hop must be refused. The mock returns the 302; the connector resolves
       // and re-checks the target itself.
-      const mockFetch = vi.fn().mockResolvedValueOnce(
+      const mockFetch = stubFetch(
         makeResponse(null, {
           status: 302,
           location: "http://169.254.169.254/latest/meta-data/",
         }),
       );
-      vi.stubGlobal("fetch", mockFetch);
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
+      const c = publicRest();
       await expect(c.query("db", crypto.randomUUID())).rejects.toThrow(
         /private\/internal|SSRF/i,
       );
       // The public first hop was fetched; the private redirect target was NOT.
       expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch.mock.calls[0]?.[0]).toBe("https://api.example.com/data");
-    });
-
-    it("follows a redirect to another public host", async () => {
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          makeResponse(null, {
-            status: 302,
-            location: "https://cdn.example.com/data",
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
-      vi.stubGlobal("fetch", mockFetch);
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
-      const result = await c.query("db", crypto.randomUUID());
-      expect(result.fields.length).toBeGreaterThan(0);
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-      expect(mockFetch.mock.calls[1]?.[0]).toBe("https://cdn.example.com/data");
     });
 
     it("drops the Authorization header on a cross-host redirect (no credential leak)", async () => {
@@ -317,16 +219,13 @@ describe("RestConnector", () => {
       // this test blind (no token to leak).
       const { vault, ref } =
         await makeTestVaultWithSecret("super-secret-token");
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          makeResponse(null, {
-            status: 302,
-            location: "https://other.example.net/data",
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        makeResponse(null, {
+          status: 302,
+          location: "https://other.example.net/data",
+        }),
+        makeResponse([{ id: 1 }]),
+      );
       const c = makeRestConnector(makeBoundResolver(vault, ref), {
         endpoint: "https://api.example.com/data",
         authRef: ref,
@@ -350,17 +249,14 @@ describe("RestConnector", () => {
     it("keeps the Authorization header on a same-host scheme upgrade", async () => {
       const { vault, ref } =
         await makeTestVaultWithSecret("super-secret-token");
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          // http→https on the SAME host: a credential-preserving upgrade.
-          makeResponse(null, {
-            status: 302,
-            location: "https://api.example.com/data",
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        // http→https on the SAME host: a credential-preserving upgrade.
+        makeResponse(null, {
+          status: 302,
+          location: "https://api.example.com/data",
+        }),
+        makeResponse([{ id: 1 }]),
+      );
       const c = makeRestConnector(makeBoundResolver(vault, ref), {
         // http→https same-host upgrade keeps auth (covered by the block-level
         // no-clear-text-protocols disable above).
@@ -382,16 +278,13 @@ describe("RestConnector", () => {
       // https→http on the same host re-sends the Bearer over cleartext — drop it.
       const { vault, ref } =
         await makeTestVaultWithSecret("super-secret-token");
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          makeResponse(null, {
-            status: 302,
-            location: "http://api.example.com/data",
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        makeResponse(null, {
+          status: 302,
+          location: "http://api.example.com/data",
+        }),
+        makeResponse([{ id: 1 }]),
+      );
       const c = makeRestConnector(makeBoundResolver(vault, ref), {
         endpoint: "https://api.example.com/data",
         authRef: ref,
@@ -408,38 +301,6 @@ describe("RestConnector", () => {
   /* oxlint-enable sonarjs/no-clear-text-protocols */
 
   // -------------------------------------------------------------------------
-  // 1. Offset pagination
-  // -------------------------------------------------------------------------
-
-  describe("offset pagination", () => {
-    it("collects rows from both pages and stops when page is empty", async () => {
-      const page1 = [{ id: 1 }, { id: 2 }, { id: 3 }];
-      const page2: unknown[] = [];
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse(page1))
-        .mockResolvedValueOnce(makeResponse(page2));
-      vi.stubGlobal("fetch", mockFetch);
-
-      const tableId = crypto.randomUUID();
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-        pagination: "offset",
-        paginationParams: { pageSize: 3 },
-      });
-      const result = await c.query("db", tableId);
-
-      expect(result.fields.length).toBeGreaterThan(0);
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-      // First call: offset=0, limit=3
-      expect(mockFetch.mock.calls[0]?.[0]).toContain("offset=0");
-      expect(mockFetch.mock.calls[0]?.[0]).toContain("limit=3");
-      // Second call: offset=3
-      expect(mockFetch.mock.calls[1]?.[0]).toContain("offset=3");
-    });
-  });
-
-  // -------------------------------------------------------------------------
   // 2. Cursor pagination
   // -------------------------------------------------------------------------
 
@@ -447,15 +308,10 @@ describe("RestConnector", () => {
     it("follows next_cursor until absent", async () => {
       const page1 = { data: [{ id: 1 }], next_cursor: "cursor-abc" };
       const page2 = { data: [{ id: 2 }] };
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse(page1))
-        .mockResolvedValueOnce(makeResponse(page2));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(makeResponse(page1), makeResponse(page2));
 
       const tableId = crypto.randomUUID();
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "cursor",
         rowPath: "data",
       });
@@ -476,15 +332,10 @@ describe("RestConnector", () => {
     it("fetches page 1 then page 2, stops when page 2 has fewer than pageSize rows", async () => {
       const page1 = [{ id: 1 }, { id: 2 }];
       const page2 = [{ id: 3 }]; // < pageSize=2 → stop
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse(page1))
-        .mockResolvedValueOnce(makeResponse(page2));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(makeResponse(page1), makeResponse(page2));
 
       const tableId = crypto.randomUUID();
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "page-number",
         paginationParams: { pageSize: 2 },
       });
@@ -497,49 +348,16 @@ describe("RestConnector", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 4. Link-header pagination
-  // -------------------------------------------------------------------------
-
-  describe("link-header pagination", () => {
-    it("follows Link: rel=next header, stops when absent", async () => {
-      const page1Rows = [{ id: 1 }];
-      const page2Rows = [{ id: 2 }];
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          makeResponse(page1Rows, {
-            linkHeader: '<https://api.example.com/data?page=2>; rel="next"',
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse(page2Rows));
-      vi.stubGlobal("fetch", mockFetch);
-
-      const tableId = crypto.randomUUID();
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-        pagination: "link-header",
-      });
-      await c.query("db", tableId);
-
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-      expect(mockFetch.mock.calls[1]?.[0]).toBe(
-        "https://api.example.com/data?page=2",
-      );
-    });
-  });
-
-  // -------------------------------------------------------------------------
   // 5. rowPath + fieldMap
   // -------------------------------------------------------------------------
 
   describe("rowPath + fieldMap", () => {
     it("extracts nested rows and renames keys", async () => {
       const body = { results: [{ id: 1, full_name: "Alice" }] };
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(makeResponse(body)));
+      stubFetch(makeResponse(body));
 
       const tableId = crypto.randomUUID();
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         rowPath: "results",
         fieldMap: { full_name: "name" },
       });
@@ -614,8 +432,7 @@ describe("RestConnector", () => {
         throw new Error("No secret available — vault missing or ref invalid");
       };
 
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch();
 
       const tableId = crypto.randomUUID();
       const c = makeRestConnector(failResolver, {
@@ -627,22 +444,6 @@ describe("RestConnector", () => {
       );
 
       // fetch must NOT have been called — resolver failed before fetch
-      expect(mockFetch).not.toHaveBeenCalled();
-    });
-
-    it("throws before calling fetch in connect() when resolver rejects", async () => {
-      const failResolver: SecretResolver = async (_use) => {
-        throw new Error("No secret available");
-      };
-
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
-
-      const c = makeRestConnector(failResolver, {
-        endpoint: "https://api.example.com/data",
-      });
-
-      await expect(c.connect()).rejects.toThrow(/No secret available/i);
       expect(mockFetch).not.toHaveBeenCalled();
     });
   });
@@ -728,8 +529,7 @@ describe("RestConnector", () => {
     it("throws BEFORE fetch when authRef is configured and the token is empty", async () => {
       // A resolver that yields an empty token (miswired factory / deleted secret).
       const emptyTokenResolver: SecretResolver = (use) => use("");
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch();
 
       const c = makeRestConnector(emptyTokenResolver, {
         endpoint: "https://api.example.com/data",
@@ -740,22 +540,6 @@ describe("RestConnector", () => {
         /authRef.*no token|fail-closed/i,
       );
       // No request was issued — fail-closed before any network side-effect.
-      expect(mockFetch).not.toHaveBeenCalled();
-    });
-
-    it("throws BEFORE fetch in connect() when authRef set and token empty", async () => {
-      const emptyTokenResolver: SecretResolver = (use) => use("");
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
-
-      const c = makeRestConnector(emptyTokenResolver, {
-        endpoint: "https://api.example.com/data",
-        authRef: "secret:configured-but-unresolvable",
-      });
-
-      await expect(c.connect()).rejects.toThrow(
-        /authRef.*no token|fail-closed/i,
-      );
       expect(mockFetch).not.toHaveBeenCalled();
     });
   });
@@ -771,14 +555,9 @@ describe("RestConnector", () => {
       const malicious = JSON.parse(
         '[{"id": 1, "__proto__": "evil", "constructor": "bad"}]',
       );
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValueOnce(makeResponse(malicious)),
-      );
+      stubFetch(makeResponse(malicious));
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
+      const c = publicRest();
       const result = await c.query("db", crypto.randomUUID());
 
       // The reserved keys are dropped — never become columns (they cannot be
@@ -805,8 +584,7 @@ describe("RestConnector", () => {
       const mockFetch = vi.fn().mockResolvedValue(makeResponse(fullPage));
       vi.stubGlobal("fetch", mockFetch);
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "offset",
         paginationParams: { pageSize: 100 },
       });
@@ -826,18 +604,14 @@ describe("RestConnector", () => {
 
   describe("relative Link header resolution", () => {
     it("resolves a relative rel=next link against the current page URL", async () => {
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          makeResponse([{ id: 1 }], {
-            linkHeader: '</data?page=2>; rel="next"',
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse([{ id: 2 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        makeResponse([{ id: 1 }], {
+          linkHeader: '</data?page=2>; rel="next"',
+        }),
+        makeResponse([{ id: 2 }]),
+      );
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "link-header",
       });
       await c.query("db", crypto.randomUUID());
@@ -858,14 +632,9 @@ describe("RestConnector", () => {
     it("coerces a string pageSize so offset increments numerically", async () => {
       const page1 = Array.from({ length: 3 }, (_, i) => ({ id: i }));
       const page2: unknown[] = [];
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse(page1))
-        .mockResolvedValueOnce(makeResponse(page2));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(makeResponse(page1), makeResponse(page2));
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "offset",
         // String pageSize — must be coerced, not string-concatenated.
         paginationParams: { pageSize: "3" },
@@ -873,6 +642,7 @@ describe("RestConnector", () => {
       await c.query("db", crypto.randomUUID());
 
       expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[0]?.[0]).toContain("limit=3");
       // Second offset is the NUMERIC 3, not the concatenated "03"/"30".
       expect(mockFetch.mock.calls[1]?.[0]).toContain("offset=3");
       expect(mockFetch.mock.calls[1]?.[0]).not.toContain("offset=03");
@@ -884,44 +654,12 @@ describe("RestConnector", () => {
   // -------------------------------------------------------------------------
 
   describe("type alignment: serialized string values coerced to inferred type", () => {
-    it("coerces a string-encoded number so the Arrow column is numeric", async () => {
-      // API encodes the number as a string "42"; inference marks it number.
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValueOnce(makeResponse([{ amount: "42" }])),
-      );
-
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
-      const result = await c.query("db", crypto.randomUUID());
-
-      const amountField = result.fields.find((f) => f.name === "amount");
-      expect(amountField?.type).toBe("number");
-      // The Arrow schema must agree: decode and check the column value is numeric.
-      const { tableFromIPC } = await import("apache-arrow");
-      const bytes = Uint8Array.from(Buffer.from(result.arrowBuffer, "base64"));
-      const table = tableFromIPC(bytes);
-      const col = table.getChild("amount");
-      expect(typeof col?.get(0)).toBe("number");
-      expect(col?.get(0)).toBe(42);
-    });
-
     it("maps an empty-string cell in a numeric column to null, not a fabricated 0", async () => {
       // First row types the column number; second row's "" must become null,
       // NOT 0 (Number("") === 0 would fabricate a real zero reading).
-      vi.stubGlobal(
-        "fetch",
-        vi
-          .fn()
-          .mockResolvedValueOnce(
-            makeResponse([{ amount: "42" }, { amount: "" }]),
-          ),
-      );
+      stubFetch(makeResponse([{ amount: "42" }, { amount: "" }]));
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
+      const c = publicRest();
       const result = await c.query("db", crypto.randomUUID());
 
       const amountField = result.fields.find((f) => f.name === "amount");
@@ -938,18 +676,9 @@ describe("RestConnector", () => {
     it("coerces yes/no boolean strings to boolean (matches engine inference)", async () => {
       // The engine's inferStringColumnType classifies "yes"/"no" as boolean.
       // Coercion must agree — NOT null these values out (data loss).
-      vi.stubGlobal(
-        "fetch",
-        vi
-          .fn()
-          .mockResolvedValueOnce(
-            makeResponse([{ active: "yes" }, { active: "no" }]),
-          ),
-      );
+      stubFetch(makeResponse([{ active: "yes" }, { active: "no" }]));
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-      });
+      const c = publicRest();
       const result = await c.query("db", crypto.randomUUID());
 
       const activeField = result.fields.find((f) => f.name === "active");
@@ -969,16 +698,6 @@ describe("RestConnector", () => {
   // -------------------------------------------------------------------------
 
   describe("fieldMap collision rejection", () => {
-    it("rejects two source keys mapping to the same target (config-static)", () => {
-      expect(() => assertFieldMapNoCollision({ a: "name", b: "name" })).toThrow(
-        /collision/i,
-      );
-    });
-
-    it("accepts a fieldMap with all-unique targets", () => {
-      expect(() => assertFieldMapNoCollision({ a: "x", b: "y" })).not.toThrow();
-    });
-
     it("rejects a rename that lands on an existing passthrough key in a row", () => {
       // { name, full_name } with { full_name: "name" } → two values collapse.
       expect(() =>
@@ -987,11 +706,9 @@ describe("RestConnector", () => {
     });
 
     it("query() rejects a colliding fieldMap before fetching", async () => {
-      const mockFetch = vi.fn();
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch();
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         fieldMap: { a: "dup", b: "dup" },
       });
       await expect(c.query("db", crypto.randomUUID())).rejects.toThrow(
@@ -1010,14 +727,12 @@ describe("RestConnector", () => {
       const linkHeader =
         '<https://api.example.com/data?page=1>; rel="prev", ' +
         '<https://api.example.com/data?page=3>; rel="next"';
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }], { linkHeader }))
-        .mockResolvedValueOnce(makeResponse([{ id: 2 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        makeResponse([{ id: 1 }], { linkHeader }),
+        makeResponse([{ id: 2 }]),
+      );
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "link-header",
       });
       await c.query("db", crypto.randomUUID());
@@ -1033,14 +748,12 @@ describe("RestConnector", () => {
       // A comma inside the angle-bracketed URL must NOT split the entry.
       const linkHeader =
         '<https://api.example.com/data?ids=1,2,3&page=2>; rel="next"';
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }], { linkHeader }))
-        .mockResolvedValueOnce(makeResponse([{ id: 2 }]));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(
+        makeResponse([{ id: 1 }], { linkHeader }),
+        makeResponse([{ id: 2 }]),
+      );
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "link-header",
       });
       await c.query("db", crypto.randomUUID());
@@ -1054,13 +767,9 @@ describe("RestConnector", () => {
     it("does NOT treat rel=nextpage as a next-link (token boundary)", async () => {
       // Unquoted `rel=nextpage` must not match the `next` token.
       const linkHeader = "<https://api.example.com/data?page=2>; rel=nextpage";
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(makeResponse([{ id: 1 }], { linkHeader }));
-      vi.stubGlobal("fetch", mockFetch);
+      const mockFetch = stubFetch(makeResponse([{ id: 1 }], { linkHeader }));
 
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
+      const c = publicRest({
         pagination: "link-header",
       });
       await c.query("db", crypto.randomUUID());

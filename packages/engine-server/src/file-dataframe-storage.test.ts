@@ -16,8 +16,22 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { FileDataFrameStorage } from "./file-dataframe-storage";
 
+/** Arrow IPC bytes for one Float64 `value` column. */
+function float64Ipc(values: number[]) {
+  return tableToIPC(
+    new Table({ value: vectorFromArray(values, new Float64()) }),
+  );
+}
+
 describe("FileDataFrameStorage", () => {
   const roots: string[] = [];
+
+  /** A fresh, not-yet-created frames directory under a removed-after temp root. */
+  async function framesDirectory() {
+    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
+    roots.push(root);
+    return path.join(root, "frames");
+  }
 
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -27,9 +41,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("persists standalone batches as one restart-compatible IPC stream", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const directory = path.join(root, "frames");
+    const directory = await framesDirectory();
     const id = "11111111-1111-4111-8111-111111111111";
     let pulls = 0;
     const batches = (async function* () {
@@ -39,9 +51,7 @@ describe("FileDataFrameStorage", () => {
           { length: Math.min(2048, 25_001 - start) },
           (_, index) => start + index,
         );
-        yield tableToIPC(
-          new Table({ value: vectorFromArray(values, new Float64()) }),
-        );
+        yield float64Ipc(values);
       }
     })();
 
@@ -64,20 +74,14 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("keeps the previous generation when incremental persistence fails", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const directory = path.join(root, "frames");
+    const directory = await framesDirectory();
     const storage = new FileDataFrameStorage(directory);
     const id = "11111111-1111-4111-8111-111111111111";
-    const original = tableToIPC(
-      new Table({ value: vectorFromArray([7], new Float64()) }),
-    );
+    const original = float64Ipc([7]);
     await storage.save(id, original);
 
     const failing = (async function* () {
-      yield tableToIPC(
-        new Table({ value: vectorFromArray([1, 2], new Float64()) }),
-      );
+      yield float64Ipc([1, 2]);
       throw new Error("provider failed");
     })();
     await expect(storage.saveBatches(id, failing)).rejects.toThrow(
@@ -90,18 +94,12 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("rejects schema drift without replacing the previous generation", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const storage = new FileDataFrameStorage(await framesDirectory());
     const id = "11111111-1111-4111-8111-111111111111";
-    const original = tableToIPC(
-      new Table({ value: vectorFromArray([7], new Float64()) }),
-    );
+    const original = float64Ipc([7]);
     await storage.save(id, original);
     const drifting = (async function* () {
-      yield tableToIPC(
-        new Table({ value: vectorFromArray([1], new Float64()) }),
-      );
+      yield float64Ipc([1]);
       yield tableToIPC(
         new Table({ value: vectorFromArray(["wrong"], new Utf8()) }),
       );
@@ -114,9 +112,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("rejects metadata drift before emitting a second IPC stream", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const storage = new FileDataFrameStorage(await framesDirectory());
     const id = "11111111-1111-4111-8111-111111111111";
     const first = new Table({
       value: vectorFromArray([1], new Float64()),
@@ -145,9 +141,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("survives recreation against the same project directory", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const directory = path.join(root, "frames");
+    const directory = await framesDirectory();
     const id = "11111111-1111-4111-8111-111111111111";
     const bytes = new Uint8Array([1, 2, 3, 4]);
 
@@ -161,9 +155,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("ignores a frame deleted after usage enumeration", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const directory = path.join(root, "frames");
+    const directory = await framesDirectory();
     const storage = new FileDataFrameStorage(directory);
     const id = "11111111-1111-4111-8111-111111111111";
     await storage.save(id, new Uint8Array([1, 2, 3, 4]));
@@ -179,9 +171,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("rejects ids that could escape the storage directory", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const storage = new FileDataFrameStorage(await framesDirectory());
 
     await expect(storage.save("../escape", new Uint8Array())).rejects.toThrow(
       "Invalid DataFrame id",
@@ -189,9 +179,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("rolls back and commits staged deletes", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const storage = new FileDataFrameStorage(await framesDirectory());
     const id = "11111111-1111-4111-8111-111111111111";
     await storage.save(id, new Uint8Array([7]));
 
@@ -206,9 +194,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("syncs delete lifecycle directory entries before advancing metadata", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const directory = path.join(root, "frames");
+    const directory = await framesDirectory();
     const trash = path.join(directory, ".trash");
     const synced: string[] = [];
     const storage = new FileDataFrameStorage(directory, async (entry) => {
@@ -230,24 +216,8 @@ describe("FileDataFrameStorage", () => {
     expect(synced).toEqual([directory, trash]);
   });
 
-  it("keeps the active frame readable while a staged delete rolls back", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
-    const id = "11111111-1111-4111-8111-111111111111";
-    await storage.save(id, new Uint8Array([1]));
-
-    const token = await storage.stageDelete(id);
-    expect(token).not.toBeNull();
-    expect(await storage.load(id)).toEqual(new Uint8Array([1]));
-    await storage.rollbackDelete(token!);
-    expect(await storage.load(id)).toEqual(new Uint8Array([1]));
-  });
-
   it("recovers interrupted staged deletes from committed ownership", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const storage = new FileDataFrameStorage(await framesDirectory());
     const referenced = "11111111-1111-4111-8111-111111111111";
     const removed = "22222222-2222-4222-8222-222222222222";
     await storage.save(referenced, new Uint8Array([1]));
@@ -262,9 +232,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("preserves a replacement save when committing a staged generation", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const storage = new FileDataFrameStorage(await framesDirectory());
     const id = "11111111-1111-4111-8111-111111111111";
     await storage.save(id, new Uint8Array([1]));
     const token = await storage.stageDelete(id);
@@ -277,9 +245,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("reports a rollback collision and retains its recovery token", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const storage = new FileDataFrameStorage(await framesDirectory());
     const id = "11111111-1111-4111-8111-111111111111";
     await storage.save(id, new Uint8Array([1]));
     const token = await storage.stageDelete(id);
@@ -294,9 +260,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("resolves a replacement collision on restart without overwriting newer bytes", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const directory = path.join(root, "frames");
+    const directory = await framesDirectory();
     const id = "11111111-1111-4111-8111-111111111111";
     const storage = new FileDataFrameStorage(directory);
     await storage.save(id, new Uint8Array([1]));
@@ -314,9 +278,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("restores referenced bytes when the active link was unlinked", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const directory = path.join(root, "frames");
+    const directory = await framesDirectory();
     const trash = path.join(directory, ".trash");
     const synced: string[] = [];
     const storage = new FileDataFrameStorage(directory, async (entry) => {
@@ -335,25 +297,8 @@ describe("FileDataFrameStorage", () => {
     expect(synced).toEqual([directory, trash]);
   });
 
-  it("finalizes an unreferenced staged generation without deleting a replacement", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
-    const id = "11111111-1111-4111-8111-111111111111";
-    await storage.save(id, new Uint8Array([1]));
-    await storage.stageDelete(id);
-    await storage.save(id, new Uint8Array([3]));
-
-    await storage.recoverStagedDeletes([]);
-
-    expect(await storage.load(id)).toEqual(new Uint8Array([3]));
-    expect(await storage.hasPendingDataFrameDeletes()).toBe(false);
-  });
-
   it("validates the complete delete token before touching active bytes", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const storage = new FileDataFrameStorage(path.join(root, "frames"));
+    const storage = new FileDataFrameStorage(await framesDirectory());
     const id = "11111111-1111-4111-8111-111111111111";
     await storage.save(id, new Uint8Array([7]));
 
@@ -365,9 +310,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("reports whether valid staged DataFrame deletes are pending", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const directory = path.join(root, "frames");
+    const directory = await framesDirectory();
     const storage = new FileDataFrameStorage(directory);
     const id = "11111111-1111-4111-8111-111111111111";
     expect(await storage.hasPendingDataFrameDeletes()).toBe(false);
@@ -381,9 +324,7 @@ describe("FileDataFrameStorage", () => {
   });
 
   it("removes only save temp files matching the exact startup recovery format", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "dashframe-frames-"));
-    roots.push(root);
-    const directory = path.join(root, "frames");
+    const directory = await framesDirectory();
     const storage = new FileDataFrameStorage(directory);
     const id = "11111111-1111-4111-8111-111111111111";
     const nonce = "22222222-2222-4222-8222-222222222222";

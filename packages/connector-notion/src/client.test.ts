@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   createNotionClient,
-  getDatabaseSchema,
   queryDatabase,
   type NotionTransportFetch,
 } from "./client";
@@ -25,18 +24,7 @@ function pendingFetch() {
 }
 
 describe("Notion transport cancellation", () => {
-  it.each([
-    [
-      "schema retrieval",
-      (client: ReturnType<typeof createNotionClient>, _signal: AbortSignal) =>
-        getDatabaseSchema(client, "database-id"),
-    ],
-    [
-      "database page query",
-      (client: ReturnType<typeof createNotionClient>, signal: AbortSignal) =>
-        queryDatabase(client, "database-id", { signal }),
-    ],
-  ])("aborts pending %s I/O", async (_name, request) => {
+  it("aborts pending database page query I/O", async () => {
     const controller = new AbortController();
     const { fetch, started } = pendingFetch();
     const client = createNotionClient("secret_test", {
@@ -44,7 +32,9 @@ describe("Notion transport cancellation", () => {
       fetch,
     });
 
-    const pending = request(client, controller.signal);
+    const pending = queryDatabase(client, "database-id", {
+      signal: controller.signal,
+    });
     await started;
     controller.abort(new Error("cancelled"));
 

@@ -1,10 +1,13 @@
 import { InsightWorkbench } from "@/components/insights/InsightWorkbench";
 import { PutChartOnShelfButton } from "@/components/shelf/sources";
+import { resolveInsightSourceDataTable } from "@/hooks/useInsightPagination";
 import {
   buildLandChartCommands,
   chartLanding,
   countReportsUsingChart,
+  deleteChartDescription,
   isReadyToLand,
+  planChartDeletion,
   reportsUsingChartLabel,
   useReportChartTabs,
   type ChartTab,
@@ -13,6 +16,7 @@ import {
   TABLE_CANVAS_VIEW,
   type InsightCanvasView,
 } from "@/lib/insights/canvas-view";
+import { useConfirmDialogStore } from "@/lib/stores";
 import { api } from "@dashframe/convex-backend/api";
 import {
   cmd,
@@ -21,8 +25,16 @@ import {
   type Insight,
   type Visualization,
 } from "@dashframe/types";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@wystack/ui-react";
+import { DeleteIcon, MoreIcon } from "@wystack/ui-react/icons";
 import { useMutation } from "convex/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 interface ReportChartTabProps {
@@ -35,14 +47,23 @@ interface ReportChartTabProps {
   /** The insights have loaded, so one missing from them is gone. */
   insightsLoaded: boolean;
   dataTables: readonly DataTable[];
+  /** The tables have loaded, so one missing from them is gone. */
+  dataTablesLoaded: boolean;
   /** A new chart's tile is now on the report. */
   onLanded: (tabId: string) => void;
 }
 
-function CentreMessage({ children }: { children: string }) {
+function CentreMessage({
+  children,
+  action,
+}: {
+  children: string;
+  action?: ReactNode;
+}) {
   return (
-    <div className="flex h-full items-center justify-center p-6">
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6">
       <p className="text-sm text-neutral-fg-subtle">{children}</p>
+      {action}
     </div>
   );
 }
@@ -83,6 +104,7 @@ export function ReportChartTab({
   insights,
   insightsLoaded,
   dataTables,
+  dataTablesLoaded,
   onLanded,
 }: ReportChartTabProps) {
   const visualization = tab.insightId
@@ -134,6 +156,14 @@ export function ReportChartTab({
       .finally(() => chartLanding.finish(tab.id));
   }, [commitBatch, dataTables, insight, onLanded, report, tab]);
 
+  const deleteChart = useDeleteChart({
+    chart: visualization,
+    reportId: report.id,
+    reports,
+    visualizations,
+    insights,
+  });
+
   const view = useMemo<InsightCanvasView>(
     () =>
       visualization
@@ -152,6 +182,11 @@ export function ReportChartTab({
       </CentreMessage>
     );
   }
+
+  const tableGone =
+    dataTablesLoaded &&
+    insightsLoaded &&
+    !resolveInsightSourceDataTable(insight, dataTables, insights);
 
   const usedIn = visualization
     ? reportsUsingChartLabel(countReportsUsingChart(reports, visualization.id))
@@ -176,7 +211,25 @@ export function ReportChartTab({
             }
       }
       missingTable={
-        <CentreMessage>
+        <CentreMessage
+          // A saved chart without its table can only be deleted, and the
+          // header that holds the menu is not shown here. The workbench also
+          // shows this while its own lists load, so the action waits for
+          // this tab's loaded lists to say the table is gone.
+          action={
+            visualization &&
+            tableGone && (
+              <Button
+                label="Delete chart"
+                icon={DeleteIcon}
+                variant="outline"
+                size="sm"
+                disabled={deleteChart.isDeleting}
+                onClick={deleteChart.request}
+              />
+            )
+          }
+        >
           This chart's table is gone. It may have been deleted.
         </CentreMessage>
       }
@@ -188,6 +241,7 @@ export function ReportChartTab({
               visualization={visualization}
             />
             <PutChartOnShelfButton chart={visualization} />
+            <ChartActions deleteChart={deleteChart} />
           </>
         ) : (
           <>
@@ -201,6 +255,138 @@ export function ReportChartTab({
         )
       }
     />
+  );
+}
+
+interface DeleteChart {
+  /** Asks for confirmation, then deletes the chart. */
+  request: () => void;
+  isDeleting: boolean;
+}
+
+/**
+ * Deleting a saved chart: its tiles on every report, the chart, and its
+ * insight when nothing else is built on it. Once the chart is gone the report
+ * stops showing its tab and opens in its place.
+ */
+function useDeleteChart(input: {
+  /** Undefined for a new chart, which has nothing saved to delete. */
+  chart: Visualization | undefined;
+  reportId: string;
+  reports: readonly Dashboard[];
+  visualizations: readonly Visualization[];
+  insights: readonly Insight[];
+}): DeleteChart {
+  const commitBatch = useMutation(api.app.commitBatch);
+  const confirm = useConfirmDialogStore((state) => state.confirm);
+  const [isDeleting, setIsDeleting] = useState(false);
+  // Read when the dialog opens and again when it is confirmed, which may be
+  // a while later.
+  const latest = useRef(input);
+  useEffect(() => {
+    latest.current = input;
+  });
+  // The dialog outlives this tab (it is the app's one confirm dialog), but
+  // only this tab knows what a confirm would remove: leaving closes it.
+  const asking = useRef(false);
+  useEffect(
+    () => () => {
+      if (asking.current) useConfirmDialogStore.getState().close();
+    },
+    [],
+  );
+
+  const ask = (changed: boolean) => {
+    const { chart } = latest.current;
+    if (!chart) return;
+    const plan = () => {
+      const { chart: _current, ...lists } = latest.current;
+      const deletion = planChartDeletion({ chart, ...lists });
+      return {
+        ...deletion,
+        description: deleteChartDescription(
+          chart.name || "Untitled chart",
+          deletion,
+        ),
+      };
+    };
+    const asked = plan().description;
+    confirm({
+      title: "Delete chart",
+      description: changed
+        ? `Where this chart is used changed while you were deciding. ${asked}`
+        : asked,
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onCancel: () => {
+        asking.current = false;
+      },
+      onConfirm: async () => {
+        asking.current = false;
+        const deletion = plan();
+        // What the dialog said no longer holds (a tile was placed, or another
+        // chart on the insight went): ask again, saying so, rather than
+        // remove more or less than the user agreed to.
+        if (deletion.description !== asked) {
+          ask(true);
+          return;
+        }
+        setIsDeleting(true);
+        try {
+          await commitBatch({ commands: deletion.commands });
+        } catch (error) {
+          console.error("[ReportChartTab] deleting the chart failed:", error);
+          toast.error("Couldn't delete the chart");
+          setIsDeleting(false);
+          return;
+        }
+        // Its tab is hidden once the chart is gone; drop the stored records.
+        const tabs = useReportChartTabs.getState();
+        for (const [openIn, open] of Object.entries(tabs.tabsByReport)) {
+          if (open.some((tab) => tab.id === chart.id)) {
+            tabs.close(openIn, chart.id);
+          }
+        }
+      },
+    });
+    // After `confirm`: opening cancels a dialog already open, this one's too.
+    asking.current = true;
+  };
+
+  return { request: () => ask(false), isDeleting };
+}
+
+/** The saved chart's overflow menu. */
+function ChartActions({ deleteChart }: { deleteChart: DeleteChart }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          // Sized like the shelf button beside it, so its focus ring fits the
+          // header's height.
+          <Button
+            label="More chart actions"
+            aria-label="More chart actions"
+            tooltip="More chart actions"
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6"
+            disabled={deleteChart.isDeleting}
+          >
+            <MoreIcon aria-hidden className="h-3.5 w-3.5" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={deleteChart.request}
+          className="text-palette-danger focus:text-palette-danger"
+        >
+          <DeleteIcon className="mr-2 h-4 w-4" />
+          Delete chart
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

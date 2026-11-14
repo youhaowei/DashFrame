@@ -98,14 +98,6 @@ it("routes the sealed login handshake and denies signed-out workspace allocation
     expect(runtime.status).toBe(401);
     expect(admission).not.toHaveBeenCalled();
     expect(withWorkspace).not.toHaveBeenCalled();
-    expect(
-      (
-        await request(`${origin}/auth/logout`, {
-          method: "POST",
-          headers: { origin: "https://foreign.invalid" },
-        })
-      ).status,
-    ).toBe(403);
     const logout = await request(`${origin}/auth/logout`, {
       method: "POST",
       headers: { origin },

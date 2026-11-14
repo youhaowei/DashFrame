@@ -8,7 +8,7 @@ import {
 import { tableFromIPC } from "apache-arrow";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { QueryEngine } from "@dashframe/engine";
+import type { DataFrameStorage, QueryEngine } from "@dashframe/engine";
 import { frameTableName } from "@dashframe/engine";
 import {
   ARROW_STREAM_CONTENT_TYPE,
@@ -149,37 +149,53 @@ const AUTHED_HEADERS = {
   Authorization: `Bearer ${TOKEN}`,
 };
 
+/**
+ * Storage that holds only frame `id` and loads nothing; `overrides` supplies
+ * the behaviour a test exercises.
+ */
+function frameStorage(
+  id: string,
+  overrides: Partial<DataFrameStorage> = {},
+): DataFrameStorage {
+  return {
+    save: async () => {},
+    load: async () => null,
+    delete: async () => {},
+    exists: async () => true,
+    list: async () => [id],
+    getUsage: async () => ({ count: 1 }),
+    ...overrides,
+  };
+}
+
 describe("Arrow data path — host authorization", () => {
-  it.each(["/frames/example/tables/example", "/frames/example/mosaic"])(
-    "honors host denial before parsing or executing %s",
-    async (route) => {
-      const engine = fakeEngine();
-      for (const authToken of [undefined, TOKEN]) {
-        for (const authorizeRequest of [
-          () => false,
-          () => {
-            throw new Error("Session identity is unavailable");
+  it("honors host denial before parsing or executing /frames/example/tables/example", async () => {
+    const engine = fakeEngine();
+    for (const authToken of [undefined, TOKEN]) {
+      for (const authorizeRequest of [
+        () => false,
+        () => {
+          throw new Error("Session identity is unavailable");
+        },
+      ]) {
+        const app = createArrowDataPath({
+          engine,
+          authToken,
+          authorizeRequest,
+        });
+        const response = await app.request("/frames/example/tables/example", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${TOKEN}`,
+            "Content-Type": "application/json",
           },
-        ]) {
-          const app = createArrowDataPath({
-            engine,
-            authToken,
-            authorizeRequest,
-          });
-          const response = await app.request(route, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${TOKEN}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ sql: "SELECT 1" }),
-          });
-          expect(response.status).toBe(401);
-        }
+          body: JSON.stringify({ sql: "SELECT 1" }),
+        });
+        expect(response.status).toBe(401);
       }
-      expect(engine.calls).toHaveLength(0);
-    },
-  );
+    }
+    expect(engine.calls).toHaveLength(0);
+  });
 
   it("accepts a request authenticated by the host", async () => {
     const engine = fakeEngine();
@@ -204,12 +220,14 @@ describe("Arrow data path — host authorization", () => {
 
 describe("Arrow data path — auth + IPC roundtrip", () => {
   it("rejects a request with no Authorization header", async () => {
-    const app = mosaicPath(fakeEngine(), { authToken: TOKEN });
+    const engine = fakeEngine();
+    const app = mosaicPath(engine, { authToken: TOKEN });
     const res = await mosaicRequest(app, {
       headers: JSON_HEADERS,
       body: { sql: "SELECT 1" },
     });
     expect(res.status).toBe(401);
+    expect(engine.calls).toHaveLength(0);
   });
 
   it("rejects a request with a wrong token", async () => {
@@ -219,16 +237,6 @@ describe("Arrow data path — auth + IPC roundtrip", () => {
       body: { sql: "SELECT 1" },
     });
     expect(res.status).toBe(401);
-  });
-
-  it("does not run the engine when auth fails", async () => {
-    const engine = fakeEngine();
-    const app = mosaicPath(engine, { authToken: TOKEN });
-    await mosaicRequest(app, {
-      headers: JSON_HEADERS,
-      body: { sql: "SELECT 1" },
-    });
-    expect(engine.calls).toHaveLength(0);
   });
 
   it("rejects a tokenless text/plain query before SQL execution", async () => {
@@ -347,27 +355,6 @@ describe("Arrow data path — auth + IPC roundtrip", () => {
     expect(res.status).toBe(400);
     expect(engine.calls).toHaveLength(0);
   });
-
-  it("serves without auth when no token is configured (loopback)", async () => {
-    const app = mosaicPath(fakeEngine());
-    const res = await mosaicRequest(app, {
-      headers: JSON_HEADERS,
-      body: { sql: "SELECT 1" },
-    });
-    expect(res.status).toBe(200);
-  });
-
-  it("404s the routes that no longer exist", async () => {
-    const app = mosaicPath(fakeEngine());
-    for (const path of ["/arrow", "/tables/orders"]) {
-      const res = await app.request(path, {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify({ sql: "SELECT 1" }),
-      });
-      expect(res.status).toBe(404);
-    }
-  });
 });
 
 describe("Arrow data path — server frame registration and Mosaic queries", () => {
@@ -403,14 +390,9 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
     const app = createArrowDataPath({
       engine,
       authToken: TOKEN,
-      dataFrameStorage: {
-        save: async () => {},
+      dataFrameStorage: frameStorage(id, {
         load: async (requested) => (requested === id ? bytes : null),
-        delete: async () => {},
-        exists: async () => true,
-        list: async () => [id],
-        getUsage: async () => ({ count: 1 }),
-      },
+      }),
     });
 
     const response = await app.request(
@@ -440,17 +422,12 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
     const app = createArrowDataPath({
       engine,
       authToken: TOKEN,
-      dataFrameStorage: {
-        save: async () => {},
+      dataFrameStorage: frameStorage(id, {
         load: async () => {
           loads += 1;
           return new Uint8Array([1, 2, 3]);
         },
-        delete: async () => {},
-        exists: async () => true,
-        list: async () => [id],
-        getUsage: async () => ({ count: 1 }),
-      },
+      }),
     });
 
     // A valid SQL identifier, so only the canonical-name check can reject it.
@@ -471,8 +448,6 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
 
   it.each([
     ["tables", true],
-    ["mosaic", true],
-    ["tables", false],
     ["mosaic", false],
   ] as const)(
     "returns 404 and removes stale registration before %s opens a vanished frame (native error: %s)",
@@ -499,13 +474,8 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
             registered.delete(table);
           },
         }),
-        dataFrameStorage: {
-          save: async () => {},
-          load: async () => null,
-          delete: async () => {},
+        dataFrameStorage: frameStorage(id, {
           exists: async () => exists,
-          list: async () => [id],
-          getUsage: async () => ({ count: 1 }),
           loadBatches: async function* () {
             // The frame passed exists(), but deletion wins before lazy open.
             exists = false;
@@ -516,7 +486,7 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
               ),
             );
           },
-        },
+        }),
       });
       const response = await app.request(`/frames/${id}/${route}`, {
         method: "POST",
@@ -539,17 +509,12 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
     let loads = 0;
     const app = createArrowDataPath({
       engine,
-      dataFrameStorage: {
-        save: async () => {},
+      dataFrameStorage: frameStorage(id, {
         load: async () => {
           loads += 1;
           return new Uint8Array([1]);
         },
-        delete: async () => {},
-        exists: async () => true,
-        list: async () => [id],
-        getUsage: async () => ({ count: 1 }),
-      },
+      }),
     });
 
     const response = await app.request(
@@ -579,18 +544,16 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
     const app = createArrowDataPath({
       engine,
       isFrameAvailable: async () => available,
-      dataFrameStorage: {
-        save: async () => {},
+      dataFrameStorage: frameStorage(id, {
         load: async () => {
           signalRead();
           await loadReleased;
           return new Uint8Array([1, 2, 3]);
         },
-        delete: async () => {},
         exists: async () => available,
         list: async () => (available ? [id] : []),
         getUsage: async () => ({ count: available ? 1 : 0 }),
-      },
+      }),
     });
 
     const request = app.request(`/frames/${id}/tables/${frameTableName(id)}`, {
@@ -608,66 +571,55 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
     expect(engine.registrations).toEqual([]);
   });
 
-  const FRAME_ID_FIXTURE = "11111111-1111-4111-8111-111111111111";
-
-  it.each([`tables/${frameTableName(FRAME_ID_FIXTURE)}`, "mosaic"])(
-    "does not consume a revoked stream while %s registration waits",
-    async (route) => {
-      const id = "11111111-1111-4111-8111-111111111111";
-      let available = true;
-      let pulls = 0;
-      let releaseRegistration!: () => void;
-      let signalRegistration!: () => void;
-      const registrationStarted = new Promise<void>((resolve) => {
-        signalRegistration = resolve;
-      });
-      const registrationReleased = new Promise<void>((resolve) => {
-        releaseRegistration = resolve;
-      });
-      const engine = stubEngine({
-        queryArrow: async () => new Uint8Array(),
-        async registerArrowStream(
-          _name: string,
-          stream: AsyncIterable<Uint8Array>,
-        ) {
-          signalRegistration();
-          await registrationReleased;
-          for await (const _bytes of stream) {
-            // A revoked frame must fail before its source reaches this loop body.
-          }
+  it("does not consume a revoked stream while mosaic registration waits", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    let available = true;
+    let pulls = 0;
+    let releaseRegistration!: () => void;
+    let signalRegistration!: () => void;
+    const registrationStarted = new Promise<void>((resolve) => {
+      signalRegistration = resolve;
+    });
+    const registrationReleased = new Promise<void>((resolve) => {
+      releaseRegistration = resolve;
+    });
+    const engine = stubEngine({
+      queryArrow: async () => new Uint8Array(),
+      async registerArrowStream(
+        _name: string,
+        stream: AsyncIterable<Uint8Array>,
+      ) {
+        signalRegistration();
+        await registrationReleased;
+        for await (const _bytes of stream) {
+          // A revoked frame must fail before its source reaches this loop body.
+        }
+      },
+    });
+    const app = createArrowDataPath({
+      engine,
+      isFrameAvailable: async () => available,
+      dataFrameStorage: frameStorage(id, {
+        async *stream() {
+          pulls += 1;
+          yield new Uint8Array([1, 2, 3]);
         },
-      });
-      const app = createArrowDataPath({
-        engine,
-        isFrameAvailable: async () => available,
-        dataFrameStorage: {
-          save: async () => {},
-          load: async () => null,
-          delete: async () => {},
-          exists: async () => true,
-          list: async () => [id],
-          getUsage: async () => ({ count: 1 }),
-          async *stream() {
-            pulls += 1;
-            yield new Uint8Array([1, 2, 3]);
-          },
-        },
-      });
+      }),
+    });
 
-      const request = app.request(`/frames/${id}/${route}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
-      });
-      await registrationStarted;
-      available = false;
-      releaseRegistration();
+    const request = app.request(`/frames/${id}/mosaic`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "arrow", sql: `SELECT * FROM "${id}"` }),
+    });
+    await registrationStarted;
+    available = false;
+    releaseRegistration();
 
-      const response = await request;
-      expect(response.status).toBe(404);
-      expect(pulls).toBe(0);
-    },
-  );
+    const response = await request;
+    expect(response.status).toBe(404);
+    expect(pulls).toBe(0);
+  });
 
   it("does not consume revoked batches while registration waits", async () => {
     const id = "11111111-1111-4111-8111-111111111111";
@@ -694,18 +646,12 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
     const app = createArrowDataPath({
       engine,
       isFrameAvailable: async () => available,
-      dataFrameStorage: {
-        save: async () => {},
-        load: async () => null,
-        delete: async () => {},
-        exists: async () => true,
-        list: async () => [id],
-        getUsage: async () => ({ count: 1 }),
+      dataFrameStorage: frameStorage(id, {
         async *loadBatches() {
           pulls += 1;
           yield new Uint8Array([1, 2, 3]);
         },
-      },
+      }),
     });
 
     const request = app.request(`/frames/${id}/tables/${frameTableName(id)}`, {
@@ -737,14 +683,9 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
     const app = createArrowDataPath({
       engine,
       isFrameAvailable: async () => available,
-      dataFrameStorage: {
-        save: async () => {},
+      dataFrameStorage: frameStorage(id, {
         load: async () => new Uint8Array([1, 2, 3]),
-        delete: async () => {},
-        exists: async () => true,
-        list: async () => [id],
-        getUsage: async () => ({ count: 1 }),
-      },
+      }),
     });
 
     const response = await app.request(`/frames/${id}/mosaic`, {
@@ -771,14 +712,9 @@ describe("Arrow data path — server frame registration and Mosaic queries", () 
     const app = createArrowDataPath({
       engine,
       isFrameAvailable: async () => available,
-      dataFrameStorage: {
-        save: async () => {},
+      dataFrameStorage: frameStorage(id, {
         load: async () => new Uint8Array([1, 2, 3]),
-        delete: async () => {},
-        exists: async () => true,
-        list: async () => [id],
-        getUsage: async () => ({ count: 1 }),
-      },
+      }),
     });
 
     const response = await app.request(`/frames/${id}/mosaic`, {

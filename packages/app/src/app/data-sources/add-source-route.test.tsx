@@ -83,25 +83,6 @@ describe("the data sources route's addSource param", () => {
     await vi.waitFor(() => expect(location(router)).toBe("/dashboards"));
   });
 
-  it("opened on the page itself, adds no history entry", async () => {
-    const router = renderAt("/dashboards");
-    await act(() => router.navigate({ to: "/data-sources" } as never));
-    // What the command palette does when it is already on this page.
-    await act(() =>
-      router.navigate({
-        to: "/data-sources",
-        search: { addSource: true },
-        replace: true,
-      } as never),
-    );
-    await screen.findByRole("dialog", { name: "Add Data Source" });
-
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    await vi.waitFor(() => expect(location(router)).toBe("/data-sources"));
-    await act(async () => router.history.back());
-    await vi.waitFor(() => expect(location(router)).toBe("/dashboards"));
-  });
-
   it("ignores any value but true", async () => {
     renderAt("/data-sources?addSource=yes");
     await screen.findByRole("button", { name: "Add Source" });

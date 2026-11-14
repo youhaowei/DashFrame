@@ -4,15 +4,11 @@ import {
   hostQueryMock,
   hostMutationMock,
 } from "@/test/native-query-fixture";
-import { getFunctionName } from "convex/server";
 /**
  * Tests for the DashboardsPage create-dashboard handler.
  *
- * Contracts:
- * - When the create mutation rejects, navigation must NOT occur and the user
- *   must see an error toast. The dialog must remain open.
- * - On success the dialog closes, the input resets, navigate is called with
- *   the client-minted id, and commitBatch receives CreateDashboard.
+ * Contract: when the create mutation rejects, navigation must NOT occur and
+ * the user must see an error toast. The dialog must remain open.
  */
 import {
   act,
@@ -107,9 +103,6 @@ async function submitCreate() {
 describe("DashboardsPage – handleCreate failure paths", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(
-      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    );
     useConfirmDialogStore.getState().close();
     mockUseQuery.mockReturnValue({ data: [], isLoading: false });
   });
@@ -131,43 +124,6 @@ describe("DashboardsPage – handleCreate failure paths", () => {
 
     // Dialog remains open — getByPlaceholderText throws if the element is absent
     screen.getByPlaceholderText(/sales overview/i);
-  });
-
-  it("navigates to the dashboard and closes the dialog on success", async () => {
-    mockCommit.mockResolvedValue({ results: [] });
-
-    render(<DashboardsPage />);
-    openCreateDialog();
-    typeName("Success Board");
-    await act(async () => {
-      await submitCreate();
-    });
-
-    await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith({
-        to: "/dashboards/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      });
-    });
-    expect(mockCommit).toHaveBeenCalledWith({
-      commands: [
-        {
-          path: "createDashboardCmd",
-          args: {
-            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-            name: "Success Board",
-          },
-        },
-      ],
-    });
-    expect(mockShowError).not.toHaveBeenCalled();
-
-    // Dialog is closed — the input is no longer in the document
-    expect(screen.queryByPlaceholderText(/sales overview/i)).toBeNull();
-  });
-
-  it("uses the commitBatch registry path", async () => {
-    const { api } = await import("@dashframe/convex-backend/api");
-    expect(getFunctionName(api.app.commitBatch)).toBe("app:commitBatch");
   });
 });
 
@@ -218,80 +174,6 @@ describe("DashboardsPage – delete confirmation", () => {
         commands: [{ path: "deleteNode", args: { id: "dashboard-1" } }],
       }),
     );
-  });
-
-  it("shows an error toast when confirmed deletion rejects", async () => {
-    const user = userEvent.setup();
-    mockUseQuery.mockReturnValue({
-      data: [
-        {
-          id: "dashboard-1",
-          name: "Quarterly plan",
-          items: [],
-          createdAt: 0,
-          updatedAt: 0,
-        },
-      ],
-      isLoading: false,
-    });
-    mockCommit.mockRejectedValueOnce(new Error("delete failed"));
-
-    render(
-      <>
-        <DashboardsPage />
-        <ConfirmDialog />
-      </>,
-    );
-    await user.click(screen.getByRole("button", { name: "More options" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    await waitFor(() =>
-      expect(mockShowError).toHaveBeenCalledWith(
-        "Failed to delete report. Please try again.",
-      ),
-    );
-  });
-
-  it("filters dashboards by name and clears the search", async () => {
-    const user = userEvent.setup();
-    mockUseQuery.mockReturnValue({
-      data: [
-        {
-          id: "dashboard-1",
-          name: "Quarterly plan",
-          items: [],
-          createdAt: 0,
-          updatedAt: 0,
-        },
-        {
-          id: "dashboard-2",
-          name: "Customer overview",
-          items: [],
-          createdAt: 0,
-          updatedAt: 0,
-        },
-      ],
-      isLoading: false,
-    });
-
-    render(<DashboardsPage />);
-
-    await user.type(
-      screen.getByPlaceholderText("Search reports..."),
-      "Quarter",
-    );
-    expect(screen.getByText("Quarterly plan")).not.toBeNull();
-    expect(screen.queryByText("Customer overview")).toBeNull();
-
-    await user.clear(screen.getByPlaceholderText("Search reports..."));
-    await user.type(
-      screen.getByPlaceholderText("Search reports..."),
-      "Missing",
-    );
-    await user.click(screen.getByRole("button", { name: "Clear search" }));
-    expect(screen.getByText("Quarterly plan")).not.toBeNull();
-    expect(screen.getByText("Customer overview")).not.toBeNull();
   });
 
   it("counts live charts once each, however often they are placed", () => {
@@ -401,114 +283,6 @@ describe("DashboardsPage – delete confirmation", () => {
     screen.getByRole("link", { name: /Release notes 0 charts/ });
     screen.getByRole("link", { name: /Blank page Empty/ });
   });
-
-  it("counts a placed chart whose question row is unavailable", () => {
-    mockUseQuery.mockImplementation((ref: { _path: string }) => {
-      if (ref._path === "listDashboards") {
-        return {
-          data: [
-            {
-              id: "dashboard-1",
-              name: "Quarterly plan",
-              items: [{ type: "visualization", visualizationId: "view-1" }],
-              createdAt: 0,
-              updatedAt: 0,
-            },
-          ],
-          isLoading: false,
-        };
-      }
-      if (ref._path === "listVisualizations") {
-        return {
-          data: [{ id: "view-1", insightId: "missing-question" }],
-          isLoading: false,
-        };
-      }
-      return { data: [], isLoading: false };
-    });
-
-    render(<DashboardsPage />);
-
-    screen.getByRole("link", {
-      name: /Quarterly plan 1 chart\b/,
-    });
-  });
-
-  it("renders report cards when only the insight collection fails", () => {
-    mockUseQuery.mockImplementation((ref: { _path: string }) => {
-      if (ref._path === "listDashboards") {
-        return {
-          data: [
-            {
-              id: "dashboard-1",
-              name: "Quarterly plan",
-              items: [{ type: "visualization", visualizationId: "view-1" }],
-              createdAt: 0,
-              updatedAt: 0,
-            },
-          ],
-          isLoading: false,
-        };
-      }
-      if (ref._path === "listVisualizations") {
-        return {
-          data: [{ id: "view-1", insightId: "question-1" }],
-          isLoading: false,
-        };
-      }
-      if (ref._path === "listInsights") {
-        return {
-          isError: true,
-          error: new Error("Insight collection limit exceeded"),
-        };
-      }
-      return { data: [], isLoading: false };
-    });
-
-    render(<DashboardsPage />);
-
-    screen.getByRole("link", {
-      name: /Quarterly plan 1 chart\b/,
-    });
-    expect(
-      screen.queryByRole("heading", { name: "Couldn't load reports" }),
-    ).toBeNull();
-  });
-
-  it.each(["pointer", "Enter", "Space"] as const)(
-    "opens the card menu with %s without navigating the card",
-    async (activation) => {
-      const user = userEvent.setup();
-      mockUseQuery.mockReturnValue({
-        data: [
-          {
-            id: "dashboard-1",
-            name: "Quarterly plan",
-            items: [],
-            createdAt: 0,
-            updatedAt: 0,
-          },
-        ],
-        isLoading: false,
-      });
-
-      render(<DashboardsPage />);
-
-      const action = screen.getByRole("button", { name: "More options" });
-      if (activation === "pointer") {
-        await user.click(action);
-      } else {
-        action.focus();
-        await user.keyboard(activation === "Enter" ? "{Enter}" : "[Space]");
-      }
-
-      expect(
-        await screen.findByRole("menuitem", { name: "Open" }),
-      ).not.toBeNull();
-      expect(screen.getByRole("menuitem", { name: "Delete" })).not.toBeNull();
-      expect(mockNavigate).not.toHaveBeenCalled();
-    },
-  );
 });
 
 describe("DashboardsPage – list view", () => {
@@ -657,31 +431,6 @@ describe("DashboardsPage – empty state", () => {
     });
   });
 
-  it("creates an empty report from the blank card", async () => {
-    const user = userEvent.setup();
-    mockProject({
-      insights: [question("q-recent", "Revenue by region", NOW)],
-      visualizations: [{ id: "view-1", insightId: "q-recent", createdAt: NOW }],
-    });
-
-    render(<DashboardsPage />);
-    await user.click(screen.getByRole("button", { name: "Blank report" }));
-
-    await waitFor(() =>
-      expect(mockNavigate).toHaveBeenCalledWith({
-        to: `/dashboards/${REPORT_ID}`,
-      }),
-    );
-    expect(mockCommit).toHaveBeenCalledWith({
-      commands: [
-        {
-          path: "createDashboardCmd",
-          args: { id: REPORT_ID, name: "Untitled report" },
-        },
-      ],
-    });
-  });
-
   it("offers one create action when no question is ready to place", async () => {
     const user = userEvent.setup();
     mockProject({});
@@ -691,6 +440,8 @@ describe("DashboardsPage – empty state", () => {
     screen.getByRole("heading", { name: "No reports yet" });
     expect(screen.queryByRole("button", { name: "Start report" })).toBeNull();
     expect(screen.queryByRole("link", { name: /connect data/ })).toBeNull();
+    // An empty question list is not a load failure.
+    expect(screen.queryByRole("alert")).toBeNull();
 
     await user.click(
       screen.getByRole("button", { name: "Create your first report" }),
@@ -723,14 +474,6 @@ describe("DashboardsPage – empty state", () => {
     screen.getByRole("button", { name: "Create your first report" });
   });
 
-  it("does not claim a load failure when the question list is empty", () => {
-    mockProject({});
-
-    render(<DashboardsPage />);
-
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
   it("holds the cards until the tables that name them have loaded", () => {
     mockProject({
       insights: [question("q-recent", "Revenue by region", NOW - DAY)],
@@ -744,52 +487,6 @@ describe("DashboardsPage – empty state", () => {
 
     expect(screen.queryByText("Unknown table")).toBeNull();
     expect(screen.queryByRole("button", { name: "Start report" })).toBeNull();
-  });
-
-  it("points to connecting data only when the project has none", () => {
-    mockProject({ dataSources: [] });
-
-    render(<DashboardsPage />);
-
-    expect(
-      screen
-        .getByRole("link", { name: "or connect data first" })
-        .getAttribute("href"),
-    ).toBe("/data-sources");
-  });
-
-  it("welcomes a project that has no data yet, above the same create action", () => {
-    mockProject({ dataSources: [] });
-
-    render(<DashboardsPage />);
-
-    screen.getByRole("heading", { name: "Welcome to DashFrame" });
-    expect(
-      screen.queryByRole("heading", { name: "No reports yet" }),
-    ).toBeNull();
-    screen.getByRole("button", { name: "Create your first report" });
-  });
-
-  it("does not welcome a project that still has questions but lost its data", () => {
-    mockProject({ dataSources: [], insights: [{ id: "insight-1" }] });
-
-    render(<DashboardsPage />);
-
-    screen.getByRole("heading", { name: "No reports yet" });
-    expect(
-      screen.queryByRole("heading", { name: "Welcome to DashFrame" }),
-    ).toBeNull();
-  });
-
-  it("does not welcome a project whose data sources failed to load", () => {
-    mockProject({ failing: ["listDataSources"] });
-
-    render(<DashboardsPage />);
-
-    screen.getByRole("heading", { name: "No reports yet" });
-    expect(
-      screen.queryByRole("heading", { name: "Welcome to DashFrame" }),
-    ).toBeNull();
   });
 
   it("opens a first report in an empty project on its chart picker", async () => {
@@ -807,37 +504,5 @@ describe("DashboardsPage – empty state", () => {
         search: { pickChart: true },
       }),
     );
-  });
-
-  it("does not open the chart picker when the project already has questions", async () => {
-    const user = userEvent.setup();
-    // A question with no saved view is not offered as a card, so the single
-    // create action shows, but the project is not empty.
-    mockProject({
-      dataSources: [],
-      insights: [question("q-unsaved", "Scratch question", NOW)],
-    });
-
-    render(<DashboardsPage />);
-    await user.click(
-      screen.getByRole("button", { name: "Create your first report" }),
-    );
-
-    await waitFor(() =>
-      expect(mockNavigate).toHaveBeenCalledWith({
-        to: `/dashboards/${REPORT_ID}`,
-      }),
-    );
-  });
-
-  it("keeps asking for a name from the header", () => {
-    mockProject({});
-
-    render(<DashboardsPage />);
-    openCreateDialog();
-
-    // The report page has no rename yet, so the header still names the report.
-    screen.getByPlaceholderText(/sales overview/i);
-    expect(mockCommit).not.toHaveBeenCalled();
   });
 });

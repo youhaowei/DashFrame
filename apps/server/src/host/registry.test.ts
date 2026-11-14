@@ -90,54 +90,18 @@ describe("presentation registry dispatch", () => {
     );
   });
 
-  it("dispatches an unsaved preview presentation through the outer registry", async () => {
-    const { application, getDataTable } = registryFixture();
+  it("rejects malformed presentation before dispatching runInsight", async () => {
+    const { application, getDataTable, getInsight } = registryFixture();
     const input = {
-      insight: {
-        baseTableId: tableId,
-        selectedFields: [fieldId],
-        metrics: [],
-      },
-      presentation: { dimensions: [fieldId] },
+      insightId,
+      presentation: { dimensions: [fieldId, fieldId] },
     };
 
-    const result = await application.execute("fetchData", input, { principal });
-
-    expect(hostOperations.fetchData.schema.parse(input)).toEqual(input);
-    expect(result).toMatchObject({ status: "ready" });
-    expect(getDataTable).toHaveBeenCalledWith(tableId);
-    expect(executeFetch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        insight: expect.objectContaining({
-          presentation: input.presentation,
-        }),
-        target: { kind: "ephemeral" },
-      }),
-    );
+    await expect(
+      application.execute("runInsight", input, { principal }),
+    ).rejects.toThrow();
+    expect(executeFetch).not.toHaveBeenCalled();
+    expect(getDataTable).not.toHaveBeenCalled();
+    expect(getInsight).not.toHaveBeenCalled();
   });
-
-  it.each(["runInsight", "fetchData"] as const)(
-    "rejects malformed presentation before dispatching %s",
-    async (operation) => {
-      const { application, getDataTable, getInsight } = registryFixture();
-      const input =
-        operation === "runInsight"
-          ? { insightId, presentation: { dimensions: [fieldId, fieldId] } }
-          : {
-              insight: {
-                baseTableId: tableId,
-                selectedFields: [fieldId],
-                metrics: [],
-              },
-              presentation: { dimensions: [fieldId, fieldId] },
-            };
-
-      await expect(
-        application.execute(operation, input, { principal }),
-      ).rejects.toThrow();
-      expect(executeFetch).not.toHaveBeenCalled();
-      expect(getDataTable).not.toHaveBeenCalled();
-      expect(getInsight).not.toHaveBeenCalled();
-    },
-  );
 });

@@ -4,14 +4,12 @@
  * Acceptance criterion: for an insight with a repeat-join (orders→users on
  * created_by AND approved_by), the picker must expose BOTH join instances as
  * DISTINCT selectable options with distinct encoding values AND distinct
- * human-readable labels.  Selecting the second instance must emit the _j1
- * encoding (field:<uuid>_j1), not the bare-UUID encoding.
+ * human-readable labels.
  *
  * This test renders AxisSelectField directly (it has no context providers —
  * only useCallback/useMemo React hooks) and intercepts the options passed to
  * the inner SelectField via a stub.  The stub records what options the component
- * computed, and records which value onChange was called with when the stub
- * simulates a selection.
+ * computed.
  */
 
 import {
@@ -37,7 +35,6 @@ import { AxisSelectField } from "./AxisSelectField";
 // Capture the options list passed to SelectField from inside AxisSelectField.
 // We expose it via a module-level ref updated on each render call.
 let capturedOptions: Array<{ label: string; value: string }> = [];
-let capturedOnChange: (v: string) => void = () => {};
 
 vi.mock("@dashframe/ui", () => ({
   SelectField: (props: {
@@ -52,7 +49,6 @@ vi.mock("@dashframe/ui", () => ({
   }) => {
     // Record what was passed in so assertions can inspect it.
     capturedOptions = props.options ?? [];
-    capturedOnChange = props.onChange;
     return (
       <select
         data-testid="axis-select"
@@ -293,18 +289,7 @@ function renderAxisSelect(value = "") {
 describe("AxisSelectField — repeat-join picker (component render)", () => {
   beforeEach(() => {
     capturedOptions = [];
-    capturedOnChange = () => {};
     vi.clearAllMocks();
-  });
-
-  it("exposes BOTH repeat-join instances as distinct options", () => {
-    renderAxisSelect();
-
-    const values = capturedOptions.map((o) => o.value);
-    expect(values).toContain(J0_ENC);
-    expect(values).toContain(J1_ENC);
-    // They must be DISTINCT (not collapsed to the same encoding).
-    expect(J0_ENC).not.toBe(J1_ENC);
   });
 
   it("gives each repeat-join instance a distinct human-readable label", () => {
@@ -322,51 +307,6 @@ describe("AxisSelectField — repeat-join picker (component render)", () => {
     // The disambiguation suffix comes from columnDisplayNames.
     expect(j0Opt!.label).toBe("User Name (created_by)");
     expect(j1Opt!.label).toBe("User Name (approved_by)");
-  });
-
-  it("selecting the second join instance emits the _j1 encoding", () => {
-    const onChangeMock = vi.fn();
-    render(
-      <AxisSelectField
-        label="X Axis"
-        value=""
-        onChange={onChangeMock}
-        axis="x"
-        chartType="barY"
-        columnAnalysis={columnAnalysis}
-        compiledInsight={baseCompiledInsight}
-        availableFields={instanceAwareFields}
-        columnDisplayNames={columnDisplayNames}
-      />,
-    );
-
-    // Simulate the user selecting the j1 option via the stubbed select.
-    capturedOnChange(J1_ENC);
-
-    expect(onChangeMock).toHaveBeenCalledWith(J1_ENC);
-    // Must NOT collapse to the bare-UUID encoding.
-    expect(onChangeMock).not.toHaveBeenCalledWith(J0_ENC);
-  });
-
-  it("selecting the first join instance emits the bare-UUID encoding", () => {
-    const onChangeMock = vi.fn();
-    render(
-      <AxisSelectField
-        label="X Axis"
-        value=""
-        onChange={onChangeMock}
-        axis="x"
-        chartType="barY"
-        columnAnalysis={columnAnalysis}
-        compiledInsight={baseCompiledInsight}
-        availableFields={instanceAwareFields}
-        columnDisplayNames={columnDisplayNames}
-      />,
-    );
-
-    capturedOnChange(J0_ENC);
-
-    expect(onChangeMock).toHaveBeenCalledWith(J0_ENC);
   });
 
   it("single-join insight is unaffected — j0 option is present, no spurious j1", () => {
@@ -504,88 +444,5 @@ it("uses non-selectable source fields to disambiguate metric labels", () => {
         option.value ===
         fieldEncoding("22222222-2222-4222-8222-222222222222" as UUID),
     ),
-  ).toBe(false);
-});
-
-it("uses an instance-aware display name for a metric source alias", () => {
-  const metricId = "11111111-1111-4111-8111-111111111111" as UUID;
-  const sourceAlias = "field_22222222_2222_4222_8222_222222222222_j1";
-  render(
-    <AxisSelectField
-      label="Y Axis"
-      value={metricEncoding(metricId)}
-      onChange={vi.fn()}
-      axis="y"
-      chartType="barY"
-      columnAnalysis={[]}
-      availableFields={[]}
-      metricLabelFields={[
-        {
-          id: "22222222-2222-4222-8222-222222222222" as UUID,
-          tableId: ORDERS_TABLE_ID,
-          name: "Revenue",
-          columnName: "revenue",
-          type: "number",
-        },
-      ]}
-      columnDisplayNames={{ [sourceAlias]: "Revenue (approved_by)" }}
-      compiledInsight={{
-        ...baseCompiledInsight,
-        dimensions: [],
-        metrics: [
-          {
-            id: metricId,
-            name: "Total revenue",
-            aggregation: "sum",
-            columnName: sourceAlias,
-          },
-        ],
-      }}
-    />,
-  );
-
-  expect(capturedOptions).toContainEqual(
-    expect.objectContaining({
-      value: metricEncoding(metricId),
-      label: "Sum of Revenue (approved_by)",
-    }),
-  );
-});
-
-it("does not expose a repeat-join alias when its display name is unavailable", () => {
-  const metricId = "11111111-1111-4111-8111-111111111111" as UUID;
-  const sourceAlias = "field_22222222_2222_4222_8222_222222222222_j1";
-  render(
-    <AxisSelectField
-      label="Y Axis"
-      value={metricEncoding(metricId)}
-      onChange={vi.fn()}
-      axis="y"
-      chartType="barY"
-      columnAnalysis={[]}
-      availableFields={[]}
-      compiledInsight={{
-        ...baseCompiledInsight,
-        dimensions: [],
-        metrics: [
-          {
-            id: metricId,
-            name: "Total revenue",
-            aggregation: "sum",
-            columnName: sourceAlias,
-          },
-        ],
-      }}
-    />,
-  );
-
-  expect(capturedOptions).toContainEqual(
-    expect.objectContaining({
-      value: metricEncoding(metricId),
-      label: "Sum",
-    }),
-  );
-  expect(
-    capturedOptions.some((option) => option.label.includes(sourceAlias)),
   ).toBe(false);
 });

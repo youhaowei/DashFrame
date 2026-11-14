@@ -4,7 +4,6 @@ export {
   Errors,
   Type,
   defineToolHandler,
-  isValidationError,
   validateToolArgs,
   type Static,
   type TSchema,

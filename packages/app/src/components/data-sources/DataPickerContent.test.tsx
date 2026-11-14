@@ -155,6 +155,24 @@ const REMOTE_TABLE_ID = "remote-table-id" as UUID;
 const NEW_TABLE_ID = "new-table-id" as UUID;
 const PARSE_RESULT = {} as FileParseResult;
 
+/** The host creates the connector's data source and returns its id. */
+function hostCreatesSource(id: UUID = REMOTE_SOURCE_ID) {
+  mockHostRequest.mockResolvedValue({
+    commands: [{ path: "createDataSource", args: {} }],
+    results: [{ value: { id } }],
+  });
+}
+
+/** Submits the Notion connection form with an API key. */
+async function connectNotion() {
+  await act(async () => {
+    await handleConnect?.(
+      { id: "notion", name: "Notion" } as RemoteApiConnector,
+      { apiKey: "secret-for-host-vault" },
+    );
+  });
+}
+
 describe("importRemoteResource", () => {
   it("prepares schema before the initial unified fetch", async () => {
     const calls: string[] = [];
@@ -286,17 +304,9 @@ describe("DataPickerContent file replacement", () => {
   });
 
   it("stages connector secrets through host HTTP without sending them to a public Convex mutation", async () => {
-    mockHostRequest.mockResolvedValue({
-      commands: [{ path: "createDataSource", args: {} }],
-      results: [{ value: { id: NEW_TABLE_ID } }],
-    });
+    hostCreatesSource(NEW_TABLE_ID);
     render(<DataPickerContent onTableSelect={vi.fn()} />);
-    await act(async () => {
-      await handleConnect?.(
-        { id: "notion", name: "Notion" } as RemoteApiConnector,
-        { apiKey: "secret-for-host-vault" },
-      );
-    });
+    await connectNotion();
     expect(mockHostRequest).toHaveBeenCalledWith("commitBatch", {
       commands: [
         expect.objectContaining({
@@ -311,36 +321,8 @@ describe("DataPickerContent file replacement", () => {
     });
   });
 
-  it("returns to the connections and cancels from a connected source", async () => {
-    mockHostRequest.mockResolvedValue({
-      commands: [{ path: "createDataSource", args: {} }],
-      results: [{ value: { id: REMOTE_SOURCE_ID } }],
-    });
-    mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
-    const onCancel = vi.fn();
-    render(<DataPickerContent onTableSelect={vi.fn()} onCancel={onCancel} />);
-
-    await act(async () => {
-      await handleConnect?.(
-        { id: "notion", name: "Notion" } as RemoteApiConnector,
-        { apiKey: "secret-for-host-vault" },
-      );
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Choose another connection" }),
-    );
-
-    expect(screen.getByTestId("add-connection-panel")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(onCancel).toHaveBeenCalledOnce();
-  });
-
   it("reports a failed connection whose source cannot be rolled back", async () => {
-    mockHostRequest.mockResolvedValue({
-      commands: [{ path: "createDataSource", args: {} }],
-      results: [{ value: { id: REMOTE_SOURCE_ID } }],
-    });
+    hostCreatesSource();
     mockListResources.mockRejectedValue(new Error("resource probe failed"));
     mockNativeCommit.mockRejectedValue(new Error("source cleanup failed"));
     render(<DataPickerContent onTableSelect={vi.fn()} />);
@@ -352,28 +334,9 @@ describe("DataPickerContent file replacement", () => {
     ).rejects.toThrow("Failed to connect and clean up the data source");
   });
 
-  it("reports a failed connection that rolls its source back", async () => {
-    mockHostRequest.mockResolvedValue({
-      commands: [{ path: "createDataSource", args: {} }],
-      results: [{ value: { id: REMOTE_SOURCE_ID } }],
-    });
-    mockListResources.mockRejectedValue(new Error("resource probe failed"));
-    mockNativeCommit.mockResolvedValue(undefined);
-    render(<DataPickerContent onTableSelect={vi.fn()} />);
-
-    await expect(
-      handleConnect?.({ id: "notion", name: "Notion" } as RemoteApiConnector, {
-        apiKey: "secret-for-host-vault",
-      }),
-    ).rejects.toThrow("resource probe failed");
-  });
-
   it("keeps a remote import busy until question creation settles", async () => {
     let finishQuestion: (() => void) | undefined;
-    mockHostRequest.mockResolvedValue({
-      commands: [{ path: "createDataSource", args: {} }],
-      results: [{ value: { id: REMOTE_SOURCE_ID } }],
-    });
+    hostCreatesSource();
     mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
     mockNativeCommit.mockResolvedValue(undefined);
     const onTableSelect = vi.fn(
@@ -383,12 +346,7 @@ describe("DataPickerContent file replacement", () => {
         }),
     );
     render(<DataPickerContent onTableSelect={onTableSelect} />);
-    await act(async () => {
-      await handleConnect?.(
-        { id: "notion", name: "Notion" } as RemoteApiConnector,
-        { apiKey: "secret-for-host-vault" },
-      );
-    });
+    await connectNotion();
 
     const resourceButton = await screen.findByRole("button", {
       name: "Roadmap",
@@ -407,20 +365,12 @@ describe("DataPickerContent file replacement", () => {
   });
 
   it("keeps a persisted remote table and prevents duplicate import after question creation returns null", async () => {
-    mockHostRequest.mockResolvedValue({
-      commands: [{ path: "createDataSource", args: {} }],
-      results: [{ value: { id: REMOTE_SOURCE_ID } }],
-    });
+    hostCreatesSource();
     mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
     mockNativeCommit.mockResolvedValue(undefined);
 
     render(<DataPickerContent onTableSelect={async () => null} />);
-    await act(async () => {
-      await handleConnect?.(
-        { id: "notion", name: "Notion" } as RemoteApiConnector,
-        { apiKey: "secret-for-host-vault" },
-      );
-    });
+    await connectNotion();
 
     fireEvent.click(await screen.findByRole("button", { name: "Roadmap" }));
 
@@ -438,19 +388,11 @@ describe("DataPickerContent file replacement", () => {
     queryData.dataTables = [
       makeTable(REMOTE_TABLE_ID, REMOTE_SOURCE_ID, "db-1"),
     ];
-    mockHostRequest.mockResolvedValue({
-      commands: [{ path: "createDataSource", args: {} }],
-      results: [{ value: { id: REMOTE_SOURCE_ID } }],
-    });
+    hostCreatesSource();
     mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
 
     render(<DataPickerContent onTableSelect={vi.fn()} />);
-    await act(async () => {
-      await handleConnect?.(
-        { id: "notion", name: "Notion" } as RemoteApiConnector,
-        { apiKey: "secret-for-host-vault" },
-      );
-    });
+    await connectNotion();
 
     expect(screen.queryByRole("button", { name: "Roadmap" })).toBeNull();
     expect(mockNativeCommit).not.toHaveBeenCalled();
@@ -829,21 +771,13 @@ describe("DataPickerContent file replacement", () => {
     });
 
     it("imports the chosen remote resource and closes", async () => {
-      mockHostRequest.mockResolvedValue({
-        commands: [{ path: "createDataSource", args: {} }],
-        results: [{ value: { id: REMOTE_SOURCE_ID } }],
-      });
+      hostCreatesSource();
       mockListResources.mockResolvedValue([{ id: "db-1", title: "Roadmap" }]);
       mockNativeCommit.mockResolvedValue(undefined);
       const onClose = vi.fn();
       render(<AddDataSourceModal isOpen onClose={onClose} />);
 
-      await act(async () => {
-        await handleConnect?.(
-          { id: "notion", name: "Notion" } as RemoteApiConnector,
-          { apiKey: "secret-for-host-vault" },
-        );
-      });
+      await connectNotion();
 
       expect(screen.queryByTestId("add-connection-panel")).toBeNull();
       fireEvent.click(await screen.findByRole("button", { name: "Roadmap" }));

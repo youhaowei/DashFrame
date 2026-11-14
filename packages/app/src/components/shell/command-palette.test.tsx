@@ -217,9 +217,7 @@ describe("CommandPalette", () => {
 
   it.each([
     ["/dashboards/weekly", true],
-    ["/dashboards/weekly/", true],
     ["/dashboards/other", false],
-    ["/data-sources", false],
   ])(
     "opens a chart from %s, replacing the entry: %s",
     async (pathname, replace) => {

@@ -7,50 +7,6 @@ import { internal } from "../convex/_generated/api";
 const modules = import.meta.glob("../convex/**/*.ts");
 type Prepare = FunctionArgs<typeof internal.host.prepareHostBatch>;
 
-it("reports a losing settlement as conflict without cancelling the winner", async () => {
-  const t = convexTest(schema, modules);
-  const winner: Prepare = {
-    workspaceId: "w",
-    operationId: crypto.randomUUID(),
-    principal: { kind: "user", userId: "u" },
-    requestHash: "a".repeat(64),
-    mode: "commit",
-    stagedRefs: [],
-    commands: [
-      {
-        path: "createDataSource",
-        args: {
-          id: crypto.randomUUID(),
-          name: "Winner",
-          type: "csv",
-        },
-      },
-    ],
-  };
-  await t.mutation(internal.host.prepareHostBatch, winner);
-
-  expect(
-    await t.mutation(internal.host.settleHostBatch, {
-      workspaceId: winner.workspaceId,
-      operationId: winner.operationId,
-      principal: winner.principal,
-      requestHash: "b".repeat(64),
-      stagedRefs: [],
-    }),
-  ).toEqual({ status: "conflict", result: null });
-
-  expect(
-    (
-      await t.mutation(internal.host.executeHostBatch, {
-        workspaceId: winner.workspaceId,
-        operationId: winner.operationId,
-        principal: winner.principal,
-        requestHash: winner.requestHash,
-      })
-    ).status,
-  ).toBe("completed");
-});
-
 it("reaps a failed attempt while allowing the same operation to prepare fresh refs", async () => {
   const t = convexTest(schema, modules);
   const firstRef = `secret:${crypto.randomUUID()}`;

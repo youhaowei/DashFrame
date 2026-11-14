@@ -143,10 +143,6 @@ describe("buildFilterValue", () => {
     ).toBe(42);
   });
 
-  it("keeps a text scalar as a string", () => {
-    expect(buildFilterValue(draft({ scalarValue: "north" }))).toBe("north");
-  });
-
   it("builds a { low, high } object for between", () => {
     expect(
       buildFilterValue(

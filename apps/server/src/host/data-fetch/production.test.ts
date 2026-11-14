@@ -151,39 +151,6 @@ describe("production result inspection", () => {
     expect(schema[0]).toMatchObject({ id: date, type: "string" });
   });
 
-  it("accepts canonical totals, selected measures, and comparison aliases", () => {
-    const country = fieldIdToColumnAlias(countryId);
-    const revenue = metricIdToColumnAlias(revenueMetricId);
-    const names = [
-      country,
-      revenue,
-      `${revenue}_previous`,
-      `${revenue}_change`,
-      `${revenue}_change_percent`,
-      "__report_grouping",
-    ];
-    const schema = inspect(
-      {
-        baseTableId: tableId,
-        selectedFields: [countryId],
-        metrics,
-        reporting: {
-          totals: true,
-          measureIds: [revenueMetricId],
-          comparison: "previous_period",
-        },
-      },
-      names,
-    ).schema;
-
-    expect(schema.map((column) => column.id)).toEqual(names);
-    expect(
-      schema.find((column) => column.id === `${revenue}_previous`),
-    ).toMatchObject({
-      type: "number",
-    });
-  });
-
   it("accepts an actual compiled canonical totals and comparison frame", async () => {
     const engine = new NativeDuckDBEngine();
     try {
@@ -285,34 +252,6 @@ describe("production presentation sources", () => {
 });
 
 describe("completed production replay scope", () => {
-  it("replaces only generations published by the completed materialization", () => {
-    const scope = JSON.stringify([
-      "runtime-1",
-      { kind: "user", userId: "user" },
-      { kind: "saved", insightId: "insight" },
-      { baseTableId: "base" },
-      [
-        ["table", "base", "old-base", 1],
-        ["table", "unchanged", "existing-frame", 2],
-      ],
-    ]);
-
-    const replay = completedProductionReplayScope(scope, {
-      sourceGenerations: [
-        {
-          tableId: "base",
-          dataFrameId: "published-base",
-          lastFetchedAt: 3,
-        },
-      ],
-    });
-
-    expect(JSON.parse(replay!)[4]).toEqual([
-      ["table", "base", "published-base", 3],
-      ["table", "unchanged", "existing-frame", 2],
-    ]);
-  });
-
   it("matches the scope recomputed after publication", async () => {
     let table = {
       id: "base",

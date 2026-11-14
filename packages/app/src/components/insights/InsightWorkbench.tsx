@@ -95,7 +95,7 @@ export function buildInsightModelMetadata(
 export const MAX_DOT_ROW_COUNT = 10_000;
 
 /** One rendered result supplies every saved-chart encoding input. */
-export function useInsightEncodingMetadata(
+function useInsightEncodingMetadata(
   insight: Insight,
   enabled: boolean,
   runtime?: InsightRuntimeInput,
@@ -175,7 +175,7 @@ export function resultErrorCopy(error: string): string {
 }
 
 /** Shared error element so the workbench's table and chart halves agree. */
-export function InsightResultErrorState({
+function InsightResultErrorState({
   error,
   onRetry,
   className,
@@ -704,6 +704,7 @@ export function InsightWorkbench({
             insight,
             viewerRuntime,
             modelResolvedFields,
+            activeVisualization?.visualizationType,
           )}
           dataTable={authoringTable}
           availableFields={encodingAvailableFields}
@@ -781,11 +782,13 @@ export function InsightWorkbench({
                 insight,
                 viewerRuntime,
                 modelResolvedFields,
+                activeVisualization.visualizationType,
               ),
             }}
             height="container"
             thumbnail={false}
             columnDisplayNames={encodingColumnDisplayNames}
+            metricLabelFields={modelResolvedFields}
             // Same primitive and host message as the result table below, so
             // both halves of the workbench agree. Only set on error — the
             // encoding-missing case keeps the preview's own terminal text.

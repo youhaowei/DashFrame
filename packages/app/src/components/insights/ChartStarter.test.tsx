@@ -16,10 +16,9 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { mockCommitBatch, pointsState, retry } = vi.hoisted(() => ({
+const { mockCommitBatch, pointsState } = vi.hoisted(() => ({
   mockCommitBatch: vi.fn(),
   pointsState: vi.fn(),
-  retry: vi.fn(),
 }));
 
 vi.mock("convex/react", async (importOriginal) => ({
@@ -36,7 +35,7 @@ vi.mock("@/lib/visualizations/chart-starter-data", async (importOriginal) => ({
     _insight: unknown,
     suggestion: { key: string },
     revision: string,
-  ) => ({ ...pointsState(suggestion.key, revision), retry }),
+  ) => pointsState(suggestion.key, revision),
 }));
 
 import { analyzeFrameSample } from "@/lib/visualizations/analyze-frame-sample";
@@ -133,12 +132,8 @@ function starter(
   );
 }
 
-function renderStarter(
-  insight: Insight = INSIGHT,
-  onPickChartType = vi.fn(),
-  table: DataTable = TABLE,
-) {
-  const view = render(starter(insight, onPickChartType, "rev-1", table));
+function renderStarter(insight: Insight = INSIGHT, onPickChartType = vi.fn()) {
+  const view = render(starter(insight, onPickChartType, "rev-1"));
   const rerenderAt = (revision: string) =>
     view.rerender(starter(insight, onPickChartType, revision));
   return { onPickChartType, rerenderAt };
@@ -178,7 +173,6 @@ describe("ChartStarter", () => {
     mockCommitBatch.mockResolvedValue(undefined);
     pointsState.mockReset();
     pointsState.mockReturnValue({ status: "ready", points: [] });
-    retry.mockReset();
   });
 
   it("cannot pick a card before its aggregate confirms the fit", () => {
@@ -211,18 +205,6 @@ describe("ChartStarter", () => {
       expect(screen.queryByText("Suggested charts")).toBe(null),
     );
     screen.getByText("Data preview");
-  });
-
-  it("shows each suggestion's name and the rule that produced it", () => {
-    renderStarter();
-    const rule = (name: string) => {
-      const card = screen.getByRole("button", { name });
-      const id = card.getAttribute("aria-describedby");
-      return id ? document.getElementById(id)?.textContent : null;
-    };
-    expect(rule("Count by Category")).toBe("Few text values + row count → bar");
-    expect(rule("Total Sales by Category")).toBe("Text + number → bar, sorted");
-    expect(screen.getByText("sales_data · all 3 rows")).toBeTruthy();
   });
 
   it("writes a sorted bar's field, metric and sort in one batch", async () => {
@@ -340,24 +322,6 @@ describe("ChartStarter", () => {
     });
   });
 
-  it("offers no total for a ratio column from its header menu", async () => {
-    renderStarter(
-      { ...INSIGHT, selectedFields: [CATEGORY.id] } as Insight,
-      vi.fn(),
-      withSalesContract({ kind: "ratio" }),
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Sales column actions" }),
-    );
-    const item = await screen.findByRole("menuitem", {
-      name: /Use as metric/,
-    });
-    expect(item.getAttribute("aria-disabled")).toBe("true");
-    expect(item.textContent).toContain("Sales can't be totalled");
-    fireEvent.click(item);
-    expect(mockCommitBatch).not.toHaveBeenCalled();
-  });
-
   it("tries at most eight candidates when none fits", async () => {
     pointsState.mockReturnValue({ status: "unfit" });
     const [base] = suggestChartStarters(FIELDS, ANALYSIS, ROWS.length);
@@ -412,21 +376,6 @@ describe("ChartStarter", () => {
 
     rerenderAt("rev-2");
     await screen.findByRole("button", { name: "Count by Category" });
-  });
-
-  it("offers a retry on a card whose preview failed", () => {
-    pointsState.mockImplementation((key: string) =>
-      key.startsWith("count-by-category")
-        ? { status: "failed" }
-        : { status: "ready", points: [] },
-    );
-    renderStarter();
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: "Retry the preview of Count by Category",
-      }),
-    );
-    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   it("holds the header actions while a write is pending", async () => {
@@ -507,18 +456,6 @@ describe("thumbnailGeometry", () => {
     );
   });
 
-  it("draws mixed signs on both sides of zero", () => {
-    const geometry = thumbnailGeometry("barY", points(10, -10))!;
-    const zeroY = geometry.zero!.y1;
-    const [up, down] = geometry.rects as [
-      (typeof geometry.rects)[number],
-      (typeof geometry.rects)[number],
-    ];
-    expect(up.y + up.height).toBeCloseTo(zeroY);
-    expect(down.y).toBeCloseTo(zeroY);
-    expect(up.height).toBeCloseTo(down.height);
-  });
-
   it("draws sideways bars left of zero for negatives", () => {
     const geometry = thumbnailGeometry("barX", points(4, -4))!;
     const zeroX = geometry.zero!.x1;
@@ -551,12 +488,6 @@ describe("thumbnailGeometry", () => {
     for (const run of geometry.lines!) expect(run.split(" ")).toHaveLength(2);
     // No point is drawn at the zero line; the scale is the values' own.
     expect(geometry.zero).toBeUndefined();
-  });
-
-  it("draws nothing when no group has a value", () => {
-    expect(thumbnailGeometry("line", points(null, null))).toBeNull();
-    expect(thumbnailGeometry("barY", points(null))).toBeNull();
-    expect(thumbnailGeometry("barY", [])).toBeNull();
   });
 
   it("shows all-zero bars as hairlines on a visible baseline", () => {

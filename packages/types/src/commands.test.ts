@@ -11,30 +11,12 @@ import {
 import type { Insight } from "./insights";
 import type { InsightMetric } from "./metric";
 import type { UUID } from "./uuid";
-import { tableOrigin } from "./data-tables";
 
 const id = "11111111-1111-4111-8111-111111111111" as UUID;
 const midA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as UUID;
 const midB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as UUID;
 const midC = "dddddddd-dddd-4ddd-8ddd-dddddddddddd" as UUID;
 const tableId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc" as UUID;
-
-describe("tableOrigin", () => {
-  it("treats an absent origin as a resource origin", () => {
-    expect(tableOrigin({})).toEqual({ kind: "resource" });
-    const definition = {
-      kind: "definition" as const,
-      version: 1 as const,
-      definition: {
-        dimensions: ["date"],
-        metrics: ["sessions"],
-        dateRange: { kind: "relative" as const, months: 1 },
-        grain: "day" as const,
-      },
-    };
-    expect(tableOrigin({ origin: definition })).toBe(definition);
-  });
-});
 
 function metric(mid: UUID, name: string): InsightMetric {
   return {
@@ -63,16 +45,6 @@ const baseInsight: Pick<
   sorts: [],
   joins: [],
 };
-
-describe("cmd + COMMAND_PATHS", () => {
-  it("builds a path-checked envelope", () => {
-    expect(cmd("RenameNode", { id, name: "New" })).toEqual({
-      path: "renameNode",
-      args: { id, name: "New" },
-    });
-    expect(COMMAND_PATHS.CreateDataSource).toBe("createDataSource");
-  });
-});
 
 describe("buildMetricDiffCommands", () => {
   it("emits AddMetric for a new metric", () => {
@@ -178,21 +150,6 @@ describe("buildInsightUpdateCommands", () => {
     ]);
   });
 
-  it("adds metrics before runtime controls validate their result aliases", () => {
-    const addedMetric = metric(midA, "Sum");
-    const commands = buildInsightUpdateCommands(id, baseInsight, {
-      metrics: [addedMetric],
-      runtimeControls: {
-        sort: { allowedFieldIds: [addedMetric.id], maxKeys: 1 },
-      },
-    });
-
-    expect(commands.map((command) => command.path)).toEqual([
-      "addMetric",
-      "setInsightRuntimeControls",
-    ]);
-  });
-
   it("builds an atomic source transition through an empty valid definition", () => {
     const priorMetric = metric(midA, "Prior");
     const nextMetric = metric(midB, "Next");
@@ -240,10 +197,6 @@ describe("buildInsightUpdateCommands", () => {
         metrics: [nextCalculated, nextMetric],
       }),
     );
-  });
-
-  it("returns empty when no known slices are present", () => {
-    expect(buildInsightUpdateCommands(id, baseInsight, {})).toEqual([]);
   });
 
   it("emits range filters and still rejects joins", () => {

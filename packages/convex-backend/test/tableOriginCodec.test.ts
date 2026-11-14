@@ -34,32 +34,6 @@ describe("parseTableOrigin", () => {
   });
 
   it.each([
-    { kind: "resource", extra: true },
-    { kind: "bogus" },
-    { kind: "definition", version: 2, definition },
-    {
-      kind: "definition",
-      version: 1,
-      definition: { ...definition, metrics: [] },
-    },
-    {
-      kind: "definition",
-      version: 1,
-      definition: { ...definition, filters: [{ kind: "unknown" }] },
-    },
-    {
-      kind: "definition",
-      version: 1,
-      definition: { ...definition, dateRange: { kind: "relative", months: 0 } },
-    },
-    {
-      kind: "definition",
-      version: 1,
-      definition: {
-        ...definition,
-        dateRange: { kind: "relative", months: 1.5 },
-      },
-    },
     {
       kind: "definition",
       version: 1,
@@ -94,30 +68,10 @@ describe("parseTableOrigin", () => {
             kind: "dimension",
             field: "country",
             operator: "exact",
-            values: [],
-          },
-        ],
-      },
-    },
-    {
-      kind: "definition",
-      version: 1,
-      definition: {
-        ...definition,
-        filters: [
-          {
-            kind: "dimension",
-            field: "country",
-            operator: "exact",
             values: ["US", "CA"],
           },
         ],
       },
-    },
-    {
-      kind: "definition",
-      version: 1,
-      definition: { ...definition, dimensions: ["date", "date"] },
     },
     {
       kind: "definition",

@@ -2,19 +2,6 @@ import { expect, it, vi } from "vite-plus/test";
 import { createHostedQueryRuntime } from "./hosted-query-runtime";
 import { stubQueryEngine } from "./query-engine.fixture";
 
-it("shares one coalescing identity across request-scoped wrappers", () => {
-  const engine = stubQueryEngine({
-    queryArrow: vi.fn(async () => new Uint8Array()),
-    registerArrowTable: vi.fn(async () => {}),
-    unregisterTable: vi.fn(async () => {}),
-  });
-  const first = createHostedQueryRuntime(engine);
-  const second = createHostedQueryRuntime(engine);
-
-  expect(first.coalescingIdentity).toBe(engine);
-  expect(second.coalescingIdentity).toBe(engine);
-});
-
 it("keeps accepted shared work independent of any caller cancellation", async () => {
   const pending: Array<{
     resolve: (value: Uint8Array) => void;
@@ -35,36 +22,19 @@ it("keeps accepted shared work independent of any caller cancellation", async ()
     unregisterTable: vi.fn(async () => {}),
   };
   const engine = stubQueryEngine(calls);
-  const first = createHostedQueryRuntime(engine).queryArrow("select 1", []);
-  const sibling = createHostedQueryRuntime(engine).queryArrow("select 2", []);
+  const firstRuntime = createHostedQueryRuntime(engine);
+  const siblingRuntime = createHostedQueryRuntime(engine);
+  // Sibling requests share materialization only through this identity.
+  expect(firstRuntime.coalescingIdentity).toBe(engine);
+  expect(siblingRuntime.coalescingIdentity).toBe(engine);
+  const first = firstRuntime.queryArrow("select 1", []);
+  const sibling = siblingRuntime.queryArrow("select 2", []);
   pending[0]!.resolve(new Uint8Array([1]));
   pending[1]!.resolve(new Uint8Array([2]));
   await expect(first).resolves.toEqual(new Uint8Array([1]));
   await expect(sibling).resolves.toEqual(new Uint8Array([2]));
   expect(calls.queryArrow).toHaveBeenNthCalledWith(1, "select 1", []);
   expect(calls.queryArrow).toHaveBeenNthCalledWith(2, "select 2", []);
-});
-
-it("permits accepted work and cleanup to settle", async () => {
-  const calls = {
-    queryArrow: vi.fn(async () => new Uint8Array()),
-    registerArrowTable: vi.fn(async () => {}),
-    unregisterTable: vi.fn(async () => {}),
-  };
-  const runtime = createHostedQueryRuntime(stubQueryEngine(calls));
-  await expect(runtime.queryArrow("select 1")).resolves.toEqual(
-    new Uint8Array(),
-  );
-  await expect(
-    runtime.registerArrowTable("frame", new Uint8Array([1])),
-  ).resolves.toBeUndefined();
-  await expect(runtime.unregisterTable("frame")).resolves.toBeUndefined();
-  expect(calls.queryArrow).toHaveBeenCalledWith("select 1", undefined);
-  expect(calls.registerArrowTable).toHaveBeenCalledWith(
-    "frame",
-    new Uint8Array([1]),
-  );
-  expect(calls.unregisterTable).toHaveBeenCalledWith("frame");
 });
 
 it("refuses to start or terminate the shared engine on behalf of one request", async () => {

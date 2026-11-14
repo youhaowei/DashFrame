@@ -12,6 +12,7 @@ import type * as hostedMetadata from "../hostedMetadata";
 import type * as hostedLifecycle from "../hostedLifecycle";
 import type * as hostedSourceOperations from "../hostedSourceOperations";
 import type * as hostedCredentials from "../hostedCredentials";
+import type * as agentGrants from "../agentGrants";
 const fullApi = anyApi as unknown as ApiFromModules<{
   app: typeof app;
   host: typeof host;
@@ -21,6 +22,7 @@ const fullApi = anyApi as unknown as ApiFromModules<{
   hostedLifecycle: typeof hostedLifecycle;
   hostedSourceOperations: typeof hostedSourceOperations;
   hostedCredentials: typeof hostedCredentials;
+  agentGrants: typeof agentGrants;
 }>;
 export const api = fullApi as FilterApi<
   typeof fullApi,

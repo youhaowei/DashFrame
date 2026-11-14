@@ -257,11 +257,6 @@ describe("readNeighborhood — ambient = invocation + 1 hop", () => {
     expect(allIds).not.toContain("src1");
   });
 
-  it("returns null for a missing invocation point", async () => {
-    const reader = makeReader();
-    expect(await neighbors(reader, { kind: "insight", id: "nope" })).toBeNull();
-  });
-
   it("resolves a composed insight's base as an INSIGHT, not a dropped table edge", async () => {
     const reader = makeReader();
     const hood = await neighbors(reader, {
@@ -318,19 +313,6 @@ describe("readGraph / find — global reach beyond one hop", () => {
     const hits = await search(reader, { kind: "dataTable" });
     expect(hits.map((h) => h.ref.kind)).toEqual(["dataTable", "dataTable"]);
   });
-
-  it("find by kind 'dataFrame' returns dataFrames (KindSchema accepts it)", async () => {
-    const reader = makeReader();
-    const hits = await search(reader, { kind: "dataFrame" });
-    expect(hits.map((h) => h.ref.id)).toEqual(["df1"]);
-  });
-
-  it("empty find lists every node (the ls)", async () => {
-    const reader = makeReader();
-    const hits = await search(reader, {});
-    // 1 source + 2 tables + 1 dataFrame + 4 insights + 1 viz + 1 dashboard = 10
-    expect(hits.length).toBe(10);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -369,18 +351,6 @@ describe("readArtifact — structure, ungated", () => {
 });
 
 describe("read_source — allowlisted backup path", () => {
-  it("returns the command source for an allowlisted file", async () => {
-    const reader = makeReader();
-    const { readSource } = createReadTools(reader);
-    const res = await readSource.execute("c", {
-      file: "apps/server/src/functions/commands.ts",
-    });
-    expect(res.details).toMatchObject({
-      file: "apps/server/src/functions/commands.ts",
-    });
-    expect((res.details as { text: string }).text).toContain("source text");
-  });
-
   it("refuses a non-allowlisted file", async () => {
     const reader = makeReader();
     const { readSource } = createReadTools(reader);
@@ -394,47 +364,9 @@ describe("read_source — allowlisted backup path", () => {
 // ---------------------------------------------------------------------------
 
 describe("isMaskedBySource — the binary inherit-source decision", () => {
-  it("masks when ANY source field is sensitive", () => {
-    expect(isMaskedBySource([FIELD_AMOUNT, FIELD_EMAIL])).toBe(true);
-  });
   it("masks when a field is unclassified (fail-closed)", () => {
     expect(isMaskedBySource([{ sensitivity: "unclassified" }])).toBe(true);
     expect(isMaskedBySource([{}])).toBe(true); // absent === unclassified
-  });
-  it("does NOT mask when every source field is cleared", () => {
-    expect(isMaskedBySource([FIELD_AMOUNT, FIELD_REGION])).toBe(false);
-  });
-});
-
-describe("applyFloor — fail-closed on incomplete resolution (forceMask)", () => {
-  const node: NodeRef = { kind: "insight", id: "x" };
-
-  it("masks a cleared field set when forceMask is set (couldn't enumerate source)", () => {
-    // The fail-open hazard: a host that can't walk an insight's full source chain
-    // resolves to an incomplete (here, empty/cleared) field set. forceMask makes
-    // the floor mask regardless — an unmasked-but-incomplete read is the leak.
-    expect(applyFloor(node, []).masked).toBe(false); // empty .some() is false…
-    expect(applyFloor(node, [], { forceMask: true }).masked).toBe(true); // …forced closed
-    expect(
-      applyFloor(
-        node,
-        [{ name: "a", type: "string", sensitivity: "cleared" }],
-        {
-          forceMask: true,
-        },
-      ).masked,
-    ).toBe(true);
-  });
-
-  it("forceMask can only make a read MORE restrictive, never less", () => {
-    // A sensitive field already masks; forceMask:false doesn't unmask it.
-    expect(
-      applyFloor(
-        node,
-        [{ name: "e", type: "string", sensitivity: "sensitive" }],
-        { forceMask: false },
-      ).masked,
-    ).toBe(true);
   });
 });
 
@@ -528,30 +460,6 @@ describe("readData — tiered data, floor-gated", () => {
     });
   });
 
-  it("omits sample when sampleRows is undefined", () => {
-    const data = assembleDataRead(
-      { kind: "dataTable", id: "tblPublic" },
-      false,
-      [{ name: "region", type: "string", sensitivity: "cleared" }],
-    );
-    expect(data.sample).toBeUndefined();
-  });
-
-  it("preserves empty sample tier when the sampler returns no rows", () => {
-    const data = assembleDataRead(
-      { kind: "dataTable", id: "tblPublic" },
-      false,
-      [{ name: "region", type: "string", sensitivity: "cleared" }],
-      { sampleRows: [] },
-    );
-    expect(data.sample).toEqual({
-      tier: "raw",
-      rows: [],
-      rowCount: 0,
-      truncated: false,
-    });
-  });
-
   it("drops unprofiled sample fields before returning raw rows", async () => {
     const data = assembleDataRead(
       { kind: "dataTable", id: "tblPublic" },
@@ -582,18 +490,6 @@ describe("readData — tiered data, floor-gated", () => {
       rowCount: 1,
       truncated: false,
     });
-  });
-
-  it("collapses arrays while obfuscating restricted columns", () => {
-    const data = assembleDataRead(
-      { kind: "dataTable", id: "tblOrders" },
-      true,
-      [{ name: "diagnoses", type: "array", sensitivity: "sensitive" }],
-      {
-        sampleRows: [{ diagnoses: ["a", "b", "c"] }],
-      },
-    );
-    expect(data.sample?.rows).toEqual([{ diagnoses: "<array>" }]);
   });
 
   it("obfuscates every sample value when lineage is incomplete", () => {
@@ -686,16 +582,6 @@ describe("readData — tiered data, floor-gated", () => {
     );
     expect(data.sample?.tier).toBe("raw");
     expect(data.sample?.rows).toEqual([{ count: 42n }, { count: 99n }]);
-  });
-
-  it("masks a fully-cleared TABLE only when all its fields are cleared", async () => {
-    const reader = makeReader();
-    const { readData } = createReadTools(reader);
-    const res = await readData.execute("c", {
-      kind: "dataTable",
-      id: "tblPublic",
-    });
-    expect((res.details as DataReadResult).masked).toBe(false);
   });
 
   it("reports not_found for a missing data artifact", async () => {

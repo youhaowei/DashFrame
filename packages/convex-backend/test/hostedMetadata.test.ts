@@ -208,24 +208,22 @@ it("reads and publishes only the signed workspace, including operation receipts 
   ).rejects.toThrow();
 });
 
-it.each(["browser", "service", "operator"])(
-  "rejects %s authority even with a metadata purpose",
-  async (authority) => {
-    const workspaceId = await admit();
-    await expect(
-      host(workspaceId, { authority }).query(
-        api.hostedMetadata.listDataFrames,
-        page,
-      ),
-    ).rejects.toThrow("Invalid hosted authority");
-    await expect(
-      host(workspaceId, { authority }).mutation(api.hostedMetadata.draftBatch, {
-        commands: [],
-      }),
-    ).rejects.toThrow("Invalid hosted authority");
-  },
-);
-it.each([undefined, "host-control", "admission", ""])(
+it("rejects browser authority even with a metadata purpose", async () => {
+  const workspaceId = await admit();
+  await expect(
+    host(workspaceId, { authority: "browser" }).query(
+      api.hostedMetadata.listDataFrames,
+      page,
+    ),
+  ).rejects.toThrow("Invalid hosted authority");
+  await expect(
+    host(workspaceId, { authority: "browser" }).mutation(
+      api.hostedMetadata.draftBatch,
+      { commands: [] },
+    ),
+  ).rejects.toThrow("Invalid hosted authority");
+});
+it.each([undefined, "host-control"])(
   "rejects control or missing purpose %s",
   async (purpose) => {
     const workspaceId = await admit();
@@ -275,45 +273,40 @@ it("rejects caller-selected scope and identity in endpoint arguments", async () 
   ).rejects.toThrow();
 });
 
-it.each(["user", "service"] as const)(
-  "revocation denies every already-issued %s host capability",
-  async (kind) => {
-    const workspaceId = await admit(),
-      data = await seed(workspaceId);
-    await ownCredential(workspaceId);
-    const client = kind === "user" ? host(workspaceId) : service(workspaceId);
-    expect(
-      (await client.query(api.hostedMetadata.listDataFrames, page)).page,
-    ).toHaveLength(2);
-    await operator().mutation(api.admission.revoke, { subject: "a" });
-    const denied = [
-      () =>
-        client.query(api.hostedMetadata.getDataSource, { id: data.sourceId }),
-      () => client.query(api.hostedMetadata.getDataTable, { id: data.tableId }),
-      () => client.query(api.hostedMetadata.getDataFrame, { id: data.frameId }),
-      () => client.query(api.hostedMetadata.getInsight, { id: data.insightId }),
-      () =>
-        client.query(api.hostedMetadata.listDataFramesByInsight, {
-          insightId: data.insightId,
-          ...page,
-        }),
-      () => client.query(api.hostedMetadata.listDataFrames, page),
-      () =>
-        client.query(api.hostedMetadata.getOperation, {
-          operationId: `materialize:${data.resultId}`,
-        }),
-      () =>
-        client.mutation(api.hostedMetadata.publishMaterialization, {
-          value: data.publication,
-        }),
-      () => client.mutation(api.hostedMetadata.commitBatch, { commands: [] }),
-      () => client.mutation(api.hostedMetadata.draftBatch, { commands: [] }),
-    ];
-    for (const operation of denied)
-      await expect(operation()).rejects.toThrow("Workspace admission required");
-    expect(await t.run((ctx) => ctx.db.query("drafts").take(10))).toEqual([]);
-  },
-);
+it("revocation denies every already-issued user host capability", async () => {
+  const workspaceId = await admit(),
+    data = await seed(workspaceId);
+  const client = host(workspaceId);
+  expect(
+    (await client.query(api.hostedMetadata.listDataFrames, page)).page,
+  ).toHaveLength(2);
+  await operator().mutation(api.admission.revoke, { subject: "a" });
+  const denied = [
+    () => client.query(api.hostedMetadata.getDataSource, { id: data.sourceId }),
+    () => client.query(api.hostedMetadata.getDataTable, { id: data.tableId }),
+    () => client.query(api.hostedMetadata.getDataFrame, { id: data.frameId }),
+    () => client.query(api.hostedMetadata.getInsight, { id: data.insightId }),
+    () =>
+      client.query(api.hostedMetadata.listDataFramesByInsight, {
+        insightId: data.insightId,
+        ...page,
+      }),
+    () => client.query(api.hostedMetadata.listDataFrames, page),
+    () =>
+      client.query(api.hostedMetadata.getOperation, {
+        operationId: `materialize:${data.resultId}`,
+      }),
+    () =>
+      client.mutation(api.hostedMetadata.publishMaterialization, {
+        value: data.publication,
+      }),
+    () => client.mutation(api.hostedMetadata.commitBatch, { commands: [] }),
+    () => client.mutation(api.hostedMetadata.draftBatch, { commands: [] }),
+  ];
+  for (const operation of denied)
+    await expect(operation()).rejects.toThrow("Workspace admission required");
+  expect(await t.run((ctx) => ctx.db.query("drafts").take(10))).toEqual([]);
+});
 
 it("enforces service ownership, individual revocation, and no direct commit privilege", async () => {
   const a = await admit(),

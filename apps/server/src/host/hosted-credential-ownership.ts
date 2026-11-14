@@ -9,6 +9,17 @@ export interface HostedCredentialOwnership {
     workspaceId: string;
   }>;
   revoke(credentialId: string): Promise<void>;
+  /** Every OAuth agent grant in the owner's workspace, oldest first. */
+  listAgentGrants(): Promise<AgentGrantSummary[]>;
+  revokeAgentGrant(grantId: string): Promise<void>;
+}
+
+export interface AgentGrantSummary {
+  grantId: string;
+  clientKey: string;
+  permissions: string[];
+  createdAt: number;
+  revokedAt: number | null;
 }
 
 /**
@@ -41,6 +52,26 @@ export function createHostedCredentialOwnership(options: {
       await (
         await client()
       ).mutation(api.hostedCredentials.revoke, { credentialId });
+    },
+    listAgentGrants: async () => {
+      const convex = await client();
+      const grants: AgentGrantSummary[] = [];
+      let cursor: string | null = null;
+      for (;;) {
+        const page: {
+          page: AgentGrantSummary[];
+          isDone: boolean;
+          continueCursor: string;
+        } = await convex.query(api.agentGrants.listGrants, {
+          paginationOpts: { cursor, numItems: 100 },
+        });
+        grants.push(...page.page);
+        if (page.isDone) return grants;
+        cursor = page.continueCursor;
+      }
+    },
+    revokeAgentGrant: async (grantId) => {
+      await (await client()).mutation(api.agentGrants.revokeGrant, { grantId });
     },
   };
 }

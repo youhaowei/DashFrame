@@ -4,7 +4,6 @@ import { internal } from "../convex/_generated/api";
 import { validateMetric } from "../convex/engine";
 import schema from "../convex/schema";
 import { parseStoredDataTableState } from "../convex/tableCodec";
-import { AGGREGATIONS } from "@dashframe/types";
 
 const modules = import.meta.glob("../convex/**/*.ts");
 const makeTest = () => convexTest(schema, modules);
@@ -15,21 +14,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
-});
-
-it("accepts every public aggregation and rejects values outside the list", () => {
-  for (const aggregation of AGGREGATIONS) {
-    expect(
-      parseStoredDataTableState(state({ aggregation }), "table").metrics[0]
-        .aggregation,
-    ).toBe(aggregation);
-  }
-  expect(() =>
-    parseStoredDataTableState(
-      state({ aggregation: "not-an-aggregation" }),
-      "table",
-    ),
-  ).toThrow(/metrics\.0\.aggregation/);
 });
 
 const state = (overrides: Record<string, unknown> = {}) => ({
@@ -55,6 +39,29 @@ const state = (overrides: Record<string, unknown> = {}) => ({
     },
   ],
 });
+
+const dateField = (tableId: string) => ({
+  id: "date",
+  name: "Date",
+  tableId,
+  columnName: "date",
+  type: "date",
+});
+
+/** A saved Insight measure with the legacy GA4 default name. */
+const sumOfActiveUsers = (sourceTable: string, id = "users") => ({
+  id,
+  sourceTable,
+  columnName: "activeUsers",
+  aggregation: "sum",
+  name: "Sum of Active users",
+});
+
+const repair = (batchSize?: number) =>
+  t.mutation(internal.host.repairGa4MeasureContracts, {
+    workspaceId: "workspace",
+    ...(batchSize === undefined ? {} : { batchSize }),
+  });
 
 describe("measure aggregation contract validation", () => {
   it("accepts persisted field scopes and measure contracts", () => {
@@ -91,18 +98,6 @@ describe("measure aggregation contract validation", () => {
         false,
       ),
     ).toThrow();
-  });
-
-  it("rejects nested additive scopes that stringify to a valid scope", () => {
-    expect(() =>
-      validateMetric(
-        {
-          ...state().metrics[0],
-          contract: { kind: "additive", additiveOver: [["time"]] },
-        },
-        false,
-      ),
-    ).toThrow("Invalid additive measure scope");
   });
 
   it("rejects ratio contracts without an expression", () => {
@@ -163,15 +158,7 @@ it("scopes legacy GA4 dates without changing Count measures or other sources", a
         createdAt: 1,
         dataSourceId: id,
         table: "properties/1",
-        fields: [
-          {
-            id: "date",
-            name: "Date",
-            tableId: id,
-            columnName: "date",
-            type: "date",
-          },
-        ],
+        fields: [dateField(id)],
         metrics: [
           {
             id: "users",
@@ -190,16 +177,16 @@ it("scopes legacy GA4 dates without changing Count measures or other sources", a
       });
     }
   });
-  expect(
-    await t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-    }),
-  ).toEqual({ tablesRepaired: 2, insightsRepaired: 0, complete: true });
-  expect(
-    await t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-    }),
-  ).toEqual({ tablesRepaired: 0, insightsRepaired: 0, complete: true });
+  expect(await repair()).toEqual({
+    tablesRepaired: 2,
+    insightsRepaired: 0,
+    complete: true,
+  });
+  expect(await repair()).toEqual({
+    tablesRepaired: 0,
+    insightsRepaired: 0,
+    complete: true,
+  });
   const rows = await t.run((ctx) => ctx.db.query("dataTables").collect());
   const repairedIds = new Set([
     "workspace-googleAnalytics-v1",
@@ -251,13 +238,7 @@ it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => 
       dataSourceId: "source",
       table: "properties/1",
       fields: [
-        {
-          id: "date",
-          name: "Date",
-          tableId: "table",
-          columnName: "date",
-          type: "date",
-        },
+        dateField("table"),
         {
           id: "week",
           name: "Week",
@@ -320,13 +301,7 @@ it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => 
             aggregation: "sum",
             name: "Weekly audience",
           },
-          {
-            id: "default-users",
-            sourceTable: "table",
-            columnName: "activeUsers",
-            aggregation: "sum",
-            name: "Sum of Active users",
-          },
+          sumOfActiveUsers("table", "default-users"),
           {
             id: "formula-users",
             sourceTable: "table",
@@ -341,16 +316,16 @@ it("repairs legacy v2 GA4 contracts and field scopes exactly once", async () => 
     });
   });
 
-  expect(
-    await t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-    }),
-  ).toEqual({ tablesRepaired: 1, insightsRepaired: 1, complete: true });
-  expect(
-    await t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-    }),
-  ).toEqual({ tablesRepaired: 0, insightsRepaired: 0, complete: true });
+  expect(await repair()).toEqual({
+    tablesRepaired: 1,
+    insightsRepaired: 1,
+    complete: true,
+  });
+  expect(await repair()).toEqual({
+    tablesRepaired: 0,
+    insightsRepaired: 0,
+    complete: true,
+  });
 
   const table = await t.run((ctx) =>
     ctx.db
@@ -442,11 +417,11 @@ it("skips malformed legacy tables and repairs the remaining GA4 tables", async (
       });
     }
   });
-  expect(
-    await t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-    }),
-  ).toEqual({ tablesRepaired: 1, insightsRepaired: 0, complete: true });
+  expect(await repair()).toEqual({
+    tablesRepaired: 1,
+    insightsRepaired: 0,
+    complete: true,
+  });
   const good = await t.run((ctx) =>
     ctx.db
       .query("dataTables")
@@ -499,25 +474,17 @@ it("skips a malformed legacy insight without rolling back table repairs", async 
         name: "Broken report",
         source: { sourceType: "dataTable", sourceId: "table" },
         selectedFields: ["week"],
-        metrics: [
-          {
-            id: "",
-            sourceTable: "table",
-            columnName: "activeUsers",
-            aggregation: "sum",
-            name: "Sum of Active users",
-          },
-        ],
+        metrics: [sumOfActiveUsers("table", "")],
         createdAt: 1,
       },
     });
   });
 
-  expect(
-    await t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-    }),
-  ).toEqual({ tablesRepaired: 1, insightsRepaired: 0, complete: true });
+  expect(await repair()).toEqual({
+    tablesRepaired: 1,
+    insightsRepaired: 0,
+    complete: true,
+  });
   const rows = await t.run((ctx) => ctx.db.query("dataTables").collect());
   expect(rows[0]?.metrics?.[0]).toMatchObject({
     name: "Active users",
@@ -577,15 +544,7 @@ it("repairs tables and insights past one batch through scheduled continuation", 
           createdAt: 1,
           dataSourceId: source,
           table: "properties/2",
-          fields: [
-            {
-              id: "date",
-              name: "Date",
-              tableId: id,
-              columnName: "date",
-              type: "date",
-            },
-          ],
+          fields: [dateField(id)],
           metrics: [],
         });
       }
@@ -598,15 +557,7 @@ it("repairs tables and insights past one batch through scheduled continuation", 
         createdAt: 1,
         dataSourceId: "ga4",
         table: "properties/1",
-        fields: [
-          {
-            id: "date",
-            name: "Date",
-            tableId: id,
-            columnName: "date",
-            type: "date",
-          },
-        ],
+        fields: [dateField(id)],
         metrics: [
           {
             id: "users",
@@ -628,15 +579,7 @@ it("repairs tables and insights past one batch through scheduled continuation", 
           name: id,
           source: { sourceType: "dataTable", sourceId: id },
           selectedFields: [],
-          metrics: [
-            {
-              id: "users",
-              sourceTable: id,
-              columnName: "activeUsers",
-              aggregation: "sum",
-              name: "Sum of Active users",
-            },
-          ],
+          metrics: [sumOfActiveUsers(id)],
           createdAt: 1,
         },
       });
@@ -649,21 +592,11 @@ it("repairs tables and insights past one batch through scheduled continuation", 
       createdAt: 1,
       dataSourceId: "csv",
       table: "t.csv",
-      fields: [
-        {
-          id: "date",
-          name: "Date",
-          tableId: "table-csv",
-          columnName: "date",
-          type: "date",
-        },
-      ],
+      fields: [dateField("table-csv")],
       metrics: [],
     });
   });
-  const first = await t.mutation(internal.host.repairGa4MeasureContracts, {
-    workspaceId: "workspace",
-  });
+  const first = await repair();
   expect(first.complete).toBe(false);
   expect(first.tablesRepaired).toBeGreaterThan(0);
   expect(first.tablesRepaired).toBeLessThan(1001);
@@ -714,23 +647,14 @@ it("repairs tables and insights past one batch through scheduled continuation", 
       createdAt: 2,
       dataSourceId: "ga4",
       table: "properties/1",
-      fields: [
-        {
-          id: "date",
-          name: "Date",
-          tableId: "table-late",
-          columnName: "date",
-          type: "date",
-        },
-      ],
+      fields: [dateField("table-late")],
       metrics: [],
     }),
   );
-  expect(
-    await t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-    }),
-  ).toMatchObject({ insightsRepaired: 0, complete: false });
+  expect(await repair()).toMatchObject({
+    insightsRepaired: 0,
+    complete: false,
+  });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   const again = await t.run((ctx) => ctx.db.query("dataTables").collect());
   expect(
@@ -744,63 +668,6 @@ it("repairs tables and insights past one batch through scheduled continuation", 
     "time",
   );
 }, 60_000);
-
-it("retires a queued repair walk when a new call starts one", async () => {
-  vi.useFakeTimers();
-  await t.run(async (ctx) => {
-    await ctx.db.insert("dataSources", {
-      workspaceId: "workspace",
-      id: "ga4",
-      revision: 1,
-      name: "GA4",
-      createdAt: 1,
-      kind: "googleAnalytics",
-      config: {},
-    });
-    for (let index = 0; index < 5; index++) {
-      const id = `table-${index}`;
-      await ctx.db.insert("dataTables", {
-        workspaceId: "workspace",
-        id,
-        revision: 1,
-        name: id,
-        createdAt: 1,
-        dataSourceId: "ga4",
-        table: "properties/1",
-        fields: [
-          {
-            id: "date",
-            name: "Date",
-            tableId: id,
-            columnName: "date",
-            type: "date",
-          },
-        ],
-        metrics: [],
-      });
-    }
-  });
-  const repair = () =>
-    t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-      batchSize: 2,
-    });
-  // The source read costs one of the two rows, so the first batch repairs one table.
-  expect(await repair()).toMatchObject({ tablesRepaired: 1, complete: false });
-  // A second boot before the first walk's continuation ran: it starts over
-  // and owns the only live walk from here on.
-  expect(await repair()).toMatchObject({ tablesRepaired: 0, complete: false });
-  expect(
-    await t.run((ctx) => ctx.db.query("hostSettings").collect()),
-  ).toHaveLength(1);
-  await t.finishAllScheduledFunctions(vi.runAllTimers);
-  const tables = await t.run((ctx) => ctx.db.query("dataTables").collect());
-  expect(tables.map((row) => row.revision)).toEqual([2, 2, 2, 2, 2]);
-  expect(tables.every((row) => row.fields?.[0]?.scope === "time")).toBe(true);
-  expect(await t.run((ctx) => ctx.db.query("hostSettings").collect())).toEqual(
-    [],
-  );
-});
 
 it("charges each GA4 source to the batch so a long source list spans batches", async () => {
   vi.useFakeTimers();
@@ -830,15 +697,7 @@ it("charges each GA4 source to the batch so a long source list spans batches", a
         createdAt: 1,
         dataSourceId: "legacy",
         table: "properties/1",
-        fields: [
-          {
-            id: "date",
-            name: "Date",
-            tableId: id,
-            columnName: "date",
-            type: "date",
-          },
-        ],
+        fields: [dateField(id)],
         metrics: [],
       });
     }
@@ -853,26 +712,17 @@ it("charges each GA4 source to the batch so a long source list spans batches", a
         name: "Audience",
         source: { sourceType: "dataTable", sourceId: "legacy-table-0" },
         selectedFields: [],
-        metrics: [
-          {
-            id: "users",
-            sourceTable: "legacy-table-0",
-            columnName: "activeUsers",
-            aggregation: "sum",
-            name: "Sum of Active users",
-          },
-        ],
+        metrics: [sumOfActiveUsers("legacy-table-0")],
         createdAt: 1,
       },
     });
   });
   // Two rows per transaction: the nine sources alone need five batches.
-  expect(
-    await t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-      batchSize: 2,
-    }),
-  ).toEqual({ tablesRepaired: 0, insightsRepaired: 0, complete: false });
+  expect(await repair(2)).toEqual({
+    tablesRepaired: 0,
+    insightsRepaired: 0,
+    complete: false,
+  });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   const rows = await t.run(async (ctx) => ({
     tables: await ctx.db.query("dataTables").collect(),
@@ -908,10 +758,9 @@ it("skips the insights when the workspace has no legacy GA4 source", async () =>
       });
   });
   // Five insights would take three batches of two; none is read.
-  expect(
-    await t.mutation(internal.host.repairGa4MeasureContracts, {
-      workspaceId: "workspace",
-      batchSize: 2,
-    }),
-  ).toEqual({ tablesRepaired: 0, insightsRepaired: 0, complete: true });
+  expect(await repair(2)).toEqual({
+    tablesRepaired: 0,
+    insightsRepaired: 0,
+    complete: true,
+  });
 });

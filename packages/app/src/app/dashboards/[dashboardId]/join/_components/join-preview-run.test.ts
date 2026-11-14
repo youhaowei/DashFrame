@@ -27,15 +27,6 @@ import { createLatestRunGuard, runJoinSubmit } from "./join-preview-run";
 // ---------------------------------------------------------------------------
 
 describe("createLatestRunGuard", () => {
-  it("sets the loading flag when a run begins", () => {
-    const setLoading = vi.fn();
-    const guard = createLatestRunGuard(setLoading);
-
-    guard.begin();
-
-    expect(setLoading).toHaveBeenCalledWith(true);
-  });
-
   it("marks only the latest begun run as current", () => {
     const guard = createLatestRunGuard(vi.fn());
 
@@ -120,17 +111,22 @@ describe("createLatestRunGuard", () => {
 
 describe("runJoinSubmit", () => {
   it("restores the button and surfaces an error when persist rejects", async () => {
+    const persist = vi.fn(() =>
+      Promise.reject(new Error("Dexie write failed")),
+    );
     const setSubmitting = vi.fn();
     const setError = vi.fn();
     const onSuccess = vi.fn();
 
     await runJoinSubmit({
-      persist: () => Promise.reject(new Error("Dexie write failed")),
+      persist,
       onSuccess,
       setError,
       setSubmitting,
     });
 
+    // A single attempt — no implicit retry.
+    expect(persist).toHaveBeenCalledTimes(1);
     // Button toggled on then back off (not stuck loading).
     expect(setSubmitting).toHaveBeenNthCalledWith(1, true);
     expect(setSubmitting).toHaveBeenLastCalledWith(false);
@@ -140,20 +136,6 @@ describe("runJoinSubmit", () => {
     );
     // No navigation on failure.
     expect(onSuccess).not.toHaveBeenCalled();
-  });
-
-  it("uses a generic message when a non-Error value is thrown", async () => {
-    const setError = vi.fn();
-
-    await runJoinSubmit({
-      // oxlint-disable-next-line prefer-promise-reject-errors -- exercises the non-Error rejection path on purpose
-      persist: () => Promise.reject("boom"),
-      onSuccess: vi.fn(),
-      setError,
-      setSubmitting: vi.fn(),
-    });
-
-    expect(setError).toHaveBeenCalledWith("Failed to save join: Unknown error");
   });
 
   it("runs onSuccess and restores the button when persist resolves", async () => {
@@ -204,23 +186,5 @@ describe("runJoinSubmit", () => {
     expect(setSubmitting).toHaveBeenLastCalledWith(false);
 
     consoleError.mockRestore();
-  });
-
-  it("calls persist exactly once when it fails (no implicit retry)", async () => {
-    // Guards the persist-failure branch: a single attempt, error surfaced.
-    const persist = vi.fn(() => Promise.reject(new Error("write failed")));
-    const onSuccess = vi.fn();
-    const setError = vi.fn();
-
-    await runJoinSubmit({
-      persist,
-      onSuccess,
-      setError,
-      setSubmitting: vi.fn(),
-    });
-
-    expect(persist).toHaveBeenCalledTimes(1);
-    expect(onSuccess).not.toHaveBeenCalled();
-    expect(setError).toHaveBeenCalledWith("Failed to save join: write failed");
   });
 });

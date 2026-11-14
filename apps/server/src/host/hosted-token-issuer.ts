@@ -45,7 +45,7 @@ type TokenClaims = {
   credentialId?: string;
   workspaceId?: string;
   authority: "browser" | "service" | "host";
-  purpose?: "host-metadata" | "host-credentials";
+  purpose?: "host-metadata" | "host-credentials" | "host-agent-grants";
 };
 
 /**
@@ -150,6 +150,21 @@ export function createHostedTokenIssuer(options: HostedTokenIssuerOptions) {
           workspaceId: identifier(workspaceId, "workspace ID"),
           authority: "host",
           purpose: "host-credentials",
+        },
+        user.expiresAt,
+      );
+    },
+    /** Host-only: ensure the agent grant for an AuthKit token already verified by the host. */
+    agentGrant(user: HostedUserTokenSource, workspaceId: string) {
+      const userId = identifier(user.userId, "user ID");
+      return issue(
+        {
+          sub: `user:${userId}`,
+          principalKind: "user",
+          userId,
+          workspaceId: identifier(workspaceId, "workspace ID"),
+          authority: "host",
+          purpose: "host-agent-grants",
         },
         user.expiresAt,
       );

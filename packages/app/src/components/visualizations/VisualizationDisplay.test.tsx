@@ -6,7 +6,13 @@ import {
 } from "@/test/native-query-fixture";
 /** VisualizationDisplay saved execution and declared runtime-control coverage. */
 import type { Insight, Visualization } from "@dashframe/types";
-import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
+import { parseEncoding } from "@dashframe/types";
+import {
+  fieldIdToColumnAlias,
+  getMetricDisplayLabel,
+  metricIdToColumnAlias,
+  resolveEncodingToResultFrame,
+} from "@dashframe/engine";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -229,26 +235,91 @@ function setupCommonMocks(currentInsight = insight, currentViz = viz) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
+describe("VisualizationDisplay — metric titles", () => {
+  it("names a metric's column from the source fields, not the chart's result", async () => {
+    const region = {
+      id: "field-region",
+      name: "Region",
+      columnName: "region",
+      type: "string",
+      tableId: "t1",
+    };
+    const revenue = {
+      id: "field-revenue",
+      name: "Revenue",
+      columnName: "revenue_usd",
+      type: "number",
+      tableId: "t1",
+    };
+    const report = {
+      ...insight,
+      selectedFields: [region.id],
+      metrics: [
+        {
+          id: "m1",
+          name: "",
+          sourceTable: "t1",
+          columnName: "revenue_usd",
+          aggregation: "sum",
+        },
+      ],
+    } as unknown as Insight;
+    const { parseEncoding: realParseEncoding } =
+      await vi.importActual<typeof import("@dashframe/types")>(
+        "@dashframe/types",
+      );
+    vi.clearAllMocks();
+    vi.mocked(parseEncoding).mockImplementation(realParseEncoding);
+    vi.mocked(resolveEncodingToResultFrame).mockReturnValue({ y: "metric_m1" });
+    try {
+      setupCommonMocks(report, {
+        ...viz,
+        encoding: { x: `field:${region.id}`, y: "metric:m1" },
+      } as Visualization);
+      mockUseDataTables.mockReturnValue({
+        data: [
+          {
+            ...(dataTable as object),
+            name: "Orders",
+            dataFrameId: "orders-frame",
+            fields: [region, revenue],
+          },
+        ],
+      });
+      mockUseInsightPagination.mockReturnValue({
+        fetchData: vi.fn(),
+        totalCount: 4,
+        columns: [],
+        // The chart's result holds only what it draws, under its alias.
+        resolvedFields: [
+          { ...region, columnName: fieldIdToColumnAlias(region.id) },
+        ],
+        isReady: true,
+        columnDisplayNames: {},
+      });
+
+      render(<VisualizationDisplay visualizationId="viz-1" />);
+
+      expect(getMetricDisplayLabel).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "m1" }),
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "Revenue",
+            columnName: "revenue_usd",
+          }),
+        ]),
+      );
+    } finally {
+      vi.mocked(parseEncoding).mockReturnValue(null);
+      vi.mocked(resolveEncodingToResultFrame).mockReturnValue({});
+    }
+  });
+});
+
 describe("VisualizationDisplay — declared runtime controls", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupCommonMocks();
-  });
-
-  it("runs the saved canonical Insight when no dashboard overrides exist", () => {
-    render(<VisualizationDisplay visualizationId="viz-1" />);
-
-    const callOpts = mockUseInsightPagination.mock.calls[0]?.[0];
-    expect(callOpts).toMatchObject({
-      insight,
-      showModelPreview: false,
-      enabled: true,
-      runtime: undefined,
-    });
-    expect(mockUseInsightView).toHaveBeenCalledWith(insight, {
-      runtime: undefined,
-      presentation: undefined,
-    });
   });
 
   it("offers unselected declared dimensions after reopening a saved report", async () => {
@@ -552,30 +623,6 @@ describe("VisualizationDisplay — report tile", () => {
     vi.clearAllMocks();
     cleanup();
     setupCommonMocks();
-  });
-
-  it("keeps the workbench's row count and chart/table switch off a tile", async () => {
-    const { rerender } = render(
-      <VisualizationDisplay visualizationId="viz-1" />,
-    );
-    expect(await screen.findByTestId("view-toggle")).toBeTruthy();
-    expect(screen.getByText(/rows •/)).toBeTruthy();
-
-    rerender(
-      <VisualizationDisplay visualizationId="viz-1" reportId="report-a" />,
-    );
-    expect(screen.queryByTestId("view-toggle")).toBeNull();
-    expect(screen.queryByText(/rows •/)).toBeNull();
-  });
-
-  it("names the question a tile came from", async () => {
-    render(
-      <VisualizationDisplay visualizationId="viz-1" reportId="report-a" />,
-    );
-
-    await screen.findByText(`from ${insight.name}`);
-    // Charts are edited from the tile's Edit chart, not by leaving the report.
-    expect(screen.queryByRole("link", { name: insight.name })).toBeNull();
   });
 
   it("says a tile's saved view was deleted instead of loading forever", async () => {

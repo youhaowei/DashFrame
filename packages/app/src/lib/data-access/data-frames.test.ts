@@ -1,16 +1,15 @@
 import { MAX_LOCAL_ARROW_BYTES, type UUID } from "@dashframe/types";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { ingestLocalDataFrame, queryDataFrame } from "./data-frames";
+import { ingestLocalDataFrame } from "./data-frames";
 
-const { mockMutate, mockQuery } = vi.hoisted(() => ({
+const { mockMutate } = vi.hoisted(() => ({
   mockMutate: vi.fn(),
-  mockQuery: vi.fn(),
 }));
 
 vi.mock("@/data/host", () => ({
   requestHost: (operation: string, args: unknown) =>
-    (operation === "queryDataFrame" ? mockQuery : mockMutate)(operation, args),
+    mockMutate(operation, args),
 }));
 
 const DATA_FRAME_ID = "10000000-0000-4000-8000-000000000001" as UUID;
@@ -74,17 +73,5 @@ describe("server-owned DataFrame access", () => {
       ingestLocalDataFrame(DATA_TABLE_ID, oversized),
     ).rejects.toThrow("Encoded local data exceeds the 100MB ingestion limit");
     expect(mockMutate).not.toHaveBeenCalled();
-  });
-
-  it("queries rows only through the bounded server frame surface", async () => {
-    mockQuery.mockResolvedValue({ status: "ready", rows: [] });
-
-    await queryDataFrame(DATA_FRAME_ID, { offset: 25, limit: 50 });
-
-    expect(mockQuery).toHaveBeenCalledWith("queryDataFrame", {
-      dataFrameId: DATA_FRAME_ID,
-      offset: 25,
-      limit: 50,
-    });
   });
 });

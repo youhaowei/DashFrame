@@ -84,7 +84,7 @@ const REPORT_TAB_ID = "report";
 const REPORT_PANEL_ID = "report-panel";
 const NO_CHART_TABS: ChartTab[] = [];
 
-export function formatReportContentsCount(
+function formatReportContentsCount(
   questionCount: number,
   savedViewCount: number,
 ): string {
@@ -117,9 +117,11 @@ export default function DashboardDetailContent({
     isLoading: insightsLoading,
     isError: insightsLoadError,
   } = queryStatus(useArtifactList({ query: api.app.listInsights, args: {} }));
-  const { data: dataTables = [] } = queryStatus(
-    useArtifactList({ query: api.app.listDataTables, args: {} }),
-  );
+  const {
+    data: dataTables = [],
+    isLoading: dataTablesLoading,
+    isError: dataTablesLoadError,
+  } = queryStatus(useArtifactList({ query: api.app.listDataTables, args: {} }));
   const commitBatch = useMutation(api.app.commitBatch);
   const { createChartInsight } = useCreateInsight();
 
@@ -258,7 +260,9 @@ export default function DashboardDetailContent({
       if (step !== "discard" || chartDiscards.has(tab.id)) continue;
       chartDiscards.add(tab.id);
       commitBatch({
-        commands: [cmd("DeleteNode", { id: tab.insightId as UUID })],
+        commands: [
+          cmd("DeleteNode", { id: tab.insightId as UUID, ifUnused: true }),
+        ],
       })
         .then(() => closeStoredChartTab(dashboardId, tab.id))
         .catch((error: unknown) => {
@@ -553,6 +557,7 @@ export default function DashboardDetailContent({
           insights={insights}
           insightsLoaded={!insightsLoading}
           dataTables={dataTables}
+          dataTablesLoaded={!dataTablesLoading && !dataTablesLoadError}
           onLanded={handleChartLanded}
         />
       </div>

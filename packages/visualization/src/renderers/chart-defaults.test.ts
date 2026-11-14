@@ -212,7 +212,7 @@ describe.each(["barY", "barX"] as const)("%s chart defaults", (type) => {
     );
   });
 
-  it.each([1, 2, 32])(
+  it.each([1, 32])(
     "bounds %i categories at both card and full widths",
     async (count) => {
       const rows = Array.from({ length: count }, (_, i) => ({

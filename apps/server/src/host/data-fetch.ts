@@ -52,6 +52,7 @@ export function compatibleInsightFingerprints(
 
 const RUNTIME_FAILURE_CODES = new Set([
   "RUNTIME_SELECTION_NOT_ALLOWED",
+  "RUNTIME_SELECTION_EMPTY",
   "RUNTIME_FILTER_NOT_DECLARED",
   "RUNTIME_FILTER_KEY_DUPLICATE",
   "RUNTIME_FILTER_DECLARATION_INVALID",
@@ -390,6 +391,19 @@ function markChangedRuntimeDimensions(
   }
 }
 
+/**
+ * A viewer may hide every field only when a metric is left to show. With
+ * neither, the query has no columns of its own and the SQL builder answers
+ * with every raw row of the table.
+ */
+function requireFieldWithoutMetrics(
+  saved: Insight,
+  ids: readonly string[],
+): void {
+  if (!ids.length && !saved.metrics.length)
+    throw new Error("RUNTIME_SELECTION_EMPTY");
+}
+
 function applyRuntimeSelections(
   definition: EffectiveInsightDefinition,
   saved: Insight,
@@ -417,6 +431,7 @@ function applyRuntimeSelections(
     if (kind === "measures") {
       definition.reporting = { ...definition.reporting, measureIds: [...ids] };
     } else {
+      requireFieldWithoutMetrics(saved, ids);
       markChangedRuntimeDimensions(definition, saved, ids);
       definition.selectedFields = [...ids];
       const reporting = { ...definition.reporting };
@@ -508,6 +523,10 @@ const NAMED_FETCH_FAILURES: Record<
   FETCH_BATCH_BYTES_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
   FETCH_BYTE_BUDGET_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
   FETCH_STORAGE_BUDGET_EXCEEDED: { message: SNAPSHOT_BUDGET_MESSAGE },
+  RUNTIME_SELECTION_EMPTY: {
+    message:
+      "This chart has no metrics, so it needs at least one field. Choose a field.",
+  },
   RUNTIME_SORT_REFERENCE_AMBIGUOUS: {
     message:
       "The saved sort matches more than one field. Choose the sort field again.",

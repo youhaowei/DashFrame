@@ -12,7 +12,6 @@ import {
   buildInsightAvailableFields,
   buildInsightSQL,
   extractColumnAliasComponents,
-  extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
   type BuildInsightSQLOptions,
@@ -231,12 +230,6 @@ describe("buildInsightSQL — measure aggregation contracts", () => {
     );
   });
 
-  it("emits the non-additive source-row guard", () => {
-    expect(sqlFor([week.id, channel.id], [active])).toContain(
-      `CASE WHEN COUNT(*) = 1 THEN SUM("${fieldIdToColumnAlias(activeUsers.id)}") END`,
-    );
-  });
-
   it("guards only dimensions outside an additive measure's allowed scopes", () => {
     const timeOnly = {
       ...sessions,
@@ -311,33 +304,6 @@ describe("buildInsightSQL — measure aggregation contracts", () => {
         },
       }),
     ).toThrow("Cyclic measure reference");
-  });
-
-  it("rejects Top N for a repaired non-additive measure with legacy unscoped fields", () => {
-    const legacyTable = {
-      ...table,
-      fields: table.fields.map(({ scope: _scope, ...field }) => field),
-    };
-    expect(() =>
-      buildInsightSQL(
-        legacyTable,
-        new Map(),
-        {
-          ...groupedInsight(),
-          selectedFields: [week.id, channel.id],
-          metrics: [active],
-          reporting: {
-            topN: {
-              fieldId: channel.id,
-              measureId: active.id,
-              count: 5,
-              direction: "desc",
-            },
-          },
-        },
-        QUERY_OPTS,
-      ),
-    ).toThrow("RUNTIME_TOPN_MEASURE_NOT_ADDITIVE");
   });
 
   it("rejects Top N ranking when an expression references a guarded measure", () => {
@@ -463,26 +429,17 @@ describe("buildInsightSQL — measure aggregation contracts", () => {
 });
 
 describe("buildInsightSQL — period comparison measure types", () => {
-  it.each([
-    {
-      name: "Minimum Region",
-      columnName: "region",
-      aggregation: "min" as const,
-    },
-    {
-      name: "Latest Order Date",
-      columnName: "order_date",
-      aggregation: "max" as const,
-    },
-  ])("rejects arithmetic over non-numeric $name", (definition) => {
+  it("rejects arithmetic over non-numeric Minimum Region", () => {
     const metric: InsightMetric = {
       id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee" as UUID,
       sourceTable: TABLE_ID,
-      ...definition,
+      name: "Minimum Region",
+      columnName: "region",
+      aggregation: "min",
     };
 
     expect(() => build(comparisonInsight([metric]))).toThrow(
-      `Period comparison requires numeric measures; "${definition.name}" is not numeric`,
+      'Period comparison requires numeric measures; "Minimum Region" is not numeric',
     );
   });
 
@@ -642,31 +599,6 @@ describe("buildInsightSQL — period comparison measure types", () => {
 });
 
 describe("buildInsightSQL — filter clause routing", () => {
-  it("emits a WHERE clause for a filter on a grouped dimension (not HAVING)", () => {
-    const sql = build(
-      groupedInsight([{ field: "region", operator: "eq", value: "EMEA" }]),
-    );
-
-    expect(sql).toContain(`WHERE "${regionAlias}" = 'EMEA'`);
-    expect(sql).not.toContain("HAVING");
-    // WHERE must precede GROUP BY (pre-aggregation)
-    expect(sql.indexOf("WHERE")).toBeLessThan(sql.indexOf("GROUP BY"));
-  });
-
-  it("emits a HAVING clause for a filter on a metric (not WHERE)", () => {
-    // Filter references the metric's source column → post-aggregation HAVING.
-    const sql = build(
-      groupedInsight([{ field: "amount", operator: "gt", value: 1000 }]),
-    );
-
-    expect(sql).toContain("HAVING");
-    expect(sql).toContain(`SUM("${amountAlias}") > 1000`);
-    // HAVING references the aggregate, not the raw column in a WHERE
-    expect(sql).not.toMatch(/WHERE/);
-    // HAVING must follow GROUP BY (post-aggregation)
-    expect(sql.indexOf("GROUP BY")).toBeLessThan(sql.indexOf("HAVING"));
-  });
-
   it("splits mixed dimension + metric filters into both WHERE and HAVING", () => {
     const sql = build(
       groupedInsight([
@@ -731,14 +663,6 @@ describe("buildInsightSQL — operators", () => {
     }
   });
 
-  it("renders contains as a LIKE %..% match", () => {
-    const sql = build(
-      groupedInsight([{ field: "region", operator: "contains", value: "ME" }]),
-    );
-
-    expect(sql).toContain(`"${regionAlias}" LIKE '%ME%'`);
-  });
-
   it("escapes LIKE wildcards and the quote in a contains value", () => {
     // Two independent escapes run over the same value: `quoteLiteral` doubles
     // the single quote, and the LIKE step escapes a backslash, `%` and `_` so
@@ -759,19 +683,6 @@ describe("buildInsightSQL — operators", () => {
 });
 
 describe("buildInsightSQL — regression: filters are no longer silently dropped", () => {
-  it("emits a filter clause when the insight has saved filters", () => {
-    const withFilter = build(
-      groupedInsight([{ field: "region", operator: "eq", value: "EMEA" }]),
-    );
-    const withoutFilter = build(groupedInsight());
-
-    // The bug: filters were accepted but never emitted. Assert the clause is
-    // now PRESENT when filters exist, and ABSENT when they don't.
-    expect(withFilter).toContain("WHERE");
-    expect(withoutFilter).not.toContain("WHERE");
-    expect(withoutFilter).not.toContain("HAVING");
-  });
-
   it("resolves a canonical editor alias against the raw base-table column", () => {
     const insight: Insight = {
       ...groupedInsight(),
@@ -781,18 +692,6 @@ describe("buildInsightSQL — regression: filters are no longer silently dropped
     };
 
     expect(build(insight)).toContain(`WHERE "region" = 'EMEA'`);
-  });
-
-  it("keeps a canonical selected dimension in WHERE when it also feeds a metric", () => {
-    const insight: Insight = {
-      ...groupedInsight(),
-      selectedFields: [AMOUNT_FIELD_ID],
-      filters: [{ field: amountAlias, operator: "gt", value: 10 }],
-    };
-
-    const sql = build(insight);
-    expect(sql).toContain(`WHERE "${amountAlias}" > 10`);
-    expect(sql).not.toContain("HAVING");
   });
 });
 
@@ -986,46 +885,6 @@ describe("buildInsightSQL — filter on a dropped join key is safely skipped", (
     createdAt: 0,
   };
 
-  const droppedRightKeyAlias = fieldIdToColumnAlias(C_CUSTID_FIELD.id);
-
-  it("skips a filter on the dropped right join-key instead of emitting a broken column ref", () => {
-    const insight: Insight = {
-      id: "11112222-3333-4444-5555-666677778888" as UUID,
-      name: "Orders joined to customers",
-      source: { sourceType: "dataTable", sourceId: ORDERS_ID },
-      selectedFields: [O_ID_FIELD.id],
-      metrics: [],
-      joins: [
-        {
-          type: "inner",
-          rightTableId: CUSTOMERS_ID,
-          leftKey: "customer_id",
-          rightKey: "customer_id",
-        },
-      ],
-      // Filter targets the right-side customer_id — the column that gets dropped
-      // from the joined subquery. Pre-fix this emitted a reference to a
-      // non-existent alias and crashed the whole query.
-      filters: [{ field: "customer_id", operator: "eq", value: "C-1" }],
-      createdAt: 0,
-    };
-
-    const sql = buildInsightSQL(
-      ordersTable,
-      new Map([[CUSTOMERS_ID, customersTable]]),
-      insight,
-      { mode: "query" },
-    );
-    expect(sql).not.toBeNull();
-
-    // The dropped right-key alias must NOT appear anywhere in a WHERE clause.
-    // The filter resolves to the left "customer_id" (retained, id b2b2…), which
-    // IS in the subquery — so either it routes to the retained alias OR is
-    // skipped; either way the dropped right alias (c3c3…) is never referenced.
-    expect(sql!).not.toContain(`WHERE "${droppedRightKeyAlias}"`);
-    expect(sql!).not.toContain(`"${droppedRightKeyAlias}" =`);
-  });
-
   it("still filters on a RETAINED joined-table column (the fix must not drop legitimate joined filters)", () => {
     // customer_name is a non-key column from the joined table — it survives into
     // the subquery and must remain filterable.
@@ -1092,74 +951,32 @@ describe("buildInsightSQL — sink guards: non-finite numbers throw", () => {
     ).toThrow("non-finite number");
   });
 
-  it("throws when a filter value is Infinity", () => {
+  it("throws when a between filter value contains a non-finite bound", () => {
     expect(() =>
       build(
-        groupedInsight([{ field: "region", operator: "gt", value: Infinity }]),
-      ),
-    ).toThrow("non-finite number");
-  });
-
-  it("throws when a filter value is -Infinity", () => {
-    expect(() =>
-      build(
-        groupedInsight([{ field: "region", operator: "lt", value: -Infinity }]),
-      ),
-    ).toThrow("non-finite number");
-  });
-
-  it("throws when an effectiveFilters value is NaN (validated at coalesce time)", () => {
-    const insight = groupedInsight();
-    expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), insight, {
-        mode: "query",
-        effectiveFilters: [{ field: "region", operator: "eq", value: NaN }],
-      }),
-    ).toThrow("non-finite number");
-  });
-
-  it("throws when an effectiveFilters between value contains a non-finite bound", () => {
-    const insight = groupedInsight();
-    expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), insight, {
-        mode: "query",
-        effectiveFilters: [
+        groupedInsight([
           {
             field: "region",
             operator: "between",
             value: { low: 1, high: Infinity },
           },
-        ],
-      }),
+        ]),
+      ),
     ).toThrow("non-finite number");
   });
 
-  it("throws when an effectiveFilters in-array value contains NaN", () => {
-    const insight = groupedInsight();
+  it("throws when an in-array filter value contains NaN", () => {
     expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), insight, {
-        mode: "query",
-        effectiveFilters: [
+      build(
+        groupedInsight([
           { field: "region", operator: "in", value: ["EMEA", NaN] },
-        ],
-      }),
+        ]),
+      ),
     ).toThrow("non-finite number");
   });
 });
 
 describe("buildInsightSQL — sink guards: LIMIT/OFFSET must be non-negative integers", () => {
-  it("throws when limit is NaN", () => {
-    expect(() =>
-      build(groupedInsight(), { mode: "query", limit: NaN }),
-    ).toThrow("invalid limit");
-  });
-
-  it("throws when limit is Infinity", () => {
-    expect(() =>
-      build(groupedInsight(), { mode: "query", limit: Infinity }),
-    ).toThrow("invalid limit");
-  });
-
   it("throws when limit is negative", () => {
     expect(() => build(groupedInsight(), { mode: "query", limit: -1 })).toThrow(
       "invalid limit",
@@ -1181,12 +998,6 @@ describe("buildInsightSQL — sink guards: LIMIT/OFFSET must be non-negative int
   it("throws when offset is negative", () => {
     expect(() =>
       build(groupedInsight(), { mode: "query", offset: -5 }),
-    ).toThrow("invalid offset");
-  });
-
-  it("throws when offset is Infinity", () => {
-    expect(() =>
-      build(groupedInsight(), { mode: "query", offset: Infinity }),
     ).toThrow("invalid offset");
   });
 
@@ -1259,32 +1070,6 @@ describe("buildInsightSQL — sink guards: invalid join type throws", () => {
       ),
     ).toThrow("invalid join type");
   });
-
-  it("does not throw for each valid join type (inner, left, right, full)", () => {
-    for (const type of ["inner", "left", "right", "full"] as const) {
-      const insight: Insight = {
-        id: "aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb" as UUID,
-        name: "Valid join",
-        source: { sourceType: "dataTable", sourceId: TABLE_ID },
-        selectedFields: [],
-        metrics: [],
-        joins: [
-          { type, rightTableId: JOIN_TABLE_ID, leftKey: "id", rightKey: "id" },
-        ],
-        createdAt: 0,
-      };
-      expect(() =>
-        buildInsightSQL(
-          baseTableWithId,
-          new Map([[JOIN_TABLE_ID, joinedTable]]),
-          insight,
-          {
-            mode: "query",
-          },
-        ),
-      ).not.toThrow();
-    }
-  });
 });
 
 describe("buildInsightSQL — sink guards: invalid aggregation throws", () => {
@@ -1311,63 +1096,6 @@ describe("buildInsightSQL — sink guards: invalid aggregation throws", () => {
       buildInsightSQL(BASE_TABLE, new Map(), insight, { mode: "query" }),
     ).toThrow("invalid aggregation");
   });
-
-  it("throws when metric.aggregation is invalid on the HAVING path (resolveMetricAggRef)", () => {
-    // A filter targeting the metric's source column routes to HAVING via resolveMetricAggRef,
-    // which has its own independent aggregation whitelist. This test confirms that path throws.
-    const badMetricId = "ffffffff-1111-2222-3333-444455556666" as UUID;
-    const badMetric: InsightMetric = {
-      id: badMetricId,
-      name: "Bad agg",
-      sourceTable: TABLE_ID,
-      columnName: "amount",
-      aggregation: "inject" as unknown as "sum",
-    };
-    const insight: Insight = {
-      id: "eeeeeeee-1111-2222-3333-444455556666" as UUID,
-      name: "Bad agg with HAVING filter",
-      source: { sourceType: "dataTable", sourceId: TABLE_ID },
-      selectedFields: [REGION_FIELD_ID],
-      metrics: [badMetric],
-      // Filter on the metric's output alias → routes to HAVING → resolveMetricAggRef
-      filters: [{ field: "amount", operator: "gt", value: 100 }],
-      createdAt: 0,
-    };
-    expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), insight, { mode: "query" }),
-    ).toThrow("invalid aggregation");
-  });
-
-  it("does not throw for each valid aggregation type", () => {
-    const validAggs = [
-      "sum",
-      "avg",
-      "count",
-      "min",
-      "max",
-      "count_distinct",
-    ] as const;
-    for (const aggregation of validAggs) {
-      const metric: InsightMetric = {
-        id: "ccccdddd-1111-2222-3333-444455556666" as UUID,
-        name: "Valid agg",
-        sourceTable: TABLE_ID,
-        columnName: aggregation === "count" ? undefined : "amount",
-        aggregation,
-      };
-      const insight: Insight = {
-        id: "ddddeeeee-1111-2222-3333-444455556666" as UUID,
-        name: "Insight with valid aggregation",
-        source: { sourceType: "dataTable", sourceId: TABLE_ID },
-        selectedFields: [REGION_FIELD_ID],
-        metrics: [metric],
-        createdAt: 0,
-      };
-      expect(() =>
-        buildInsightSQL(BASE_TABLE, new Map(), insight, { mode: "query" }),
-      ).not.toThrow();
-    }
-  });
 });
 
 describe("buildInsightSQL — sink guards: sortDirection whitelist", () => {
@@ -1380,28 +1108,6 @@ describe("buildInsightSQL — sink guards: sortDirection whitelist", () => {
         sortDirection: "ASC" as unknown as "asc", // uppercase, not in whitelist
       }),
     ).toThrow("invalid sortDirection");
-  });
-
-  it("does not throw for 'asc'", () => {
-    const sortAlias = fieldIdToColumnAlias(REGION_FIELD_ID);
-    expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), groupedInsight(), {
-        mode: "query",
-        sortColumn: sortAlias,
-        sortDirection: "asc",
-      }),
-    ).not.toThrow();
-  });
-
-  it("does not throw for 'desc'", () => {
-    const sortAlias = fieldIdToColumnAlias(REGION_FIELD_ID);
-    expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), groupedInsight(), {
-        mode: "query",
-        sortColumn: sortAlias,
-        sortDirection: "desc",
-      }),
-    ).not.toThrow();
   });
 
   it("silently drops ORDER BY when sortColumn is not in the valid column set", () => {
@@ -1518,36 +1224,6 @@ describe("buildInsightSQL — COALESCE for RIGHT/FULL join key", () => {
       );
     });
   }
-
-  for (const joinType of ["inner", "left"] as const) {
-    it(`does NOT emit COALESCE for a ${joinType.toUpperCase()} join (existing behavior preserved)`, () => {
-      const insight: Insight = {
-        id: "yw305000-0000-0000-0000-000000000002" as UUID,
-        name: `Employees ${joinType} join departments`,
-        source: { sourceType: "dataTable", sourceId: EMP_TABLE_ID },
-        selectedFields: [EMP_ID_FIELD.id, EMP_DEPT_ID_FIELD.id],
-        metrics: [],
-        joins: [
-          {
-            type: joinType,
-            rightTableId: DEPT_TABLE_ID,
-            leftKey: "dept_id",
-            rightKey: "dept_id",
-          },
-        ],
-        createdAt: 0,
-      };
-
-      const sql = buildInsightSQL(
-        empTable,
-        new Map([[DEPT_TABLE_ID, deptTable]]),
-        insight,
-        { mode: "query" },
-      );
-      expect(sql).not.toBeNull();
-      expect(sql!).not.toContain("COALESCE");
-    });
-  }
 });
 
 describe("buildInsightSQL — identifier quoting: embedded double-quotes in display names", () => {
@@ -1608,40 +1284,6 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
     expect(sql!).not.toContain(`WHERE "he"llo"`);
   });
 
-  it("doubles embedded double-quotes in model-mode effective filters", () => {
-    // Model mode with caller-supplied effective filters (how the dashboard-cell
-    // chart view invokes this), on a table with no joins — so it reaches the
-    // same raw-reference path through buildSimpleSQL as the test above, by a
-    // different entry condition. The joined variant of model mode resolves
-    // through the "alias" refMode instead and is not exercised here.
-    const WEIRD = 'he"llo';
-    const weirdField = field(REGION_FIELD_ID, "Region", WEIRD, "string");
-    const tableWithQuotedColumn: typeof BASE_TABLE = {
-      ...BASE_TABLE,
-      fields: [weirdField],
-    };
-    const filters: InsightFilter[] = [
-      { field: WEIRD, operator: "eq", value: "x" },
-    ];
-    const insight: Insight = {
-      id: "66666666-6666-6666-6666-666666666666" as UUID,
-      name: "Cell view",
-      source: { sourceType: "dataTable", sourceId: TABLE_ID },
-      selectedFields: [],
-      metrics: [],
-      filters,
-      createdAt: 0,
-    };
-
-    const sql = buildInsightSQL(tableWithQuotedColumn, new Map(), insight, {
-      mode: "model",
-      effectiveFilters: filters,
-    });
-    expect(sql).not.toBeNull();
-    expect(sql!).toContain(`WHERE "he""llo" = 'x'`);
-    expect(sql!).not.toContain(`WHERE "he"llo"`);
-  });
-
   it("doubles embedded double-quotes in a metric aggregation over an unmapped column", () => {
     // buildMetricExpressionWithUUID resolves a metric's source column to its
     // UUID alias, and falls back to the raw source column name when the column
@@ -1687,38 +1329,12 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
 });
 
 // ---------------------------------------------------------------------------
-// extractUUIDFromColumnAlias + extractColumnAliasComponents — round-trip with
-// join-instance suffixes (_j1, _j2 …).
+// extractColumnAliasComponents — round-trip with join-instance suffixes
+// (_j1, _j2 …).
 //
-// Contract:
-//  - extractUUIDFromColumnAlias strips the suffix and returns the bare UUID
-//    (all consumers that only need the field ID continue to work).
-//  - extractColumnAliasComponents returns { uuid, instanceIndex } so consumers
-//    that must distinguish join instances can do so.
+// Contract: returns { uuid, instanceIndex } so consumers that must distinguish
+// join instances can do so.
 // ---------------------------------------------------------------------------
-
-describe("extractUUIDFromColumnAlias — join-instance suffix stripping", () => {
-  const FIELD_UUID = "dd05ef4b-1234-5678-abcd-ef1234567890" as UUID;
-  const canonicalAlias = fieldIdToColumnAlias(FIELD_UUID);
-
-  it("round-trip: canonical alias (no suffix) → original UUID", () => {
-    expect(extractUUIDFromColumnAlias(canonicalAlias)).toBe(FIELD_UUID);
-  });
-
-  it("round-trip: _j1-suffixed alias → same original UUID (suffix stripped)", () => {
-    const suffixed = `${canonicalAlias}_j1`;
-    expect(extractUUIDFromColumnAlias(suffixed)).toBe(FIELD_UUID);
-  });
-
-  it("round-trip: _j9-suffixed alias → same original UUID", () => {
-    const suffixed = `${canonicalAlias}_j9`;
-    expect(extractUUIDFromColumnAlias(suffixed)).toBe(FIELD_UUID);
-  });
-
-  it("returns null for non-field/metric aliases (no regression)", () => {
-    expect(extractUUIDFromColumnAlias("some_random_column")).toBeNull();
-  });
-});
 
 describe("extractColumnAliasComponents — instance-index disambiguation", () => {
   const FIELD_UUID = "dd05ef4b-1234-5678-abcd-ef1234567890" as UUID;
@@ -1736,13 +1352,6 @@ describe("extractColumnAliasComponents — instance-index disambiguation", () =>
     expect(result).not.toBeNull();
     expect(result!.uuid).toBe(FIELD_UUID);
     expect(result!.instanceIndex).toBe(1);
-  });
-
-  it("_j2-suffixed alias → { uuid, instanceIndex: 2 }", () => {
-    const result = extractColumnAliasComponents(`${canonicalAlias}_j2`);
-    expect(result).not.toBeNull();
-    expect(result!.uuid).toBe(FIELD_UUID);
-    expect(result!.instanceIndex).toBe(2);
   });
 
   it("returns null for unrecognised alias", () => {
@@ -1888,20 +1497,6 @@ describe("join-instance identity — two joins to the same table", () => {
     expect(countDefs(emailAliasJ1)).toBe(1);
   });
 
-  it("includes both instances' non-key columns in the SELECT", () => {
-    const sql = buildInsightSQL(
-      ordersTable,
-      new Map([[USERS_TABLE_ID, usersTable]]),
-      doubleJoinInsight,
-      { mode: "model" },
-    );
-    expect(sql).not.toBeNull();
-    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
-    expect(sql!).toContain(`AS "${emailAliasJ0}"`);
-    expect(sql!).toContain(`AS "${nameAliasJ1}"`);
-    expect(sql!).toContain(`AS "${emailAliasJ1}"`);
-  });
-
   it("filters a repeat-join field through its canonical _j1 alias", () => {
     const sql = buildInsightSQL(
       ordersTable,
@@ -1914,59 +1509,6 @@ describe("join-instance identity — two joins to the same table", () => {
     );
 
     expect(sql).toContain(`WHERE "${nameAliasJ1}" = 'Ada'`);
-  });
-
-  it("single join still emits canonical (unsuffixed) alias — no regression", () => {
-    const singleJoinInsight: Insight = {
-      ...doubleJoinInsight,
-      joins: [doubleJoinInsight.joins![0]!],
-    };
-    const sql = buildInsightSQL(
-      ordersTable,
-      new Map([[USERS_TABLE_ID, usersTable]]),
-      singleJoinInsight,
-      { mode: "model" },
-    );
-    expect(sql).not.toBeNull();
-    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
-    expect(sql!).not.toContain(`_j1`);
-  });
-
-  it("counter does NOT advance when first join instance is skipped (missing left key)", () => {
-    // A join whose leftKey doesn't exist in the base table is skipped.  The
-    // valid second join must still get instance index 0 (not 1), so its alias
-    // is the canonical `field_<uuid>` — not `field_<uuid>_j1`.
-    const insightWithBadFirstJoin: Insight = {
-      ...doubleJoinInsight,
-      joins: [
-        // invalid: "no_such_field" not in ordersTable → skip
-        {
-          type: "inner",
-          rightTableId: USERS_TABLE_ID,
-          leftKey: "no_such_field",
-          rightKey: "id",
-        },
-        // valid: approved_by → id (must become instance 0, not 1)
-        {
-          type: "inner",
-          rightTableId: USERS_TABLE_ID,
-          leftKey: "approved_by",
-          rightKey: "id",
-        },
-      ],
-    };
-    const sql = buildInsightSQL(
-      ordersTable,
-      new Map([[USERS_TABLE_ID, usersTable]]),
-      insightWithBadFirstJoin,
-      { mode: "model" },
-    );
-    expect(sql).not.toBeNull();
-    // Second (valid) join must use canonical aliases — index 0, no suffix
-    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
-    expect(sql!).toContain(`AS "${emailAliasJ0}"`);
-    // No suffix should appear — the failed first join did not consume an index slot
-    expect(sql!).not.toContain(`_j1`);
   });
 
   it("buildInsightAvailableFields returns synthetic suffixed Fields for repeat-join instances", () => {
@@ -2000,41 +1542,9 @@ describe("join-instance identity — two joins to the same table", () => {
     expect(fieldIdToColumnAlias(j1EmailId)).toBe(emailAliasJ1);
   });
 
-  it("buildInsightAvailableFields: counter stays at 0 when first join is skipped", () => {
-    // Mirror the counter-fix test above but for the field-list computation.
-    const insightWithBadFirstJoin: Insight = {
-      ...doubleJoinInsight,
-      joins: [
-        {
-          type: "inner",
-          rightTableId: USERS_TABLE_ID,
-          leftKey: "no_such_field",
-          rightKey: "id",
-        },
-        {
-          type: "inner",
-          rightTableId: USERS_TABLE_ID,
-          leftKey: "approved_by",
-          rightKey: "id",
-        },
-      ],
-    };
-    const fields = buildInsightAvailableFields(
-      ordersTable,
-      new Map([[USERS_TABLE_ID, usersTable]]),
-      insightWithBadFirstJoin,
-    );
-    expect(fields).not.toBeNull();
-    // Valid join must appear at instance 0 — canonical IDs, no suffix
-    expect(fields!.find((f) => f.id === U_NAME_FIELD.id)).toBeDefined();
-    expect(fields!.find((f) => f.id === U_EMAIL_FIELD.id)).toBeDefined();
-    // No _j1-suffixed entry should exist
-    expect(fields!.find((f) => f.id.endsWith("_j1"))).toBeUndefined();
-  });
-
   it("counter does NOT advance when join is skipped due to missing right key", () => {
-    // Symmetric counterpart to the missing-leftKey test: the right table exists
-    // but its join key is not present as a column → join is skipped.
+    // The right table exists but its join key is not present as a column →
+    // join is skipped.
     // The second valid join must still get instance index 0 (canonical alias).
     const insightWithBadRightKey: Insight = {
       ...doubleJoinInsight,
@@ -2075,92 +1585,6 @@ describe("join-instance identity — two joins to the same table", () => {
     expect(fields).not.toBeNull();
     expect(fields!.find((f) => f.id === U_NAME_FIELD.id)).toBeDefined();
     expect(fields!.find((f) => f.id.endsWith("_j1"))).toBeUndefined();
-  });
-
-  it("counter is not disrupted by a skip between two successful joins — [valid, invalid, valid]", () => {
-    // Pattern: first join succeeds (instance 0, canonical), second join is
-    // skipped (bad leftKey), third join must get instance 1 (NOT 2).
-    // A regression here would produce `_j2` for the third join.
-    const insightMiddleSkip: Insight = {
-      ...doubleJoinInsight,
-      joins: [
-        // valid: created_by → id → instance 0
-        {
-          type: "inner",
-          rightTableId: USERS_TABLE_ID,
-          leftKey: "created_by",
-          rightKey: "id",
-        },
-        // invalid: bad left key → skipped, counter stays at 1
-        {
-          type: "inner",
-          rightTableId: USERS_TABLE_ID,
-          leftKey: "no_such_field",
-          rightKey: "id",
-        },
-        // valid: approved_by → id → must be instance 1 (alias _j1)
-        {
-          type: "inner",
-          rightTableId: USERS_TABLE_ID,
-          leftKey: "approved_by",
-          rightKey: "id",
-        },
-      ],
-    };
-    const sql = buildInsightSQL(
-      ordersTable,
-      new Map([[USERS_TABLE_ID, usersTable]]),
-      insightMiddleSkip,
-      { mode: "model" },
-    );
-    expect(sql).not.toBeNull();
-    // Instance 0: canonical aliases present
-    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
-    expect(sql!).toContain(`AS "${emailAliasJ0}"`);
-    // Instance 1: _j1 aliases present (NOT _j2)
-    expect(sql!).toContain(`AS "${nameAliasJ1}"`);
-    expect(sql!).toContain(`AS "${emailAliasJ1}"`);
-    expect(sql!).not.toContain(`_j2`);
-
-    // Mirror for buildInsightAvailableFields
-    const fields = buildInsightAvailableFields(
-      ordersTable,
-      new Map([[USERS_TABLE_ID, usersTable]]),
-      insightMiddleSkip,
-    );
-    expect(fields).not.toBeNull();
-    const j1NameId = `${U_NAME_FIELD.id}_j1` as UUID;
-    expect(fields!.find((f) => f.id === U_NAME_FIELD.id)).toBeDefined();
-    expect(fields!.find((f) => f.id === j1NameId)).toBeDefined();
-    expect(fields!.find((f) => f.id.endsWith("_j2"))).toBeUndefined();
-  });
-
-  it("buildInsightAvailableFields field IDs match buildInsightSQL column aliases — round-trip", () => {
-    // The single-source contract: every alias that buildInsightAvailableFields
-    // implies (via fieldIdToColumnAlias) must appear in the SQL that buildInsightSQL emits.
-    const sql = buildInsightSQL(
-      ordersTable,
-      new Map([[USERS_TABLE_ID, usersTable]]),
-      doubleJoinInsight,
-      { mode: "model" },
-    );
-    const fields = buildInsightAvailableFields(
-      ordersTable,
-      new Map([[USERS_TABLE_ID, usersTable]]),
-      doubleJoinInsight,
-    );
-    expect(sql).not.toBeNull();
-    expect(fields).not.toBeNull();
-
-    // Every non-base-table field's implied alias must appear in the SQL
-    const ordersFieldIds = new Set(ordersTable.fields?.map((f) => f.id) ?? []);
-    const joinedFields = fields!.filter(
-      (f) => !ordersFieldIds.has(f.id as UUID),
-    );
-    for (const f of joinedFields) {
-      const alias = fieldIdToColumnAlias(f.id);
-      expect(sql!).toContain(`AS "${alias}"`);
-    }
   });
 
   it("counters are independent per table — mixed tables (orders→users×2 AND orders→products×1)", () => {

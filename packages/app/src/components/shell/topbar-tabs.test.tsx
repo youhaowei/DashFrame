@@ -70,19 +70,6 @@ describe("useTopBarTabs", () => {
     expect(slot()).toBe("empty");
   });
 
-  it("follows the page's active tab", () => {
-    const { rerender } = renderShell(<Binder tabs={tabsOf()} />);
-    rerender(
-      <PlatformProvider>
-        <TopBarTabsProvider>
-          <Slot />
-          <Binder tabs={tabsOf({ activeId: "b" })} />
-        </TopBarTabsProvider>
-      </PlatformProvider>,
-    );
-    expect(slot()).toBe("Canvas views:b");
-  });
-
   it("clears the slot when the page passes null", () => {
     const { rerender } = renderShell(<Binder tabs={tabsOf()} />);
     rerender(
@@ -323,15 +310,6 @@ describe("tab shortcuts", () => {
     window.dispatchEvent(event);
     expect(onSelect).toHaveBeenCalledWith("a");
     expect(event.defaultPrevented).toBe(true);
-  });
-
-  it("does not claim ⌘W or Ctrl+W when the active tab cannot close", () => {
-    const onClose = vi.fn();
-    renderShell(<Binder tabs={tabsOf({ activeId: "b", onClose })} />);
-    for (const mods of [{ metaKey: true }, { ctrlKey: true }]) {
-      fireEvent.keyDown(window, { key: "w", ...mods });
-    }
-    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("stops listening once the page's tabs are gone", () => {

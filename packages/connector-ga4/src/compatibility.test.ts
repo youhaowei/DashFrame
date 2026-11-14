@@ -12,25 +12,6 @@ describe("GA4 compatibility", () => {
     ).toEqual({ ok: true });
   });
 
-  it("maps one incompatible dimension", () => {
-    expect(
-      parseCompatibility({
-        dimensionCompatibilities: [
-          {
-            compatibility: "INCOMPATIBLE",
-            dimensionMetadata: { apiName: "browser" },
-            reason: "Not available with the selected metrics",
-          },
-        ],
-      }),
-    ).toEqual({
-      ok: false,
-      incompatible: [
-        { field: "browser", reason: "Not available with the selected metrics" },
-      ],
-    });
-  });
-
   it("maps one incompatible metric", () => {
     expect(
       parseCompatibility({

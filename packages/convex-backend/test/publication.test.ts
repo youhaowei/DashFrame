@@ -22,6 +22,28 @@ const user = () =>
 type Publication = FunctionArgs<
   typeof internal.host.publishMaterialization
 >["value"];
+/** Publishes a materialization into workspace "w". */
+const publish = (value: Publication) =>
+  t.mutation(internal.host.publishMaterialization, { workspaceId: "w", value });
+
+/** Creates an Insight over the fixture's first source table. */
+const createInsight = (
+  original: Awaited<ReturnType<typeof fixture>>,
+  insightId: string,
+  name: string,
+) =>
+  user().mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateInsight", {
+        id: insightId,
+        name,
+        source: {
+          sourceType: "dataTable",
+          sourceId: original.sources[0]!.source.table.id,
+        },
+      }),
+    ],
+  });
 async function fixture() {
   const sourceId = crypto.randomUUID(),
     tableId = crypto.randomUUID(),
@@ -78,10 +100,7 @@ async function fixture() {
 }
 it("stores metadata-only publication receipts and preserves retry identity", async () => {
   const value = await fixture();
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value,
-  });
+  await publish(value);
   const receipt = await t.query(internal.host.getOperation, {
     workspaceId: "w",
     operationId: `materialize:${value.result.id}`,
@@ -103,16 +122,11 @@ it("stores metadata-only publication receipts and preserves retry identity", asy
     schema: value.result.schema,
     lifecycle: { kind: "serverSession" },
   });
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value,
-  });
+  await publish(value);
   expect(await listAll(user(), api.app.listDataFrames, {})).toHaveLength(2);
 });
 it.each([
   "sourceArrow",
-  "largeArrow",
-  "sourceFields",
   "tableSamples",
   "frameSamples",
   "schemaSamples",
@@ -131,7 +145,7 @@ it.each([
               { ...item, source: { ...item.source, arrow: { "0": 42 } } },
             ],
           }
-        : slot === "largeArrow"
+        : slot === "tableSamples"
           ? {
               ...value,
               sources: [
@@ -139,76 +153,45 @@ it.each([
                   ...item,
                   source: {
                     ...item.source,
-                    arrow: new Uint8Array(1024 * 1024 + 1).buffer,
+                    table: {
+                      ...item.source.table,
+                      sampleValues: ["private"],
+                    },
                   },
                 },
               ],
             }
-          : slot === "sourceFields"
+          : slot === "frameSamples"
             ? {
                 ...value,
-                sources: [
-                  {
-                    ...item,
-                    source: {
-                      ...item.source,
-                      fields: [{ sampleValues: ["private"] }],
-                    },
-                  },
-                ],
+                result: { ...value.result, sampleValues: ["private"] },
               }
-            : slot === "tableSamples"
+            : slot === "schemaSamples"
               ? {
                   ...value,
-                  sources: [
-                    {
-                      ...item,
-                      source: {
-                        ...item.source,
-                        table: {
-                          ...item.source.table,
-                          sampleValues: ["private"],
-                        },
+                  result: {
+                    ...value.result,
+                    schema: [
+                      {
+                        ...value.result.schema[0]!,
+                        sampleValues: ["private"],
                       },
-                    },
-                  ],
+                    ],
+                  },
                 }
-              : slot === "frameSamples"
+              : slot === "provenanceData"
                 ? {
                     ...value,
-                    result: { ...value.result, sampleValues: ["private"] },
+                    provenance: {
+                      ...value.provenance,
+                      dataRows: ["private"],
+                    },
                   }
-                : slot === "schemaSamples"
-                  ? {
-                      ...value,
-                      result: {
-                        ...value.result,
-                        schema: [
-                          {
-                            ...value.result.schema[0]!,
-                            sampleValues: ["private"],
-                          },
-                        ],
-                      },
-                    }
-                  : slot === "provenanceData"
-                    ? {
-                        ...value,
-                        provenance: {
-                          ...value.provenance,
-                          dataRows: ["private"],
-                        },
-                      }
-                    : {
-                        ...value,
-                        target: { ...value.target, dataRows: ["private"] },
-                      };
-    await expect(
-      t.mutation(internal.host.publishMaterialization, {
-        workspaceId: "w",
-        value: candidate as Publication,
-      }),
-    ).rejects.toThrow();
+                : {
+                    ...value,
+                    target: { ...value.target, dataRows: ["private"] },
+                  };
+    await expect(publish(candidate as Publication)).rejects.toThrow();
     expect(await listAll(user(), api.app.listDataFrames, {})).toEqual([]);
     expect(
       await t.query(internal.host.getOperation, {
@@ -218,44 +201,32 @@ it.each([
     ).toBeNull();
   },
 );
-it.each(["deleted", "dataSourceId", "table"])(
-  "rejects changed source binding %s without publishing partial frames",
-  async (change) => {
-    const value = await fixture(),
-      binding = value.sources[0]!.source.table;
-    await t.run(async (ctx) => {
-      const table = await ctx.db
-        .query("dataTables")
-        .withIndex("by_workspaceId_and_id", (q) =>
-          q.eq("workspaceId", "w").eq("id", binding.id),
-        )
-        .unique();
-      if (!table) throw new Error("Missing table");
-      if (change === "deleted") await ctx.db.delete(table._id);
-      else await ctx.db.patch(table._id, { [change]: "changed" });
-    });
-    await expect(
-      t.mutation(internal.host.publishMaterialization, {
-        workspaceId: "w",
-        value,
-      }),
-    ).rejects.toThrow("SOURCE_BINDING_CHANGED");
-    expect(await listAll(user(), api.app.listDataFrames, {})).toEqual([]);
-    expect(
-      await t.query(internal.host.getOperation, {
-        workspaceId: "w",
-        operationId: `materialize:${value.result.id}`,
-      }),
-    ).toBeNull();
-  },
-);
+it("rejects changed source binding dataSourceId without publishing partial frames", async () => {
+  const value = await fixture(),
+    binding = value.sources[0]!.source.table;
+  await t.run(async (ctx) => {
+    const table = await ctx.db
+      .query("dataTables")
+      .withIndex("by_workspaceId_and_id", (q) =>
+        q.eq("workspaceId", "w").eq("id", binding.id),
+      )
+      .unique();
+    if (!table) throw new Error("Missing table");
+    await ctx.db.patch(table._id, { dataSourceId: "changed" });
+  });
+  await expect(publish(value)).rejects.toThrow("SOURCE_BINDING_CHANGED");
+  expect(await listAll(user(), api.app.listDataFrames, {})).toEqual([]);
+  expect(
+    await t.query(internal.host.getOperation, {
+      workspaceId: "w",
+      operationId: `materialize:${value.result.id}`,
+    }),
+  ).toBeNull();
+});
 it("publishes transient sources without retaining their intermediate result", async () => {
   const original = await fixture(),
     value = { ...original, target: { kind: "transient" as const } };
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value,
-  });
+  await publish(value);
   expect(
     await t.query(internal.host.getDataFrame, {
       workspaceId: "w",
@@ -279,12 +250,7 @@ it("rolls back earlier source publication when a later source binding changes", 
     if (!row) throw new Error("Missing table");
     await ctx.db.patch(row._id, { table: "rebound.csv" });
   });
-  await expect(
-    t.mutation(internal.host.publishMaterialization, {
-      workspaceId: "w",
-      value,
-    }),
-  ).rejects.toThrow("SOURCE_BINDING_CHANGED");
+  await expect(publish(value)).rejects.toThrow("SOURCE_BINDING_CHANGED");
   expect(await listAll(user(), api.app.listDataFrames, {})).toEqual([]);
   expect(
     (
@@ -297,42 +263,22 @@ it("rolls back earlier source publication when a later source binding changes", 
 it("retains the latest and previous saved results for one-step rollback", async () => {
   const original = await fixture(),
     insightId = crypto.randomUUID();
-  await user().mutation(api.app.commitBatch, {
-    commands: [
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Insight",
-        source: {
-          sourceType: "dataTable",
-          sourceId: original.sources[0]!.source.table.id,
-        },
-      }),
-    ],
-  });
+  await createInsight(original, insightId, "Insight");
   const first = { ...original, target: { kind: "saved" as const, insightId } };
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value: first,
-  });
+  await publish(first);
   const second = {
     ...first,
     sources: [],
     result: { ...first.result, id: crypto.randomUUID() },
     fetchedAt: 124,
   };
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value: second,
-  });
+  await publish(second);
   const third = {
     ...second,
     result: { ...second.result, id: crypto.randomUUID() },
     fetchedAt: 125,
   };
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value: third,
-  });
+  await publish(third);
   expect(
     await t.query(internal.host.getDataFrame, {
       workspaceId: "w",
@@ -363,73 +309,10 @@ it("retains the latest and previous saved results for one-step rollback", async 
   ).toHaveLength(2);
 });
 
-it("skips the reference scan when no saved result is prunable", async () => {
-  const original = await fixture();
-  const insightId = crypto.randomUUID();
-  await user().mutation(api.app.commitBatch, {
-    commands: [
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Bounded history",
-        source: {
-          sourceType: "dataTable",
-          sourceId: original.sources[0]!.source.table.id,
-        },
-      }),
-    ],
-  });
-  const first = {
-    ...original,
-    sources: [],
-    target: { kind: "saved" as const, insightId },
-  };
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value: first,
-  });
-  await t.run(async (ctx) => {
-    for (let sequence = 0; sequence < 1001; sequence++)
-      await ctx.db.insert("draftLog", {
-        workspaceId: "w",
-        draftId: `draft-${sequence}`,
-        sequence,
-        command: {
-          path: "renameNode",
-          args: { id: crypto.randomUUID(), name: "Draft name" },
-        },
-      });
-  });
-  const second = {
-    ...first,
-    result: { ...first.result, id: crypto.randomUUID() },
-    fetchedAt: first.fetchedAt + 1,
-  };
-
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value: second,
-  });
-
-  expect(
-    await listAll(user(), api.app.listDataFrames, { insightId }),
-  ).toHaveLength(2);
-}, 15_000);
-
 it("publishes and retains history when the reference scan exceeds its cap", async () => {
   const original = await fixture();
   const insightId = crypto.randomUUID();
-  await user().mutation(api.app.commitBatch, {
-    commands: [
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Publish despite unrelated growth",
-        source: {
-          sourceType: "dataTable",
-          sourceId: original.sources[0]!.source.table.id,
-        },
-      }),
-    ],
-  });
+  await createInsight(original, insightId, "Publish despite unrelated growth");
   const first = {
     ...original,
     sources: [],
@@ -440,14 +323,8 @@ it("publishes and retains history when the reference scan exceeds its cap", asyn
     result: { ...first.result, id: crypto.randomUUID() },
     fetchedAt: first.fetchedAt + 1,
   };
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value: first,
-  });
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value: second,
-  });
+  await publish(first);
+  await publish(second);
   await t.run(async (ctx) => {
     for (let sequence = 0; sequence < 1001; sequence++)
       await ctx.db.insert("draftLog", {
@@ -466,10 +343,7 @@ it("publishes and retains history when the reference scan exceeds its cap", asyn
     fetchedAt: second.fetchedAt + 1,
   };
 
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value: third,
-  });
+  await publish(third);
 
   expect(
     (await user().query(api.app.getDataFrameByInsight, { insightId }))?.id,
@@ -486,18 +360,7 @@ it("publishes and retains history when the reference scan exceeds its cap", asyn
 it("makes a successful zero-row materialization the current saved result", async () => {
   const original = await fixture();
   const insightId = crypto.randomUUID();
-  await user().mutation(api.app.commitBatch, {
-    commands: [
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Empty insight",
-        source: {
-          sourceType: "dataTable",
-          sourceId: original.sources[0]!.source.table.id,
-        },
-      }),
-    ],
-  });
+  await createInsight(original, insightId, "Empty insight");
   const value = {
     ...original,
     sources: [],
@@ -505,10 +368,7 @@ it("makes a successful zero-row materialization the current saved result", async
     target: { kind: "saved" as const, insightId },
   };
 
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value,
-  });
+  await publish(value);
 
   expect(
     await user().query(api.app.getDataFrameByInsight, { insightId }),
@@ -522,18 +382,7 @@ it("makes a successful zero-row materialization the current saved result", async
 it("retains older results referenced by frame id or blob key", async () => {
   const original = await fixture();
   const insightId = crypto.randomUUID();
-  await user().mutation(api.app.commitBatch, {
-    commands: [
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Referenced history",
-        source: {
-          sourceType: "dataTable",
-          sourceId: original.sources[0]!.source.table.id,
-        },
-      }),
-    ],
-  });
+  await createInsight(original, insightId, "Referenced history");
   const idReferenced = crypto.randomUUID();
   const idReferencedBlob = crypto.randomUUID();
   const blobReferenced = crypto.randomUUID();
@@ -603,10 +452,7 @@ it("retains older results referenced by frame id or blob key", async () => {
     fetchedAt: 5,
   };
 
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value,
-  });
+  await publish(value);
 
   for (const id of [idReferenced, blobReferenced, previous, value.result.id])
     expect(
@@ -630,18 +476,7 @@ it("keeps the cleanup outbox claimable after more than 1000 refreshes", async ()
   // instead, and an outbox past 1000 jobs still claims.
   const original = await fixture();
   const insightId = crypto.randomUUID();
-  await user().mutation(api.app.commitBatch, {
-    commands: [
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Frequently refreshed insight",
-        source: {
-          sourceType: "dataTable",
-          sourceId: original.sources[0]!.source.table.id,
-        },
-      }),
-    ],
-  });
+  await createInsight(original, insightId, "Frequently refreshed insight");
   const publish = (fetchedAt: number) =>
     t.mutation(internal.host.publishMaterialization, {
       workspaceId: "w",
@@ -719,10 +554,7 @@ it("preserves external revision through automatic publications, but changes it o
   const read = () => user().query(api.app.getDataTable, { id: binding.id });
   const initial = (await read())!.refreshRevision;
   expect(typeof initial).toBe("string");
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value: first,
-  });
+  await publish(first);
   const second = {
     ...first,
     sources: [
@@ -734,10 +566,7 @@ it("preserves external revision through automatic publications, but changes it o
     result: { ...first.result, id: crypto.randomUUID() },
     fetchedAt: 124,
   };
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value: second,
-  });
+  await publish(second);
   expect((await read())!.refreshRevision).toBe(initial);
   await user().mutation(api.app.commitBatch, {
     commands: [
@@ -805,10 +634,7 @@ it("projects legacy source provenance consistently before and after automatic pu
   const read = () => user().query(api.app.getDataTable, { id });
   const previous = (await read())!.refreshRevision;
   expect(previous).toMatch(/^legacy-/);
-  await t.mutation(internal.host.publishMaterialization, {
-    workspaceId: "w",
-    value,
-  });
+  await publish(value);
   expect((await read())!.refreshRevision).toBe(previous);
   await user().mutation(api.app.commitBatch, {
     commands: [

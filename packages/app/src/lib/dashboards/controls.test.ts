@@ -1,26 +1,18 @@
 /**
- * Tests for dashboard controls — broadcast logic, eligibility, and transient state.
+ * Tests for dashboard controls — broadcast logic and transient state.
  *
  * Named contracts:
  * - A control bound to N cells broadcasts its value → those cells' effective params reflect it.
- * - Binding is opt-in: an eligible-but-unbound cell is NOT affected.
- * - Source-schema eligibility: a control can't bind to a cell whose insight source lacks the field.
+ * - Binding is opt-in: an unbound cell is NOT affected.
  * - defaultValue applies on load (computeItemOverrides with no transient).
  * - Bound control value (binding = delegation): wins over the cell's own pinned value.
- * - Viewer-transient: turning a control does NOT mutate the saved dashboard control value.
+ * - Viewer-transient: a viewer's turn wins over the saved default, and setting it returns a new map.
  */
 
-import type {
-  DashboardControl,
-  DashboardItem,
-  DataTable,
-  Field,
-  UUID,
-} from "@dashframe/types";
+import type { DashboardControl, DashboardItem, UUID } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
 import {
   computeItemOverrides,
-  isControlEligible,
   resolveControlValue,
   setTransientValue,
 } from "./controls";
@@ -28,30 +20,6 @@ import {
 // ---------------------------------------------------------------------------
 // Shared fixtures
 // ---------------------------------------------------------------------------
-
-const TABLE_ID = "00000000-0000-0000-0000-000000000001" as UUID;
-
-function makeField(name: string, columnName?: string): Field {
-  return {
-    id: `field-${name}` as UUID,
-    name,
-    tableId: TABLE_ID,
-    columnName: columnName ?? name,
-    type: "string",
-  };
-}
-
-function makeTable(fields: Field[]): DataTable {
-  return {
-    id: TABLE_ID,
-    name: "sales",
-    dataSourceId: "ds-1" as UUID,
-    table: "sales",
-    fields,
-    metrics: [],
-    createdAt: Date.now(),
-  };
-}
 
 function makeItem(
   id: UUID,
@@ -82,43 +50,6 @@ function makeControl(
     defaultValue,
   };
 }
-
-// ---------------------------------------------------------------------------
-// isControlEligible
-// ---------------------------------------------------------------------------
-
-describe("isControlEligible — source-schema eligibility", () => {
-  it("returns true when the field is present in the table's fields", () => {
-    const table = makeTable([makeField("region")]);
-    expect(isControlEligible("region", table)).toBe(true);
-  });
-
-  it("returns true when columnName differs from name but matches the lookup", () => {
-    const field: Field = {
-      id: "f1" as UUID,
-      name: "Region Label",
-      tableId: TABLE_ID,
-      columnName: "region",
-      type: "string",
-    };
-    const table = makeTable([field]);
-    expect(isControlEligible("region", table)).toBe(true);
-  });
-
-  it("returns false when the field is NOT in the table's fields", () => {
-    const table = makeTable([makeField("month")]);
-    expect(isControlEligible("region", table)).toBe(false);
-  });
-
-  it("returns false when the source table is undefined (insight not loaded)", () => {
-    expect(isControlEligible("region", undefined)).toBe(false);
-  });
-
-  it("returns false when the table has no fields", () => {
-    const table = makeTable([]);
-    expect(isControlEligible("region", table)).toBe(false);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // computeItemOverrides — broadcast
@@ -163,19 +94,6 @@ describe("computeItemOverrides — broadcast to bound cells", () => {
     expect(ov).toBeUndefined();
   });
 
-  it("control with no defaultValue injects no concrete eq filter", () => {
-    const control = makeControl("region", [ITEM_A], undefined);
-    const item = makeItem(ITEM_A);
-
-    const ov = computeItemOverrides(item, [control]);
-
-    // No value → no concrete (eq) filter injected for the field.
-    const concreteRegion = (ov?.filters ?? []).filter(
-      (f) => f.field === "region" && !f.cleared,
-    );
-    expect(concreteRegion).toHaveLength(0);
-  });
-
   it("blank bound control on a no-override cell emits only a widening (cleared) override", () => {
     // A bound-but-blank control must WIDEN its field (clear the insight's
     // default), so it emits exactly one `cleared` override and nothing else.
@@ -192,23 +110,11 @@ describe("computeItemOverrides — broadcast to bound cells", () => {
     expect(ov?.limit).toBeUndefined();
   });
 
-  it("returns the cell's own overrides untouched when no bound control is active and nothing is cleared", () => {
-    // Sanity: with no bound controls there is no cleared override and no
-    // injection, so the original (undefined) overrides pass through — the
-    // `effectiveOverrides ?? item.overrides` guard sees no empty bag.
-    const control = makeControl("region", [], undefined); // bound to nothing
-    const item = makeItem(ITEM_A); // not in boundInstances, no overrides
-
-    const ov = computeItemOverrides(item, [control]);
-
-    expect(ov).toBeUndefined();
-  });
-
   it("blank bound control WIDENS a field the cell had pinned (emits cleared override)", () => {
     // Codex thread: a blank control must clear the field, not silently inherit
     // the cell's own pinned predicate.  The cell pins region=US; the control is
     // bound to region but blank → the effective override must DROP the pin and
-    // emit a `cleared` entry so resolveEffectiveParams widens region.
+    // emit a `cleared` entry so resolveDashboardRuntime widens region.
     const control = makeControl("region", [ITEM_A], undefined);
     const item = makeItem(ITEM_A, {
       filters: [{ field: "region", operator: "eq", value: "US" }],
@@ -258,47 +164,11 @@ describe("computeItemOverrides — broadcast to bound cells", () => {
 });
 
 // ---------------------------------------------------------------------------
-// defaultValue applies on load
-// ---------------------------------------------------------------------------
-
-describe("defaultValue applies on load (no transient map)", () => {
-  const ITEM_A = "item-a" as UUID;
-
-  it("defaultValue is used when no transient override exists", () => {
-    const control = makeControl("region", [ITEM_A], "EU");
-    const item = makeItem(ITEM_A);
-
-    const ov = computeItemOverrides(item, [control], new Map());
-
-    expect(ov?.filters).toContainEqual(
-      expect.objectContaining({ field: "region", value: "EU" }),
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Bound field wins over cell's pinned value (binding = delegation)
 // ---------------------------------------------------------------------------
 
 describe("override coalesce §6: bound control value wins over cell pinned value", () => {
   const ITEM_A = "item-a" as UUID;
-
-  it("control value replaces the cell's own pinned filter for the same field", () => {
-    const control = makeControl("region", [ITEM_A], "APAC");
-    // Cell has its own pinned filter for region = "US"
-    const item = makeItem(ITEM_A, {
-      filters: [{ field: "region", operator: "eq", value: "US" }],
-    });
-
-    const ov = computeItemOverrides(item, [control]);
-
-    // Control's value "APAC" wins; the pinned "US" is shadowed.
-    const regionFilters = (ov?.filters ?? []).filter(
-      (f) => f.field === "region",
-    );
-    expect(regionFilters).toHaveLength(1);
-    expect(regionFilters[0]!.value).toBe("APAC");
-  });
 
   it("non-overlapping pinned filters for other fields are preserved", () => {
     const control = makeControl("region", [ITEM_A], "APAC");
@@ -358,24 +228,7 @@ describe("viewer-transient: control turn does not mutate saved dashboard", () =>
     );
     expect(regionFilters).toHaveLength(1);
     expect(regionFilters[0]!.value).toBe("APAC");
-  });
-
-  it("saved control defaultValue is NOT mutated by viewer transient turn", () => {
-    const control = makeControl(
-      "region",
-      [ITEM_A],
-      "EU",
-      "ctrl-region" as UUID,
-    );
-    const originalDefault = control.defaultValue;
-    const item = makeItem(ITEM_A);
-
-    // Viewer turns the control
-    const transient = setTransientValue(new Map(), "ctrl-region", "APAC");
-    computeItemOverrides(item, [control], transient);
-
-    // The saved control object is unchanged
-    expect(control.defaultValue).toBe(originalDefault);
+    // The report's saved default is left as it was.
     expect(control.defaultValue).toBe("EU");
   });
 

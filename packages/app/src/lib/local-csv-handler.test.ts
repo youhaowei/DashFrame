@@ -2,12 +2,10 @@ import type { DataTable, Field, Metric, UUID } from "@dashframe/types";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const {
-  mockCsvToDataFrame,
   mockGetDataTable,
   mockGetOrCreateDataSourceByType,
   mockIngestLocalDataFrame,
 } = vi.hoisted(() => ({
-  mockCsvToDataFrame: vi.fn(),
   mockGetDataTable: vi.fn(),
   mockGetOrCreateDataSourceByType: vi.fn(),
   mockIngestLocalDataFrame: vi.fn(),
@@ -30,12 +28,8 @@ vi.mock("@/lib/data-access/data-tables", () => ({
     aggregation: "count" as const,
   }),
 }));
-vi.mock("@dashframe/csv", () => ({ csvToDataFrame: mockCsvToDataFrame }));
 
-import {
-  handleFileConnectorResult,
-  handleLocalCSVUpload,
-} from "./local-csv-handler";
+import { handleFileConnectorResult } from "./local-csv-handler";
 
 const TABLE_ID = "table-id" as UUID;
 const EXISTING_FIELD_ID = "existing-field-id" as UUID;
@@ -99,15 +93,6 @@ const parsedResult = {
 
 const replacementHandlers = [
   {
-    name: "handleLocalCSVUpload",
-    replace: async (result = parsedResult) => {
-      mockCsvToDataFrame.mockResolvedValue(result);
-      return handleLocalCSVUpload(new File([], "orders.csv"), [], {
-        overrideTableId: TABLE_ID,
-      });
-    },
-  },
-  {
     name: "handleFileConnectorResult",
     replace: (result = parsedResult) =>
       handleFileConnectorResult("orders.csv", result as never, {
@@ -126,7 +111,6 @@ describe("file table replacement", () => {
       rowCount: 1,
       columnCount: 2,
     });
-    mockCsvToDataFrame.mockResolvedValue(parsedResult);
   });
 
   it.each(replacementHandlers)(
@@ -156,22 +140,6 @@ describe("file table replacement", () => {
           ],
           metrics: expect.any(Array),
         },
-      );
-    },
-  );
-
-  it.each(replacementHandlers)(
-    "$name hands Arrow bytes to the narrow local ingest boundary",
-    async ({ replace }) => {
-      await replace();
-
-      expect(mockIngestLocalDataFrame).toHaveBeenCalledWith(
-        TABLE_ID,
-        parsedResult.arrowBuffer,
-        parsedResult.primaryKey,
-        expect.objectContaining({
-          expectedDataFrameId: existingTable.dataFrameId,
-        }),
       );
     },
   );
@@ -284,42 +252,6 @@ describe("file table replacement", () => {
           parsedFields[1],
         ],
       }),
-    );
-  });
-
-  it("does not reuse an id when a source column name is ambiguous", async () => {
-    const duplicateParsedFields: Field[] = [
-      parsedFields[0],
-      {
-        ...parsedFields[0],
-        id: "second-new-field-id" as UUID,
-        name: "duplicate_amount",
-      },
-    ];
-    mockGetDataTable.mockResolvedValue({
-      ...existingTable,
-      fields: [
-        existingField,
-        {
-          ...existingField,
-          id: "second-existing-field-id" as UUID,
-          name: "duplicate_amount",
-        },
-      ],
-    });
-
-    await replacementHandlers[0].replace({
-      ...parsedResult,
-      fields: duplicateParsedFields,
-      columnCount: 2,
-    });
-
-    const { fields } = mockIngestLocalDataFrame.mock.calls[0][3] as {
-      fields: Field[];
-    };
-    expect(fields).toEqual(duplicateParsedFields);
-    expect(new Set(fields.map((field) => field.id))).toHaveLength(
-      fields.length,
     );
   });
 

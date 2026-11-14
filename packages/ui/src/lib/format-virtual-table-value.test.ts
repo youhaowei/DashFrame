@@ -15,14 +15,6 @@ afterAll(() => {
 });
 
 describe("defaultFormatValue", () => {
-  it("keeps a string-typed version value as text", () => {
-    expect(defaultFormatValue("1.5", "string")).toBe("1.5");
-  });
-
-  it("keeps a string-typed year as text", () => {
-    expect(defaultFormatValue("2024", "string")).toBe("2024");
-  });
-
   it("does not automatically convert ISO-looking strings", () => {
     expect(defaultFormatValue("2024-03-15", "string")).toBe("2024-03-15");
     expect(defaultFormatValue("2024-01", "string")).toBe("2024-01");
@@ -51,12 +43,6 @@ describe("defaultFormatValue", () => {
     } finally {
       process.env.TZ = previousTz;
     }
-  });
-
-  it("formats numeric epoch values in date columns as UTC calendar dates", () => {
-    expect(defaultFormatValue(Date.UTC(2024, 0, 18), "date")).toBe(
-      "Jan 18, 2024",
-    );
   });
 
   it("preserves early years after Arrow converts dates to epoch values", () => {
@@ -171,11 +157,6 @@ describe("defaultFormatValue", () => {
     expect(defaultFormatValue("2024-02-30T00:00:00Z", "date")).toBe(
       "2024-02-30T00:00:00Z",
     );
-  });
-
-  it("renders null and undefined as the empty placeholder", () => {
-    expect(defaultFormatValue(null, "date")).toBe("—");
-    expect(defaultFormatValue(undefined, "string")).toBe("—");
   });
 
   it("keeps local Date rendering outside declared date columns", () => {

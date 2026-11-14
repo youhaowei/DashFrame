@@ -33,37 +33,6 @@ export type JsonPrimitive = string | number | boolean | null;
 export type FlattenedObject = Record<string, JsonPrimitive>;
 
 /**
- * Options for controlling the flattening behavior.
- */
-export interface FlattenOptions {
-  /**
-   * Maximum depth to flatten. Objects deeper than this will be serialized as JSON strings.
-   * Default: Infinity (flatten all levels)
-   */
-  maxDepth?: number;
-
-  /**
-   * Custom separator for nested keys. Default: '.'
-   * Example with '_': user_address_city
-   */
-  separator?: string;
-
-  /**
-   * How to handle arrays:
-   * - 'index': Flatten with numeric indices (e.g., 'items.0', 'items.1')
-   * - 'stringify': Convert arrays to JSON strings
-   * Default: 'index'
-   */
-  arrayHandling?: "index" | "stringify";
-}
-
-const DEFAULT_OPTIONS: Required<FlattenOptions> = {
-  maxDepth: Infinity,
-  separator: ".",
-  arrayHandling: "index",
-};
-
-/**
  * Checks if a value is a plain object (not null, not an array).
  */
 function isPlainObject(value: unknown): value is Record<string, JsonValue> {
@@ -88,38 +57,30 @@ function isPrimitive(value: unknown): value is JsonPrimitive {
 }
 
 /**
- * Builds a new key by joining prefix with the new part using the separator.
+ * Builds a new key by joining prefix with the new part using a dot.
  */
-function buildKey(prefix: string, part: string, separator: string): string {
-  return prefix ? `${prefix}${separator}${part}` : part;
-}
-
-/**
- * Context for the recursive flatten operation.
- */
-interface FlattenContext {
-  result: FlattenedObject;
-  opts: Required<FlattenOptions>;
+function buildKey(prefix: string, part: string): string {
+  return prefix ? `${prefix}.${part}` : part;
 }
 
 /**
  * Flattens an array value into the result object.
+ * Elements are keyed by numeric index (e.g., 'items.0', 'items.1').
  */
 function flattenArray(
   value: JsonValue[],
   prefix: string,
-  currentDepth: number,
-  ctx: FlattenContext,
-  flattenValue: (v: JsonValue, p: string, d: number) => void,
+  result: FlattenedObject,
+  flattenValue: (v: JsonValue, p: string) => void,
 ): void {
-  if (ctx.opts.arrayHandling === "stringify" || value.length === 0) {
-    ctx.result[prefix] = JSON.stringify(value);
+  if (value.length === 0) {
+    result[prefix] = JSON.stringify(value);
     return;
   }
 
   for (let i = 0; i < value.length; i++) {
-    const key = buildKey(prefix, String(i), ctx.opts.separator);
-    flattenValue(value[i] as JsonValue, key, currentDepth + 1);
+    const key = buildKey(prefix, String(i));
+    flattenValue(value[i] as JsonValue, key);
   }
 }
 
@@ -129,20 +90,19 @@ function flattenArray(
 function flattenPlainObject(
   value: Record<string, JsonValue>,
   prefix: string,
-  currentDepth: number,
-  ctx: FlattenContext,
-  flattenValue: (v: JsonValue, p: string, d: number) => void,
+  result: FlattenedObject,
+  flattenValue: (v: JsonValue, p: string) => void,
 ): void {
   const keys = Object.keys(value);
 
   if (keys.length === 0) {
-    ctx.result[prefix] = JSON.stringify({});
+    result[prefix] = JSON.stringify({});
     return;
   }
 
   for (const key of keys) {
-    const newPrefix = buildKey(prefix, key, ctx.opts.separator);
-    flattenValue(value[key] as JsonValue, newPrefix, currentDepth + 1);
+    const newPrefix = buildKey(prefix, key);
+    flattenValue(value[key] as JsonValue, newPrefix);
   }
 }
 
@@ -150,7 +110,6 @@ function flattenPlainObject(
  * Flattens a single nested object into a flat structure with dot-notation keys.
  *
  * @param obj - The object to flatten
- * @param options - Flattening options
  * @returns A flat object with dot-notation keys
  *
  * @example
@@ -162,14 +121,8 @@ function flattenPlainObject(
  * // Returns: { 'items.0': 1, 'items.1': 2, 'items.2': 3 }
  * ```
  */
-export function flattenObject(
-  obj: JsonValue,
-  options: FlattenOptions = {},
-): FlattenedObject {
-  const ctx: FlattenContext = {
-    result: {},
-    opts: { ...DEFAULT_OPTIONS, ...options },
-  };
+export function flattenObject(obj: JsonValue): FlattenedObject {
+  const result: FlattenedObject = {};
 
   // Start flattening from root
   if (isPrimitive(obj)) {
@@ -184,36 +137,27 @@ export function flattenObject(
     return {};
   }
 
-  function flatten(
-    value: JsonValue,
-    prefix: string,
-    currentDepth: number,
-  ): void {
+  function flatten(value: JsonValue, prefix: string): void {
     if (isPrimitive(value)) {
-      ctx.result[prefix] = value;
-      return;
-    }
-
-    if (currentDepth >= ctx.opts.maxDepth) {
-      ctx.result[prefix] = JSON.stringify(value);
+      result[prefix] = value;
       return;
     }
 
     if (Array.isArray(value)) {
-      flattenArray(value, prefix, currentDepth, ctx, flatten);
+      flattenArray(value, prefix, result, flatten);
       return;
     }
 
     if (isPlainObject(value)) {
-      flattenPlainObject(value, prefix, currentDepth, ctx, flatten);
+      flattenPlainObject(value, prefix, result, flatten);
       return;
     }
 
-    ctx.result[prefix] = String(value);
+    result[prefix] = String(value);
   }
 
-  flatten(obj, "", 0);
-  return ctx.result;
+  flatten(obj, "");
+  return result;
 }
 
 /**
@@ -221,7 +165,6 @@ export function flattenObject(
  * Missing keys in individual objects are filled with null.
  *
  * @param objects - Array of objects to flatten
- * @param options - Flattening options
  * @returns Array of flattened objects with consistent keys
  *
  * @example
@@ -236,16 +179,13 @@ export function flattenObject(
  * // ]
  * ```
  */
-export function flattenObjectArray(
-  objects: JsonValue[],
-  options: FlattenOptions = {},
-): FlattenedObject[] {
+export function flattenObjectArray(objects: JsonValue[]): FlattenedObject[] {
   if (objects.length === 0) {
     return [];
   }
 
   // First pass: flatten all objects and collect all keys
-  const flattenedObjects = objects.map((obj) => flattenObject(obj, options));
+  const flattenedObjects = objects.map((obj) => flattenObject(obj));
   const allKeys = new Set<string>();
 
   for (const obj of flattenedObjects) {
@@ -280,52 +220,4 @@ export function extractKeys(objects: FlattenedObject[]): string[] {
     }
   }
   return Array.from(keys).sort();
-}
-
-/**
- * Unflattens a flat object back into a nested structure.
- * This is the inverse of flattenObject.
- *
- * @param obj - The flat object with dot-notation keys
- * @param separator - The separator used in keys (default: '.')
- * @returns The unflattened nested object
- *
- * @example
- * ```typescript
- * unflattenObject({ 'user.name': 'Alice', 'user.address.city': 'NYC' })
- * // Returns: { user: { name: 'Alice', address: { city: 'NYC' } } }
- * ```
- */
-export function unflattenObject(
-  obj: FlattenedObject,
-  separator: string = ".",
-): JsonValue {
-  const result: Record<string, JsonValue> = {};
-
-  for (const [key, value] of Object.entries(obj)) {
-    const parts = key.split(separator);
-    // oxlint-disable-next-line typescript/no-explicit-any -- Building dynamic nested structure
-    let current: any = result;
-
-    for (let i = 0; i < parts.length - 1; i++) {
-      const part = parts[i];
-      const nextPart = parts[i + 1];
-      if (part === undefined || nextPart === undefined) continue;
-
-      // Check if next part is a numeric index
-      const isNextArray = /^\d+$/.test(nextPart);
-
-      if (!(part in current)) {
-        current[part] = isNextArray ? [] : {};
-      }
-      current = current[part];
-    }
-
-    const lastPart = parts[parts.length - 1];
-    if (lastPart !== undefined) {
-      current[lastPart] = value;
-    }
-  }
-
-  return result;
 }

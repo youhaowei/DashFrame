@@ -1,4 +1,5 @@
 import {
+  chartTypeDraws,
   fieldEncoding,
   fixedRuntimeIds,
   metricEncoding,
@@ -10,6 +11,7 @@ import type {
   InsightRuntimeInput,
   UUID,
   VisualizationEncoding,
+  VisualizationType,
 } from "@dashframe/types";
 
 /**
@@ -62,8 +64,9 @@ export function currentViewerRuntime(
       .slice(0, control.maxSelected);
     const rebuilt = withFixedIds(saved, fixed, optional);
     // A viewer who hid every field sees the metrics alone. Otherwise nothing
-    // the viewer picked is left, so fall back to the saved report.
-    const hidAllFields = kind === "dimensions" && picks.length === 0;
+    // the viewer picked is left to show, so fall back to the saved report.
+    const hidAllFields =
+      kind === "dimensions" && picks.length === 0 && insight.metrics.length > 0;
     if (rebuilt.length === 0 && !hidAllFields) delete next[kind];
     else next[kind] = rebuilt;
   }
@@ -144,6 +147,33 @@ function rebindRemovedField(
   if (replacement) usedDimensions.add(replacement);
 }
 
+/**
+ * Colors the chart by a field the viewer added to the saved selection, so
+ * every pick shows in the chart and not only in the table. The newest pick
+ * the chart doesn't draw yet wins, in place of another viewer choice. A color
+ * the author fixed, a metric or a fixed field, stays.
+ */
+function colorAddedField(
+  result: VisualizationEncoding,
+  current: ReturnType<typeof parseEncoding>,
+  dimensions: string[] | undefined,
+  insight: Insight,
+  fields: Field[],
+  usedDimensions: Set<string>,
+): boolean {
+  if (!dimensions || current?.type === "metric") return false;
+  if (current && fixedRuntimeIds(insight, "dimensions").includes(current.id))
+    return false;
+  const added = dimensions.findLast(
+    (id) =>
+      !insight.selectedFields.includes(id as UUID) && !usedDimensions.has(id),
+  );
+  if (!added) return false;
+  rebindField(result, "color", added, fields);
+  usedDimensions.add(added);
+  return true;
+}
+
 function rebindRemovedMetric(
   result: VisualizationEncoding,
   channel: Channel,
@@ -172,11 +202,16 @@ function withPivotColor(
   result: VisualizationEncoding,
   insight: Insight,
   runtime: InsightRuntimeInput | undefined,
+  chartType: VisualizationType,
 ) {
-  if (result.color) return;
+  // A chart that computes its own fill has no color to give the pivot.
+  if (result.color || !chartTypeDraws(chartType, "color")) return;
   const selected = runtime?.dimensions ?? insight.selectedFields;
+  // A channel this chart type leaves out shows nothing, whatever it holds.
   const drawn = new Set(
-    [result.x, result.y, result.size].map((value) => parseEncoding(value)?.id),
+    (["x", "y", "size"] as const)
+      .filter((channel) => chartTypeDraws(chartType, channel))
+      .map((channel) => parseEncoding(result[channel])?.id),
   );
   // Selected order, which is how the table nests its pivot columns.
   const pivots = new Set(insight.reporting?.pivotFields);
@@ -194,10 +229,18 @@ export function reportEncoding(
   insight: Insight,
   runtime: InsightRuntimeInput | undefined,
   fields: Field[],
+  chartType: VisualizationType = "dot",
 ): VisualizationEncoding {
   const result = { ...encoding };
-  const channels = ["x", "y", "color", "size"] as const;
-  const parsedChannels = channels.map((channel) => ({
+  // Color goes last: an added field takes it only after every other channel
+  // has claimed the replacement for a field the viewer removed.
+  const channels = ["x", "y", "size", "color"] as const;
+  // Only a scatter draws size. A size left over from one claims no field, so
+  // it cannot take a replacement the chart would never show.
+  const drawnChannels = channels.filter(
+    (channel) => channel !== "size" || chartType === "dot",
+  );
+  const parsedChannels = drawnChannels.map((channel) => ({
     channel,
     parsed: parseEncoding(encoding[channel]),
   }));
@@ -223,6 +266,19 @@ export function reportEncoding(
     ),
   );
   for (const { channel, parsed } of parsedChannels) {
+    if (
+      channel === "color" &&
+      chartTypeDraws(chartType, "color") &&
+      colorAddedField(
+        result,
+        parsed,
+        dimensions,
+        insight,
+        fields,
+        usedDimensions,
+      )
+    )
+      continue;
     if (!parsed) continue;
     if (parsed.type === "field") {
       rebindRemovedField(
@@ -246,7 +302,7 @@ export function reportEncoding(
       );
     }
   }
-  withPivotColor(result, insight, runtime);
+  withPivotColor(result, insight, runtime, chartType);
   return result;
 }
 
@@ -256,7 +312,8 @@ export function reportPivotColor(
   insight: Insight,
   runtime: InsightRuntimeInput | undefined,
   fields: Field[],
+  chartType: VisualizationType = "dot",
 ): string | undefined {
   if (!encoding || encoding.color) return undefined;
-  return reportEncoding(encoding, insight, runtime, fields).color;
+  return reportEncoding(encoding, insight, runtime, fields, chartType).color;
 }

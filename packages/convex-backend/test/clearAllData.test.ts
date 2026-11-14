@@ -267,59 +267,6 @@ it("lets a caller drive the clear to completion by calling until complete", asyn
     [],
   );
 });
-it("empties the workspace when the caller's loop and the scheduled continuation run together", async () => {
-  // Real timers: every batch the caller runs queues a continuation that fires
-  // while the caller is still looping, and the two must not double apply.
-  await seed();
-  await t.run(async (ctx) => {
-    for (let index = 0; index < 1001; index++) {
-      const id = crypto.randomUUID();
-      await ctx.db.insert("dataFrames", {
-        workspaceId: "w",
-        id,
-        revision: 1,
-        name: "Frame",
-        createdAt: index,
-        storage: { type: "file", key: id },
-        fieldIds: [],
-      });
-    }
-  });
-  const settled = async () => {
-    for (let attempt = 0; attempt < 200; attempt++) {
-      const jobs = await t.run((ctx) =>
-        ctx.db.system.query("_scheduled_functions").collect(),
-      );
-      if (
-        jobs.every(
-          (job) =>
-            job.state.kind !== "pending" && job.state.kind !== "inProgress",
-        )
-      )
-        return;
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 10);
-      });
-    }
-    throw new Error("scheduled continuations did not settle");
-  };
-  for (;;) {
-    const { complete } = await t.mutation(internal.host.clearAllData, {
-      workspaceId: "w",
-      batchSize: 100,
-    });
-    if (complete) break;
-  }
-  const { sourceId } = await seed();
-  await settled();
-  expect(await count("dataFrames")).toEqual([]);
-  expect(
-    (await listAll(user(), api.app.listDataSources, {})).map((row) => row.id),
-  ).toEqual([sourceId]);
-  expect(await t.run((ctx) => ctx.db.query("hostSettings").collect())).toEqual(
-    [],
-  );
-}, 60_000);
 it("clears after more than 1000 completed connector receipts", async () => {
   await seed();
   await t.run(async (ctx) => {

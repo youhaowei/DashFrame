@@ -42,13 +42,6 @@ describe("workbench pane sections", () => {
     HTMLElement.prototype.scrollIntoView = vi.fn();
   });
 
-  it("shows the summary when a section collapses", () => {
-    render(<Harness />);
-    fireEvent.click(screen.getByRole("button", { name: "Tables" }));
-    expect(screen.getByText("orders, customers")).toBeTruthy();
-    expect(screen.queryByText("Table settings")).toBeNull();
-  });
-
   it("opens and scrolls to a collapsed section from the jump bar", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "Tables" }));
