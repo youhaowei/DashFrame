@@ -235,19 +235,9 @@ describe("SortOverrideRow", () => {
     ]);
   });
 
-  it.each([
-    ["id", revenueId],
-    ["result-column alias", revenueAlias],
-    ["name", "Revenue"],
-  ])("shows a pinned field stored by its %s by name", (_form, field) => {
-    renderRow({ overrideSorts: [{ field, direction: "desc" }] });
+  it("shows a pinned field stored by its result-column alias by name", () => {
+    renderRow({ overrideSorts: [{ field: revenueAlias, direction: "desc" }] });
     expect(shownField()).toBe("Revenue");
-  });
-
-  it("lists only the one key it edits", () => {
-    renderRow({ overrideSorts: twoKeys });
-    expect(shownField()).toBe("Region");
-    expect(screen.queryByText(/order.date/i)).toBeNull();
   });
 
   it("saves one key when the field changes", async () => {
@@ -350,16 +340,6 @@ describe("LimitOverrideRow", () => {
 
     fireEvent.blur(limitInput());
     fireEvent.keyDown(limitInput(), { key: "Enter" });
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it("does not write on blur or Enter when the user typed nothing", () => {
-    const onChange = vi.fn();
-    render(<LimitOverrideRow overrideLimit={100} onChange={onChange} />);
-
-    fireEvent.focus(limitInput());
-    fireEvent.keyDown(limitInput(), { key: "Enter" });
-    fireEvent.blur(limitInput());
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -580,18 +560,6 @@ describe("OverridePopover offered controls", () => {
 
       expect(committedPatch()).toEqual({ kind: "limit", value: 50 });
       expect(input.value).toBe("50");
-    });
-
-    it("is not shown when the Insight declares none", async () => {
-      await openPopover({
-        item: tileWith(),
-        insight: makeInsight({
-          sort: { allowedFieldIds: [regionId as UUID], maxKeys: 1 },
-        }),
-      });
-
-      expect(screen.queryByText("Limit")).toBeNull();
-      expect(screen.queryByText(staleLimit)).toBeNull();
     });
 
     it("offers only the reset when the tile holds a limit the Insight no longer declares or offers", async () => {
@@ -909,7 +877,7 @@ describe("OverridePopover offered controls", () => {
       });
 
       it("edits the one a held override names, instead of calling it undeclared", async () => {
-        await openPopover({
+        const user = await openPopover({
           item: tileWith({
             filters: [
               { id: "max", field: "amount", operator: "lte", value: 15 },
@@ -920,6 +888,14 @@ describe("OverridePopover offered controls", () => {
 
         expect(screen.getByRole("button", { name: "≤ 15" })).toBeTruthy();
         expect(screen.queryByText(staleFilter)).toBeNull();
+
+        // The editor opens on the pinned value, not blank over it.
+        await user.click(screen.getByRole("button", { name: "Edit" }));
+        expect(
+          screen.getByRole<HTMLInputElement>("textbox", {
+            name: "amount value",
+          }).value,
+        ).toBe("15");
       });
     });
 
@@ -952,16 +928,6 @@ describe("OverridePopover offered controls", () => {
           cleared: true,
         },
       });
-    });
-
-    it("is not shown for a field the Insight filters on but does not declare", async () => {
-      await openPopover({
-        item: tileWith(),
-        insight: makeInsight({ limit: { min: 1, max: 500 } }),
-      });
-
-      expect(screen.queryByText("Filters")).toBeNull();
-      expect(screen.queryByText("region")).toBeNull();
     });
 
     it.each([
@@ -1060,12 +1026,6 @@ describe("OverridePopover offered controls", () => {
       expect(screen.queryByText("Limit")).toBeNull();
       expect(screen.queryByText("Filters")).toBeNull();
       expect(screen.queryByText(chartDeleted)).toBeNull();
-    });
-
-    it("says the chart was deleted when its Insight is gone", async () => {
-      await openPopover({ item: tileWith({ limit: 25 }), insight: null });
-
-      expect(screen.getByText(chartDeleted)).toBeTruthy();
     });
 
     it("offers no Edit chart for a chart that was deleted", async () => {

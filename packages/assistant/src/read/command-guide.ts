@@ -11,11 +11,8 @@
  * guide is insufficient.
  *
  * FRESHNESS: the guide can DRIFT from the real command registry as commands are
- * added/removed. `GUIDE_COMMAND_NAMES` is the freshness anchor — a test in
- * apps/server (command-guide-freshness.test.ts) compares it against the live
- * `COMMAND_PATHS` registry and FAILS when they diverge, so a new command without
- * a guide entry (or a removed command still documented) is caught at CI. The
- * guide cannot silently lie to the agent.
+ * added/removed, and no check compares the two: update an entry when its
+ * command changes.
  *
  * The guide does NOT carry full arg schemas (those live in the typed
  * `CommandPayloads` / the mutation handlers) — it carries the contract the agent
@@ -76,8 +73,7 @@ export interface CommandGuideEntry {
 
 /**
  * The crafted guide. Ordered by group for readability. Names MUST match the
- * `cmd()` command names exactly (the freshness test enforces this against
- * COMMAND_PATHS).
+ * `cmd()` command names exactly.
  */
 export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
   // --- Connector (data-source authoring) ---
@@ -494,41 +490,3 @@ export const COMMAND_GUIDE: readonly CommandGuideEntry[] = [
       "the result has kept and usedBy instead of deleted.",
   },
 ] as const;
-
-/**
- * The set of command names the guide documents — the FRESHNESS ANCHOR. The
- * apps/server freshness test asserts this exactly equals the live registry's
- * command names (COMMAND_PATHS keys), so the guide can neither omit a real
- * command nor document a removed one without failing CI.
- */
-export const GUIDE_COMMAND_NAMES: ReadonlySet<string> = new Set(
-  COMMAND_GUIDE.map((e) => e.name),
-);
-
-/**
- * Render the guide as a compact text block for injection into the agent's
- * context (the PRIMARY reference the apply tool hands the model). Source-backup
- * remains reachable via `readSource("apps/server/src/functions/commands.ts")`.
- */
-export function renderCommandGuide(): string {
-  const lines: string[] = [
-    "# Command vocabulary (primary reference)",
-    "Each command is applied via the apply tool by `name`. For exact arg",
-    "schemas, fall back to source: apps/server/src/functions/commands.ts.",
-    "",
-  ];
-  let group = "";
-  for (const e of COMMAND_GUIDE) {
-    if (e.group !== group) {
-      group = e.group;
-      lines.push(`## ${group}`);
-    }
-    const args = Object.entries(e.args)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join(", ");
-    lines.push(`- ${e.name} — ${e.summary}`);
-    lines.push(`  args: { ${args} }`);
-    if (e.notes) lines.push(`  note: ${e.notes}`);
-  }
-  return lines.join("\n");
-}
