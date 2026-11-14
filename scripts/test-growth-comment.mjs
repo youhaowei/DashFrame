@@ -53,14 +53,19 @@ try {
         comment.body.includes(marker),
     );
     if (result.delta >= 20) {
-      // Escape markdown/HTML and cap pathological names to keep notices short.
-      const safeName = (name) =>
-        name
-          .slice(0, 160)
-          .replace(
-            /[&<>`@:[\]\\\r\n]/g,
-            (char) => "&#" + char.charCodeAt(0) + ";",
-          );
+      // Code spans suppress mentions, references, links and HTML. Pad the
+      // content so leading/trailing backticks cannot join the delimiter.
+      const safeName = (name) => {
+        const text = name
+          .replaceAll("\r", "\\r")
+          .replaceAll("\n", "\\n")
+          .slice(0, 160);
+        const runs = text.match(/`+/g) ?? [];
+        const delimiter = "`".repeat(
+          1 + Math.max(0, ...runs.map((run) => run.length)),
+        );
+        return delimiter + " " + text + " " + delimiter;
+      };
       const top = result.files
         .filter(({ delta }) => delta > 0)
         .slice(0, 5)
