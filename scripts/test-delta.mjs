@@ -8,35 +8,54 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 // Regex bodies are scanned once without backtracking, including escaped
-// characters and bracket classes. An unterminated literal consumes its line.
-function regexEnd(source, start) {
+// characters and bracket classes. Unclosed candidates leave the slash intact.
+const LINE_BREAK = /[\r\n\u2028\u2029]/u;
+
+function regexEnd(source, start, cache) {
   let inClass = false;
   let cursor = start + 1;
-  while (
-    cursor < source.length &&
-    !/[\r\n\u2028\u2029]/u.test(source[cursor])
-  ) {
+  let end = 0;
+  const visited = [];
+  while (cursor < source.length && !LINE_BREAK.test(source[cursor])) {
+    // Reuse suffix results at slashes, keyed by character-class state. Failed
+    // candidates can fall back without repeatedly scanning the same suffix.
+    if (source[cursor] === "/") {
+      const key = cursor * 2 + Number(inClass);
+      if (cache.has(key)) {
+        end = cache.get(key);
+        break;
+      }
+      visited.push(key);
+    }
     const char = source[cursor++];
-    if (char === "\\") cursor++;
-    else if (char === "[") inClass = true;
+    if (char === "\\") {
+      if (LINE_BREAK.test(source[cursor])) break;
+      cursor++;
+    } else if (char === "[") inClass = true;
     else if (char === "]") inClass = false;
     else if (char === "/" && !inClass) {
       while (/[a-z]/i.test(source[cursor] ?? "")) cursor++;
-      return cursor;
+      end = cursor;
+      break;
     }
   }
-  return cursor;
+  for (const key of visited) cache.set(key, end);
+  return end || start + 1;
 }
 
 function quotedEnd(source, start) {
   const quote = source[start];
+  const multiline = quote === String.fromCharCode(96);
   let cursor = start + 1;
   while (cursor < source.length) {
     const char = source[cursor++];
-    if (char === "\\") cursor++;
-    else if (char === quote) break;
+    if (!multiline && LINE_BREAK.test(char)) return start + 1;
+    if (char === "\\") {
+      if (!multiline && LINE_BREAK.test(source[cursor])) return start + 1;
+      cursor++;
+    } else if (char === quote) return cursor;
   }
-  return cursor;
+  return start + 1;
 }
 
 const REGEX_PREFIXES = new Set([
@@ -79,12 +98,13 @@ const REGEX_PREFIXES = new Set([
 ]);
 
 function tokenize(source) {
-  // This is a lexical estimate, not a JS/TS parser. All scans advance past
-  // consumed input; no overlapping, quantified regex alternatives are used.
+  // This is a lexical estimate, not a JS/TS parser. Literal scans use no
+  // backtracking or overlapping, quantified regex alternatives.
   const identifier = /[\p{ID_Start}_$][\p{ID_Continue}$]*/uy;
   const number = /\d+(?:\.\d+)?/y;
   const compound = /=>|\+\+|--|\.\.\.|\?\./y;
   const result = [];
+  const regexCache = new Map();
   let cursor = 0;
   while (cursor < source.length) {
     const char = source[cursor];
@@ -97,14 +117,16 @@ function tokenize(source) {
       const end = source.indexOf("*/", cursor + 2);
       cursor = end < 0 ? source.length : end + 2;
     } else if (['"', "'", String.fromCharCode(96)].includes(char)) {
-      cursor = quotedEnd(source, cursor);
-      result.push("literal");
+      const end = quotedEnd(source, cursor);
+      result.push(end === cursor + 1 ? char : "literal");
+      cursor = end;
     } else if (
       char === "/" &&
       (result.length === 0 || REGEX_PREFIXES.has(result.at(-1)))
     ) {
-      cursor = regexEnd(source, cursor);
-      result.push("literal");
+      const end = regexEnd(source, cursor, regexCache);
+      result.push(end === cursor + 1 ? char : "literal");
+      cursor = end;
     } else {
       identifier.lastIndex = cursor;
       number.lastIndex = cursor;
