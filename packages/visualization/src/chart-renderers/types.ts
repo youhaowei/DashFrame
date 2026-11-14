@@ -190,9 +190,4 @@ export interface ChartRendererRegistry {
    * Check if a visualization type has a registered renderer.
    */
   has(type: VisualizationType): boolean;
-
-  /**
-   * List all registered visualization types.
-   */
-  getRegisteredTypes(): VisualizationType[];
 }
