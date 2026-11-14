@@ -14,14 +14,15 @@ import { useArtifactList } from "@/data/artifact-lists";
  * - Unbind         → the same command, removing item.id from boundInstances
  *
  * A tile override runs through a control the chart's Insight declares for
- * viewers (`runtimeControls`), so a row is shown only for a declared control:
- *   • Sort, when the Insight declares a viewer sort
+ * viewers (`runtimeControls`), so a row can edit only a declared control:
+ *   • Sort, when the Insight declares a viewer sort; otherwise the row is
+ *     disabled and says where to change that
  *   • Limit, when it declares a viewer limit
  *   • A filter row per field with one declared runtime filter
- * An override the Insight does not declare replaces the tile with an error, so
- * a tile that already holds one keeps that row with only its removal.  When
- * the Insight declares none of the three, the popover says so and points at
- * the chart editor.
+ * The tile ignores an override the Insight does not declare, so a tile that
+ * already holds one keeps that row with only its removal.  When the Insight
+ * declares no limit or filter, the popover says so and points at the chart
+ * editor.
  */
 
 import { computeItemOverrides } from "@/lib/dashboards/controls";
@@ -368,10 +369,11 @@ export function LimitOverrideRow({
 // ---------------------------------------------------------------------------
 
 /**
- * The row for an override the chart's Insight does not declare for viewers.
- * The tile cannot run that override and shows an error in its place, so the
- * row says why and offers the one thing that repairs the tile: removing it.
- * It carries no editing control, because any value saved here would fail too.
+ * The row for a control the chart's Insight does not declare for viewers.
+ * The tile ignores an override of it, and any value saved here would be
+ * ignored too, so the row carries no editing control.  It says why, and when
+ * the tile still holds an override, offers its removal.  Without one, the row
+ * shows the control it stands for, disabled.
  */
 export function ResetOnlyRow({
   name,
@@ -386,9 +388,10 @@ export function ResetOnlyRow({
   reason: string;
   /** The button's text. */
   action?: string;
-  /** The button's accessible name, which says what is removed. */
+  /** The button's accessible name, which says what it does. */
   actionLabel: string;
-  onReset: () => void;
+  /** Removes the held override; absent, the button is shown disabled. */
+  onReset?: () => void;
 }) {
   return (
     <div className="flex items-start gap-2 py-1.5">
@@ -403,8 +406,39 @@ export function ResetOnlyRow({
         size="sm"
         className="h-6 shrink-0 px-1.5 text-xs"
         onClick={onReset}
+        disabled={!onReset}
       />
     </div>
+  );
+}
+
+/**
+ * The sort row of a tile whose Insight does not let viewers sort: the Pin it
+ * would offer, disabled, or the removal of a sort the tile still holds.
+ */
+function UndeclaredSortRow({
+  held,
+  onReset,
+}: {
+  held: boolean;
+  onReset: () => void;
+}) {
+  const reason =
+    "This Insight doesn't allow sorting. Change it on the Insight.";
+  return held ? (
+    <ResetOnlyRow
+      name="Sort"
+      reason={reason}
+      actionLabel="Reset sort to inherit"
+      onReset={onReset}
+    />
+  ) : (
+    <ResetOnlyRow
+      name="Sort"
+      reason={reason}
+      action="Pin"
+      actionLabel="Pin sort override"
+    />
   );
 }
 
@@ -659,16 +693,6 @@ export function OverridePopover({
   // the field it drives.
   const effectiveFilters =
     (effectiveOverrides ?? computeItemOverrides(item, controls))?.filters ?? [];
-  const offersNothing =
-    !runtimeControls?.sort &&
-    !runtimeControls?.limit &&
-    !runtimeControls?.filters?.length;
-  const sortOffer = known
-    ? overrideOffer(
-        runtimeControls?.sort !== undefined,
-        item.overrides?.sorts !== undefined,
-      )
-    : "hidden";
   const limitOffer = known
     ? overrideOffer(
         runtimeControls?.limit !== undefined,
@@ -760,24 +784,24 @@ export function OverridePopover({
         </>
       ),
     });
-  if (sortOffer !== "hidden")
+  // Sort is always shown once the Insight is known: disabled, with where to
+  // change it, when the Insight does not let viewers sort.
+  if (known)
     sections.push({
       key: "sort",
       content: (
         <>
           <SectionHeading>Sort</SectionHeading>
-          {sortOffer === "editable" ? (
+          {runtimeControls?.sort ? (
             <SortOverrideRow
-              insightSorts={known?.sorts}
+              insightSorts={known.sorts}
               overrideSorts={item.overrides?.sorts}
               fields={sortFields}
               onChange={handleSortChange}
             />
           ) : (
-            <ResetOnlyRow
-              name="Sort"
-              reason="The chart no longer offers sort to viewers."
-              actionLabel="Reset sort to inherit"
+            <UndeclaredSortRow
+              held={item.overrides?.sorts !== undefined}
               onReset={() => handleSortChange(undefined)}
             />
           )}
@@ -871,13 +895,13 @@ export function OverridePopover({
                 {section.content}
               </div>
             ))}
-            {known && sections.length === 0 && (
+            {known && filterRows.length === 0 && limitOffer === "hidden" && (
               <p className="py-1 text-xs text-neutral-fg-subtle">
-                {offersNothing
-                  ? "This chart offers viewers no sort, limit, or filter choices. Turn them on in the chart editor."
-                  : // The Insight declares filters, but more than one on a
+                {runtimeControls?.filters?.length
+                  ? // The Insight declares filters, but more than one on a
                     // field, and a tile holds one filter override per field.
-                    "This chart's viewer filters share a field, so a tile can't pin one."}
+                    "This chart's viewer filters share a field, so a tile can't pin one."
+                  : "This chart offers viewers no limit or filter choices. Turn them on in the chart editor."}
               </p>
             )}
             {chartDeleted && (

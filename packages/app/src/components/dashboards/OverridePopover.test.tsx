@@ -496,7 +496,7 @@ describe("OverridePopover limit wiring", () => {
 
 describe("OverridePopover offered controls", () => {
   const noChoices =
-    "This chart offers viewers no sort, limit, or filter choices. Turn them on in the chart editor.";
+    "This chart offers viewers no limit or filter choices. Turn them on in the chart editor.";
   const chartDeleted = "This tile's chart was deleted.";
 
   beforeEach(() => {
@@ -508,41 +508,26 @@ describe("OverridePopover offered controls", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   describe("sort", () => {
-    const staleSort = "The chart no longer offers sort to viewers.";
+    const noSort =
+      "This Insight doesn't allow sorting. Change it on the Insight.";
 
-    it("is offered when the Insight declares a viewer sort", async () => {
-      await openPopover({
-        item: tileWith(),
-        insight: makeInsight({
-          sort: { allowedFieldIds: [regionId as UUID], maxKeys: 1 },
-        }),
-      });
-
-      expect(screen.getByRole("button", { name: "Pin" })).toBeTruthy();
-      expect(screen.queryByText(noChoices)).toBeNull();
-    });
-
-    it("is not shown when the Insight declares none", async () => {
+    it("is disabled when the Insight declares none, offering only the removal of a sort the tile holds", async () => {
       await openPopover({
         item: tileWith(),
         insight: makeInsight({ limit: { min: 1, max: 500 } }),
       });
+      expect(screen.getByText(noSort)).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Pin sort override" }),
+      ).toHaveProperty("disabled", true);
+      cleanup();
 
-      expect(screen.queryByText("Sort")).toBeNull();
-      expect(screen.queryByText(staleSort)).toBeNull();
-    });
-
-    it("offers only the reset when the tile holds a sort the Insight no longer declares", async () => {
       const user = await openPopover({
         item: tileWith({ sorts: [{ field: "region", direction: "asc" }] }),
-        insight: makeInsight(),
+        insight: makeInsight({ limit: { min: 1, max: 500 } }),
       });
-
-      expect(screen.getByText(staleSort)).toBeTruthy();
+      expect(screen.getByText(noSort)).toBeTruthy();
       expect(screen.queryByRole("combobox")).toBeNull();
-      expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
-      expect(screen.queryByText(noChoices)).toBeNull();
-
       await user.click(
         screen.getByRole("button", { name: "Reset sort to inherit" }),
       );
@@ -1017,9 +1002,8 @@ describe("OverridePopover offered controls", () => {
       });
 
       expect(screen.getByText(noChoices)).toBeTruthy();
-      for (const heading of ["Filters", "Sort", "Limit"])
+      for (const heading of ["Filters", "Limit"])
         expect(screen.queryByText(heading)).toBeNull();
-      expect(screen.queryByRole("button", { name: "Pin" })).toBeNull();
 
       await user.click(screen.getByRole("button", { name: "Edit chart" }));
       expect(onEditChart).toHaveBeenCalledWith(tile.visualizationId);
