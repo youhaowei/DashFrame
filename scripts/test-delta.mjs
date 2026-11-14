@@ -7,31 +7,116 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-function tokenize(source) {
-  // Consume comments and literals whole. Regex recognition is heuristic,
-  // limited to expression-start positions; this is not a JS/TS parser.
-  const pattern =
-    // oxlint-disable-next-line sonarjs/regex-complexity -- one lexer alternation consumes comments and literals before code tokens
-    /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|[\p{ID_Start}_$][\p{ID_Continue}$]*|\d+(?:\.\d+)?|\.\.\.|[^\s]/gu;
-  const result = [];
-  let match;
-  while ((match = pattern.exec(source))) {
-    const value = match[0];
-    if (value.startsWith("//") || value.startsWith("/*")) continue;
-    if (
-      value === "/" &&
-      /^(?:[=([,:;!&|?{}]|return)$/.test(result.at(-1) ?? "=")
-    ) {
-      const regex = /^\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[a-z]*/.exec(
-        source.slice(match.index),
-      );
-      if (regex) {
-        result.push("literal");
-        pattern.lastIndex = match.index + regex[0].length;
-        continue;
-      }
+// Regex bodies are scanned once without backtracking, including escaped
+// characters and bracket classes. An unterminated literal consumes its line.
+function regexEnd(source, start) {
+  let inClass = false;
+  let cursor = start + 1;
+  while (
+    cursor < source.length &&
+    !/[\r\n\u2028\u2029]/u.test(source[cursor])
+  ) {
+    const char = source[cursor++];
+    if (char === "\\") cursor++;
+    else if (char === "[") inClass = true;
+    else if (char === "]") inClass = false;
+    else if (char === "/" && !inClass) {
+      while (/[a-z]/i.test(source[cursor] ?? "")) cursor++;
+      return cursor;
     }
-    result.push(/^["'`]/.test(value) ? "literal" : value);
+  }
+  return cursor;
+}
+
+function quotedEnd(source, start) {
+  const quote = source[start];
+  let cursor = start + 1;
+  while (cursor < source.length) {
+    const char = source[cursor++];
+    if (char === "\\") cursor++;
+    else if (char === quote) break;
+  }
+  return cursor;
+}
+
+const REGEX_PREFIXES = new Set([
+  "=>",
+  "=",
+  "(",
+  "[",
+  "{",
+  "}",
+  ",",
+  ":",
+  ";",
+  "!",
+  "~",
+  "?",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "&",
+  "|",
+  "^",
+  "<",
+  ">",
+  "return",
+  "throw",
+  "yield",
+  "await",
+  "case",
+  "delete",
+  "void",
+  "typeof",
+  "new",
+  "in",
+  "instanceof",
+  "of",
+  "else",
+  "do",
+]);
+
+function tokenize(source) {
+  // This is a lexical estimate, not a JS/TS parser. All scans advance past
+  // consumed input; no overlapping, quantified regex alternatives are used.
+  const identifier = /[\p{ID_Start}_$][\p{ID_Continue}$]*/uy;
+  const number = /\d+(?:\.\d+)?/y;
+  const compound = /=>|\+\+|--|\.\.\.|\?\./y;
+  const result = [];
+  let cursor = 0;
+  while (cursor < source.length) {
+    const char = source[cursor];
+    if (/\s/u.test(char)) {
+      cursor++;
+    } else if (source.startsWith("//", cursor)) {
+      const end = source.indexOf("\n", cursor + 2);
+      cursor = end < 0 ? source.length : end + 1;
+    } else if (source.startsWith("/*", cursor)) {
+      const end = source.indexOf("*/", cursor + 2);
+      cursor = end < 0 ? source.length : end + 2;
+    } else if (['"', "'", String.fromCharCode(96)].includes(char)) {
+      cursor = quotedEnd(source, cursor);
+      result.push("literal");
+    } else if (
+      char === "/" &&
+      (result.length === 0 || REGEX_PREFIXES.has(result.at(-1)))
+    ) {
+      cursor = regexEnd(source, cursor);
+      result.push("literal");
+    } else {
+      identifier.lastIndex = cursor;
+      number.lastIndex = cursor;
+      compound.lastIndex = cursor;
+      const token =
+        identifier.exec(source)?.[0] ??
+        number.exec(source)?.[0] ??
+        compound.exec(source)?.[0] ??
+        char;
+      result.push(token);
+      cursor += token.length;
+    }
   }
   return result;
 }
@@ -41,7 +126,7 @@ const BRACKETS = { "(": ")", "[": "]", "{": "}" };
 function closing(tokens, start, pairs = BRACKETS) {
   const stack = [];
   for (let i = start; i < tokens.length; i++) {
-    if (pairs[tokens[i]]) stack.push(pairs[tokens[i]]);
+    if (Object.hasOwn(pairs, tokens[i])) stack.push(pairs[tokens[i]]);
     else if (
       tokens[i] === stack.at(-1) &&
       !(tokens[i] === ">" && tokens[i - 1] === "=")
@@ -86,7 +171,7 @@ export function countCases(source) {
   for (let i = 0; i < tokens.length; i++) {
     if (
       !["it", "test"].includes(tokens[i]) ||
-      [".", "?"].includes(tokens[i - 1])
+      [".", "?", "?."].includes(tokens[i - 1])
     )
       continue;
     let cursor = i + 1;
