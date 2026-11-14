@@ -373,9 +373,14 @@ export interface SortFieldOptions {
  * tables share a column name.
  *
  * `allowedIds` is the Insight's declared viewer sort.  When given, only those
- * fields and metrics are offered, because the tile refuses any other.  An
- * Insight that declares no viewer sort gets no editable sort row (see
- * `overrideOffer`), so the unrestricted list is used only to name stored keys.
+ * fields and metrics are offered, because the tile ignores any other.  An
+ * Insight that declares no viewer sort gets a disabled sort row, so the
+ * unrestricted list is used only to name stored keys.
+ *
+ * A stored column name or metric name can name more than one option.  The tile
+ * runtime takes the first allowed id, in declaration order, that it names, so
+ * allowed ids claim those references first and a pinned key shows the field
+ * the tile sorts by.
  */
 export function buildSortFieldOptions(
   fields: readonly {
@@ -384,32 +389,58 @@ export function buildSortFieldOptions(
     columnName?: string;
     displayName?: string;
   }[],
-  metrics: readonly { id: string; name: string }[],
+  metrics: readonly { id: string; name: string; columnName?: string }[],
   allowedIds?: readonly string[],
 ): SortFieldOptions {
-  const options: SortFieldOption[] = [];
+  const entries = sortFieldEntries(fields, metrics);
+  const options = entries
+    .map(({ option }) => option)
+    .filter(({ value }) => !allowedIds || allowedIds.includes(value));
+  const rank = (id: string) => {
+    const index = allowedIds?.indexOf(id) ?? -1;
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+  };
   const byReference = new Map<string, SortFieldOption>();
-  const add = (id: string, label: string, references: string[]) => {
-    if (byReference.has(id)) return;
-    const option = { value: id, label };
-    if (!allowedIds || allowedIds.includes(id)) options.push(option);
-    byReference.set(id, option);
-    // Joined tables can share a column name, and a metric can share its name
-    // with a column; the first (base table, then fields) keeps it.
+  for (const { option } of entries) byReference.set(option.value, option);
+  // Unallowed entries keep their field-then-metric order: the first (base
+  // table, then fields) names a reference they share.
+  for (const { option, references } of [...entries].sort(
+    (a, b) => rank(a.option.value) - rank(b.option.value),
+  ))
     for (const reference of references)
       if (!byReference.has(reference)) byReference.set(reference, option);
-  };
-  for (const field of fields)
-    add(field.id, field.displayName ?? field.name, [
-      fieldIdToColumnAlias(field.id),
-      field.columnName ?? field.name,
-    ]);
-  for (const metric of metrics)
-    add(metric.id, metric.name, [
-      metricIdToColumnAlias(metric.id),
-      metric.name,
-    ]);
   return { options, byReference };
+}
+
+/** Each field, then each metric, once, with every reference that names it. */
+function sortFieldEntries(
+  fields: Parameters<typeof buildSortFieldOptions>[0],
+  metrics: Parameters<typeof buildSortFieldOptions>[1],
+): { option: SortFieldOption; references: string[] }[] {
+  const entries = new Map<
+    string,
+    { option: SortFieldOption; references: string[] }
+  >();
+  for (const field of fields)
+    if (!entries.has(field.id))
+      entries.set(field.id, {
+        option: { value: field.id, label: field.displayName ?? field.name },
+        references: [
+          fieldIdToColumnAlias(field.id),
+          field.columnName ?? field.name,
+        ],
+      });
+  for (const metric of metrics)
+    if (!entries.has(metric.id))
+      entries.set(metric.id, {
+        option: { value: metric.id, label: metric.name },
+        references: [
+          metricIdToColumnAlias(metric.id),
+          metric.name,
+          ...(metric.columnName ? [metric.columnName] : []),
+        ],
+      });
+  return [...entries.values()];
 }
 
 /**

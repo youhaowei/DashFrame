@@ -613,20 +613,23 @@ describe("buildSortFieldOptions", () => {
     ).toBe("Total Revenue desc");
   });
 
-  it("13d. keeps joined fields that share a column name apart, and gives the name to the base table", () => {
-    const { options, byReference } = buildSortFieldOptions(
-      [
-        { id: fieldId, name: "id", columnName: "id", displayName: "orders.id" },
-        { id: metricId, name: "id", columnName: "id", displayName: "users.id" },
-      ],
-      [],
-    );
+  it("13d. keeps joined fields that share a column name apart, and names the shared name by the field the tile sorts by", () => {
+    const joined = [
+      { id: fieldId, name: "id", columnName: "id", displayName: "orders.id" },
+      { id: metricId, name: "id", columnName: "id", displayName: "users.id" },
+    ];
+    const { options, byReference } = buildSortFieldOptions(joined, []);
     expect(options.map((option) => option.label)).toEqual([
       "orders.id",
       "users.id",
     ]);
     expect(byReference.get("id")?.label).toBe("orders.id");
     expect(byReference.get(metricId)?.label).toBe("users.id");
+    // The tile takes the first allowed field the name names.
+    expect(
+      buildSortFieldOptions(joined, [], [metricId]).byReference.get("id")
+        ?.label,
+    ).toBe("users.id");
   });
 
   it("13f. offers only what the Insight's viewer sort allows, and still names the rest", () => {
