@@ -20,6 +20,7 @@ import type {
 
 import {
   type NamedField,
+  filterOverrideRuns,
   resolveOverrideRuntimeFilter,
   type RuntimeFilterDeclaration,
   savedFilterIsOn,
@@ -41,7 +42,9 @@ export interface DeclaredFilterRow {
  * gives either).  It is resolved exactly
  * as the tile runtime resolves it (`resolveOverrideRuntimeFilter`), so the row
  * and the tile agree on whether it runs.  That includes a field with two
- * declared filters, where the override's id or operator picks one.
+ * declared filters, where the override's id or operator picks one, and a
+ * held value the declared filter has changed under (`filterOverrideRuns`),
+ * which the tile ignores and the row offers only to remove.
  *
  * With nothing held, the row stands for the field's one declared filter.  A
  * field with more than one gets no row to pin from: a tile stores one filter
@@ -70,7 +73,23 @@ export function resolveFilterRow(
   if (!held) return onField.length === 1 ? onField[0] : undefined;
   // An id may name a declared filter on another field; that is not this row's.
   const running = resolveOverrideRuntimeFilter(insight, fields, held);
+  if (running && !filterOverrideRuns(insight, running, held)) return undefined;
   return onField.find((candidate) => candidate.declaration === running);
+}
+
+/**
+ * Why a filter row offers only the removal of what the tile holds: the
+ * Insight no longer declares the filter, or it changed the filter so that the
+ * held value no longer fits it.
+ */
+export function ignoredFilterReason(
+  held: InsightFilterOverride | undefined,
+  insight: Pick<Insight, "filters" | "runtimeControls">,
+  fields: readonly NamedField[] = [],
+): string {
+  return held && resolveOverrideRuntimeFilter(insight, fields, held)
+    ? "The chart changed this filter, so the tile ignores the value saved here."
+    : "The chart no longer offers this filter to viewers.";
 }
 
 /**

@@ -468,7 +468,7 @@ describe("VisualizationDisplay — declared runtime controls", () => {
     ).toEqual({ runtime: { filters: { revenue: 250 } } });
   });
 
-  it("ignores ambiguous shared fields and incompatible predicate operators", () => {
+  it("ignores ambiguous shared fields, incompatible operators, and a filter changed under its override", () => {
     const ambiguous: Insight = {
       ...insight,
       filters: [
@@ -482,14 +482,31 @@ describe("VisualizationDisplay — declared runtime controls", () => {
         ],
       },
     };
-    for (const [target, operator] of [
-      [ambiguous, "eq"],
-      [insight, "ne"],
+    const paused = {
+      field: "status",
+      operator: "eq",
+      value: "paused",
+    } as const;
+    // The declaration survives, but the Insight changed the saved filter: the
+    // host would refuse the held value, so the tile keeps the saved predicate.
+    const nowIn = {
+      ...insight,
+      filters: [{ ...savedFilter, operator: "in", value: ["active"] }],
+    } as Insight;
+    const noClear = {
+      ...insight,
+      runtimeControls: {
+        filters: [{ key: "status", filterId: savedFilter.id, label: "Status" }],
+      },
+    } as Insight;
+    for (const [target, override] of [
+      [ambiguous, paused],
+      [insight, { ...paused, operator: "ne" }],
+      [nowIn, { ...paused, id: savedFilter.id }],
+      [noClear, { ...paused, id: savedFilter.id, value: null, cleared: true }],
     ] as const) {
       expect(
-        resolveDashboardRuntime(target, [dataTable], {
-          filters: [{ field: "status", operator, value: "paused" }],
-        }),
+        resolveDashboardRuntime(target, [dataTable], { filters: [override] }),
       ).toEqual({ runtime: { filters: {} } });
     }
   });

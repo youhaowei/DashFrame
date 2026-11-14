@@ -17,6 +17,7 @@ import {
   isMeasureContract,
   isMeasureExpression,
   measureContractProblem,
+  runtimeFilterValueProblem,
 } from "@dashframe/types";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -284,100 +285,24 @@ function applyRuntimeFilter(
 ): void {
   const hasValue = Object.hasOwn(values, control.key);
   const value = values[control.key];
-  if (control.required && (!hasValue || value === null)) {
-    throw new Error("RUNTIME_FILTER_REQUIRED");
-  }
-  if (!hasValue) return;
-  if (value === null) {
-    if (!control.allowClear)
-      throw new Error("RUNTIME_FILTER_CLEAR_NOT_ALLOWED");
-    definition.filters = definition.filters?.filter(
-      (candidate) => candidate.id !== control.filterId,
-    );
+  if (!hasValue) {
+    if (control.required) throw new Error("RUNTIME_FILTER_REQUIRED");
     return;
   }
   const savedFilter = saved.filters?.find(
     (candidate) => candidate.id === control.filterId,
   );
-  if (!savedFilter || !runtimeFilterValueIsValid(savedFilter, value)) {
-    throw new Error("RUNTIME_FILTER_VALUE_INVALID");
+  const problem = runtimeFilterValueProblem(control, savedFilter, value);
+  if (problem) throw new Error(problem);
+  if (value === null) {
+    definition.filters = definition.filters?.filter(
+      (candidate) => candidate.id !== control.filterId,
+    );
+    return;
   }
   definition.filters = definition.filters?.map((candidate) =>
     candidate.id === control.filterId ? { ...candidate, value } : candidate,
   );
-}
-
-type JsonScalar = string | number | boolean;
-
-function runtimeFilterValueIsValid(
-  filter: NonNullable<Insight["filters"]>[number],
-  runtimeValue: unknown,
-): boolean {
-  const savedValue = literalOperand(filter.value);
-  if (filter.operator === "in") {
-    if (!Array.isArray(savedValue) || !Array.isArray(runtimeValue))
-      return false;
-    if (!savedValue.every(isJsonScalar) || !runtimeValue.every(isJsonScalar))
-      return false;
-    const savedKinds = new Set(savedValue.map(scalarKind));
-    return (
-      savedKinds.size > 0 &&
-      runtimeValue.every((value) => savedKinds.has(scalarKind(value)))
-    );
-  }
-  if (filter.operator === "between") {
-    if (!isExactRange(savedValue) || !isExactRange(runtimeValue)) return false;
-    return (
-      sameScalarType(savedValue.low, runtimeValue.low) &&
-      sameScalarType(savedValue.high, runtimeValue.high)
-    );
-  }
-  if (!isJsonScalar(savedValue) || !isJsonScalar(runtimeValue)) return false;
-  if (filter.operator === "contains" && typeof savedValue !== "string")
-    return false;
-  return sameScalarType(savedValue, runtimeValue);
-}
-
-function literalOperand(value: unknown): unknown {
-  if (isRecord(value) && value.kind === "value" && Object.hasOwn(value, "v")) {
-    return value.v;
-  }
-  return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isExactRange(value: unknown): value is {
-  low: JsonScalar;
-  high: JsonScalar;
-} {
-  if (!isRecord(value)) return false;
-  const keys = Object.keys(value);
-  return (
-    keys.length === 2 &&
-    keys.includes("low") &&
-    keys.includes("high") &&
-    isJsonScalar(value.low) &&
-    isJsonScalar(value.high)
-  );
-}
-
-function isJsonScalar(value: unknown): value is JsonScalar {
-  return (
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    (typeof value === "number" && Number.isFinite(value))
-  );
-}
-
-function scalarKind(value: JsonScalar): string {
-  return typeof value;
-}
-
-function sameScalarType(saved: JsonScalar, runtime: JsonScalar): boolean {
-  return scalarKind(saved) === scalarKind(runtime);
 }
 
 function applyRuntimeSort(

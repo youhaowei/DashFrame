@@ -1,9 +1,10 @@
 import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
-import type {
-  DashboardItemOverrides,
-  DataTable,
-  Insight,
-  InsightRuntimeInput,
+import {
+  type DashboardItemOverrides,
+  type DataTable,
+  type Insight,
+  type InsightRuntimeInput,
+  runtimeFilterValueProblem,
 } from "@dashframe/types";
 
 import { resolveInsightAvailableFields } from "@/lib/insights/compute-combined-fields";
@@ -72,6 +73,33 @@ export function resolveOverrideRuntimeFilter(
   return declarations.length === 1 ? declarations[0] : undefined;
 }
 
+/**
+ * Whether the tile can run a filter override through `declaration`.  The
+ * Insight may have changed the filter since the override was saved: its
+ * operator, the kind of its value, or whether viewers may clear it.  The host
+ * refuses a value that no longer fits (`runtimeFilterValueProblem`), so the
+ * tile asks the same question first.  A cleared override sends null.
+ */
+export function filterOverrideRuns(
+  insight: Pick<Insight, "filters">,
+  declaration: RuntimeFilterDeclaration,
+  override: Pick<
+    NonNullable<DashboardItemOverrides["filters"]>[number],
+    "value" | "cleared"
+  >,
+): boolean {
+  const filter = insight.filters?.find(
+    (saved) => saved.id === declaration.filterId,
+  );
+  return (
+    runtimeFilterValueProblem(
+      declaration,
+      filter,
+      override.cleared ? null : override.value,
+    ) === undefined
+  );
+}
+
 function resolveRuntimeFilters(
   insight: Insight,
   availableFields: ReturnType<typeof resolveInsightAvailableFields>,
@@ -84,7 +112,9 @@ function resolveRuntimeFilters(
       availableFields,
       override,
     );
-    if (declaration)
+    // An override the Insight no longer declares, or one its filter has
+    // changed under, is ignored: the tile runs the saved filter instead.
+    if (declaration && filterOverrideRuns(insight, declaration, override))
       values[declaration.key] = override.cleared ? null : override.value;
   }
   return values;
@@ -163,9 +193,9 @@ function resolveRuntimeSort(
  * surface.
  *
  * A tile never fails to render because of an override it holds.  Writes
- * refuse an override the Insight does not declare, but one saved before they
- * did, or before the Insight dropped the control, is ignored here and the
- * tile runs the Insight's own setting instead.
+ * refuse an override the Insight does not declare or cannot run, but one saved
+ * before they did, or before the Insight dropped or changed the control, is
+ * ignored here and the tile runs the Insight's own setting instead.
  */
 export function resolveDashboardRuntime(
   insight: Insight,

@@ -782,6 +782,7 @@ describe("OverridePopover offered controls", () => {
             id: "10000000-0000-4000-8000-000000000006" as UUID,
             field: "region",
             label: "Region picker",
+            defaultValue: "West",
             boundInstances: [tile.id],
           },
         ],

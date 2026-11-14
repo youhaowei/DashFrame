@@ -68,6 +68,7 @@ import {
   deriveFieldState,
   formatSortKeys,
   hasOverrides,
+  ignoredFilterReason,
   overrideOffer,
   resolveFilterRow,
   type SortFieldOptions,
@@ -725,7 +726,8 @@ export function OverridePopover({
         const canBind =
           declared !== undefined &&
           controlCanDrive(fieldName, declared, known, combinedFields);
-        return [{ fieldName, state, declared, canBind }];
+        const ignoredReason = ignoredFilterReason(held, known, combinedFields);
+        return [{ fieldName, state, declared, canBind, ignoredReason }];
       })
     : [];
 
@@ -736,53 +738,57 @@ export function OverridePopover({
       content: (
         <>
           <SectionHeading>Filters</SectionHeading>
-          {filterRows.map(({ fieldName, state, declared, canBind }) => {
-            const combinedField = combinedFieldByName.get(fieldName);
-            const displayName = combinedField?.displayName ?? fieldName;
-            if (!declared)
+          {filterRows.map(
+            ({ fieldName, state, declared, canBind, ignoredReason }) => {
+              const combinedField = combinedFieldByName.get(fieldName);
+              const displayName = combinedField?.displayName ?? fieldName;
+              if (!declared)
+                return (
+                  <ResetOnlyRow
+                    key={fieldName}
+                    name={displayName}
+                    reason={ignoredReason}
+                    {...(state.type === "bound"
+                      ? {
+                          action: "Unbind",
+                          actionLabel: `Unbind ${displayName} from control`,
+                          onReset: () => handleUnbind(state.control.id),
+                        }
+                      : {
+                          actionLabel: `Reset ${displayName} filter to inherit`,
+                          onReset: () => handleInherit(fieldName),
+                        })}
+                  />
+                );
               return (
-                <ResetOnlyRow
+                <OverrideFieldRow
                   key={fieldName}
-                  name={displayName}
-                  reason="The chart no longer offers this filter to viewers."
-                  {...(state.type === "bound"
-                    ? {
-                        action: "Unbind",
-                        actionLabel: `Unbind ${displayName} from control`,
-                        onReset: () => handleUnbind(state.control.id),
-                      }
-                    : {
-                        actionLabel: `Reset ${displayName} filter to inherit`,
-                        onReset: () => handleInherit(fieldName),
-                      })}
+                  fieldName={fieldName}
+                  displayName={displayName}
+                  state={state}
+                  combinedField={combinedField}
+                  eligibleControls={
+                    canBind ? getEligibleControls(fieldName) : []
+                  }
+                  operator={declared.filter.operator}
+                  canClear={declared.declaration.allowClear === true}
+                  onPin={(filter) =>
+                    handlePin(fieldName, filter, declared.declaration.filterId)
+                  }
+                  onClear={() =>
+                    handleClear(fieldName, declared.declaration.filterId)
+                  }
+                  onInherit={() => handleInherit(fieldName)}
+                  onBind={(controlId) => handleBind(controlId)}
+                  onUnbind={
+                    state.type === "bound"
+                      ? () => handleUnbind(state.control.id)
+                      : undefined
+                  }
                 />
               );
-            return (
-              <OverrideFieldRow
-                key={fieldName}
-                fieldName={fieldName}
-                displayName={displayName}
-                state={state}
-                combinedField={combinedField}
-                eligibleControls={canBind ? getEligibleControls(fieldName) : []}
-                operator={declared.filter.operator}
-                canClear={declared.declaration.allowClear === true}
-                onPin={(filter) =>
-                  handlePin(fieldName, filter, declared.declaration.filterId)
-                }
-                onClear={() =>
-                  handleClear(fieldName, declared.declaration.filterId)
-                }
-                onInherit={() => handleInherit(fieldName)}
-                onBind={(controlId) => handleBind(controlId)}
-                onUnbind={
-                  state.type === "bound"
-                    ? () => handleUnbind(state.control.id)
-                    : undefined
-                }
-              />
-            );
-          })}
+            },
+          )}
         </>
       ),
     });

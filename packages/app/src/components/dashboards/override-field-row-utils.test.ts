@@ -740,10 +740,16 @@ describe("resolveFilterRow — the declared filter a row edits", () => {
     const both = [minimum, maximum];
     // By the saved filter's id, whatever operator the override carries.
     expect(
-      row(filter(FIELD, { id: "filter-2", operator: "eq" }), range, both),
+      row(
+        filter(FIELD, { id: "filter-2", operator: "eq", value: 15 }),
+        range,
+        both,
+      ),
     ).toEqual({ declaration: maximum, filter: range[1] });
     // Without an id, by the operator, as the tile runtime does.
-    expect(row(filter(FIELD, { operator: "gte" }), range, both)).toEqual({
+    expect(
+      row(filter(FIELD, { operator: "gte", value: 15 }), range, both),
+    ).toEqual({
       declaration: minimum,
       filter: range[0],
     });
@@ -772,7 +778,7 @@ describe("resolveFilterRow — the declared filter a row edits", () => {
 
   it("15g. finds a saved filter stored by the field's result-column alias", () => {
     const saved = [
-      { id: "filter-1", field: alias, operator: "eq" as const, value: 1 },
+      { id: "filter-1", field: alias, operator: "eq" as const, value: "v0" },
     ];
     const fields = [{ id: fieldId, name: "Created", columnName: FIELD }];
     const declared = { declaration: minimum, filter: saved[0] };
