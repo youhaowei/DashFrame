@@ -2,7 +2,7 @@
  * Unit tests for LocalFileConnector
  *
  * Tests cover:
- * - Static properties (id, name, icon, accept, maxSizeMB)
+ * - Static properties (id, accept, maxSizeMB)
  * - File size validation (source and encoded ingestion limits)
  * - File extension validation
  * - CSV parsing delegation
@@ -10,7 +10,7 @@
  * - Error handling for invalid content
  */
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { LocalFileConnector, localFileConnector } from "./connector";
+import { LocalFileConnector } from "./connector";
 
 // Mock the format converters to isolate connector dispatch.
 vi.mock("@dashframe/csv", () => ({
@@ -51,20 +51,6 @@ describe("LocalFileConnector", () => {
       expect(connector.id).toBe("local");
     });
 
-    it("should have correct name", () => {
-      expect(connector.name).toBe("Local Files");
-    });
-
-    it("should have description", () => {
-      expect(connector.description).toBeTruthy();
-      expect(typeof connector.description).toBe("string");
-    });
-
-    it("should have SVG icon", () => {
-      expect(connector.icon).toContain("<svg");
-      expect(connector.icon).toContain("</svg>");
-    });
-
     it("should accept CSV and JSON files", () => {
       expect(connector.accept).toContain(".csv");
       expect(connector.accept).toContain(".json");
@@ -76,27 +62,14 @@ describe("LocalFileConnector", () => {
       expect(connector.maxSizeMB).toBe(16);
       expect(connector.helperText).toContain("16MB");
       expect(connector.helperText).toContain("100MB");
-    });
-
-    it("should have helper text mentioning size limit and formats", () => {
-      expect(connector.helperText).toContain("16MB");
       expect(connector.helperText).toContain("CSV");
       expect(connector.helperText).toContain("JSON");
     });
   });
 
-  describe("getFormFields", () => {
-    it("should return empty array (no config options)", () => {
-      const fields = connector.getFormFields();
-      expect(fields).toEqual([]);
-    });
-  });
-
-  describe("validate", () => {
-    it("should always return valid (validation happens on parse)", () => {
-      const result = connector.validate({});
-      expect(result).toEqual({ valid: true });
-    });
+  it("asks for no configuration: a file is checked when it is parsed", () => {
+    expect(connector.getFormFields()).toEqual([]);
+    expect(connector.validate()).toEqual({ valid: true });
   });
 
   describe("parse - file size validation", () => {
@@ -129,19 +102,6 @@ describe("LocalFileConnector", () => {
         ),
       ).resolves.toBeDefined();
     });
-
-    it("should accept files under 16MB", async () => {
-      const file = new File(["name,value\na,1"], "small.csv", {
-        type: "text/csv",
-      });
-
-      await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
-      ).resolves.toBeDefined();
-    });
   });
 
   describe("parse - file extension validation", () => {
@@ -155,7 +115,9 @@ describe("LocalFileConnector", () => {
           file,
           "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
         ),
-      ).rejects.toThrow("Unsupported file format");
+      ).rejects.toThrow(
+        "Unsupported file format: .txt. Supported formats: csv, json",
+      );
     });
 
     it("should reject files with no extension", async () => {
@@ -169,19 +131,6 @@ describe("LocalFileConnector", () => {
           "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
         ),
       ).rejects.toThrow("Unsupported file format");
-    });
-
-    it("should include supported formats in error message", async () => {
-      const file = new File(["some content"], "data.xlsx", {
-        type: "application/vnd.ms-excel",
-      });
-
-      await expect(
-        connector.parse(
-          file,
-          "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-        ),
-      ).rejects.toThrow("csv, json");
     });
   });
 
@@ -283,19 +232,6 @@ describe("LocalFileConnector", () => {
       expect(mockJsonToDataFrame).toHaveBeenCalled();
     });
 
-    it("should handle uppercase JSON extension", async () => {
-      const file = new File(['[{"a": 1}]'], "DATA.JSON", {
-        type: "application/json",
-      });
-
-      await connector.parse(
-        file,
-        "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
-      );
-
-      expect(mockJsonToDataFrame).toHaveBeenCalled();
-    });
-
     it("should reject invalid JSON syntax", async () => {
       const file = new File(["{invalid json}"], "invalid.json", {
         type: "application/json",
@@ -359,18 +295,6 @@ describe("LocalFileConnector", () => {
           "test-uuid" as `${string}-${string}-${string}-${string}-${string}`,
         ),
       ).rejects.toThrow("JSON array must contain objects");
-    });
-  });
-
-  describe("singleton instance", () => {
-    it("should export a singleton localFileConnector instance", () => {
-      expect(localFileConnector).toBeInstanceOf(LocalFileConnector);
-    });
-
-    it("singleton should have the same properties as a new instance", () => {
-      expect(localFileConnector.id).toBe(connector.id);
-      expect(localFileConnector.name).toBe(connector.name);
-      expect(localFileConnector.maxSizeMB).toBe(connector.maxSizeMB);
     });
   });
 });

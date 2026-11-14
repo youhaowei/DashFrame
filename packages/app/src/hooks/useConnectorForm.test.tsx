@@ -60,28 +60,12 @@ describe("useConnectorForm", () => {
       expect(result.current.formFields[1].name).toBe("workspace");
     });
 
-    it("should initialize with empty form fields for connector with no fields", () => {
-      const connector = createMockConnector({ formFields: [] });
-
-      const { result } = renderHook(() => useConnectorForm(connector));
-
-      expect(result.current.formFields).toHaveLength(0);
-    });
-
     it("should initialize isSubmitting as false", () => {
       const connector = createMockConnector({});
 
       const { result } = renderHook(() => useConnectorForm(connector));
 
       expect(result.current.isSubmitting).toBe(false);
-    });
-
-    it("should initialize submitError as null", () => {
-      const connector = createMockConnector({});
-
-      const { result } = renderHook(() => useConnectorForm(connector));
-
-      expect(result.current.submitError).toBeNull();
     });
 
     it("should provide the connector reference", () => {
@@ -91,44 +75,9 @@ describe("useConnectorForm", () => {
 
       expect(result.current.connector.id).toBe("test-connector");
     });
-
-    it("should provide form instance", () => {
-      const connector = createMockConnector({});
-
-      const { result } = renderHook(() => useConnectorForm(connector));
-
-      expect(result.current.form).toBeDefined();
-      expect(result.current.form.state).toBeDefined();
-    });
   });
 
   describe("execute - validation errors", () => {
-    it("should return null when validation fails", async () => {
-      const connector = createMockConnector({
-        formFields: [
-          {
-            name: "apiKey",
-            label: "API Key",
-            type: "password",
-            required: true,
-          },
-        ],
-        validateFn: () => ({
-          valid: false,
-          errors: { apiKey: "API key is required" },
-        }),
-      });
-
-      const { result } = renderHook(() => useConnectorForm(connector));
-
-      let actionResult: unknown;
-      await act(async () => {
-        actionResult = await result.current.execute(async () => "success");
-      });
-
-      expect(actionResult).toBeNull();
-    });
-
     it("should call setFieldMeta when validation fails", async () => {
       // NOTE: TanStack Form's setFieldMeta only works when Field components are mounted.
       // Since we're testing with renderHook (no Field components), we verify the behavior
@@ -162,45 +111,6 @@ describe("useConnectorForm", () => {
       expect(result.current.submitError).toBeNull();
     });
 
-    it("should handle multiple validation errors", async () => {
-      // NOTE: Full field error testing requires rendering Field components.
-      // Here we just verify validation failure behavior.
-      const connector = createMockConnector({
-        formFields: [
-          {
-            name: "apiKey",
-            label: "API Key",
-            type: "password",
-            required: true,
-          },
-          {
-            name: "workspace",
-            label: "Workspace",
-            type: "text",
-            required: true,
-          },
-        ],
-        validateFn: () => ({
-          valid: false,
-          errors: {
-            apiKey: "API key is required",
-            workspace: "Workspace is required",
-          },
-        }),
-      });
-
-      const { result } = renderHook(() => useConnectorForm(connector));
-
-      let actionResult: unknown;
-      await act(async () => {
-        actionResult = await result.current.execute(async () => "success");
-      });
-
-      // Multiple validation errors still return null and don't set submitError
-      expect(actionResult).toBeNull();
-      expect(result.current.submitError).toBeNull();
-    });
-
     it("should not call action when validation fails", async () => {
       const action = vi.fn().mockResolvedValue("success");
       const connector = createMockConnector({
@@ -218,38 +128,6 @@ describe("useConnectorForm", () => {
   });
 
   describe("execute - successful action", () => {
-    it("should return action result on success", async () => {
-      const connector = createMockConnector({
-        formFields: [
-          {
-            name: "apiKey",
-            label: "API Key",
-            type: "password",
-            required: true,
-          },
-        ],
-      });
-
-      const { result } = renderHook(() => useConnectorForm(connector));
-
-      // Set form value
-      await act(async () => {
-        result.current.form.setFieldValue("apiKey", "secret_test123");
-      });
-
-      let actionResult: unknown;
-      await act(async () => {
-        actionResult = await result.current.execute(async (data) => {
-          return { success: true, apiKey: data.apiKey };
-        });
-      });
-
-      expect(actionResult).toEqual({
-        success: true,
-        apiKey: "secret_test123",
-      });
-    });
-
     it("should pass form data to action", async () => {
       const action = vi.fn().mockResolvedValue("result");
       const connector = createMockConnector({
@@ -325,18 +203,6 @@ describe("useConnectorForm", () => {
       expect(result.current.isSubmitting).toBe(false);
     });
 
-    it("should set isSubmitting to false after action completes", async () => {
-      const connector = createMockConnector({});
-
-      const { result } = renderHook(() => useConnectorForm(connector));
-
-      await act(async () => {
-        await result.current.execute(async () => "done");
-      });
-
-      expect(result.current.isSubmitting).toBe(false);
-    });
-
     it("should execute action after validation passes on retry", async () => {
       // Test that after a validation failure, subsequent successful validation
       // properly executes the action.
@@ -385,8 +251,9 @@ describe("useConnectorForm", () => {
 
       const { result } = renderHook(() => useConnectorForm(connector));
 
+      let actionResult: unknown;
       await act(async () => {
-        await result.current.execute(async () => {
+        actionResult = await result.current.execute(async () => {
           throw new Error("Network error");
         });
       });
@@ -394,6 +261,8 @@ describe("useConnectorForm", () => {
       expect(result.current.submitError).toBe(
         "Couldn't connect. Check your settings and try again.",
       );
+      expect(actionResult).toBeNull();
+      expect(result.current.isSubmitting).toBe(false);
     });
 
     it("keeps the generic message for errors the caller does not recognize", async () => {
@@ -431,52 +300,6 @@ describe("useConnectorForm", () => {
       expect(result.current.submitError).toBe(
         "Google Analytics OAuth is not configured",
       );
-    });
-
-    it("should return null when action throws", async () => {
-      const connector = createMockConnector({});
-
-      const { result } = renderHook(() => useConnectorForm(connector));
-
-      let actionResult: unknown;
-      await act(async () => {
-        actionResult = await result.current.execute(async () => {
-          throw new Error("Failed");
-        });
-      });
-
-      expect(actionResult).toBeNull();
-    });
-
-    it("should set generic error message for non-Error throws", async () => {
-      const connector = createMockConnector({});
-
-      const { result } = renderHook(() => useConnectorForm(connector));
-
-      await act(async () => {
-        await result.current.execute(async () => {
-          // oxlint-disable-next-line no-throw-literal -- exercises the non-Error throw path on purpose
-          throw "string error";
-        });
-      });
-
-      expect(result.current.submitError).toBe(
-        "Couldn't connect. Check your settings and try again.",
-      );
-    });
-
-    it("should set isSubmitting to false after action fails", async () => {
-      const connector = createMockConnector({});
-
-      const { result } = renderHook(() => useConnectorForm(connector));
-
-      await act(async () => {
-        await result.current.execute(async () => {
-          throw new Error("Failed");
-        });
-      });
-
-      expect(result.current.isSubmitting).toBe(false);
     });
   });
 

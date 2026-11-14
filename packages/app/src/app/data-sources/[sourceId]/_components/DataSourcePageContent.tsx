@@ -112,8 +112,8 @@ export function buildAnalysisByFieldId(
   for (const column of columns) {
     if (column.fieldId) {
       // Fast-path: analysis already carries an explicit fieldId.
-      // IMPORTANT: if fieldId is ever populated via extractUUIDFromColumnAlias
-      // (which strips the _jN suffix), this path will silently re-introduce the
+      // IMPORTANT: if fieldId is ever populated from a column alias with its
+      // _jN suffix stripped, this path will silently re-introduce the
       // j1-overwrites-j0 collapse. The only safe source for fieldId here is a
       // value already instance-qualified (e.g. "<uuid>_j1") — matching the keys
       // produced by buildInsightAvailableFields.

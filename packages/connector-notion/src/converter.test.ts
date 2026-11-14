@@ -779,6 +779,7 @@ describe("convertNotionToDataFrame", () => {
       Status: "Active",
       Count: 42,
     });
+    expect(result.fieldIds).toEqual(fields.map((f) => f.id));
   });
 
   it("should generate correct column definitions", () => {
@@ -819,23 +820,6 @@ describe("convertNotionToDataFrame", () => {
     // Decode and re-parse — tableFromIPC throws on a corrupt IPC buffer
     const decoded = Buffer.from(result.arrowBuffer, "base64");
     expect(() => tableFromIPC(decoded)).not.toThrow();
-  });
-
-  it("should return field IDs", () => {
-    const response = {
-      object: "list" as const,
-      results: [],
-      next_cursor: null,
-      has_more: false,
-      type: "page_or_database" as const,
-      page_or_database: {},
-      request_id: "req-1",
-    };
-
-    const result = convertNotionToDataFrame(response, fields);
-
-    expect(result.fieldIds).toHaveLength(4);
-    expect(result.fieldIds.every((id) => typeof id === "string")).toBe(true);
   });
 
   it("should return correct row count", () => {
@@ -897,39 +881,6 @@ describe("convertNotionToDataFrame", () => {
     const result = convertNotionToDataFrame(response, fields);
 
     expect(result.rowCount).toBe(2);
-  });
-
-  it("should handle _notionId as computed field", () => {
-    const response = {
-      object: "list" as const,
-      results: [
-        {
-          object: "page" as const,
-          id: "page-123",
-          created_time: "2024-01-15T00:00:00.000Z",
-          last_edited_time: "2024-01-15T00:00:00.000Z",
-          created_by: { object: "user" as const, id: "user-1" },
-          last_edited_by: { object: "user" as const, id: "user-1" },
-          cover: null,
-          icon: null,
-          parent: { type: "database_id" as const, database_id: "db-1" },
-          archived: false,
-          in_trash: false,
-          properties: {},
-          url: "https://notion.so/page-123",
-          public_url: null,
-        },
-      ] as PageObjectResponse[],
-      next_cursor: null,
-      has_more: false,
-      type: "page_or_database" as const,
-      page_or_database: {},
-      request_id: "req-1",
-    };
-
-    const result = convertNotionToDataFrame(response, fields);
-
-    expect(result.rows[0]._notionId).toBe("page-123");
   });
 
   it("should filter out non-page results", () => {

@@ -8,7 +8,6 @@ export {
   buildInsightAvailableFields,
   buildInsightSQL,
   extractColumnAliasComponents,
-  extractUUIDFromColumnAlias,
   // UUID column naming utilities
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
@@ -27,11 +26,6 @@ export {
 } from "./encoding-resolution";
 
 export { applyDateTransformToSql } from "./date-transforms";
-
-export {
-  resolveEffectiveParams,
-  type EffectiveParams,
-} from "./override-resolution";
 
 export { frameTableName } from "./frame-table-name";
 

@@ -297,16 +297,6 @@ describe("AxisSelectField — repeat-join picker (component render)", () => {
     vi.clearAllMocks();
   });
 
-  it("exposes BOTH repeat-join instances as distinct options", () => {
-    renderAxisSelect();
-
-    const values = capturedOptions.map((o) => o.value);
-    expect(values).toContain(J0_ENC);
-    expect(values).toContain(J1_ENC);
-    // They must be DISTINCT (not collapsed to the same encoding).
-    expect(J0_ENC).not.toBe(J1_ENC);
-  });
-
   it("gives each repeat-join instance a distinct human-readable label", () => {
     renderAxisSelect();
 
@@ -346,27 +336,6 @@ describe("AxisSelectField — repeat-join picker (component render)", () => {
     expect(onChangeMock).toHaveBeenCalledWith(J1_ENC);
     // Must NOT collapse to the bare-UUID encoding.
     expect(onChangeMock).not.toHaveBeenCalledWith(J0_ENC);
-  });
-
-  it("selecting the first join instance emits the bare-UUID encoding", () => {
-    const onChangeMock = vi.fn();
-    render(
-      <AxisSelectField
-        label="X Axis"
-        value=""
-        onChange={onChangeMock}
-        axis="x"
-        chartType="barY"
-        columnAnalysis={columnAnalysis}
-        compiledInsight={baseCompiledInsight}
-        availableFields={instanceAwareFields}
-        columnDisplayNames={columnDisplayNames}
-      />,
-    );
-
-    capturedOnChange(J0_ENC);
-
-    expect(onChangeMock).toHaveBeenCalledWith(J0_ENC);
   });
 
   it("single-join insight is unaffected — j0 option is present, no spurious j1", () => {

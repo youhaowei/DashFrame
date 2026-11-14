@@ -250,36 +250,6 @@ describe("GA4 report queries", () => {
     ).rejects.toThrow("Expected 2 report rows but received 1");
   });
 
-  it("keeps empty Arrow schemas aligned with declared field types", async () => {
-    const result = await runReport(
-      "123",
-      {
-        dimensions: ["date", "eventName"],
-        metrics: ["eventCount"],
-        grain: "day",
-        dateRange: { kind: "absolute", start: "2026-09-01", end: "2026-09-23" },
-      },
-      {
-        request: async () => ({
-          dimensionHeaders: [{ name: "date" }, { name: "eventName" }],
-          metricHeaders: [{ name: "eventCount" }],
-          rowCount: 0,
-          rows: [],
-        }),
-      },
-      { tableId: crypto.randomUUID(), now: NOW },
-    );
-    expect(
-      tableFromIPC(Buffer.from(result.arrowBuffer, "base64")).schema.fields.map(
-        (field) => [field.name, String(field.type)],
-      ),
-    ).toEqual([
-      ["date", "Timestamp<MILLISECOND>"],
-      ["eventName", "Dictionary<Int32, Utf8>"],
-      ["eventCount", "Float64"],
-    ]);
-  });
-
   it("shares maxResponseBytes across report pages", async () => {
     const responses: RunReportResponse[] = [
       {
@@ -546,6 +516,11 @@ describe("GA4 report queries", () => {
         dimensionValues: [{ value: "bad-date" }, {}],
         metricValues: [{}],
       },
+    ]);
+    expect(populated).toEqual([
+      ["date", "Timestamp<MILLISECOND>"],
+      ["eventName", "Dictionary<Int32, Utf8>"],
+      ["eventCount", "Float64"],
     ]);
     expect(allNull).toEqual(populated);
     expect(await schemaFor([])).toEqual(populated);

@@ -117,46 +117,6 @@ export function metricEncoding(id: UUID): MetricEncodingValue {
 }
 
 // ============================================================================
-// Type Guards
-// ============================================================================
-
-/**
- * Type guard for field encoding values.
- *
- * @param value - String to check
- * @returns True if value is a valid field encoding
- */
-export function isFieldEncoding(
-  value: string | undefined,
-): value is FieldEncodingValue {
-  return typeof value === "string" && value.startsWith("field:");
-}
-
-/**
- * Type guard for metric encoding values.
- *
- * @param value - String to check
- * @returns True if value is a valid metric encoding
- */
-export function isMetricEncoding(
-  value: string | undefined,
-): value is MetricEncodingValue {
-  return typeof value === "string" && value.startsWith("metric:");
-}
-
-/**
- * Type guard for valid encoding values (field or metric).
- *
- * @param value - String to check
- * @returns True if value is a valid encoding (either field or metric)
- */
-export function isValidEncoding(
-  value: string | undefined,
-): value is EncodingValue {
-  return isFieldEncoding(value) || isMetricEncoding(value);
-}
-
-// ============================================================================
 // Write-time Validation
 // ============================================================================
 
@@ -203,9 +163,9 @@ const ENCODING_PREFIX_PATTERN = /^(?:field|metric):/i;
 
 /**
  * Runtime guard for a value of unknown provenance — an RPC argument, a command
- * envelope authored by an agent, a row read back from storage. Unlike
- * `isValidEncoding`, this takes `unknown` (so a non-string cannot reach it as a
- * type error) and checks the WHOLE shape, not just the prefix.
+ * envelope authored by an agent, a row read back from storage. It takes
+ * `unknown` (so a non-string cannot reach it as a type error) and checks the
+ * WHOLE shape, not just the prefix.
  *
  * @param value - Candidate of any type
  * @returns True if value is a well-formed `field:<uuid>` / `metric:<uuid>`

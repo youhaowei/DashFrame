@@ -132,22 +132,6 @@ describe("prepareFilterForSave — distinct id per Add (data-loss guard)", () =>
     expect(stamped._id).toBe("uuid-fresh");
   });
 
-  it("leaves an existing filter's id and _id intact on edit", () => {
-    const existing: FilterWithId = {
-      id: "uuid-existing",
-      _id: "uuid-existing",
-      field: "region",
-      operator: "eq",
-      value: "north",
-    };
-    const reStamped = prepareFilterForSave(
-      existing,
-      () => "uuid-SHOULD-NOT-USE",
-    );
-    expect(reStamped.id).toBe("uuid-existing");
-    expect(reStamped._id).toBe("uuid-existing");
-  });
-
   it("keeps an existing filter's stable id while editing", () => {
     const list = withFilterIds([
       { id: "uuid-region", field: "region", operator: "eq", value: "north" },

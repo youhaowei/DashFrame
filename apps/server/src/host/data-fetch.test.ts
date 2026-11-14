@@ -1,8 +1,4 @@
-import type {
-  Insight,
-  InsightFetchFailed,
-  InsightFetchResult,
-} from "@dashframe/types";
+import type { Insight, InsightFetchResult } from "@dashframe/types";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -1058,29 +1054,6 @@ describe("applyInsightRuntime", () => {
         "This insight couldn't be compiled. Its source table may not have data yet.",
       retryable: false,
       sourceGenerations: [{ tableId, dataFrameId, lastFetchedAt: 123 }],
-    });
-  });
-
-  it("types retained success metadata as explicitly stale", () => {
-    const result: InsightFetchFailed = {
-      status: "failed",
-      code: "SOURCE_SCHEMA_CHANGED",
-      message: "safe",
-      retryable: false,
-      diagnosticId: "diagnostic",
-      lastSuccessful: {
-        stale: true,
-        dataFrameId: "frame",
-        schema: [],
-        rowCount: 1,
-        definitionFingerprint: "fingerprint",
-        provenance: { connectorKind: "notion", bindingVersion: "v1" },
-        fetchedAt: 1,
-      },
-    };
-    expect(result.lastSuccessful).toMatchObject({
-      stale: true,
-      dataFrameId: "frame",
     });
   });
 });

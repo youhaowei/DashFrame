@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  AGGREGATIONS,
   isMeasureContract,
   measureCombinesOver,
   measureContractProblem,
@@ -106,16 +105,5 @@ describe("measure contract", () => {
     ],
   ] as const)("reports the ratio problem for %j", (metric, problem) => {
     expect(measureContractProblem(metric)).toBe(problem);
-  });
-
-  it("keeps the public aggregation list in the expected order", () => {
-    expect(AGGREGATIONS).toEqual([
-      "sum",
-      "avg",
-      "count",
-      "min",
-      "max",
-      "count_distinct",
-    ]);
   });
 });

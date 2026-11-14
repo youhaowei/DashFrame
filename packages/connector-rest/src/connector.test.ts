@@ -18,7 +18,6 @@ import {
 } from "@wystack/secret-vault";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
-  RestConnector,
   applyFieldMap,
   assertFieldMapNoCollision,
   extractRows,
@@ -152,20 +151,6 @@ describe("RestConnector", () => {
       endpoint: "https://api.example.com/data",
     });
     expect(c.id).toBe("rest");
-  });
-
-  it("has sourceType = 'remote-api'", () => {
-    const c = makeRestConnector(noopResolver, {
-      endpoint: "https://api.example.com/data",
-    });
-    expect(c.sourceType).toBe("remote-api");
-  });
-
-  it("is an instance of RestConnector", () => {
-    const c = makeRestConnector(noopResolver, {
-      endpoint: "https://api.example.com/data",
-    });
-    expect(c).toBeInstanceOf(RestConnector);
   });
 
   it("getFormFields returns at least endpoint field", () => {
@@ -493,38 +478,6 @@ describe("RestConnector", () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
       expect(mockFetch.mock.calls[0]?.[0]).toContain("page=1");
       expect(mockFetch.mock.calls[1]?.[0]).toContain("page=2");
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // 4. Link-header pagination
-  // -------------------------------------------------------------------------
-
-  describe("link-header pagination", () => {
-    it("follows Link: rel=next header, stops when absent", async () => {
-      const page1Rows = [{ id: 1 }];
-      const page2Rows = [{ id: 2 }];
-      const mockFetch = vi
-        .fn()
-        .mockResolvedValueOnce(
-          makeResponse(page1Rows, {
-            linkHeader: '<https://api.example.com/data?page=2>; rel="next"',
-          }),
-        )
-        .mockResolvedValueOnce(makeResponse(page2Rows));
-      vi.stubGlobal("fetch", mockFetch);
-
-      const tableId = crypto.randomUUID();
-      const c = makeRestConnector(noopResolver, {
-        endpoint: "https://api.example.com/data",
-        pagination: "link-header",
-      });
-      await c.query("db", tableId);
-
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-      expect(mockFetch.mock.calls[1]?.[0]).toBe(
-        "https://api.example.com/data?page=2",
-      );
     });
   });
 

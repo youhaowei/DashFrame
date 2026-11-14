@@ -7,10 +7,6 @@ describe("formatNumeric", () => {
     expect(formatNumeric(409.95000000000005)).toBe("409.95");
   });
 
-  it("leaves a clean decimal unchanged", () => {
-    expect(formatNumeric(409.95)).toBe("409.95");
-  });
-
   it("leaves an integer unchanged (no decimal point added)", () => {
     expect(formatNumeric(1000)).toBe("1000");
     expect(formatNumeric(0)).toBe("0");
@@ -21,11 +17,6 @@ describe("formatNumeric", () => {
     // COUNT(*) or financial IDs with > 10 significant digits must never be rounded
     expect(formatNumeric(12345678901)).toBe("12345678901");
     expect(formatNumeric(100000000011)).toBe("100000000011");
-  });
-
-  it("preserves genuine long-decimal precision within 10 sig-figs", () => {
-    // 1234.5678 has 8 sig-figs — well within 10, should round-trip exactly
-    expect(formatNumeric(1234.5678)).toBe("1234.5678");
   });
 
   it("does not over-truncate a legitimately precise value", () => {

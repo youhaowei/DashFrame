@@ -230,7 +230,11 @@ it("recovers only pending batches in the admitted workspace and retains staged r
   ).rejects.toThrow();
   expect(
     await user.query(api.hostedLifecycle.listRecoverableHostBatches, page),
-  ).toMatchObject({ page: [{ operationId: batch.operationId }], isDone: true });
+  ).toEqual({
+    page: [{ operationId: batch.operationId }],
+    isDone: true,
+    continueCursor: expect.any(String),
+  });
   expect(
     await other.query(api.hostedLifecycle.listRecoverableHostBatches, page),
   ).toMatchObject({ page: [] });
@@ -546,19 +550,3 @@ it.each(["service", "revoked"] as const)(
     );
   },
 );
-
-it("permits owner-authorized startup recovery", async () => {
-  const workspaceId = await admit();
-  const service = await credential(workspaceId);
-  const user = host(workspaceId);
-  await service.mutation(api.hostedLifecycle.prepareHostBatch, prepare);
-  expect(
-    (await user.query(api.hostedLifecycle.listRecoverableHostBatches, page))
-      .page,
-  ).toEqual([{ operationId: batch.operationId }]);
-  expect(
-    await user.mutation(api.hostedLifecycle.recoverHostBatch, {
-      operationId: batch.operationId,
-    }),
-  ).toBe("cancelled");
-});

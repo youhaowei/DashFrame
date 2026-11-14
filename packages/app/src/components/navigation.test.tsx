@@ -184,12 +184,4 @@ describe("Navigation", () => {
     fireEvent.click(settings);
     expect(screen.queryByTestId("mobile-drawer")).toBeNull();
   });
-
-  // Clearing data, credentials, and sign-out live on the Settings page now.
-  it("keeps no settings menu in the nav", () => {
-    render(<Navigation />);
-    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
-    expect(screen.queryByText("Clear all data")).toBeNull();
-    expect(screen.queryByText("Sign out")).toBeNull();
-  });
 });

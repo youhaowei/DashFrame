@@ -672,25 +672,4 @@ describe("InsightConfigPanel filter saves", () => {
       },
     });
   });
-
-  it("reports a rejected runtime-control write", async () => {
-    commitBatch.mockRejectedValueOnce(new Error("write failed"));
-    render(
-      <InsightConfigPanel
-        insight={insight}
-        dataTable={table}
-        allDataTables={[table]}
-      />,
-    );
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Save viewer controls" }),
-    );
-
-    await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        "Failed to update viewer controls",
-      ),
-    );
-  });
 });

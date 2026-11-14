@@ -10,7 +10,6 @@ import { createArrowIPCBufferFromRows } from "@dashframe/engine-browser";
 import {
   extractKeys,
   flattenObjectArray,
-  type FlattenOptions,
   type JsonPrimitive,
   type JsonValue,
 } from "./flatten";
@@ -24,7 +23,7 @@ export type JSONData = JsonValue[] | Record<string, JsonValue>;
 /**
  * Options for JSON to DataFrame conversion.
  */
-export interface JSONConversionOptions extends FlattenOptions {
+export interface JSONConversionOptions {
   /**
    * Whether to wrap a single object in an array.
    * Default: true
@@ -93,7 +92,7 @@ export interface JSONConversionResult {
  *
  * @param jsonData - Array of objects or a single object
  * @param dataTableId - The UUID for the data table
- * @param options - Conversion options (including flattening options)
+ * @param options - Conversion options
  * @returns Promise containing the DataFrame and metadata
  *
  * @example
@@ -116,7 +115,7 @@ export async function jsonToDataFrame(
   dataTableId: UUID,
   options: JSONConversionOptions = {},
 ): Promise<JSONConversionResult> {
-  const { wrapSingleObject = true, ...flattenOptions } = options;
+  const { wrapSingleObject = true } = options;
 
   // Guard against null input (typeof null === "object")
   if (jsonData === null) {
@@ -139,7 +138,7 @@ export async function jsonToDataFrame(
   }
 
   // Step 2: Flatten nested objects
-  const flattenedRows = flattenObjectArray(dataArray, flattenOptions);
+  const flattenedRows = flattenObjectArray(dataArray);
   const columnNames = extractKeys(flattenedRows);
 
   if (columnNames.length === 0) {
@@ -191,9 +190,7 @@ export {
   extractKeys,
   flattenObject,
   flattenObjectArray,
-  unflattenObject,
   type FlattenedObject,
-  type FlattenOptions,
   type JsonPrimitive,
   type JsonValue,
 } from "./flatten";

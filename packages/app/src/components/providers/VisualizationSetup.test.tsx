@@ -96,55 +96,27 @@ describe("VisualizationSetup — error routing (issue #96)", () => {
   });
 
   describe("whole-engine-down → no toast, no inline slab from this component", () => {
-    it("does NOT fire a toast when engineError is set (surface moved to inline)", async () => {
+    it("passes children through with no toast and no inline ErrorState slab when engineError is set", async () => {
       mockUseChartEngine.mockReturnValue({
         connector: null,
         engineError: "Native engine unavailable: connection refused",
         uploadArrowTable: null,
       });
 
-      renderSetup();
+      renderSetup(<div data-testid="child" />);
 
       // Give effects a tick to fire — nothing should call showError.
       await new Promise((r) => {
         setTimeout(r, 0);
       });
       expect(mockShowError).not.toHaveBeenCalled();
-    });
-
-    it("does NOT render an inline ErrorState slab for the engine-down condition", () => {
-      mockUseChartEngine.mockReturnValue({
-        connector: null,
-        engineError: "Native engine unavailable: connection refused",
-        uploadArrowTable: null,
-      });
-
-      renderSetup(<div data-testid="child" />);
 
       // The raw engineError string must never reach the DOM (DESIGN.md:
       // no raw runtime errors in UI).
       expect(screen.queryByText(/Native engine unavailable/i)).toBeNull();
-    });
 
-    it("still passes children through when engine is down (degraded, not dead)", () => {
-      mockUseChartEngine.mockReturnValue({
-        connector: null,
-        engineError: "Native engine unavailable: connection refused",
-        uploadArrowTable: null,
-      });
-
-      renderSetup(<div data-testid="child" />);
-
+      // Degraded, not dead: children stay mounted.
       expect(screen.queryByTestId("child")).not.toBeNull();
-    });
-
-    it("does NOT fire a toast on the healthy path (engineError null)", async () => {
-      renderSetup();
-
-      await new Promise((r) => {
-        setTimeout(r, 0);
-      });
-      expect(mockShowError).not.toHaveBeenCalled();
     });
   });
 

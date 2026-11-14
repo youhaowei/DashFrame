@@ -102,6 +102,7 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     const table = tableFromIPC(ipc);
 
     expect(table.numRows).toBe(1);
+    expect(table.schema.fields.map((f) => f.name)).toEqual(["marker", "v"]);
     expect(table.getChild("marker")?.toArray()).toEqual(["?"]);
     expect([...table.getChild("v")!.toArray()].map(Number)).toEqual([42]);
   });
@@ -120,6 +121,7 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     expect(tables.reduce((rows, table) => rows + table.numRows, 0)).toBe(
       25_001,
     );
+    expect(tables[0]?.getChild("value")?.get(0)).toBe(0);
     expect(tables.at(-1)?.getChild("value")?.get(-1)).toBeUndefined();
     const tail = tables.at(-1)!;
     expect(tail.getChild("value")?.get(tail.numRows - 1)).toBe(25_000);
@@ -494,10 +496,12 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
 
   it("dispose() closes a streaming query paused at a yielded batch", async () => {
     engine = new NativeDuckDBEngine();
+    const disconnect = vi.spyOn(DuckDBConnection.prototype, "disconnectSync");
     const iterator = engine
       .queryArrowBatches("SELECT range FROM range(5000)")
       [Symbol.asyncIterator]();
     expect((await iterator.next()).done).toBe(false);
+    const disconnectsBeforeDispose = disconnect.mock.calls.length;
 
     const disposed = engine.dispose().then(() => "disposed" as const);
     const outcome = await Promise.race([
@@ -508,6 +512,9 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     ]);
 
     expect(outcome).toBe("disposed");
+    // Disposal interrupts the paused operation, whose lease closes its own
+    // connection before the native instance closes.
+    expect(disconnect.mock.calls.length).toBe(disconnectsBeforeDispose + 1);
     expect(engine.isReady()).toBe(false);
     await expect(iterator.next()).resolves.toMatchObject({ done: true });
   });
@@ -589,25 +596,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
     // A query still works against the single surviving instance.
     const result = await queryRows(engine, "SELECT 1 AS one");
     expect(result.map((r) => Number(r.one))).toEqual([1]);
-  });
-
-  it("produces Arrow IPC that roundtrips through apache-arrow", async () => {
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-
-    const ipc = await engine.queryArrow(
-      "SELECT range::int AS id, ('row' || range) AS label FROM range(3)",
-    );
-    const table = tableFromIPC(ipc);
-
-    expect(table.numRows).toBe(3);
-    expect(table.schema.fields.map((f) => f.name)).toEqual(["id", "label"]);
-    expect([...table.getChild("id")!.toArray()].map(Number)).toEqual([0, 1, 2]);
-    expect(table.getChild("label")?.toArray()).toEqual([
-      "row0",
-      "row1",
-      "row2",
-    ]);
   });
 
   it("a leased connection that fails to disconnect still hands back the lock and refcount", async () => {
@@ -1262,6 +1250,20 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       })(),
     );
     expect(engine.hasTable("df_after_failed_appender")).toBe(true);
+    await engine.registerArrowTable(
+      "df_buffered_after_failed_appender",
+      tableToIPC(new Table({ n: vectorFromArray([1], new Float64()) })),
+    );
+    expect(
+      Number(
+        (
+          await queryRows(
+            engine,
+            'SELECT COUNT(*) AS cnt FROM "df_buffered_after_failed_appender"',
+          )
+        )[0]?.cnt,
+      ),
+    ).toBe(1);
     await engine.unregisterTable("df_survivor");
     expect(engine.hasTable("df_survivor")).toBe(false);
   });
@@ -1354,19 +1356,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       expect(tmpEntries.filter((f) => f.includes("df_privacy_probe"))).toEqual(
         [],
       );
-    });
-
-    it("tracks registered tables and unregisters cleanly", async () => {
-      engine = new NativeDuckDBEngine();
-      await engine.registerArrowTable("df_tracked", producerBuffer());
-      expect(engine.hasTable("df_tracked")).toBe(true);
-      expect(engine.getTableNames()).toContain("df_tracked");
-
-      await engine.unregisterTable("df_tracked");
-      expect(engine.hasTable("df_tracked")).toBe(false);
-      await expect(
-        engine.queryArrow('SELECT * FROM "df_tracked"'),
-      ).rejects.toThrow();
     });
 
     it("keeps a registration retryable when native DROP fails transiently", async () => {
@@ -1715,46 +1704,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       ).toEqual([{ value: 1 }]);
     });
 
-    it("emits bounded IPC payloads from native result chunks", async () => {
-      engine = new NativeDuckDBEngine();
-      const payloads: Uint8Array[] = [];
-      for await (const payload of engine.queryArrowBatches(
-        "SELECT range AS value FROM range(5000)",
-      )) {
-        payloads.push(payload);
-      }
-
-      expect(payloads.length).toBeGreaterThan(1);
-      const tables = payloads.map((payload) => tableFromIPC(payload));
-      expect(tables.reduce((total, table) => total + table.numRows, 0)).toBe(
-        5000,
-      );
-      expect(Number(tables[0]?.getChild("value")?.get(0))).toBe(0);
-      expect(
-        Number(
-          tables
-            .at(-1)
-            ?.getChild("value")
-            ?.get(tables.at(-1)!.numRows - 1),
-        ),
-      ).toBe(4999);
-    });
-
-    it("emits one schema-bearing IPC payload for an empty result", async () => {
-      engine = new NativeDuckDBEngine();
-      const payloads: Uint8Array[] = [];
-      for await (const payload of engine.queryArrowBatches(
-        "SELECT 1::INTEGER AS value WHERE FALSE",
-      )) {
-        payloads.push(payload);
-      }
-
-      expect(payloads).toHaveLength(1);
-      const table = tableFromIPC(payloads[0]!);
-      expect(table.numRows).toBe(0);
-      expect(table.schema.fields.map((field) => field.name)).toEqual(["value"]);
-    });
-
     it("interrupts and closes its operation query connection on abort", async () => {
       engine = new NativeDuckDBEngine();
       const interrupt = vi.spyOn(DuckDBConnection.prototype, "interrupt");
@@ -1826,23 +1775,6 @@ describe("NativeDuckDBEngine — real native DuckDB", () => {
       expect(await queryRows(engine, "SELECT 1 AS alive")).toEqual([
         { alive: 1 },
       ]);
-    });
-
-    it("dispose closes a query connection paused at a yielded batch", async () => {
-      engine = new NativeDuckDBEngine();
-      const disconnect = vi.spyOn(DuckDBConnection.prototype, "disconnectSync");
-      const iterator = engine
-        .queryArrowBatches("SELECT range AS value FROM range(5000)")
-        [Symbol.asyncIterator]();
-
-      expect((await iterator.next()).done).toBe(false);
-      const disconnectsBeforeDispose = disconnect.mock.calls.length;
-      await engine.dispose();
-
-      // Disposal interrupts the paused operation, whose lease closes its own
-      // connection before the native instance closes.
-      expect(disconnect.mock.calls.length).toBe(disconnectsBeforeDispose + 1);
-      await expect(iterator.next()).resolves.toMatchObject({ done: true });
     });
 
     it("dispose does not wait indefinitely for a paused batch producer", async () => {
@@ -1961,94 +1893,5 @@ describe("DuckDB instance semantics — a fresh connection after a tainted appen
       freshConn?.disconnectSync();
       instance.closeSync();
     }
-  });
-});
-
-// ─── Engine reuse regression: query succeeds after registerArrowTable fails ───
-//
-// The taint is Linux-only; macOS conn.run() succeeds even after appender error.
-// This test verifies the ENGINE-LEVEL contract: registerArrowTable failure must
-// not leave the engine in a state where subsequent operations throw. On macOS
-// this passes regardless of the connection model (no taint), so the local run is
-// a smoke test; Linux CI is the discriminating run. The test documents the
-// CONTRACT even if it cannot reproduce the exact failure mode here.
-describe("NativeDuckDBEngine — reuse after registerArrowTable failure", () => {
-  let engine: NativeDuckDBEngine | null = null;
-
-  afterEach(async () => {
-    await engine?.dispose();
-    engine = null;
-  });
-
-  it("engine remains usable for queryArrow() and registerArrowTable() after a failed ingest", async () => {
-    // Scenario: registerArrowTable fails INSIDE the append loop (valid Arrow
-    // buffer decodes without error, but appending a Uint64 value that exceeds
-    // DuckDB's signed BIGINT range throws "bigint out of int64 range" synchronously
-    // inside appendArrowValue — after the appender is created and the connection
-    // is potentially tainted on Linux).
-    //
-    // Arrow `Uint64` maps to typeId `ArrowType.Int` (isSigned=false, bitWidth=64).
-    // `arrowFieldToDuckDBType` maps it to `BIGINT` (signed int64), and
-    // `appendArrowValue` calls `appendBigInt(value)` since `.get()` returns a
-    // BigInt. A value of 2^63 (= 9223372036854775808n) exceeds int64 max and
-    // throws at the native DuckDB layer — inside the try block, after the
-    // appender is open.
-    //
-    // On macOS this path does NOT taint the connection (macOS-specific DuckDB
-    // behavior), so the test passes regardless of the connection model there. On
-    // Linux the connection IS tainted by the failed appendBigInt; on a shared
-    // connection the subsequent queryArrow() would hit the "pending-result"
-    // unhandled rejection. It cannot now: that connection is already closed.
-    // Linux CI is the discriminating run; this test documents the contract and
-    // verifies the catch-block failure path is actually reached.
-    engine = new NativeDuckDBEngine();
-    await engine.initialize();
-
-    // Register a good table first so we can verify it survives the failure.
-    const goodInitBuf = tableToIPC(
-      new Table({ n: vectorFromArray([1.0, 2.0, 3.0], new Float64()) }),
-    );
-    await engine.registerArrowTable("df_before", goodInitBuf);
-    const before = await queryRows(
-      engine,
-      'SELECT COUNT(*) AS cnt FROM "df_before"',
-    );
-    expect(Number(before[0]?.cnt)).toBe(3); // precondition
-
-    // Trigger a failure INSIDE the append loop (inside the try block, after the
-    // appender is created). 2^63 is a valid Uint64 value in Arrow but exceeds
-    // DuckDB BIGINT max (2^63 - 1), so appendBigInt throws.
-    const OVER_INT64 = 9223372036854775808n; // 2^63 = INT64_MAX + 1
-    const overflowBuf = tableToIPC(
-      new Table({
-        n: vectorFromArray([1n, OVER_INT64, 3n], new Uint64()),
-      }),
-    );
-    await expect(
-      engine.registerArrowTable("df_overflow", overflowBuf),
-    ).rejects.toThrow("bigint out of int64 range"); // precondition: catch block exercised
-
-    // The engine must still be operational after the failure. On Linux, on a
-    // shared connection, this would throw "executing an unsuccessful or closed
-    // pending query result" as an unhandled NAPI rejection.
-    const after = await queryRows(
-      engine,
-      'SELECT COUNT(*) AS cnt FROM "df_before"',
-    );
-    expect(Number(after[0]?.cnt)).toBe(3); // pre-existing table intact
-
-    // registerArrowTable with valid data must succeed on the SAME engine instance.
-    const goodBuf = tableToIPC(
-      new Table({ n: vectorFromArray([1.0], new Float64()) }),
-    );
-    await expect(
-      engine.registerArrowTable("df_after_failure", goodBuf),
-    ).resolves.toBeUndefined();
-
-    const afterReg = await queryRows(
-      engine,
-      'SELECT COUNT(*) AS cnt FROM "df_after_failure"',
-    );
-    expect(Number(afterReg[0]?.cnt)).toBe(1);
   });
 });

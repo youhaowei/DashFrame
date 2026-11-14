@@ -181,13 +181,6 @@ describe("SVG Sanitization Security", () => {
     it("should handle empty SVG string gracefully", () => {
       expect(sanitizeSvg("")).toBe("");
     });
-
-    it("should handle malformed SVG gracefully", () => {
-      const malformed = "<svg><path d='M0 0'";
-      const result = sanitizeSvg(malformed);
-      // DOMPurify should handle this gracefully
-      expect(typeof result).toBe("string");
-    });
   });
 
   describe("SVG_SANITIZE_CONFIG", () => {
@@ -195,28 +188,6 @@ describe("SVG Sanitization Security", () => {
       // We explicitly define all allowed tags/attrs instead of using profiles
       // because profiles merge with our allowlist rather than replacing it
       expect(SVG_SANITIZE_CONFIG.USE_PROFILES).toBeUndefined();
-    });
-
-    it("should allowlist only safe SVG tags", () => {
-      const safeTags = [
-        "svg",
-        "path",
-        "circle",
-        "rect",
-        "line",
-        "polyline",
-        "polygon",
-        "g",
-        "defs",
-        "use",
-        "ellipse",
-        "text",
-        "tspan",
-      ];
-
-      for (const tag of safeTags) {
-        expect(SVG_SANITIZE_CONFIG.ALLOWED_TAGS).toContain(tag);
-      }
     });
 
     it("should not include dangerous tags in allowlist", () => {

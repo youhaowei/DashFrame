@@ -12,7 +12,6 @@ import {
   buildInsightAvailableFields,
   buildInsightSQL,
   extractColumnAliasComponents,
-  extractUUIDFromColumnAlias,
   fieldIdToColumnAlias,
   metricIdToColumnAlias,
   type BuildInsightSQLOptions,
@@ -1108,41 +1107,27 @@ describe("buildInsightSQL — sink guards: non-finite numbers throw", () => {
     ).toThrow("non-finite number");
   });
 
-  it("throws when an effectiveFilters value is NaN (validated at coalesce time)", () => {
-    const insight = groupedInsight();
+  it("throws when a between filter value contains a non-finite bound", () => {
     expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), insight, {
-        mode: "query",
-        effectiveFilters: [{ field: "region", operator: "eq", value: NaN }],
-      }),
-    ).toThrow("non-finite number");
-  });
-
-  it("throws when an effectiveFilters between value contains a non-finite bound", () => {
-    const insight = groupedInsight();
-    expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), insight, {
-        mode: "query",
-        effectiveFilters: [
+      build(
+        groupedInsight([
           {
             field: "region",
             operator: "between",
             value: { low: 1, high: Infinity },
           },
-        ],
-      }),
+        ]),
+      ),
     ).toThrow("non-finite number");
   });
 
-  it("throws when an effectiveFilters in-array value contains NaN", () => {
-    const insight = groupedInsight();
+  it("throws when an in-array filter value contains NaN", () => {
     expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), insight, {
-        mode: "query",
-        effectiveFilters: [
+      build(
+        groupedInsight([
           { field: "region", operator: "in", value: ["EMEA", NaN] },
-        ],
-      }),
+        ]),
+      ),
     ).toThrow("non-finite number");
   });
 });
@@ -1259,32 +1244,6 @@ describe("buildInsightSQL — sink guards: invalid join type throws", () => {
       ),
     ).toThrow("invalid join type");
   });
-
-  it("does not throw for each valid join type (inner, left, right, full)", () => {
-    for (const type of ["inner", "left", "right", "full"] as const) {
-      const insight: Insight = {
-        id: "aaaabbbb-cccc-dddd-eeee-ffffaaaabbbb" as UUID,
-        name: "Valid join",
-        source: { sourceType: "dataTable", sourceId: TABLE_ID },
-        selectedFields: [],
-        metrics: [],
-        joins: [
-          { type, rightTableId: JOIN_TABLE_ID, leftKey: "id", rightKey: "id" },
-        ],
-        createdAt: 0,
-      };
-      expect(() =>
-        buildInsightSQL(
-          baseTableWithId,
-          new Map([[JOIN_TABLE_ID, joinedTable]]),
-          insight,
-          {
-            mode: "query",
-          },
-        ),
-      ).not.toThrow();
-    }
-  });
 });
 
 describe("buildInsightSQL — sink guards: invalid aggregation throws", () => {
@@ -1382,26 +1341,16 @@ describe("buildInsightSQL — sink guards: sortDirection whitelist", () => {
     ).toThrow("invalid sortDirection");
   });
 
-  it("does not throw for 'asc'", () => {
-    const sortAlias = fieldIdToColumnAlias(REGION_FIELD_ID);
-    expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), groupedInsight(), {
-        mode: "query",
-        sortColumn: sortAlias,
-        sortDirection: "asc",
-      }),
-    ).not.toThrow();
-  });
-
-  it("does not throw for 'desc'", () => {
-    const sortAlias = fieldIdToColumnAlias(REGION_FIELD_ID);
-    expect(() =>
-      buildInsightSQL(BASE_TABLE, new Map(), groupedInsight(), {
-        mode: "query",
-        sortColumn: sortAlias,
-        sortDirection: "desc",
-      }),
-    ).not.toThrow();
+  it.each([
+    ["asc", "ASC"],
+    ["desc", "DESC"],
+  ] as const)("emits ORDER BY for '%s'", (sortDirection, keyword) => {
+    const sql = build(groupedInsight(), {
+      mode: "query",
+      sortColumn: regionAlias,
+      sortDirection,
+    });
+    expect(sql).toContain(`ORDER BY "${regionAlias}" ${keyword}`);
   });
 
   it("silently drops ORDER BY when sortColumn is not in the valid column set", () => {
@@ -1608,40 +1557,6 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
     expect(sql!).not.toContain(`WHERE "he"llo"`);
   });
 
-  it("doubles embedded double-quotes in model-mode effective filters", () => {
-    // Model mode with caller-supplied effective filters (how the dashboard-cell
-    // chart view invokes this), on a table with no joins — so it reaches the
-    // same raw-reference path through buildSimpleSQL as the test above, by a
-    // different entry condition. The joined variant of model mode resolves
-    // through the "alias" refMode instead and is not exercised here.
-    const WEIRD = 'he"llo';
-    const weirdField = field(REGION_FIELD_ID, "Region", WEIRD, "string");
-    const tableWithQuotedColumn: typeof BASE_TABLE = {
-      ...BASE_TABLE,
-      fields: [weirdField],
-    };
-    const filters: InsightFilter[] = [
-      { field: WEIRD, operator: "eq", value: "x" },
-    ];
-    const insight: Insight = {
-      id: "66666666-6666-6666-6666-666666666666" as UUID,
-      name: "Cell view",
-      source: { sourceType: "dataTable", sourceId: TABLE_ID },
-      selectedFields: [],
-      metrics: [],
-      filters,
-      createdAt: 0,
-    };
-
-    const sql = buildInsightSQL(tableWithQuotedColumn, new Map(), insight, {
-      mode: "model",
-      effectiveFilters: filters,
-    });
-    expect(sql).not.toBeNull();
-    expect(sql!).toContain(`WHERE "he""llo" = 'x'`);
-    expect(sql!).not.toContain(`WHERE "he"llo"`);
-  });
-
   it("doubles embedded double-quotes in a metric aggregation over an unmapped column", () => {
     // buildMetricExpressionWithUUID resolves a metric's source column to its
     // UUID alias, and falls back to the raw source column name when the column
@@ -1687,38 +1602,12 @@ describe("buildInsightSQL — identifier quoting: embedded double-quotes in disp
 });
 
 // ---------------------------------------------------------------------------
-// extractUUIDFromColumnAlias + extractColumnAliasComponents — round-trip with
-// join-instance suffixes (_j1, _j2 …).
+// extractColumnAliasComponents — round-trip with join-instance suffixes
+// (_j1, _j2 …).
 //
-// Contract:
-//  - extractUUIDFromColumnAlias strips the suffix and returns the bare UUID
-//    (all consumers that only need the field ID continue to work).
-//  - extractColumnAliasComponents returns { uuid, instanceIndex } so consumers
-//    that must distinguish join instances can do so.
+// Contract: returns { uuid, instanceIndex } so consumers that must distinguish
+// join instances can do so.
 // ---------------------------------------------------------------------------
-
-describe("extractUUIDFromColumnAlias — join-instance suffix stripping", () => {
-  const FIELD_UUID = "dd05ef4b-1234-5678-abcd-ef1234567890" as UUID;
-  const canonicalAlias = fieldIdToColumnAlias(FIELD_UUID);
-
-  it("round-trip: canonical alias (no suffix) → original UUID", () => {
-    expect(extractUUIDFromColumnAlias(canonicalAlias)).toBe(FIELD_UUID);
-  });
-
-  it("round-trip: _j1-suffixed alias → same original UUID (suffix stripped)", () => {
-    const suffixed = `${canonicalAlias}_j1`;
-    expect(extractUUIDFromColumnAlias(suffixed)).toBe(FIELD_UUID);
-  });
-
-  it("round-trip: _j9-suffixed alias → same original UUID", () => {
-    const suffixed = `${canonicalAlias}_j9`;
-    expect(extractUUIDFromColumnAlias(suffixed)).toBe(FIELD_UUID);
-  });
-
-  it("returns null for non-field/metric aliases (no regression)", () => {
-    expect(extractUUIDFromColumnAlias("some_random_column")).toBeNull();
-  });
-});
 
 describe("extractColumnAliasComponents — instance-index disambiguation", () => {
   const FIELD_UUID = "dd05ef4b-1234-5678-abcd-ef1234567890" as UUID;
@@ -1886,20 +1775,6 @@ describe("join-instance identity — two joins to the same table", () => {
     // Both second-instance aliases also defined exactly once (distinct from first)
     expect(countDefs(nameAliasJ1)).toBe(1);
     expect(countDefs(emailAliasJ1)).toBe(1);
-  });
-
-  it("includes both instances' non-key columns in the SELECT", () => {
-    const sql = buildInsightSQL(
-      ordersTable,
-      new Map([[USERS_TABLE_ID, usersTable]]),
-      doubleJoinInsight,
-      { mode: "model" },
-    );
-    expect(sql).not.toBeNull();
-    expect(sql!).toContain(`AS "${nameAliasJ0}"`);
-    expect(sql!).toContain(`AS "${emailAliasJ0}"`);
-    expect(sql!).toContain(`AS "${nameAliasJ1}"`);
-    expect(sql!).toContain(`AS "${emailAliasJ1}"`);
   });
 
   it("filters a repeat-join field through its canonical _j1 alias", () => {

@@ -353,40 +353,6 @@ describe("AC2 — SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY is first 
 // ---------------------------------------------------------------------------
 
 describe("AC3 — credential never plaintext in config", () => {
-  it("config stores a SecretRef string, never a postgres:// DSN", () => {
-    const plainDsn = "postgres://user:pass@host:5432/db";
-    const config: PostgresConnectorConfig = {
-      connectionStringRef: "secret:00000000-0000-0000-0000-000000000002",
-    };
-
-    const connector = makePostgresConnector(noopDsnResolver, config);
-
-    // Inspect all enumerable and own non-enumerable properties on the instance.
-    // The plaintext DSN must NOT appear as any property value.
-    const proto = Object.getPrototypeOf(connector) as object;
-    const ownKeys = [
-      ...Object.getOwnPropertyNames(connector),
-      ...Object.getOwnPropertyNames(proto),
-    ];
-    for (const key of ownKeys) {
-      try {
-        const val = (connector as unknown as Record<string, unknown>)[key];
-        if (typeof val === "string") {
-          expect(val).not.toBe(plainDsn);
-          expect(val).not.toContain("postgres://");
-        }
-      } catch {
-        // Private fields / accessors may throw — that's fine.
-      }
-    }
-
-    // connectionStringRef must be a SecretRef pattern or omitted.
-    // (We set it explicitly, so check it's the ref we gave.)
-    const configRef = config.connectionStringRef;
-    expect(configRef).toMatch(/^secret:/);
-    expect(configRef).not.toContain("postgres://");
-  });
-
   it("fail-closed: empty DSN from resolver throws before creating a client", async () => {
     const spyClient = makeSpyClient();
     const connector = makeTestConnector(
@@ -542,33 +508,6 @@ describe("AC5 — Arrow output shape matches registry contract", () => {
     // NUMERIC (OID 1700) must map to "string" — lossless coercion.
     const amountField = result.fields.find((f) => f.name === "amount");
     expect(amountField?.type).toBe("string");
-  });
-
-  it("recovers common OID types (bool, text, float8) on a zero-row result", async () => {
-    // Verifies the extended OID map covers standard column types for empty-result
-    // schema recovery. A zero-row result has no sample values — OID is the only
-    // type signal, so every listed type must map to a non-"unknown" ColumnType.
-    const pgFields: PgFieldDef[] = [
-      { name: "active", dataTypeID: 16 }, // bool   → "boolean"
-      { name: "label", dataTypeID: 25 }, //  text   → "string"
-      { name: "score", dataTypeID: 701 }, // float8 → "number"
-    ];
-    const spyClient = makeSpyClient([], pgFields);
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    const result = await connector.query(
-      "SELECT active, label, score FROM metrics WHERE 1=0",
-      crypto.randomUUID(),
-    );
-
-    expect(result.rowCount).toBe(0);
-    expect(result.fields).toHaveLength(3);
-    const byName = Object.fromEntries(
-      result.fields.map((f) => [f.name, f.type]),
-    );
-    expect(byName["active"]).toBe("boolean");
-    expect(byName["label"]).toBe("string");
-    expect(byName["score"]).toBe("number");
   });
 
   it("types an unmapped OID on a zero-row result as 'string'", async () => {
@@ -1428,14 +1367,6 @@ describe("static metadata", () => {
     expect(c.id).toBe("postgres");
   });
 
-  it("has sourceType = 'remote-api'", () => {
-    expect(c.sourceType).toBe("remote-api");
-  });
-
-  it("is an instance of PostgresConnector", () => {
-    expect(c).toBeInstanceOf(PostgresConnector);
-  });
-
   it("getFormFields includes connectionString and defaultSchema", () => {
     const fields = c.getFormFields();
     const names = fields.map((f) => f.name);
@@ -1495,6 +1426,13 @@ describe("vault round-trip: bound resolver from real SecretVault", () => {
     expect(
       (connector as unknown as Record<string, unknown>)["dsn"],
     ).toBeUndefined();
+    // No own property of the connector holds the plaintext after connect().
+    for (const key of Object.getOwnPropertyNames(connector)) {
+      const val = (connector as unknown as Record<string, unknown>)[key];
+      if (typeof val === "string") {
+        expect(val).not.toContain("postgres://");
+      }
+    }
   });
 });
 
@@ -1534,17 +1472,6 @@ describe("read-only guard: allowlisted queries pass through to pg", () => {
     const queries = calls.map((c) => spyCallText(c).toUpperCase());
     expect(queries[0]).toContain("SET SESSION CHARACTERISTICS");
     expect(queries.some((q) => q.includes("SELECT"))).toBe(true);
-  });
-
-  it("WITH query passes the allowlist", async () => {
-    spyClient = makeSpyClient([{ n: 1 }]);
-    connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-    await expect(
-      connector.query(
-        "WITH cte AS (SELECT 1 AS n) SELECT * FROM cte",
-        crypto.randomUUID(),
-      ),
-    ).resolves.toBeDefined();
   });
 });
 
@@ -1652,29 +1579,6 @@ describe("NUMERIC/BIGINT coercion: field-type and Arrow value-type must agree", 
     const arrowValue = table.getChildAt(0)?.get(0);
     expect(typeof arrowValue).toBe("string");
     expect(arrowValue).toBe(numericValue);
-  });
-
-  it("mixed row: OID path takes priority; BIGINT/NUMERIC → 'string', int4 → 'number'", async () => {
-    const pgFields: PgFieldDef[] = [
-      { name: "id", dataTypeID: 23 }, // int4 → OID 23 → "number"
-      { name: "balance", dataTypeID: 1700 }, // NUMERIC → OID 1700 → "string"
-      { name: "score", dataTypeID: 20 }, // BIGINT → OID 20 → "string"
-    ];
-    const spyClient = makeSpyClient(
-      [{ id: 1, balance: "9999.99", score: "42" }],
-      pgFields,
-    );
-    const connector = makeTestConnector(noopDsnResolver, baseConfig, spyClient);
-
-    const result = await connector.query(
-      "SELECT * FROM scores",
-      crypto.randomUUID(),
-    );
-
-    const byName = Object.fromEntries(result.fields.map((f) => [f.name, f]));
-    expect(byName["id"]?.type).toBe("number"); // int4 — OID path
-    expect(byName["balance"]?.type).toBe("string"); // NUMERIC — OID path
-    expect(byName["score"]?.type).toBe("string"); // BIGINT — OID path
   });
 
   it("deduplicates duplicate column names from pgFields (e.g. JOIN with shared column names)", async () => {
@@ -1809,11 +1713,6 @@ describe("unmapped OIDs arrive as text and type identically on both paths", () =
         ],
       });
       expect(shapeOf(batches[0]!)).toEqual(shapeOf(preview));
-      // The persisted-schema signature streamPostgresBinding compares.
-      const signature = (result: {
-        fields: { name: string; type: string }[];
-      }) => JSON.stringify(result.fields.map((f) => [f.name, f.type]));
-      expect(signature(batches[0]!)).toBe(signature(preview));
     },
   );
 

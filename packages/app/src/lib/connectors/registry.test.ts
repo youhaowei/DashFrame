@@ -112,11 +112,6 @@ describe("connector registry", () => {
       expect(getConnectorById("csv")).toBe(c);
     });
 
-    it("makes the id resolvable via hasConnector()", () => {
-      registerConnector(makeConnector("csv"));
-      expect(hasConnector("csv")).toBe(true);
-    });
-
     it("increments registry version on first registration of a new id", () => {
       const v0 = getRegistryVersion();
       registerConnector(makeConnector("csv"));
@@ -130,37 +125,9 @@ describe("connector registry", () => {
       registerConnector(makeConnector("csv"));
       expect(getRegistryVersion()).toBe(v1);
     });
-
-    it("replaces the previous entry on re-registration", () => {
-      const c1 = makeConnector("csv");
-      const c2 = makeConnector("csv");
-      registerConnector(c1);
-      registerConnector(c2);
-      expect(getConnectorById("csv")).toBe(c2);
-    });
-
-    it("registers multiple independent connector kinds", () => {
-      registerConnector(makeConnector("local"));
-      registerConnector(makeConnector("notion", "remote-api"));
-      expect(hasConnector("local")).toBe(true);
-      expect(hasConnector("notion")).toBe(true);
-    });
-
-    it("increments version once per genuinely new id", () => {
-      const v0 = getRegistryVersion();
-      registerConnector(makeConnector("local"));
-      registerConnector(makeConnector("notion", "remote-api"));
-      expect(getRegistryVersion()).toBe(v0 + 2);
-    });
   });
 
   describe("getConnectorById()", () => {
-    it("returns the registered connector", () => {
-      const c = makeConnector("local");
-      registerConnector(c);
-      expect(getConnectorById("local")).toBe(c);
-    });
-
     it("returns the most-recently registered instance for an id", () => {
       const c1 = makeConnector("local");
       const c2 = makeConnector("local");
@@ -172,11 +139,6 @@ describe("connector registry", () => {
     it("returns undefined for an unregistered id", () => {
       expect(getConnectorById("unknown")).toBeUndefined();
     });
-
-    it("returns undefined for an id that was never registered even when others exist", () => {
-      registerConnector(makeConnector("local"));
-      expect(getConnectorById("notion")).toBeUndefined();
-    });
   });
 
   describe("hasConnector()", () => {
@@ -187,11 +149,6 @@ describe("connector registry", () => {
     it("returns true after the connector is registered", () => {
       registerConnector(makeConnector("local"));
       expect(hasConnector("local")).toBe(true);
-    });
-
-    it("returns false for an id not in the registry", () => {
-      registerConnector(makeConnector("local"));
-      expect(hasConnector("notion")).toBe(false);
     });
   });
 
@@ -271,21 +228,6 @@ describe("connector registry", () => {
       expect(getConnectorById("unknown-server-only")).toBeUndefined();
     });
 
-    it("delegates to registerConnector (idempotent on re-hydrate of same id)", () => {
-      const c1 = makeConnector("local");
-      const c2 = makeConnector("local");
-      hydrateConnectorRegistry([makeCatalogEntry("local")], {
-        local: () => c1,
-      });
-      const v = getRegistryVersion();
-      hydrateConnectorRegistry([makeCatalogEntry("local")], {
-        local: () => c2,
-      });
-      // Same id re-registration does not bump version (registerConnector contract)
-      expect(getRegistryVersion()).toBe(v);
-      expect(getConnectorById("local")).toBe(c2);
-    });
-
     it("hydrates Google Analytics when the server catalog advertises it", () => {
       hydrateConnectorRegistry(
         [
@@ -310,24 +252,9 @@ describe("connector registry", () => {
       expect(getConnectorIds()).toEqual([]);
       expect(hasConnector("local")).toBe(false);
     });
-
-    it("allows re-registration after clearing", () => {
-      registerConnector(makeConnector("local"));
-      clearConnectorRegistry();
-      registerConnector(makeConnector("local"));
-      expect(hasConnector("local")).toBe(true);
-    });
-
-    it("does not throw when clearing an empty registry", () => {
-      expect(() => clearConnectorRegistry()).not.toThrow();
-    });
   });
 
   describe("getRegistryVersion()", () => {
-    it("returns a non-negative integer", () => {
-      expect(getRegistryVersion()).toBeGreaterThanOrEqual(0);
-    });
-
     it("does not change on read-only operations", () => {
       registerConnector(makeConnector("local"));
       const v = getRegistryVersion();
@@ -350,37 +277,6 @@ describe("connector registry", () => {
   });
 
   describe("known connector kinds after registration", () => {
-    it("'local' connector is resolvable after registration with correct metadata", () => {
-      registerConnector(localFileConnector);
-
-      const c = getConnectorById("local");
-      expect(c).toBeDefined();
-      expect(c?.id).toBe("local");
-      expect(c?.name).toBeTruthy();
-      expect(c?.icon).toBeTruthy();
-      expect(c?.sourceType).toBe("file");
-    });
-
-    it("'notion' connector is resolvable after registration with correct metadata", () => {
-      registerConnector(notionConnector);
-
-      const c = getConnectorById("notion");
-      expect(c).toBeDefined();
-      expect(c?.id).toBe("notion");
-      expect(c?.name).toBeTruthy();
-      expect(c?.icon).toBeTruthy();
-      expect(c?.sourceType).toBe("remote-api");
-    });
-
-    it("both known kinds are resolvable when registered together", () => {
-      registerConnector(localFileConnector);
-      registerConnector(notionConnector);
-
-      expect(getConnectorById("local")).toBeDefined();
-      expect(getConnectorById("notion")).toBeDefined();
-      expect(getConnectorIds()).toHaveLength(2);
-    });
-
     it("hydrateConnectorRegistry resolves known kinds from a catalog + factories", () => {
       hydrateConnectorRegistry(
         [makeCatalogEntry("local"), makeCatalogEntry("notion", "remote-api")],

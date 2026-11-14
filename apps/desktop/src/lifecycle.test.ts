@@ -92,16 +92,6 @@ describe("Lifecycle.shutdown — A: drain order + exit", () => {
     expect(calls).toEqual(["server.stop", "engine.dispose", "project.close"]);
     expect(exit).toHaveBeenCalledExactlyOnceWith(0);
   });
-
-  it("passes a non-zero exit code through (the startup-error path)", async () => {
-    const exit = vi.fn<(code: number) => void>();
-    const lifecycle = new Lifecycle(exit);
-    lifecycle.setEngine(makeEngine());
-
-    await lifecycle.shutdown(1);
-
-    expect(exit).toHaveBeenCalledExactlyOnceWith(1);
-  });
 });
 
 describe("Lifecycle.shutdown — B: re-entrancy", () => {

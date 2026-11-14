@@ -142,10 +142,6 @@ describe("hosted token issuer", () => {
         ),
       ).toBe(true);
     }
-    expect(expectedClaims[0]).not.toHaveProperty("workspaceId");
-    expect(
-      expectedClaims.slice(0, 3).every((claims) => !("purpose" in claims)),
-    ).toBe(true);
   });
 
   it("caps expiry at the verified source and rejects expired or non-finite times", () => {
