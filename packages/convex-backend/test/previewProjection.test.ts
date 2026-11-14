@@ -195,6 +195,25 @@ const sorted = (rows: string[][]) =>
 it("flags a report as losing tiles when a chart on it is deleted", async () => {
   const visualizationId = await seedVisualization();
   const reportId = await placeOnReport(visualizationId);
+  const textReportId = uuid();
+  await user.mutation(api.app.commitBatch, {
+    commands: [
+      cmd("CreateDashboard", { id: textReportId, name: "Notes" }),
+      cmd("AddDashboardItem", {
+        dashboardId: textReportId,
+        item: {
+          id: uuid(),
+          type: "markdown",
+          content: "Keep this note",
+          visualizationId,
+          x: 0,
+          y: 0,
+          width: 4,
+          height: 3,
+        },
+      }),
+    ],
+  });
 
   const diff = await user.query(api.app.previewDiff, {
     commands: [cmd("DeleteNode", { id: visualizationId })],

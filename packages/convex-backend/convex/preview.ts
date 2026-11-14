@@ -285,7 +285,9 @@ function edge(
   if (
     from === "visualizations" &&
     to === "dashboards" &&
-    row.layout?.some((i) => i.visualizationId === id)
+    row.layout?.some(
+      (i) => i.type === "visualization" && i.visualizationId === id,
+    )
   )
     return "visualization->dashboard";
   if (row.parentArtifactId === id) return "parentArtifact";
