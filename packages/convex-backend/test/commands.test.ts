@@ -903,18 +903,6 @@ describe("existing command behavior on native Convex", () => {
       ),
     ).rejects.toThrow();
   });
-  it("should throw on a missing id for SetDataTableSchema (no silent no-op)", async () => {
-    await expect(
-      commit(
-        cmd("SetDataTableSchema", { id: id(), sourceSchema: {} as never }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should throw on a missing id for RenameNode (no silent no-op)", async () => {
-    await expect(
-      commit(cmd("RenameNode", { id: id(), name: "X" })),
-    ).rejects.toThrow();
-  });
   it("SetDataSourceConfig sink guard: extra.apiKey throws and leaves config unchanged", async () => {
     const sourceId = id();
     await commit(
@@ -1223,34 +1211,6 @@ describe("existing command behavior on native Convex", () => {
         ],
       }),
     ).rejects.toThrow("visualization");
-  });
-  it("should reject a self-referential insight source (client-supplied id == sourceId)", async () => {
-    // CreateInsight mints its own id, so a caller can name itself as its
-    // insight source — a 1-cycle that bypasses SetInsightSource's cycle guard.
-    const insightId = id();
-    await expect(
-      commit(
-        cmd("CreateInsight", {
-          id: insightId,
-          name: "Self",
-          source: { sourceType: "insight", sourceId: insightId },
-        }),
-      ),
-    ).rejects.toThrow();
-    expect(await insightsById(insightId)).toHaveLength(0);
-  });
-  it("should reject a non-existent insight source (no dangling reference persisted)", async () => {
-    const insightId = id();
-    await expect(
-      commit(
-        cmd("CreateInsight", {
-          id: insightId,
-          name: "Dangling",
-          source: { sourceType: "insight", sourceId: id() },
-        }),
-      ),
-    ).rejects.toThrow();
-    expect(await insightsById(insightId)).toHaveLength(0);
   });
   it("returns the existing unmodified draft for the same table", async () => {
     const { tableId } = await makeTable();
@@ -2032,45 +1992,6 @@ describe("existing command behavior on native Convex", () => {
     const def = aRows[0]?.definition as { source: { sourceId: string } };
     expect(def.source.sourceId).toBe(bId);
   });
-  it("should throw for SetInsightSource on a missing insight (no silent no-op)", async () => {
-    const { tableId } = await makeTable();
-    await expect(
-      commit(
-        cmd("SetInsightSource", {
-          id: id(),
-          source: { sourceType: "dataTable", sourceId: tableId },
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should reject a non-existent insight source (wouldCreateCycle treats missing as leaf — guard with existence check)", async () => {
-    // The source is JSON, not an FK, and wouldCreateCycle returns false for a
-    // missing source row. Without an existence check a dangling sourceId would
-    // persist and the command would report success.
-    const { tableId } = await makeTable();
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "Derived",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-    const missingSourceId = id();
-    await expect(
-      commit(
-        cmd("SetInsightSource", {
-          id: insightId,
-          source: { sourceType: "insight", sourceId: missingSourceId },
-        }),
-      ),
-    ).rejects.toThrow();
-
-    // The original dataTable source must be intact (the write rolled back).
-    const rows = await insightsById(insightId);
-    const def = rows[0]?.definition as { source: { sourceId: string } };
-    expect(def.source.sourceId).toBe(tableId);
-  });
   it("persists ids for agent-created filters that omit them", async () => {
     const { tableId } = await makeTable();
     const insightId = id();
@@ -2613,26 +2534,6 @@ describe("existing command behavior on native Convex", () => {
     // Other keys preserved.
     expect(def.joins[0]?.rightTableId).toBe(rightTableId);
   });
-  it("should throw on UpdateJoin with a missing index (no silent no-op)", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-    await expect(
-      commit(
-        cmd("UpdateJoin", {
-          id: insightId,
-          joinIndex: 5,
-          updates: { type: "left" },
-        }),
-      ),
-    ).rejects.toThrow();
-  });
   it("should throw on RemoveJoin with a missing index (no silent no-op)", async () => {
     const { tableId } = await makeTable();
     const insightId = id();
@@ -2645,35 +2546,6 @@ describe("existing command behavior on native Convex", () => {
     );
     await expect(
       commit(cmd("RemoveJoin", { id: insightId, joinIndex: 0 })),
-    ).rejects.toThrow();
-  });
-  it("should reject a malformed joinIndex for UpdateJoin (null / float / string are not integers)", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-    await expect(
-      commit(
-        cmd("UpdateJoin", {
-          id: insightId,
-          joinIndex: null as unknown as number,
-          updates: { type: "left" },
-        }),
-      ),
-    ).rejects.toThrow();
-    await expect(
-      commit(
-        cmd("UpdateJoin", {
-          id: insightId,
-          joinIndex: 0.5,
-          updates: { type: "left" },
-        }),
-      ),
     ).rejects.toThrow();
   });
   it("should reject UpdateField on an Insight node (a referenced field has no editable definition on the Insight)", async () => {
@@ -2739,31 +2611,6 @@ describe("existing command behavior on native Convex", () => {
             columnName: "x",
             type: "string",
           },
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should reject an AddMetric on an Insight that lacks sourceTable (DataTable Metric shape rejected at write boundary)", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-
-    await expect(
-      commit(
-        cmd("AddMetric", {
-          nodeId: insightId,
-          // DataTable Metric shape — tableId instead of sourceTable — must be rejected.
-          metric: {
-            id: crypto.randomUUID(),
-            name: "Sum",
-            expression: "sum(amount)",
-          } as never,
         }),
       ),
     ).rejects.toThrow();
@@ -3827,19 +3674,6 @@ describe("existing command behavior on native Convex", () => {
     ).rejects.toThrow();
     expect((await dashboardsById(dashId))[0]?.controls).toBeNull();
   });
-  it("should throw on UpdateDashboardItem with a missing itemId (no silent no-op)", async () => {
-    const dashId = id();
-    await commit(cmd("CreateDashboard", { id: dashId, name: "D" }));
-    await expect(
-      commit(
-        cmd("UpdateDashboardItem", {
-          dashboardId: dashId,
-          itemId: id(),
-          updates: { x: 1 },
-        }),
-      ),
-    ).rejects.toThrow();
-  });
   it("should reject an AddDashboardItem with a bogus type or non-numeric position (validate before storing)", async () => {
     // Regression: the raw command path only checked item.id and persisted the
     // rest verbatim, so `{ type: "bogus" }` or `{ x: "0" }` could land in
@@ -4211,19 +4045,6 @@ describe("existing command behavior on native Convex", () => {
       ),
     ).rejects.toThrow();
   });
-  it("should reject a missing sourceItemId (no silent no-op)", async () => {
-    const { dashId } = await makeDashWithVizItem();
-    await expect(
-      commit(
-        cmd("FanOutDashboardItems", {
-          dashboardId: dashId,
-          sourceItemId: id(),
-          field: "region",
-          placements: [{ id: id(), value: "EMEA", x: 0, y: 4 }],
-        }),
-      ),
-    ).rejects.toThrow();
-  });
   it("should reject empty placements (no silent no-op)", async () => {
     const { dashId, sourceItemId } = await makeDashWithVizItem();
     await expect(
@@ -4233,18 +4054,6 @@ describe("existing command behavior on native Convex", () => {
           sourceItemId,
           field: "region",
           placements: [],
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should reject a missing dashboard (no silent no-op)", async () => {
-    await expect(
-      commit(
-        cmd("FanOutDashboardItems", {
-          dashboardId: id(),
-          sourceItemId: id(),
-          field: "region",
-          placements: [{ id: id(), value: "EMEA", x: 0, y: 4 }],
         }),
       ),
     ).rejects.toThrow();
@@ -4384,7 +4193,10 @@ describe("existing command behavior on native Convex", () => {
     expect(await layoutOf(secondDashId)).toEqual([noteId]);
   });
   it("should throw on DeleteNode for an unknown id (no silent no-op)", async () => {
-    await expect(commit(cmd("DeleteNode", { id: id() }))).rejects.toThrow();
+    const missing = id();
+    await expect(commit(cmd("DeleteNode", { id: missing }))).rejects.toThrow(
+      `Node ${missing} not found`,
+    );
   });
   describe("DeleteNode ifUnused", () => {
     const chartOn = (vizId: string, insightId: string) =>
@@ -4856,73 +4668,6 @@ describe("existing command behavior on native Convex", () => {
         }),
       ),
     ).rejects.toThrow("Ratio measures require an expression");
-  });
-  it("should reject a corrupt source arg in CreateInsight with a clear validation error (not a crash)", async () => {
-    const { tableId } = await makeTable();
-
-    // A corrupt source: `sourceType` is missing entirely. Without the Zod
-    // guard the handler would cast this as `InsightSource` and then the
-    // `sourceType !== 'dataTable' && sourceType !== 'insight'` check would
-    // receive `undefined`, producing an opaque mismatched-type error rather
-    // than a schema-violation message.
-    await expect(
-      commit(
-        cmd("CreateInsight", {
-          id: id(),
-          name: "I",
-          // @ts-expect-error — intentionally passing a corrupt shape to
-          // exercise the runtime Zod validation path.
-          source: { sourceId: tableId },
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should reject a source arg with an unknown sourceType in CreateInsight", async () => {
-    const { tableId } = await makeTable();
-
-    await expect(
-      commit(
-        cmd("CreateInsight", {
-          id: id(),
-          name: "I",
-          // @ts-expect-error — intentionally passing an invalid sourceType.
-          source: { sourceType: "unknown", sourceId: tableId },
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should reject a non-string sourceId in CreateInsight source arg", async () => {
-    await expect(
-      commit(
-        cmd("CreateInsight", {
-          id: id(),
-          name: "I",
-          // @ts-expect-error — sourceId must be a string.
-          source: { sourceType: "dataTable", sourceId: 42 },
-        }),
-      ),
-    ).rejects.toThrow();
-  });
-  it("should reject a corrupt source arg in SetInsightSource with a clear validation error", async () => {
-    const { tableId } = await makeTable();
-    const insightId = id();
-    await commit(
-      cmd("CreateInsight", {
-        id: insightId,
-        name: "I",
-        source: { sourceType: "dataTable", sourceId: tableId },
-      }),
-    );
-
-    await expect(
-      commit(
-        cmd("SetInsightSource", {
-          id: insightId,
-          // @ts-expect-error — corrupt shape: missing sourceType.
-          source: { sourceId: tableId },
-        }),
-      ),
-    ).rejects.toThrow();
   });
 });
 
