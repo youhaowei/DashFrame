@@ -270,11 +270,24 @@ export class WorkspaceQueryEngine implements QueryEngine {
         });
       });
       let diagnosticBytes = 0;
+      const diagnostics: Buffer[] = [];
       child.stderr.on("data", (chunk: Buffer) => {
+        if (diagnosticBytes < MAX_DIAGNOSTICS)
+          diagnostics.push(
+            chunk.subarray(0, MAX_DIAGNOSTICS - diagnosticBytes),
+          );
         diagnosticBytes += chunk.length;
         // Drain, but never relay native errors or untrusted log contents.
         if (diagnosticBytes > MAX_DIAGNOSTICS)
           this.fail(new Error("SANDBOX_DIAGNOSTIC_LIMIT"));
+      });
+      // Throwaway diagnostic branch: synthetic CI queries only, never merge.
+      child.once("close", (code, signal) => {
+        console.error("SANDBOX_DIAGNOSTIC", {
+          code,
+          signal,
+          stderr: Buffer.concat(diagnostics).toString("utf8"),
+        });
       });
       child.once("error", () => this.fail(new Error("SANDBOX_START_FAILED")));
       child.once("exit", () => this.fail(new Error("SANDBOX_WORKER_EXITED")));
