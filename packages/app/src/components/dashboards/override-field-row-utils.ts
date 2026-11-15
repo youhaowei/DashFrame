@@ -241,29 +241,10 @@ export function deriveFieldState(
 }
 
 // ---------------------------------------------------------------------------
-// Overrides mutation helpers
+// Overrides mutation helper
 // ---------------------------------------------------------------------------
-// Each function produces a NEW DashboardItemOverrides bag.  They spread the
-// existing overrides so other fields' filters, sorts, and limit are preserved.
-
-/**
- * Replace (or add) the filter override for `fieldName`.
- * Any previous entry for this field (pinned or cleared) is removed and `filter`
- * is appended.  Other fields' entries are untouched.
- */
-export function computeNewOverridesOnPin(
-  fieldName: string,
-  filter: InsightFilterOverride,
-  itemOverrides: DashboardItemOverrides | undefined,
-): DashboardItemOverrides {
-  const otherFilters = (itemOverrides?.filters ?? []).filter(
-    (f) => f.field !== fieldName,
-  );
-  return {
-    ...itemOverrides,
-    filters: [...otherFilters, filter],
-  };
-}
+// Produces a NEW DashboardItemOverrides bag.  It spreads the existing
+// overrides so other fields' filters, sorts, and limit are preserved.
 
 /**
  * Set `cleared: true` for `fieldName` (widen — removes the insight's filter).
@@ -288,58 +269,6 @@ export function computeNewOverridesOnClear(
     ...itemOverrides,
     filters: [...otherFilters, clearedEntry],
   };
-}
-
-/**
- * Remove any override entry for `fieldName` (drop pinned or cleared, restore inherit).
- * When `filters` becomes empty as a result, sets `filters: undefined` so the bag
- * stays clean (avoids `{filters: []}` which is technically non-trivial).
- */
-export function computeNewOverridesOnInherit(
-  fieldName: string,
-  itemOverrides: DashboardItemOverrides | undefined,
-): DashboardItemOverrides {
-  const remaining = (itemOverrides?.filters ?? []).filter(
-    (f) => f.field !== fieldName,
-  );
-  return {
-    ...itemOverrides,
-    filters: remaining.length > 0 ? remaining : undefined,
-  };
-}
-
-/**
- * Replace the sorts override.  Pass `undefined` to remove the cell's sort
- * override (revert to inherit = insight default).
- */
-export function computeNewOverridesOnSortChange(
-  sorts: InsightSort[] | undefined,
-  itemOverrides: DashboardItemOverrides | undefined,
-): DashboardItemOverrides {
-  const next: DashboardItemOverrides = { ...itemOverrides };
-  if (sorts === undefined) {
-    delete next.sorts;
-  } else {
-    next.sorts = sorts;
-  }
-  return next;
-}
-
-/**
- * Replace the limit override.  Pass `undefined` to remove the cell's limit
- * override (revert to inherit = insight default).
- */
-export function computeNewOverridesOnLimitChange(
-  limit: number | undefined,
-  itemOverrides: DashboardItemOverrides | undefined,
-): DashboardItemOverrides {
-  const next: DashboardItemOverrides = { ...itemOverrides };
-  if (limit === undefined) {
-    delete next.limit;
-  } else {
-    next.limit = limit;
-  }
-  return next;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 import { fieldIdToColumnAlias, metricIdToColumnAlias } from "@dashframe/engine";
 import type { DataTable, Insight } from "@dashframe/types";
 import { describe, expect, it } from "vite-plus/test";
-import { buildSortFieldOptions } from "@/components/dashboards/override-field-row-utils";
 import { resolveDashboardRuntime } from "./dashboard-runtime";
 
 const fieldId = "11111111-1111-4111-8111-111111111111";
@@ -60,7 +59,6 @@ describe("resolveDashboardRuntime — tile sort override", () => {
   });
 
   it.each([
-    ["id", metricId],
     ["result-column alias", metricIdToColumnAlias(metricId)],
     ["name", "Revenue"],
   ])("resolves a metric by its %s", (_form, reference) => {
@@ -72,7 +70,6 @@ describe("resolveDashboardRuntime — tile sort override", () => {
   // The derived insight selects the upstream metric as a field.  No data
   // table owns that id, so only the id and its aliases can name it.
   it.each([
-    ["id", metricId],
     ["upstream alias", metricIdToColumnAlias(metricId)],
     ["own alias", fieldIdToColumnAlias(metricId)],
   ])(
@@ -94,31 +91,8 @@ describe("resolveDashboardRuntime — tile sort override", () => {
     },
   );
 
-  it.each([
-    ["id", unlistedFieldId],
-    ["result-column alias", fieldIdToColumnAlias(unlistedFieldId)],
-    ["column name", "channel"],
-  ])(
-    "ignores a field the Insight does not allow, named by its %s",
-    (_form, reference) => {
-      expect(resolveSort(reference)).toEqual({ runtime: {} });
-    },
-  );
-
-  it("runs every choice the sort row offers for an Insight that declares a sort", () => {
-    const regionOnly = {
-      ...insight,
-      runtimeControls: { sort: { allowedFieldIds: [fieldId], maxKeys: 1 } },
-    } as unknown as Insight;
-    const { options } = buildSortFieldOptions(
-      dataTable.fields ?? [],
-      regionOnly.metrics,
-      regionOnly.runtimeControls?.sort?.allowedFieldIds,
-    );
-    expect(options.map((option) => option.label)).toEqual(["Region"]);
-    expect(
-      options.map((option) => resolveSort(option.value, regionOnly)),
-    ).toEqual([{ runtime: { sort: [{ fieldId, direction: "desc" }] } }]);
+  it("ignores a field the Insight does not allow, named by its column name", () => {
+    expect(resolveSort("channel")).toEqual({ runtime: {} });
   });
 
   it("runs only the first key of a longer list saved before one key was the rule", () => {

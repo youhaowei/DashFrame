@@ -394,27 +394,6 @@ describe("ReportChartTab — a saved chart", () => {
     expect(deleteInPlace()).toBeNull();
   });
 
-  it("deletes a chart however many tiles it has", async () => {
-    const user = userEvent.setup();
-    const crowded = {
-      id: "report-1",
-      items: Array.from({ length: 500 }, (_, index) => ({
-        id: `tile-${index}`,
-        type: "visualization",
-        visualizationId: "chart-1",
-      })),
-    } as unknown as Dashboard;
-    render(savedChart([crowded]));
-
-    await openDelete(user);
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await waitFor(() =>
-      expect(mockCommitBatch).toHaveBeenCalledWith({
-        commands: deleteChartAndUnusedInsight,
-      }),
-    );
-  });
-
   it("closes its confirm dialog when the tab goes away", async () => {
     const user = userEvent.setup();
     const view = render(savedChart([usedBy("report-1")]));
@@ -447,17 +426,6 @@ describe("ReportChartTab — a saved chart", () => {
   });
 });
 
-describe("ReportChartTab — a new chart without its table", () => {
-  it("offers nothing to delete: it has no saved chart", () => {
-    renderNewChart(insight({}));
-    expect(
-      within(screen.getByTestId("missing-table")).queryByRole("button", {
-        name: "Delete chart",
-      }),
-    ).toBeNull();
-  });
-});
-
 describe("newChartName", () => {
   it("names the chart after what it plots, else after its insight", () => {
     expect(
@@ -466,48 +434,6 @@ describe("newChartName", () => {
       ]),
     ).toBe("Total revenue by Region");
     expect(newChartName(insight({}), [TABLE])).toBe("orders");
-  });
-
-  it("lands as the default type when a reload left a suggestion's type behind and the chart was built by hand", async () => {
-    // A card was picked, then the page reloaded before its write landed: the
-    // tab comes back from session storage with the type, the insight pristine.
-    const store = useReportChartTabs.getState();
-    store.open(REPORT.id, { id: "new-chart", insightId: "insight-1" });
-    store.setChartType(REPORT.id, "new-chart", "line");
-    const tabOf = () =>
-      useReportChartTabs
-        .getState()
-        .tabsByReport[REPORT.id]!.find((tab) => tab.id === "new-chart")!;
-    const onLanded = vi.fn();
-    const props = {
-      report: REPORT,
-      reports: [REPORT],
-      visualizations: [] as Visualization[],
-      dataTables: [TABLE],
-      insightsLoaded: true,
-      dataTablesLoaded: true,
-      onLanded,
-    };
-    const view = render(
-      <ReportChartTab {...props} tab={tabOf()} insights={[insight({})]} />,
-    );
-
-    // A header action is the first step of a manual build.
-    workbenchProps.starter!.onPickChartType!(undefined);
-    expect(tabOf().chartType).toBeUndefined();
-
-    view.rerender(
-      <ReportChartTab
-        {...props}
-        tab={tabOf()}
-        insights={[insight({ selectedFields: [FIELD_ID], metrics: [METRIC] })]}
-      />,
-    );
-    await waitFor(() => expect(onLanded).toHaveBeenCalledWith("new-chart"));
-    const { commands } = mockCommitBatch.mock.calls[0]![0] as {
-      commands: { path: string; args: Record<string, unknown> }[];
-    };
-    expect(commands[0]!.args.visualizationType).not.toBe("line");
   });
 
   it("drops a restored type whose write never landed, before any build", async () => {

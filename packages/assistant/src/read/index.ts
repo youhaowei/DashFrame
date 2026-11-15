@@ -10,7 +10,7 @@
  *   floor.ts         — the privacy floor (single value-egress gate)
  *   graph.ts         — structure navigation (neighbors, traverse, search)
  *   tools.ts         — the 4 fixed read tools on defineToolHandler
- *   command-guide.ts — the agent-readable command vocabulary + freshness anchor
+ *   command-guide.ts — the agent-readable command vocabulary
  */
 
 export type {
@@ -40,9 +40,5 @@ export type {
 export { createReadTools } from "./tools.js";
 export type { ReadTools } from "./tools.js";
 
-export {
-  COMMAND_GUIDE,
-  GUIDE_COMMAND_NAMES,
-  renderCommandGuide,
-} from "./command-guide.js";
+export { COMMAND_GUIDE } from "./command-guide.js";
 export type { CommandGuideEntry } from "./command-guide.js";

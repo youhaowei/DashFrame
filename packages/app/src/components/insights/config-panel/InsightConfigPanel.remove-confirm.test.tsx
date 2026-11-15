@@ -238,6 +238,8 @@ describe("InsightConfigPanel field removal", () => {
   });
 
   it("blocks removal while a saved-chart encoding write is pending", () => {
+    queryState.current = { data: [{ id: "chart" }] };
+    usedBy.current = [{ id: "chart" }];
     renderPanel({
       getVisualizationWriteStatus: () => ({ pending: true, generation: 1 }),
     });
