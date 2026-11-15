@@ -3872,6 +3872,8 @@ describe("existing command behavior on native Convex", () => {
     const layout = row?.layout as {
       id: string;
       visualizationId: string;
+      width: number;
+      height: number;
       overrides: {
         filters: { field: string; operator: string; value: unknown }[];
       };
@@ -3885,10 +3887,13 @@ describe("existing command behavior on native Convex", () => {
       expect(layout.map((it) => it.id)).toContain(cloneId);
     }
 
-    // Each clone shares the source visualizationId.
+    // Each clone shares the source visualizationId, and a placement that
+    // omits its size takes the source tile's 6×4.
     for (const cloneId of ids) {
       const clone = layout.find((it) => it.id === cloneId)!;
       expect(clone.visualizationId).toBe(vizId);
+      expect(clone.width).toBe(6);
+      expect(clone.height).toBe(4);
     }
 
     // Each clone pins the field to the correct value (order follows placements).
