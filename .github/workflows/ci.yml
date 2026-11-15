@@ -70,8 +70,7 @@ jobs:
 
   check:
     name: Lint, Type Check & Format
-    # The Linux query sandbox worker dies on ubuntu-26.04; unpin when fixed.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -79,6 +78,11 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -99,7 +103,8 @@ jobs:
 
   e2e:
     name: E2E Tests
-    # The Linux query sandbox worker dies on ubuntu-26.04; unpin when fixed.
+    # Playwright 1.59.1 cannot install Chromium on ubuntu-26.04;
+    # unpin after upgrading Playwright to a version that supports it.
     runs-on: ubuntu-24.04
     needs: check
 
@@ -109,6 +114,11 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
