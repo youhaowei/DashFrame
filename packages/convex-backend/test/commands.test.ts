@@ -448,7 +448,7 @@ describe("existing command behavior on native Convex", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.name).toBe("First");
   });
-  it("should return the existing row on a second get-or-create with the same id", async () => {
+  it("should return the existing row on a second get-or-create with the same id, whatever type it names", async () => {
     const sourceId = id();
     await commit(
       cmd("GetOrCreateDataSource", {
@@ -457,10 +457,13 @@ describe("existing command behavior on native Convex", () => {
         name: "Local Files",
       }),
     );
+    // The canonical caller derives id FROM type, so a type mismatch cannot
+    // happen there, but any producer can call the command: the existing row
+    // wins and the type is ignored.
     const second = await commit(
       cmd("GetOrCreateDataSource", {
         id: sourceId,
-        type: "local",
+        type: "notion",
         name: "Ignored Second Name",
       }),
     );
@@ -468,8 +471,9 @@ describe("existing command behavior on native Convex", () => {
 
     const rows = await allSources();
     expect(rows).toHaveLength(1);
-    // The original name is preserved — get-or-create does not overwrite.
+    // The original name and kind are preserved — get-or-create does not overwrite.
     expect(rows[0]?.name).toBe("Local Files");
+    expect(rows[0]?.kind).toBe("local");
   });
   it("server-binds get-or-created GA4 sources and rejects version rewrites", async () => {
     const sourceId = id();
@@ -548,10 +552,11 @@ describe("existing command behavior on native Convex", () => {
       renamed: { kind: "dataTable", id: tableId },
     });
   });
-  it("should edit the jsonb array via AddField then RemoveField, decomposed from patchDataTableArray", async () => {
+  it("should edit the jsonb arrays via AddField/AddMetric then RemoveField/RemoveMetric, decomposed from patchDataTableArray", async () => {
     const sourceId = id();
     const tableId = id();
     const fieldId = id();
+    const metricId = id();
     await commit(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
@@ -570,6 +575,16 @@ describe("existing command behavior on native Convex", () => {
           type: "number",
         },
       }),
+      cmd("AddMetric", {
+        nodeId: tableId,
+        metric: {
+          id: metricId,
+          name: "Sum",
+          tableId,
+          columnName: "amount",
+          aggregation: "sum",
+        },
+      }),
     );
 
     let [row] = await tablesById(tableId);
@@ -577,15 +592,23 @@ describe("existing command behavior on native Convex", () => {
     expect((row!.fields as { id: string }[]).map((f) => f.id)).toEqual([
       fieldId,
     ]);
+    expect((row!.metrics as { id: string }[]).map((m) => m.id)).toEqual([
+      metricId,
+    ]);
 
-    await commit(cmd("RemoveField", { nodeId: tableId, fieldId }));
+    await commit(
+      cmd("RemoveField", { nodeId: tableId, fieldId }),
+      cmd("RemoveMetric", { nodeId: tableId, metricId }),
+    );
     [row] = await tablesById(tableId);
     expect(row?.fields).toEqual([]);
+    expect(row?.metrics).toEqual([]);
   });
-  it("should reject a duplicate field id in AddField (no illegal two-items-one-id state)", async () => {
+  it("should reject a duplicate field or metric id in AddField/AddMetric (no illegal two-items-one-id state)", async () => {
     const sourceId = id();
     const tableId = id();
     const fieldId = id();
+    const metricId = id();
     await commit(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
@@ -602,6 +625,16 @@ describe("existing command behavior on native Convex", () => {
           tableId,
           columnName: "amount",
           type: "number",
+        },
+      }),
+      cmd("AddMetric", {
+        nodeId: tableId,
+        metric: {
+          id: metricId,
+          name: "Sum",
+          tableId,
+          columnName: "amount",
+          aggregation: "sum",
         },
       }),
     );
@@ -621,11 +654,28 @@ describe("existing command behavior on native Convex", () => {
         }),
       ),
     ).rejects.toThrow();
+    await expect(
+      commit(
+        cmd("AddMetric", {
+          nodeId: tableId,
+          metric: {
+            id: metricId,
+            name: "Sum again",
+            tableId,
+            columnName: "amount",
+            aggregation: "sum",
+          },
+        }),
+      ),
+    ).rejects.toThrow();
 
     const [row] = await tablesById(tableId);
     expect(row).toBeDefined();
     expect((row!.fields as { id: string }[]).map((f) => f.id)).toEqual([
       fieldId,
+    ]);
+    expect((row!.metrics as { id: string }[]).map((m) => m.id)).toEqual([
+      metricId,
     ]);
   });
   it("should stamp dataFrameId and lastFetchedAt for RefreshDataTable", async () => {
@@ -779,10 +829,11 @@ describe("existing command behavior on native Convex", () => {
     const [row] = await tablesById(tableId);
     expect(row?.sourceSchema).toEqual(sourceSchema);
   });
-  it("should merge updates by id without rebinding the id for UpdateField", async () => {
+  it("should merge UpdateField and UpdateMetric by id without rebinding the id, and refuse a missing id", async () => {
     const sourceId = id();
     const tableId = id();
     const fieldId = id();
+    const metricId = id();
     await commit(
       cmd("CreateDataSource", { id: sourceId, type: "csv", name: "S" }),
       cmd("CreateDataTable", {
@@ -801,11 +852,26 @@ describe("existing command behavior on native Convex", () => {
           type: "number",
         },
       }),
+      cmd("AddMetric", {
+        nodeId: tableId,
+        metric: {
+          id: metricId,
+          name: "Sum",
+          tableId,
+          columnName: "amount",
+          aggregation: "sum",
+        },
+      }),
       // A stray `id` in updates must NOT rebind the field — pinned id wins.
       cmd("UpdateField", {
         nodeId: tableId,
         fieldId,
         updates: { name: "Total", id: id() } as never,
+      }),
+      cmd("UpdateMetric", {
+        nodeId: tableId,
+        metricId,
+        updates: { name: "Total Sum" } as never,
       }),
     );
     const [row] = await tablesById(tableId);
@@ -813,6 +879,29 @@ describe("existing command behavior on native Convex", () => {
     expect(fields).toHaveLength(1);
     expect(fields[0]?.id).toBe(fieldId);
     expect(fields[0]?.name).toBe("Total");
+    const metrics = row?.metrics as { id: string; name: string }[];
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0]?.name).toBe("Total Sum");
+
+    // An update naming an id the table does not hold must throw, not no-op.
+    await expect(
+      commit(
+        cmd("UpdateField", {
+          nodeId: tableId,
+          fieldId: id(),
+          updates: { name: "X" } as never,
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      commit(
+        cmd("UpdateMetric", {
+          nodeId: tableId,
+          metricId: id(),
+          updates: { name: "X" } as never,
+        }),
+      ),
+    ).rejects.toThrow();
   });
   it("should throw on a missing id for SetDataTableSchema (no silent no-op)", async () => {
     await expect(
@@ -906,6 +995,8 @@ describe("existing command behavior on native Convex", () => {
     // No credential slots were touched.
     expect(stored["apiKey"]).toBeUndefined();
     expect(stored["connectionString"]).toBeUndefined();
+    // Saving configuration leaves the name alone.
+    expect(row?.name).toBe("GitHub");
   });
   it("should roll back the whole batch when a mid-batch command fails", async () => {
     const sourceId = id();
@@ -1269,13 +1360,14 @@ describe("existing command behavior on native Convex", () => {
       selectedFields: [secondFieldId],
     });
   });
-  it("rejects fields that the immediate source Insight does not output", async () => {
+  it("rejects fields that the immediate source does not output, and a data-table field named instead of its id", async () => {
     const { tableId } = await makeTable();
     const outputFieldId = id();
     const rootOnlyFieldId = id();
     const upstreamId = id();
     const derivedId = id();
     const invalidCreateId = id();
+    const byNameId = id();
     const rebindId = id();
     await commit(
       cmd("AddField", {
@@ -1329,6 +1421,16 @@ describe("existing command behavior on native Convex", () => {
     ).rejects.toThrow();
     await expect(
       commit(
+        cmd("CreateInsight", {
+          id: byNameId,
+          name: "Invalid selection",
+          source: { sourceType: "dataTable", sourceId: tableId },
+          selectedFields: ["Output field"],
+        }),
+      ),
+    ).rejects.toThrow("not output by source");
+    await expect(
+      commit(
         cmd("SelectFields", {
           id: derivedId,
           fieldIds: [rootOnlyFieldId],
@@ -1369,6 +1471,7 @@ describe("existing command behavior on native Convex", () => {
       (derived!.definition as { selectedFields: string[] }).selectedFields,
     ).toEqual([outputFieldId]);
     expect(await insightsById(invalidCreateId)).toHaveLength(0);
+    expect(await insightsById(byNameId)).toHaveLength(0);
     expect((await insightsById(rebindId))[0]?.definition).toMatchObject({
       source: { sourceType: "dataTable", sourceId: tableId },
       selectedFields: [rootOnlyFieldId],
@@ -2720,7 +2823,7 @@ describe("existing command behavior on native Convex", () => {
       ),
     ).rejects.toThrow();
   });
-  it("should reject an update that corrupts sourceTable to null, leaving the stored metric unchanged", async () => {
+  it("should merge a valid partial UpdateMetric and reject one that corrupts sourceTable to null, leaving the stored metric unchanged", async () => {
     // Regression: the update path merged blind jsonb updates into a stored
     // InsightMetric without re-validating the result — `{ sourceTable: null }`
     // would persist a metric the read path (requireInsightMetric) rejects.
@@ -2744,6 +2847,30 @@ describe("existing command behavior on native Convex", () => {
     expect(def.metrics).toHaveLength(1);
     expect(def.metrics[0]?.sourceTable).toBe(tableId);
     expect(def.metrics[0]?.aggregation).toBe("sum");
+
+    await commit(
+      cmd("UpdateMetric", {
+        nodeId: insightId,
+        metricId,
+        updates: { name: "Revenue (Total)", aggregation: "avg" } as never,
+      }),
+    );
+
+    const [updated] = await insightsById(insightId);
+    const merged = updated?.definition as {
+      metrics: {
+        id: string;
+        name: string;
+        sourceTable: string;
+        aggregation: string;
+      }[];
+    };
+    expect(merged.metrics).toHaveLength(1);
+    const stored = merged.metrics[0]!;
+    expect(stored.id).toBe(metricId);
+    expect(stored.name).toBe("Revenue (Total)");
+    expect(stored.sourceTable).toBe(tableId); // untouched key survives the merge
+    expect(stored.aggregation).toBe("avg");
   });
   it("should create a visualization and change its chart type", async () => {
     const { tableId } = await makeTable();
@@ -2771,6 +2898,11 @@ describe("existing command behavior on native Convex", () => {
     await commit(cmd("SetChartType", { id: vizId, visualizationType: "line" }));
     const rows2 = await vizsById(vizId);
     expect(rows2[0]?.chartType).toBe("line");
+  });
+  it("should throw on SetChartType for a missing visualization (no silent no-op)", async () => {
+    await expect(
+      commit(cmd("SetChartType", { id: id(), visualizationType: "line" })),
+    ).rejects.toThrow();
   });
   it("should set the encoding (and optionally the spec) for SetChartEncoding", async () => {
     const { tableId } = await makeTable();
@@ -2957,7 +3089,7 @@ describe("existing command behavior on native Convex", () => {
     });
     expect(dashboard?.items.map((item) => item.y)).toEqual([0, 4]);
   });
-  it("should update an item without rebinding id or type", async () => {
+  it("should update an item without rebinding id or type, and reject malformed fields without a partial write", async () => {
     const dashId = id();
     const itemId = id();
     await commit(
@@ -2975,6 +3107,23 @@ describe("existing command behavior on native Convex", () => {
         },
       }),
     );
+
+    // Fields of the wrong type are refused as a whole: none of them lands.
+    await expect(
+      commit(
+        cmd("UpdateDashboardItem", {
+          dashboardId: dashId,
+          itemId,
+          updates: { x: 9, width: null, content: 5 } as never,
+        }),
+      ),
+    ).rejects.toThrow();
+    const [unchanged] = await dashboardsById(dashId);
+    expect((unchanged!.layout as Record<string, unknown>[])[0]).toMatchObject({
+      x: 0,
+      width: 3,
+      content: "Original",
+    });
 
     // updates.id and updates.type must be ignored (pinned by handler).
     await commit(
@@ -3503,6 +3652,15 @@ describe("existing command behavior on native Convex", () => {
       ).rejects.toThrow(
         'The filter "region-filter" of The Insight "Sales Insight" is on "region", not "status". Send the override for that field.',
       );
+      // The value has to be for the field the patch names, even when the
+      // value's own field is a declared one.
+      await expect(
+        patch(dashId, itemId, {
+          kind: "filter",
+          field: "status",
+          value: { field: "region", operator: "eq", value: "West" },
+        }),
+      ).rejects.toThrow("Filter field mismatch");
       // Without an id the operator has to be the declared filter's.
       await expect(
         patch(dashId, itemId, {
@@ -4267,7 +4425,7 @@ describe("existing command behavior on native Convex", () => {
         deleted: { kind: "insight", id: insightId },
       });
     });
-    it("should keep the Insight, and a chart saved on it since the delete was planned", async () => {
+    it("should keep the Insight, and a chart saved on it since the delete was planned, until a plain delete takes both", async () => {
       const insightId = await makeInsight();
       const vizId = id();
       const savedSince = id();
@@ -4289,6 +4447,12 @@ describe("existing command behavior on native Convex", () => {
         kept: { kind: "insight", id: insightId },
         usedBy: [{ kind: "visualization", id: savedSince }],
       });
+
+      // Without ifUnused the Insight goes, and its chart with it: a chart is
+      // owned by its Insight, whether or not a dashboard shows it.
+      await commit(cmd("DeleteNode", { id: insightId }));
+      expect(await insightsById(insightId)).toHaveLength(0);
+      expect(await vizsById(savedSince)).toHaveLength(0);
     });
     it("should keep an Insight another Insight reads from", async () => {
       const insightId = await makeInsight();
@@ -4505,13 +4669,14 @@ describe("existing command behavior on native Convex", () => {
     expect(value.orphanedNodes[0]?.id).toBe(derivedInsightId);
     expect(value.orphanedNodes[0]?.kind).toBe("insight");
   });
-  it("should surface orphaned Insights when a DataTable they JOIN against is deleted (join-dependency boundary)", async () => {
-    // An Insight that uses a DataTable only as a JOIN target (not as its
-    // primary source) is still orphaned when that table is deleted. Verify
-    // that findOrphanedInsights checks joins[*].rightTableId.
+  it("should surface orphaned Insights when a DataTable they source or JOIN against is deleted (reference and join-dependency boundaries)", async () => {
+    // DataTable → Insight is a reference edge: deleting the table must NOT
+    // delete the Insights built on it, but return them in orphanedNodes. That
+    // holds for an Insight that uses the table only as a JOIN target, too.
     const { tableId: primaryTableId } = await makeTable();
     const { tableId: joinTableId } = await makeTable();
     const insightId = id();
+    const sourcingId = id();
     await commit(
       cmd("CreateInsight", {
         id: insightId,
@@ -4528,14 +4693,28 @@ describe("existing command behavior on native Convex", () => {
           rightKey: "id",
         },
       }),
+      cmd("CreateInsight", {
+        id: sourcingId,
+        name: "Sources the deleted table",
+        source: { sourceType: "dataTable", sourceId: joinTableId },
+      }),
     );
 
     const result = await commit(cmd("DeleteNode", { id: joinTableId }));
 
+    expect(await tablesById(joinTableId)).toHaveLength(0);
+    // Both Insights survive — they are NOT cascade-deleted.
+    expect(await insightsById(insightId)).toHaveLength(1);
+    expect(await insightsById(sourcingId)).toHaveLength(1);
     const value = result.results[0]?.value as {
+      ok: boolean;
       orphanedNodes: { id: string; kind: string }[];
     };
-    expect(value.orphanedNodes.map((n) => n.id)).toContain(insightId);
+    expect(value.ok).toBe(true);
+    expect(value.orphanedNodes.map((n) => n.id).sort()).toEqual(
+      [insightId, sourcingId].sort(),
+    );
+    expect(value.orphanedNodes.every((n) => n.kind === "insight")).toBe(true);
   });
   it("should surface an Insight only once when it sources AND joins against tables from the same DataSource", async () => {
     // Dedup: an Insight whose primary source AND one of its joins both point
