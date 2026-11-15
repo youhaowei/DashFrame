@@ -15,6 +15,11 @@ await mkdir(resolve(root, ".data"), { recursive: true });
 // A fresh output prevents stale bundles or unexpected files gaining a read grant.
 const output = await mkdtemp(resolve(root, ".data/query-sandbox-"));
 try {
+  // Keep Node's package lookup inside the worker's Landlock read grant.
+  await writeFile(
+    resolve(output, "package.json"),
+    JSON.stringify({ type: "commonjs" }) + "\n",
+  );
   execFileSync(
     process.env.CC ?? "cc",
     [
