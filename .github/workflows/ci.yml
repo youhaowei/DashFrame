@@ -103,7 +103,9 @@ jobs:
 
   e2e:
     name: E2E Tests
-    runs-on: ubuntu-latest
+    # Playwright 1.59.1 cannot install Chromium on ubuntu-26.04;
+    # unpin after upgrading Playwright to a version that supports it.
+    runs-on: ubuntu-24.04
     needs: check
 
     steps:
