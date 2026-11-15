@@ -70,7 +70,8 @@ jobs:
 
   check:
     name: Lint, Type Check & Format
-    runs-on: ubuntu-latest
+    # The Linux query sandbox worker dies on ubuntu-26.04; unpin when fixed.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -98,7 +99,8 @@ jobs:
 
   e2e:
     name: E2E Tests
-    runs-on: ubuntu-latest
+    # The Linux query sandbox worker dies on ubuntu-26.04; unpin when fixed.
+    runs-on: ubuntu-24.04
     needs: check
 
     steps:
