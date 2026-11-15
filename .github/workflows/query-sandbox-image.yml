@@ -9,6 +9,7 @@ on:
       - .dockerignore
       - scripts/build-query-sandbox.ts
       - scripts/start-railway.sh
+      - apps/server/src/hosted.ts
       - packages/engine-server/**
       - packages/engine/**
       - packages/types/**
@@ -26,7 +27,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   sandbox:
@@ -59,8 +60,8 @@ jobs:
             launcher: `${directory}/query-launcher`,
             runtime,
             worker: `${directory}/worker.cjs`,
-            uid: 10001,
-            gid: 10001,
+            uid: 65534,
+            gid: 65534,
             addressSpaceBytes: 2 * 1024 * 1024 * 1024,
             cpuSeconds: 30,
             uidTaskLimit: 4096,
