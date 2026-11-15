@@ -903,7 +903,7 @@ describe("existing command behavior on native Convex", () => {
       ),
     ).rejects.toThrow();
   });
-  it("SetDataSourceConfig sink guard: extra.apiKey throws and leaves config unchanged", async () => {
+  it("SetDataSourceConfig sink guard: extra.apiKey throws and leaves config unchanged, while apiKey replaces the credential", async () => {
     const sourceId = id();
     await commit(
       cmd("CreateDataSource", {
@@ -930,6 +930,17 @@ describe("existing command behavior on native Convex", () => {
     expect(rowAfter).toBeDefined();
     const refAfter = (rowAfter!.config as { apiKey?: string }).apiKey;
     expect(refAfter).toBe(refBefore);
+
+    // The typed apiKey slot replaces the credential with a FRESH ref, and
+    // replaces only config, not the name.
+    await commit(cmd("SetDataSourceConfig", { id: sourceId, apiKey: "new" }));
+    const [replaced] = await sourcesById(sourceId);
+    expect(replaced).toBeDefined();
+    const refReplaced = (replaced!.config as { apiKey?: string }).apiKey;
+    expect(isSecretRef(refReplaced)).toBe(true);
+    expect(refReplaced).not.toBe(refBefore);
+    expect(refReplaced).not.toBe("new");
+    expect(replaced?.name).toBe("N");
   });
   it("SetDataSourceConfig sink guard: extra.connectionString throws and leaves config unchanged", async () => {
     const sourceId = id();
@@ -4237,7 +4248,7 @@ describe("existing command behavior on native Convex", () => {
         deleted: { kind: "insight", id: insightId },
       });
     });
-    it("should keep the Insight, and a chart saved on it since the delete was planned, until a plain delete takes both", async () => {
+    it("should keep the Insight, and a chart saved on it since the delete was planned, until a plain delete takes it and every chart on it", async () => {
       const insightId = await makeInsight();
       const vizId = id();
       const savedSince = id();
@@ -4260,11 +4271,14 @@ describe("existing command behavior on native Convex", () => {
         usedBy: [{ kind: "visualization", id: savedSince }],
       });
 
-      // Without ifUnused the Insight goes, and its chart with it: a chart is
-      // owned by its Insight, whether or not a dashboard shows it.
+      // Without ifUnused the Insight goes, and every chart on it with it: a
+      // chart is owned by its Insight, whether or not a dashboard shows it.
+      const another = id();
+      await commit(chartOn(another, insightId));
       await commit(cmd("DeleteNode", { id: insightId }));
       expect(await insightsById(insightId)).toHaveLength(0);
       expect(await vizsById(savedSince)).toHaveLength(0);
+      expect(await vizsById(another)).toHaveLength(0);
     });
     it("should keep an Insight another Insight reads from", async () => {
       const insightId = await makeInsight();
